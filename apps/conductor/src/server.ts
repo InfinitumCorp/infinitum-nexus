@@ -9,8 +9,9 @@ import { recordEvidence } from "./firmament.ts";
 import { podiumHtml } from "./podium.ts";
 import { registerDefaultInstruments } from "./instruments.ts";
 import type { Score, Autonomy } from "./score.ts";
+import { config, log } from "./config.ts";
 
-const PORT = Number(process.env.PORT ?? 3001);
+const { port: PORT } = config;
 const ledger = new Ledger(new MemoryStore());
 
 registerDefaultInstruments();
@@ -49,8 +50,12 @@ function plan(intent: string, autonomy: Autonomy = "rehearsal"): Score {
 }
 
 const server = createServer(async (req, res) => {
+  const start = Date.now();
   const url = new URL(req.url ?? "/", `http://${req.headers.host}`);
   try {
+    if (url.pathname === "/health") {
+      return json(res, 200, { ok: true, service: "conductor", uptime: process.uptime() });
+    }
     if (url.pathname === "/" ) {
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
       return res.end(podiumHtml);
@@ -67,10 +72,13 @@ const server = createServer(async (req, res) => {
     }
     json(res, 404, { error: "not found" });
   } catch (err: any) {
+    log("error", "request failed", { path: url.pathname, error: err.message ?? String(err) });
     json(res, 400, { error: err.message ?? String(err) });
+  } finally {
+    log("info", "request", { method: req.method, path: url.pathname, ms: Date.now() - start });
   }
 });
 
 server.listen(PORT, () => {
-  console.log(`/CNDCTR/ listening on http://localhost:${PORT}`);
+  log("info", `/CNDCTR/ listening on http://localhost:${PORT}`);
 });

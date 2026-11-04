@@ -1,19 +1,19 @@
 # VEIL Next Steps
 
-Progress (2026-11-04) — v0.3.2:
+Progress (2026-11-04) — v0.3.3:
 - Multi-panel sidebar + Conductor Ask
-- $VEIL session rewards with receiptId + buildClaim for VeilClaim.sol
-- Browser Web Crypto key generation (ECDSA P-256) for wallet
+- $VEIL session rewards with receiptId + claim button (scaffold)
+- Browser Web Crypto key generation (ECDSA P-256)
 - Base RPC balance query
 - Tracker stripping + Tor proxy + connectivity check
-- VeilClaim.sol scaffold for on-chain claims
+- VeilClaim.sol + deploy.ts updated to include it
 - Fonts matched to Infinitum site (Helvetica Neue)
 
 Remaining:
 - Deploy VeilClaim + $VEIL token on Base
-- Fund claim contract and wire real tx signing
+- Real transaction signing from the extension
 - PNG icons
-- Full Firmament proof verification in the claim contract
+- Firmament proof verification in the claim contract
 
 See root PRODUCT-DELIVERY.md.
 VEIL is ready for unpacked testing.

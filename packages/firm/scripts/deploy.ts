@@ -1,31 +1,31 @@
 /**
  * Contract deployment scaffold.
- * In production this would use ethers/viem + a private key to deploy FirmToken
- * and ProjectToken contracts, then write the addresses to a config file.
+ * Includes FirmToken, ProjectTokens, and VeilClaim.
  *
- * Usage (once wired):
+ * Usage:
  *   RPC_URL=... PRIVATE_KEY=... node packages/firm/scripts/deploy.ts
  */
 import { PROJECT_TOKENS } from "../src/tokens.ts";
 
 export interface DeployResult {
   firm: string;
+  veilClaim: string;
   projects: Record<string, string>;
 }
 
 export async function deploy(_rpcUrl: string, _privateKey: string): Promise<DeployResult> {
   // Scaffold: returns placeholder addresses.
-  // Real implementation would:
-  // 1. Compile FirmToken.sol / ProjectToken.sol
-  // 2. Deploy FirmToken with initial supply
-  // 3. Deploy each ProjectToken
-  // 4. Optionally create FIRM pairs on a DEX
+  // Real implementation would compile and deploy:
+  // 1. FirmToken.sol
+  // 2. ProjectToken.sol for each project
+  // 3. VeilClaim.sol
   const firm = "0xFIRM000000000000000000000000000000000000";
+  const veilClaim = "0xVEIL000000000000000000000000000000000000";
   const projects: Record<string, string> = {};
   for (const t of PROJECT_TOKENS) {
     projects[t.symbol] = `0x${t.symbol.padEnd(40, "0").slice(0, 40)}`;
   }
-  return { firm, projects };
+  return { firm, veilClaim, projects };
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

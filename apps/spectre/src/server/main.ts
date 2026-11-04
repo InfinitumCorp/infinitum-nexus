@@ -14,6 +14,7 @@ import { handleQuery } from "./query.ts";
 import { listPendingActions, runPendingActions } from "./execution.ts";
 import { buildMap } from "./relationships.ts";
 import { listDuplicates, runMerge } from "./cleaning.ts";
+import { listCommitteeGaps } from "./committee.ts";
 
 const PORT = Number(process.env.PORT ?? 3000);
 const WORKSPACE = "demo";
@@ -123,6 +124,11 @@ const indexHtml = `<!DOCTYPE html>
       <div id="relmap" class="muted">Loading…</div>
     </div>
     <div class="card">
+      <h2 style="margin-top:0">Buying-committee gaps</h2>
+      <div class="muted" style="margin-bottom:0.5rem">Missing decision-maker, champion, or influencer on open deals.</div>
+      <div id="committee" class="muted">Loading…</div>
+    </div>
+    <div class="card">
       <h2 style="margin-top:0">Self-cleaning</h2>
       <div class="muted" style="margin-bottom:0.5rem">Duplicate companies/contacts and data issues.</div>
       <div id="cleaning" class="muted">Loading…</div>
@@ -142,13 +148,14 @@ const indexHtml = `<!DOCTYPE html>
   </main>
   <script>
     async function load() {
-      const [cos, deals, ledger, actions, rel, clean] = await Promise.all([
+      const [cos, deals, ledger, actions, rel, clean, committee] = await Promise.all([
         fetch("/api/companies").then(r => r.json()),
         fetch("/api/deals").then(r => r.json()),
         fetch("/api/ledger").then(r => r.json()),
         fetch("/api/execution").then(r => r.json()),
         fetch("/api/relationships").then(r => r.json()),
-        fetch("/api/cleaning").then(r => r.json())
+        fetch("/api/cleaning").then(r => r.json()),
+        fetch("/api/committee").then(r => r.json())
       ]);
       document.getElementById("companies").innerHTML = cos.length
         ? cos.map(c => `<div>${c.id} — ${c.name}${c.domain ? " · " + c.domain : ""}</div>`).join("")
@@ -166,6 +173,9 @@ const indexHtml = `<!DOCTYPE html>
             return `<div class="rel">${from?.label ?? e.from} —${e.strength}→ ${to?.label ?? e.to}${e.note ? " · " + e.note : ""}</div>`;
           }).join("")
         : "No relationships yet.";
+      document.getElementById("committee").innerHTML = committee.length
+        ? committee.map(g => `<div class="deal"><strong>${g.dealName}</strong><br>${g.message}<br><span class="muted">Present: ${g.present.join(", ") || "none"}</span></div>`).join("")
+        : "No committee gaps.";
       const cleanHtml = [
         ...clean.companies.map(g => `<div class="deal"><strong>Company dup</strong> · ${g.reason}<br>Keep ${g.keep.name} (${g.keep.id}) — merge ${g.duplicates.map(d => d.name).join(", ")}</div>`),
         ...clean.contacts.map(g => `<div class="deal"><strong>Contact dup</strong> · ${g.reason}<br>Keep ${g.keep.name} (${g.keep.id}) — merge ${g.duplicates.map(d => d.name).join(", ")}</div>`),
@@ -298,6 +308,10 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
         body.note ? String(body.note) : undefined,
       );
       return json(res, 201, r);
+    }
+
+    if (url.pathname === "/api/committee" && req.method === "GET") {
+      return json(res, 200, listCommitteeGaps(crm, WORKSPACE));
     }
 
     if (url.pathname === "/api/cleaning" && req.method === "GET") {

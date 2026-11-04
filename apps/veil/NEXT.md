@@ -1,16 +1,17 @@
 # VEIL Next Steps
 
-Scaffold complete (2026-11-04) — v0.4.2.
+Scaffold complete (2026-11-04) — v0.4.3.
 
 Done:
 - All-white layout matching Infinitum site
 - Branding: VEIL</>™ (product title used as logo, site style)
 - Multi-panel sidebar + Conductor Ask
+- Page info line in Ask panel (title + detected trackers)
 - $VEIL session rewards with Claim button
 - Browser Web Crypto key generation (ECDSA P-256) + sign.js
 - Transaction sender (tx.js) builds claim tx + signs it
 - Base RPC balance query
-- Tracker stripping + Tor proxy + connectivity check
+- Expanded tracker list + Tor proxy + connectivity check
 - VeilClaim.sol + deploy.ts + deployed.json placeholder
 - Background auto-loads deployed.json on install
 - Fonts: Helvetica Neue

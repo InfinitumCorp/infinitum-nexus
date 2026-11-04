@@ -39,9 +39,21 @@ importers:
       '@infinitum/cid':
         specifier: workspace:*
         version: link:../../packages/cid
+      '@infinitum/conductor':
+        specifier: workspace:*
+        version: link:../conductor
+      '@infinitum/eidetic':
+        specifier: workspace:*
+        version: link:../../packages/eidetic
       '@infinitum/firmament':
         specifier: workspace:*
         version: link:../../packages/firmament
+      '@infinitum/metatron':
+        specifier: workspace:*
+        version: link:../../packages/metatron
+      '@infinitum/scalus':
+        specifier: workspace:*
+        version: link:../../packages/scalus
     devDependencies:
       '@types/node':
         specifier: ^22.0.0

@@ -9,6 +9,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { Ledger, MemoryStore, generateSigner } from "@infinitum/firmament";
 import { SpectreCRM } from "../core/crm.ts";
 import { scoreDeal, nextBestAction, riskAlerts, forecast } from "../core/intelligence.ts";
+import { researchCompany } from "./research.ts";
 
 const PORT = Number(process.env.PORT ?? 3000);
 const WORKSPACE = "demo";
@@ -80,6 +81,14 @@ const indexHtml = `<!DOCTYPE html>
       </div>
     </div>
     <div class="card">
+      <h2 style="margin-top:0">Research a company</h2>
+      <div class="row">
+        <div><label>Company name</label><input id="researchName" /></div>
+        <div><label>&nbsp;</label><button id="researchBtn">Research</button></div>
+      </div>
+      <pre id="researchOut" class="muted"></pre>
+    </div>
+    <div class="card">
       <h2 style="margin-top:0">Companies</h2>
       <div id="companies" class="muted">Loading…</div>
     </div>
@@ -127,6 +136,13 @@ const indexHtml = `<!DOCTYPE html>
       document.getElementById("dealName").value = "";
       load();
     };
+    document.getElementById("researchBtn").onclick = async () => {
+      const name = document.getElementById("researchName").value.trim();
+      if (!name) return;
+      const r = await fetch("/api/research?name=" + encodeURIComponent(name));
+      const data = await r.json();
+      document.getElementById("researchOut").textContent = JSON.stringify(data, null, 2);
+    };
     load();
   </script>
 </body>
@@ -168,6 +184,13 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
         closeDate: String(body.closeDate ?? ""),
       });
       return json(res, 201, d);
+    }
+
+    if (url.pathname === "/api/research" && req.method === "GET") {
+      const name = url.searchParams.get("name") ?? "";
+      if (!name) return json(res, 400, { error: "name required" });
+      const result = await researchCompany(name);
+      return json(res, 200, result);
     }
 
     if (url.pathname === "/api/alerts" && req.method === "GET") {

@@ -1,6 +1,6 @@
 /**
- * VEIL rewards scaffold.
- * Tracks browsing-time rewards in $VEIL (scaffold).
+ * VEIL rewards.
+ * Tracks browsing-time rewards in $VEIL.
  */
 export interface RewardEvent {
   user: string;
@@ -18,4 +18,8 @@ export function accrue(user: string, seconds: number): RewardEvent {
     veil: (seconds * RATE).toFixed(6),
     at: new Date().toISOString(),
   };
+}
+
+export function sessionBonus(seconds: number): number {
+  return seconds >= 60 ? Math.floor(seconds / 60) * 0.05 : 0;
 }

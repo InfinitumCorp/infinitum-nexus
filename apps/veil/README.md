@@ -3,7 +3,8 @@
 Tor-first secure browser sidebar for the Infinitum ecosystem.
 
 ## Status
-Scaffold: Manifest V3 side panel with a simple Ask assistant.
+Partial: Manifest V3 side panel with multi-panel UI (Ask, Wallet, Rewards, Privacy).
+Ask calls Conductor; rewards and wallet use chrome.storage; content script strips trackers.
 
 ## Load in Chrome / Edge
 1. Open `chrome://extensions`
@@ -11,7 +12,7 @@ Scaffold: Manifest V3 side panel with a simple Ask assistant.
 3. Load unpacked → select `apps/veil`
 
 ## Next
-- Wire Ask to SCALVS / Conductor
-- Tor proxy for private fetches
-- FIRM Wallet panel
-- $VEIL rewards tracking
+- Real Tor proxy routing
+- Full FIRM Wallet integration
+- Production $VEIL rewards + on-chain
+- Enhanced content privacy

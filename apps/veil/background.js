@@ -40,9 +40,23 @@ async function checkTor() {
   }
 }
 
+async function loadDeployed() {
+  try {
+    const url = chrome.runtime.getURL("deployed.json");
+    const r = await fetch(url);
+    const cfg = await r.json();
+    if (cfg.veilClaim) {
+      await chrome.storage.local.set({ veilClaim: cfg.veilClaim, firmRpc: cfg.rpc || "https://mainnet.base.org" });
+    }
+  } catch {
+    // deployed.json missing or invalid — ignore
+  }
+}
+
 chrome.runtime.onInstalled.addListener(() => {
   console.log("VEIL installed");
   chrome.storage.local.set({ totalVeil: "0", rewardLog: [], torEnabled: false, autoClean: false });
+  loadDeployed();
 });
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
@@ -60,6 +74,10 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   }
   if (msg.type === "setAutoClean") {
     chrome.storage.local.set({ autoClean: !!msg.enabled }, () => sendResponse({ ok: true }));
+    return true;
+  }
+  if (msg.type === "reloadDeployed") {
+    loadDeployed().then(() => sendResponse({ ok: true }));
     return true;
   }
   sendResponse({ ok: true });

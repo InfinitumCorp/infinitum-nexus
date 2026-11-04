@@ -4,6 +4,7 @@
 import type { SpectreCRM } from "../core/crm.ts";
 import { scoreDeal, nextBestAction } from "../core/intelligence.ts";
 import { evaluateExecution } from "../core/execution.ts";
+import { executeAll } from "../core/conductor-bridge.ts";
 
 export async function listPendingActions(crm: SpectreCRM, workspace: string) {
   const deals = crm.list("deals", workspace);
@@ -18,4 +19,10 @@ export async function listPendingActions(crm: SpectreCRM, workspace: string) {
     pending.push(...evaluateExecution(d, score, next));
   }
   return pending;
+}
+
+export async function runPendingActions(crm: SpectreCRM, workspace: string) {
+  const actions = await listPendingActions(crm, workspace);
+  const results = await executeAll(actions, crm);
+  return { actions, results };
 }

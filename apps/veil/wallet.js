@@ -1,12 +1,21 @@
 /**
  * VEIL FIRM Wallet panel.
- * Scaffold: shows a placeholder address and balance.
- * Production would use the FIRM wallet package and an RPC endpoint.
+ * Uses chrome.storage. Production should wire to packages/firm.
  */
 const addr = document.getElementById("addr");
 const bal = document.getElementById("bal");
 
-const stored = await chrome.storage.local.get(["firmAddress"]);
-const address = stored.firmAddress ?? "0x" + "0".repeat(40);
-addr.textContent = address;
-bal.textContent = "Balance: 0 FIRM (scaffold)";
+async function load() {
+  const stored = await chrome.storage.local.get(["firmAddress", "firmBalance"]);
+  addr.textContent = stored.firmAddress ?? "Not connected";
+  bal.textContent = `Balance: ${stored.firmBalance ?? "0"} FIRM`;
+}
+
+document.getElementById("connect")?.addEventListener("click", async () => {
+  // Scaffold connect — replace with real wallet flow
+  const fake = "0x" + Array.from({length: 40}, () => Math.floor(Math.random()*16).toString(16)).join("");
+  await chrome.storage.local.set({ firmAddress: fake, firmBalance: "42.0" });
+  load();
+});
+
+load();

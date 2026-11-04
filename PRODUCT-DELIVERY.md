@@ -35,7 +35,7 @@ Maps every product advertised on https://infinitum-corporation.vercel.app/#produ
 | Product | Notes | Software path |
 |---------|-------|---------------|
 | Cumulus://Cloud | Storage, licensing, agent runtime | Scaffolded — store + licensing + agent runtime |
-| VEIL</> | Tor-first browser + sidebar | Scaffolded — Conductor + Tor + Wallet + rewards + privacy + content script + NEXT.md | See apps/veil/NEXT.md |
+| VEIL</> | Tor-first browser + sidebar | Partial — multi-panel UI, Conductor Ask, Tor proxy toggle (chrome.proxy), rewards, tracker stripping, wallet scaffold | See apps/veil/NEXT.md + PACKAGING.md |
 | FABRIC | Encrypted calls/messaging | Scaffolded — AES-256-GCM AEAD + session |
 | ÆTHER | Distributed communications | Scaffolded — mesh + BFS routing |
 
@@ -54,6 +54,7 @@ See **DEPLOY.md**, **apps/spectre/src/server/RESTORE-APP.md**, **packages/firm/s
 - Conductor: deploy.  
 - FIRM: compile then deploy.  
 - METATRON enabled by default in Spectre.  
+- VEIL: full FIRM wallet + on-chain rewards + icon.
 
 ## Acceptance criteria (for "performs as advertised")
 

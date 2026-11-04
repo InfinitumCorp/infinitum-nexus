@@ -9,11 +9,16 @@ test("scoreWithMetatron returns a Score", () => {
     workspace: "demo",
     companyId: "co_1",
     name: "Test",
+    market: "commercial",
     stage: "proposal",
     amount: 10000,
+    currency: "USD",
     closeDate: "2026-12-01",
+    ownerCid: "cid:u",
     stageEnteredAt: "2026-10-01",
     contactIds: [],
+    createdAt: "2026-10-01",
+    updatedAt: "2026-10-01",
   };
   const activities: Activity[] = [];
   const score = scoreWithMetatron(deal, activities, new Date());

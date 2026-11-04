@@ -9,7 +9,7 @@ import type { SpectreCRM } from "./crm.ts";
 // Register a Spectre instrument that Conductor can call
 registerInstrument({
   name: "spectre-action",
-  async execute(input) {
+  async execute(input: Record<string, unknown>) {
     const action = input.action as ExecutionAction | undefined;
     if (!action) return { output: { skipped: true }, evidence: [] };
     return {
@@ -60,10 +60,16 @@ export async function executeAction(action: ExecutionAction, crm?: SpectreCRM, a
   return { score, performance };
 }
 
-export async function executeAll(actions: ExecutionAction[], crm?: SpectreCRM) {
+export async function executeAll(
+  actions: ExecutionAction[],
+  ctx?: SpectreCRM | { crm?: SpectreCRM; workspace?: string; actor?: string },
+) {
+  const crm = ctx && "logActivity" in ctx ? ctx : ctx?.crm;
+  const actor = ctx && "logActivity" in ctx ? "cid:spectre" : ctx?.actor ?? "cid:spectre";
   const results = [];
   for (const a of actions) {
-    results.push(await executeAction(a, crm));
+    const ran = await executeAction(a, crm, actor);
+    results.push({ ...ran, dealId: a.dealId, description: a.description, type: a.type });
   }
   return results;
 }

@@ -126,3 +126,26 @@ export function dataIssues(contacts: Contact[], companies: Company[], activities
   for (const co of companies) if (!co.domain) issues.push({ recordId: co.id, kind: "missing_field", message: `${co.name} has no website` });
   return issues;
 }
+
+/** CRM-facing wrappers used by the duplicate-merge flow. */
+export function findCompanyDuplicates(
+  crm: { list(kind: "companies", workspace: string): Company[] },
+  workspace: string,
+) {
+  return findDuplicateCompanies(crm.list("companies", workspace)).map((g) => ({
+    ...g,
+    reason: g.reason.startsWith("Same website") ? "same domain" : g.reason,
+  }));
+}
+
+export function mergeCompanies(
+  crm: { company(workspace: string, id: string): Company; store: { companies: Map<string, Company> } },
+  workspace: string,
+  _actor: string,
+  keepId: string,
+  duplicateIds: string[],
+) {
+  const keep = crm.company(workspace, keepId);
+  for (const id of duplicateIds) crm.store.companies.delete(id);
+  return keep;
+}

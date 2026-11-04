@@ -11,6 +11,7 @@ export interface ParsedFact {
   field: string;
   value: string;
   source: string;
+  confidence?: number;
 }
 
 const PATTERNS: { field: string; re: RegExp }[] = [

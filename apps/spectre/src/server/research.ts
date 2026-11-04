@@ -3,8 +3,16 @@
  */
 import { createTools } from "../core/tools.ts";
 
-export async function researchCompany(name: string) {
+export interface ResearchResult {
+  summary?: string;
+  facts?: { field?: string; value?: string; source?: string }[];
+  query?: string;
+  error?: string;
+}
+
+export async function researchCompany(name: string): Promise<ResearchResult> {
   const tools = createTools();
   const result = await tools.web_search.execute({ prompt: name });
-  return result;
+  if (!result || typeof result !== "object") return { error: "empty" };
+  return result as ResearchResult;
 }

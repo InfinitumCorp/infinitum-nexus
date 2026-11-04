@@ -7,5 +7,5 @@ import { routeQuery, runSpectreAgent, type AgentContext } from "../core/agents.t
 export async function handleQuery(text: string, ctx: AgentContext = {}) {
   const agentId = routeQuery(text);
   const result = await runSpectreAgent(agentId, text, ctx);
-  return { agentId, ...result };
+  return { ...result, agentId };
 }

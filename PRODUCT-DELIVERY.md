@@ -21,7 +21,7 @@ Maps every product advertised on https://infinitum-corporation.vercel.app/#produ
 
 | Product | Advertised task | Status | Evidence | Next steps to perform advertised tasks |
 |---------|-----------------|--------|----------|----------------------------------------|
-| **+SPCTR (Spectre)** | AI intelligent CRM: auto research every account, predictive pipeline (win probability, risk, forecast, next-best-action with reasoning), relationship map + buying-committee gaps, self-cleaning data, AI agents (Researcher, Prospector, Deal coach, etc.), plain-language queries, Shared Truth Ledger, Deal Rehearsal, self-executing deals. | Partial | Core + web server with companies/deals/scoring/next-best-action + `/api/research` + `/api/query` + agent team with CRM-aware tools + Deal Rehearsal + METATRON-backed scorer | Shared Truth Ledger UI; real tool backends. |
+| **+SPCTR (Spectre)** | AI intelligent CRM: auto research every account, predictive pipeline (win probability, risk, forecast, next-best-action with reasoning), relationship map + buying-committee gaps, self-cleaning data, AI agents (Researcher, Prospector, Deal coach, etc.), plain-language queries, Shared Truth Ledger, Deal Rehearsal, self-executing deals. | Partial | Core + web server with companies/deals/scoring/next-best-action + `/api/research` + `/api/query` + agent team with **real tool backends** (DuckDuckGo web_search, Firmament ledger lookup, live CRM query) + Deal Rehearsal + METATRON-backed scorer | Shared Truth Ledger UI; richer research parsing. |
 | **/CNDCTR/** | Intent in → Score (plan with steps, permissions, checkpoints) → perform across apps/APIs → verify outcome with evidence. Autonomy levels (Rehearsal / Accompaniment / Autopilot). Triggered by other products. | Partial | Score model, executor, Firmament evidence, Podium UI + server, instrument adapters (research, spectre, http) | Real adapters; more autonomy levels. |
 | **SCALVS.ai** | AI workforce platform: Agent Studio (templates, tools, memory), Command Center, multi-agent teams coordinated by Conductor, Nexus Context Vault memory, private runtime. | Scaffolded | `packages/scalus` (Agent, improved run loop, tests); used by Spectre agents | Expand tool interface and Context Vault; integrate with Conductor. |
 | **METATRON** | Unified financial/intelligence/analytics environment + prediction engine (used by Spectre forecasts, Deal Rehearsal). | Scaffolded | `packages/metatron` (predict interface + tests); wired into Spectre via `scoreWithMetatron` | Analytics dashboard data model; replace baseline by default. |
@@ -48,7 +48,7 @@ These cannot be fully built as software. Interfaces (tasking, telemetry, evidenc
 
 ## Immediate next build
 
-- Spectre: real tool backends + Shared Truth Ledger UI.  
+- Spectre: Shared Truth Ledger UI; richer research parsing.  
 - Conductor: production instrument adapters.  
 - FIRM: real EVM clients.  
 - Project-specific tokens.  

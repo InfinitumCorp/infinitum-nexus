@@ -11,7 +11,7 @@ import { SpectreCRM } from "../core/crm.ts";
 import { scoreDeal, nextBestAction, riskAlerts, forecast } from "../core/intelligence.ts";
 import { researchCompany } from "./research.ts";
 import { handleQuery } from "./query.ts";
-import { listPendingActions } from "./execution.ts";
+import { listPendingActions, runPendingActions } from "./execution.ts";
 
 const PORT = Number(process.env.PORT ?? 3000);
 const WORKSPACE = "demo";
@@ -111,6 +111,8 @@ const indexHtml = `<!DOCTYPE html>
       <h2 style="margin-top:0">Self-executing actions</h2>
       <div class="muted" style="margin-bottom:0.5rem">Rules that match open deals. Review before running in production.</div>
       <div id="actions" class="muted">Loading…</div>
+      <button id="runActions" style="margin-top:0.5rem">Run via Conductor</button>
+      <pre id="runOut" class="muted"></pre>
     </div>
     <div class="card">
       <h2 style="margin-top:0">Shared Truth Ledger</h2>
@@ -182,6 +184,12 @@ const indexHtml = `<!DOCTYPE html>
       });
       document.getElementById("queryOut").textContent = JSON.stringify(await r.json(), null, 2);
     };
+    document.getElementById("runActions").onclick = async () => {
+      const r = await fetch("/api/execution", { method: "POST" });
+      const data = await r.json();
+      document.getElementById("runOut").textContent = JSON.stringify(data, null, 2);
+      load();
+    };
     load();
   </script>
 </body>
@@ -241,6 +249,10 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
     if (url.pathname === "/api/execution" && req.method === "GET") {
       const actions = await listPendingActions(crm, WORKSPACE);
       return json(res, 200, actions);
+    }
+    if (url.pathname === "/api/execution" && req.method === "POST") {
+      const result = await runPendingActions(crm, WORKSPACE);
+      return json(res, 200, result);
     }
 
     if (url.pathname === "/api/ledger" && req.method === "GET") {

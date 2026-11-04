@@ -1,6 +1,6 @@
 # VEIL Next Steps
 
-Scaffold complete (2026-11-04) — v0.4.4.
+Scaffold complete (2026-11-04) — v0.5.0.
 
 Done:
 - All-white layout matching Infinitum site
@@ -13,7 +13,9 @@ Done:
 - Base RPC balance query
 - Expanded tracker list + Tor proxy + connectivity check
 - Context menu: "VEIL: Clean trackers on this page"
-- VeilClaim.sol + deploy.ts + deployed.json placeholder
+- Options page (RPC URL + VeilClaim address)
+- VeilClaim.sol with signer + claimWithSig scaffold
+- deploy.ts + deployed.json placeholder
 - Background auto-loads deployed.json on install
 - Fonts: Helvetica Neue
 - Manifest references PNG icons (see ICONS.md)
@@ -22,7 +24,7 @@ Post-scaffold (bugs / production later):
 - Real RLP encoding + eth_sendRawTransaction
 - Compile + deploy of VeilClaim and $VEIL token on Base
 - Confirm binary PNG icons (regenerate locally if needed)
-- Firmament proof verification in the claim contract
+- Full ecrecover / Firmament proof verification in the claim contract
 
 See DEPLOY.md, ICONS.md, and root PRODUCT-DELIVERY.md.
 VEIL is ready for unpacked testing.

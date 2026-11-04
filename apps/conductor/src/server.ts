@@ -7,10 +7,13 @@ import { Ledger, MemoryStore } from "@infinitum/firmament";
 import { perform } from "./executor.ts";
 import { recordEvidence } from "./firmament.ts";
 import { podiumHtml } from "./podium.ts";
+import { registerDefaultInstruments } from "./instruments.ts";
 import type { Score } from "./score.ts";
 
 const PORT = Number(process.env.PORT ?? 3001);
 const ledger = new Ledger(new MemoryStore());
+
+registerDefaultInstruments();
 
 function json(res: ServerResponse, status: number, body: unknown) {
   res.writeHead(status, { "content-type": "application/json" });

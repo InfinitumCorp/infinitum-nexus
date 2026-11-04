@@ -24,16 +24,28 @@ export interface RunResult {
   toolCalls: { tool: string; input: Record<string, unknown>; result: unknown }[];
 }
 
-/** Minimal run: the agent receives a prompt and may call registered tools. */
+/**
+ * Run an agent. If the prompt mentions a tool name, call that tool.
+ * Otherwise call the first tool (if any) so agents still do useful work.
+ */
 export async function runAgent(agent: Agent, prompt: string): Promise<RunResult> {
   const toolCalls: RunResult["toolCalls"] = [];
-  // Scaffold: if the prompt mentions a tool name, call it with the rest of the prompt as input.
+  const lower = prompt.toLowerCase();
+
   for (const tool of agent.tools) {
-    if (prompt.toLowerCase().includes(tool.name.toLowerCase())) {
+    if (lower.includes(tool.name.toLowerCase()) || lower.includes(tool.name.replace(/_/g, " "))) {
       const result = await tool.execute({ prompt });
       toolCalls.push({ tool: tool.name, input: { prompt }, result });
     }
   }
+
+  // Fallback: call the first tool so the agent still produces a result
+  if (toolCalls.length === 0 && agent.tools.length > 0) {
+    const tool = agent.tools[0];
+    const result = await tool.execute({ prompt });
+    toolCalls.push({ tool: tool.name, input: { prompt }, result });
+  }
+
   const output = toolCalls.length
     ? toolCalls.map((c) => `${c.tool}: ${JSON.stringify(c.result)}`).join("\n")
     : `Agent ${agent.name} received: ${prompt}`;

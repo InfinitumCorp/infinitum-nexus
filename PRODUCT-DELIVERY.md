@@ -21,8 +21,8 @@ Maps every product advertised on https://infinitum-corporation.vercel.app/#produ
 
 | Product | Advertised task | Status | Evidence | Next steps to perform advertised tasks |
 |---------|-----------------|--------|----------|----------------------------------------|
-| **+SPCTR (Spectre)** | AI intelligent CRM: auto research every account, predictive pipeline (win probability, risk, forecast, next-best-action with reasoning), relationship map + buying-committee gaps, self-cleaning data, AI agents (Researcher, Prospector, Deal coach, etc.), plain-language queries, Shared Truth Ledger, Deal Rehearsal, self-executing deals. | Partial | Core + web server with companies/deals/scoring/next-best-action + `/api/research` + `/api/query` + agent team with real tool backends + richer research parsing + Deal Rehearsal + METATRON-backed scorer + Shared Truth Ledger UI + self-executing deals that run via Conductor + relationship map UI + self-cleaning + **buying-committee gaps** (`/api/committee`) | Production polish. |
-| **/CNDCTR/** | Intent in → Score (plan with steps, permissions, checkpoints) → perform across apps/APIs → verify outcome with evidence. Autonomy levels (Rehearsal / Accompaniment / Autopilot). Triggered by other products. | Partial | Score model, executor, Firmament evidence, Podium UI + server, real HTTP + research instruments, public API used by Spectre | More autonomy levels; Spectre HTTP adapter. |
+| **+SPCTR (Spectre)** | AI intelligent CRM: auto research every account, predictive pipeline (win probability, risk, forecast, next-best-action with reasoning), relationship map + buying-committee gaps, self-cleaning data, AI agents (Researcher, Prospector, Deal coach, etc.), plain-language queries, Shared Truth Ledger, Deal Rehearsal, self-executing deals. | Partial | Core + web server with companies/deals/scoring/next-best-action + `/api/research` + `/api/query` + agent team with real tool backends + richer research parsing + Deal Rehearsal + METATRON-backed scorer + Shared Truth Ledger UI + self-executing deals that run via Conductor + relationship map UI + self-cleaning + buying-committee gaps | Production polish. |
+| **/CNDCTR/** | Intent in → Score (plan with steps, permissions, checkpoints) → perform across apps/APIs → verify outcome with evidence. Autonomy levels (Rehearsal / Accompaniment / Autopilot). Triggered by other products. | Partial | Score model, executor, Firmament evidence, Podium UI + server, real HTTP + research instruments, public API used by Spectre + **autonomy levels** (rehearsal dry-run, accompaniment, autopilot) | Spectre HTTP adapter. |
 | **SCALVS.ai** | AI workforce platform: Agent Studio (templates, tools, memory), Command Center, multi-agent teams coordinated by Conductor, Nexus Context Vault memory, private runtime. | Scaffolded | `packages/scalus` (Agent, improved run loop, tests); used by Spectre agents | Expand tool interface and Context Vault; integrate with Conductor. |
 | **METATRON** | Unified financial/intelligence/analytics environment + prediction engine (used by Spectre forecasts, Deal Rehearsal). | Scaffolded | `packages/metatron` (predict interface + tests); wired into Spectre via `scoreWithMetatron` | Analytics dashboard data model; replace baseline by default. |
 | **HRVST** | Permissioned capture from camera glasses → AI refine (privacy filter) → Harvest Packet with provenance → license or keep in Personal Silo. Proof of Perspective on Firmament. | Scaffolded | Packet model, privacy filter, Firmament provenance, Personal Silo store | Real privacy model; licensing flow. |
@@ -49,14 +49,14 @@ These cannot be fully built as software. Interfaces (tasking, telemetry, evidenc
 ## Immediate next build
 
 - Spectre: production polish.  
-- Conductor: Spectre HTTP adapter; more autonomy levels.  
+- Conductor: Spectre HTTP adapter.  
 - FIRM: real EVM clients.  
 - Project-specific tokens.  
 
 ## Acceptance criteria (for "performs as advertised")
 
 - Spectre: user can create company/contact/deal, see explained win probability + next-best-action, run a basic research query, ask plain-language questions, rehearse a deal, see the Shared Truth Ledger, run self-executing actions via Conductor, view and add relationship edges, see duplicate/issue cleaning suggestions, see buying-committee gaps, and have changes audited on Firmament.  
-- Conductor: user can write a Score, execute a simulated step with permission check, and receive evidence recorded on Firmament.  
+- Conductor: user can write a Score, execute a simulated step with permission check, choose autonomy level (rehearsal/accompaniment/autopilot), and receive evidence recorded on Firmament.  
 - SCALVS: agent can be defined, run a tool call, and return a result usable by Spectre/Conductor.  
 - All new code type-checks and has tests.  
 - No product is claimed production-complete until the above acceptance criteria are met and deployed.

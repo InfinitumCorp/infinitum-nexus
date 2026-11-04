@@ -1,0 +1,23 @@
+services:
+  spectre:
+    build:
+      context: .
+      dockerfile: apps/spectre/Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      PORT: 3000
+      SPECTRE_WORKSPACE: demo
+      CONDUCTOR_URL: http://conductor:3001
+    depends_on:
+      - conductor
+
+  conductor:
+    build:
+      context: .
+      dockerfile: apps/conductor/Dockerfile
+    ports:
+      - "3001:3001"
+    environment:
+      PORT: 3001
+      SPECTRE_URL: http://spectre:3000

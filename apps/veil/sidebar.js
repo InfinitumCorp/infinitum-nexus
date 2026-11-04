@@ -79,6 +79,13 @@ document.getElementById("connect-wallet").onclick = async () => {
   loadWallet();
   status.textContent = "Wallet connected (scaffold)";
 };
+document.getElementById("copy-addr")?.addEventListener("click", async () => {
+  const text = addr.textContent || "";
+  if (text && text.startsWith("0x")) {
+    await navigator.clipboard.writeText(text);
+    status.textContent = "Address copied";
+  }
+});
 loadWallet();
 
 // Rewards
@@ -109,6 +116,18 @@ setInterval(() => {
   if (sessionSeconds % 60 === 0) accrueReward(60);
 }, 1000);
 loadRewards();
+
+document.getElementById("export-log")?.addEventListener("click", async () => {
+  const s = await chrome.storage.local.get(["rewardLog", "totalVeil"]);
+  const blob = new Blob([JSON.stringify({ total: s.totalVeil, log: s.rewardLog ?? [] }, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "veil-rewards.json";
+  a.click();
+  URL.revokeObjectURL(url);
+  status.textContent = "Log exported";
+});
 
 // Privacy
 document.getElementById("clean-current").onclick = async () => {

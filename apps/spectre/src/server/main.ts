@@ -10,6 +10,7 @@ import { Ledger, MemoryStore, generateSigner } from "@infinitum/firmament";
 import { SpectreCRM } from "../core/crm.ts";
 import { scoreDeal, nextBestAction, riskAlerts, forecast } from "../core/intelligence.ts";
 import { researchCompany } from "./research.ts";
+import { handleQuery } from "./query.ts";
 
 const PORT = Number(process.env.PORT ?? 3000);
 const WORKSPACE = "demo";
@@ -51,7 +52,7 @@ const indexHtml = `<!DOCTYPE html>
     main { max-width: 960px; margin: 2rem auto; padding: 0 1.5rem; }
     .card { border: 1px solid var(--line); border-radius: 8px; padding: 1.25rem; margin-bottom: 1rem; }
     label { display: block; font-size: 0.8rem; color: var(--muted); margin-bottom: 0.25rem; }
-    input, select, button { font: inherit; padding: 0.5rem 0.75rem; border: 1px solid var(--line); border-radius: 6px; }
+    input, select, button, textarea { font: inherit; padding: 0.5rem 0.75rem; border: 1px solid var(--line); border-radius: 6px; }
     button { background: var(--accent); color: #fff; border: none; cursor: pointer; }
     .row { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
     .muted { color: var(--muted); font-size: 0.85rem; }
@@ -62,6 +63,14 @@ const indexHtml = `<!DOCTYPE html>
 <body>
   <header><h1>+SPCTR</h1></header>
   <main>
+    <div class="card">
+      <h2 style="margin-top:0">Ask Spectre</h2>
+      <div class="row">
+        <textarea id="query" placeholder="Research Acme, or ask about next steps..." style="flex:1; min-height:4rem"></textarea>
+        <button id="ask">Ask</button>
+      </div>
+      <pre id="queryOut" class="muted"></pre>
+    </div>
     <div class="card">
       <h2 style="margin-top:0">New company</h2>
       <div class="row">
@@ -143,6 +152,16 @@ const indexHtml = `<!DOCTYPE html>
       const data = await r.json();
       document.getElementById("researchOut").textContent = JSON.stringify(data, null, 2);
     };
+    document.getElementById("ask").onclick = async () => {
+      const text = document.getElementById("query").value.trim();
+      if (!text) return;
+      const r = await fetch("/api/query", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text })
+      });
+      document.getElementById("queryOut").textContent = JSON.stringify(await r.json(), null, 2);
+    };
     load();
   </script>
 </body>
@@ -190,6 +209,12 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
       const name = url.searchParams.get("name") ?? "";
       if (!name) return json(res, 400, { error: "name required" });
       const result = await researchCompany(name);
+      return json(res, 200, result);
+    }
+
+    if (url.pathname === "/api/query" && req.method === "POST") {
+      const body = await readBody(req);
+      const result = await handleQuery(String(body.text ?? ""));
       return json(res, 200, result);
     }
 

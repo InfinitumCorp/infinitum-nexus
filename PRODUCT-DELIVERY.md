@@ -21,13 +21,13 @@ Maps every product advertised on https://infinitum-corporation.vercel.app/#produ
 
 | Product | Advertised task | Status | Evidence | Next steps to perform advertised tasks |
 |---------|-----------------|--------|----------|----------------------------------------|
-| **+SPCTR (Spectre)** | AI intelligent CRM: auto research every account, predictive pipeline (win probability, risk, forecast, next-best-action with reasoning), relationship map + buying-committee gaps, self-cleaning data, AI agents (Researcher, Prospector, Deal coach, etc.), plain-language queries, Shared Truth Ledger, Deal Rehearsal, self-executing deals. | Partial | Core + web server with companies/deals/scoring/next-best-action + `/api/research` + `/api/query` (plain-language routing to agent team) + METATRON-backed scorer option | Full agent tools; Shared Truth Ledger UI; Deal Rehearsal. |
-| **/CNDCTR/** | Intent in → Score (plan with steps, permissions, checkpoints) → perform across apps/APIs → verify outcome with evidence. Autonomy levels (Rehearsal / Accompaniment / Autopilot). Triggered by other products. | Partial | Score model, executor, Firmament evidence recording, Podium UI + server (`apps/conductor/src/server.ts`) | Real instrument adapters; more autonomy levels. |
+| **+SPCTR (Spectre)** | AI intelligent CRM: auto research every account, predictive pipeline (win probability, risk, forecast, next-best-action with reasoning), relationship map + buying-committee gaps, self-cleaning data, AI agents (Researcher, Prospector, Deal coach, etc.), plain-language queries, Shared Truth Ledger, Deal Rehearsal, self-executing deals. | Partial | Core + web server with companies/deals/scoring/next-best-action + `/api/research` + `/api/query` + agent team with tools + Deal Rehearsal + METATRON-backed scorer | Shared Truth Ledger UI; real tool backends. |
+| **/CNDCTR/** | Intent in → Score (plan with steps, permissions, checkpoints) → perform across apps/APIs → verify outcome with evidence. Autonomy levels (Rehearsal / Accompaniment / Autopilot). Triggered by other products. | Partial | Score model, executor, Firmament evidence, Podium UI + server, instrument adapters (research, spectre, http) | Real adapters; more autonomy levels. |
 | **SCALVS.ai** | AI workforce platform: Agent Studio (templates, tools, memory), Command Center, multi-agent teams coordinated by Conductor, Nexus Context Vault memory, private runtime. | Scaffolded | `packages/scalus` (Agent, run loop, tests); used by Spectre agents | Expand tool interface and Context Vault; integrate with Conductor. |
 | **METATRON** | Unified financial/intelligence/analytics environment + prediction engine (used by Spectre forecasts, Deal Rehearsal). | Scaffolded | `packages/metatron` (predict interface + tests); wired into Spectre via `scoreWithMetatron` | Analytics dashboard data model; replace baseline by default. |
-| **HRVST** | Permissioned capture from camera glasses → AI refine (privacy filter) → Harvest Packet with provenance → license or keep in Personal Silo. Proof of Perspective on Firmament. | Scaffolded | Packet model, privacy filter stub, Firmament provenance recording (`apps/hrvst`) | Personal Silo store; real privacy model. |
-| **ei·det·ic** | Facial-recognition and identity-intelligence platform (authorized, lawful use only). | Not started | — | Scaffold interface only (no biometric implementation in this phase); integration point for Spectre. |
-| **FIRM + FIRM Wallet** | Ecosystem token, self-custody wallet, built-in DEX. Product tokens paired with FIRM. | Scaffolded | `packages/firm` (token/wallet/settlement interfaces + smoke test) | Concrete EVM implementations; DEX interface. |
+| **HRVST** | Permissioned capture from camera glasses → AI refine (privacy filter) → Harvest Packet with provenance → license or keep in Personal Silo. Proof of Perspective on Firmament. | Scaffolded | Packet model, privacy filter, Firmament provenance, Personal Silo store | Real privacy model; licensing flow. |
+| **ei·det·ic** | Facial-recognition and identity-intelligence platform (authorized, lawful use only). | Scaffolded | `packages/eidetic` (interface + stub service + test; no biometrics) | Spectre integration point. |
+| **FIRM + FIRM Wallet** | Ecosystem token, self-custody wallet, built-in DEX. Product tokens paired with FIRM. | Scaffolded | `packages/firm` (interfaces + EVM stubs + smoke test) | Concrete EVM implementations; DEX interface. |
 | **Project-specific tokens** | $HRVST, $CNDT, $SPCTR, $SCLV, etc. | Not started | — | Define after FIRM foundation. |
 
 ## Supporting / infrastructure concepts
@@ -48,15 +48,14 @@ These cannot be fully built as software. Interfaces (tasking, telemetry, evidenc
 
 ## Immediate next build
 
-- Spectre: full agent tools + Deal Rehearsal.  
-- Conductor: real instrument adapters.  
-- HRVST: Personal Silo.  
-- FIRM: EVM implementations.  
-- ei·det·ic: interface scaffold.
+- Spectre: real tool backends + Shared Truth Ledger UI.  
+- Conductor: production instrument adapters.  
+- FIRM: real EVM clients.  
+- Project-specific tokens.  
 
 ## Acceptance criteria (for "performs as advertised")
 
-- Spectre: user can create company/contact/deal, see explained win probability + next-best-action, run a basic research query, ask plain-language questions, and have changes audited on Firmament.  
+- Spectre: user can create company/contact/deal, see explained win probability + next-best-action, run a basic research query, ask plain-language questions, rehearse a deal, and have changes audited on Firmament.  
 - Conductor: user can write a Score, execute a simulated step with permission check, and receive evidence recorded on Firmament.  
 - SCALVS: agent can be defined, run a tool call, and return a result usable by Spectre/Conductor.  
 - All new code type-checks and has tests.  

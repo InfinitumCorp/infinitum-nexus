@@ -12,6 +12,7 @@ import { scoreDeal, nextBestAction, riskAlerts, forecast } from "../core/intelli
 import { researchCompany } from "./research.ts";
 import { handleQuery } from "./query.ts";
 import { listPendingActions, runPendingActions } from "./execution.ts";
+import { buildMap } from "./relationships.ts";
 
 const PORT = Number(process.env.PORT ?? 3000);
 const WORKSPACE = "demo";
@@ -60,6 +61,7 @@ const indexHtml = `<!DOCTYPE html>
     .deal { padding: 0.5rem 0; border-bottom: 1px solid var(--line); }
     .prob { font-weight: 600; }
     .ledger-entry { padding: 0.4rem 0; border-bottom: 1px solid var(--line); font-size: 0.85rem; }
+    .rel { padding: 0.35rem 0; border-bottom: 1px solid var(--line); font-size: 0.9rem; }
   </style>
 </head>
 <body>
@@ -108,6 +110,18 @@ const indexHtml = `<!DOCTYPE html>
       <div id="pipeline" class="muted">Loading…</div>
     </div>
     <div class="card">
+      <h2 style="margin-top:0">Relationship map</h2>
+      <div class="muted" style="margin-bottom:0.5rem">Who knows whom (strength 1–5).</div>
+      <div class="row">
+        <div><label>From (contact id or cid:...)</label><input id="relFrom" /></div>
+        <div><label>To</label><input id="relTo" /></div>
+        <div><label>Strength</label><input id="relStr" type="number" min="1" max="5" value="3" /></div>
+        <div><label>Note</label><input id="relNote" /></div>
+        <div><label>&nbsp;</label><button id="addRel">Add edge</button></div>
+      </div>
+      <div id="relmap" class="muted">Loading…</div>
+    </div>
+    <div class="card">
       <h2 style="margin-top:0">Self-executing actions</h2>
       <div class="muted" style="margin-bottom:0.5rem">Rules that match open deals. Review before running in production.</div>
       <div id="actions" class="muted">Loading…</div>
@@ -122,11 +136,12 @@ const indexHtml = `<!DOCTYPE html>
   </main>
   <script>
     async function load() {
-      const [cos, deals, ledger, actions] = await Promise.all([
+      const [cos, deals, ledger, actions, rel] = await Promise.all([
         fetch("/api/companies").then(r => r.json()),
         fetch("/api/deals").then(r => r.json()),
         fetch("/api/ledger").then(r => r.json()),
-        fetch("/api/execution").then(r => r.json())
+        fetch("/api/execution").then(r => r.json()),
+        fetch("/api/relationships").then(r => r.json())
       ]);
       document.getElementById("companies").innerHTML = cos.length
         ? cos.map(c => `<div>${c.id} — ${c.name}${c.domain ? " · " + c.domain : ""}</div>`).join("")
@@ -137,6 +152,13 @@ const indexHtml = `<!DOCTYPE html>
       document.getElementById("actions").innerHTML = actions.length
         ? actions.map(a => `<div class="deal"><strong>${a.type}</strong> · ${a.dealId}<br>${a.description}<br><span class="muted">${JSON.stringify(a.payload)}</span></div>`).join("")
         : "No pending actions.";
+      document.getElementById("relmap").innerHTML = rel.edges.length
+        ? rel.edges.map(e => {
+            const from = rel.nodes.find(n => n.id === e.from);
+            const to = rel.nodes.find(n => n.id === e.to);
+            return `<div class="rel">${from?.label ?? e.from} —${e.strength}→ ${to?.label ?? e.to}${e.note ? " · " + e.note : ""}</div>`;
+          }).join("")
+        : "No relationships yet.";
       document.getElementById("ledger").innerHTML = ledger.length
         ? ledger.map(e => `<div class="ledger-entry"><strong>${e.type}</strong> · ${e.subject}<br><span class="muted">${e.timestamp} · ${e.actor}</span><br>${JSON.stringify(e.payload)}</div>`).join("")
         : "No ledger entries yet.";
@@ -165,6 +187,22 @@ const indexHtml = `<!DOCTYPE html>
         body: JSON.stringify({ companyId, name, amount, closeDate })
       });
       document.getElementById("dealName").value = "";
+      load();
+    };
+    document.getElementById("addRel").onclick = async () => {
+      const from = document.getElementById("relFrom").value.trim();
+      const to = document.getElementById("relTo").value.trim();
+      const strength = Number(document.getElementById("relStr").value);
+      const note = document.getElementById("relNote").value.trim() || undefined;
+      if (!from || !to) return;
+      await fetch("/api/relationships", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ from, to, strength, note })
+      });
+      document.getElementById("relFrom").value = "";
+      document.getElementById("relTo").value = "";
+      document.getElementById("relNote").value = "";
       load();
     };
     document.getElementById("researchBtn").onclick = async () => {
@@ -231,6 +269,22 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
         closeDate: String(body.closeDate ?? ""),
       });
       return json(res, 201, d);
+    }
+
+    if (url.pathname === "/api/relationships" && req.method === "GET") {
+      return json(res, 200, buildMap(crm, WORKSPACE));
+    }
+    if (url.pathname === "/api/relationships" && req.method === "POST") {
+      const body = await readBody(req);
+      const r = await crm.relate(
+        WORKSPACE,
+        ACTOR,
+        String(body.from ?? ""),
+        String(body.to ?? ""),
+        Number(body.strength ?? 3) as 1 | 2 | 3 | 4 | 5,
+        body.note ? String(body.note) : undefined,
+      );
+      return json(res, 201, r);
     }
 
     if (url.pathname === "/api/research" && req.method === "GET") {

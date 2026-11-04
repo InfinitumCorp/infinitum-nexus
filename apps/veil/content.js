@@ -2,7 +2,11 @@
  * VEIL content script.
  * Strips tracking parameters from the current URL and supports privacy messages.
  */
-const TRACKERS = ["utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "fbclid", "gclid", "msclkid", "igshid", "mc_eid", "ref"];
+const TRACKERS = [
+  "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content",
+  "fbclid", "gclid", "msclkid", "igshid", "mc_eid", "ref", "ref_src",
+  "_ga", "_gl", "yclid", "twclid", "li_fat_id"
+];
 
 function stripTrackers(href) {
   try {
@@ -39,6 +43,13 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     } else {
       sendResponse({ cleaned: false });
     }
+  }
+  if (msg.type === "pageInfo") {
+    sendResponse({
+      title: document.title,
+      url: location.href,
+      trackers: TRACKERS.filter(t => location.search.includes(t))
+    });
   }
 });
 

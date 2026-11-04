@@ -1,9 +1,9 @@
-import type { Score, Step, StepResult, Performance } from "./score.ts";
+import type { Score, Step, StepResult, Performance, Autonomy } from "./score.ts";
+import { decideAutonomy, applyDryRun } from "./autonomy.ts";
 
 /**
- * Minimal executor: runs steps in order, checks declared permissions,
- * collects evidence. Real instrument adapters (browser, APIs, Infinitum
- * products) plug in later.
+ * Executor: runs steps in order, checks declared permissions,
+ * collects evidence. Honors autonomy levels.
  */
 
 export interface Instrument {
@@ -17,11 +17,26 @@ export function registerInstrument(inst: Instrument) {
   registry.set(inst.name, inst);
 }
 
-export async function perform(score: Score, granted: Set<string>): Promise<Performance> {
-  const results: StepResult[] = [];
-  const evidence: string[] = [];
+export async function perform(
+  score: Score,
+  granted: Set<string>,
+  allowedAutonomy: Set<Autonomy> = new Set(["rehearsal", "accompaniment", "autopilot"]),
+): Promise<Performance> {
+  const decision = decideAutonomy(score, allowedAutonomy);
+  if (!decision.shouldExecute) {
+    return {
+      scoreId: score.id,
+      results: [],
+      verified: false,
+      evidence: [decision.reason],
+    };
+  }
 
-  for (const step of score.steps) {
+  const results: StepResult[] = [];
+  const evidence: string[] = [decision.reason];
+
+  for (const rawStep of score.steps) {
+    const step = decision.dryRun ? applyDryRun(rawStep) : rawStep;
     const missing = step.permissions.filter((p) => !granted.has(`${p.resource}:${p.actions.join(",")}`));
     if (missing.length) {
       results.push({

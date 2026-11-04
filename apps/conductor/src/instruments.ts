@@ -4,6 +4,8 @@
  */
 import { registerInstrument, type Instrument } from "./executor.ts";
 
+const SPECTRE_BASE = process.env.SPECTRE_URL ?? "http://localhost:3000";
+
 export const researchInstrument: Instrument = {
   name: "research",
   async execute(input) {
@@ -27,11 +29,25 @@ export const researchInstrument: Instrument = {
 export const spectreInstrument: Instrument = {
   name: "spectre",
   async execute(input) {
-    // Placeholder that can later call the Spectre HTTP API
-    return {
-      output: { action: "spectre-call", input, status: "stub" },
-      evidence: ["spectre:invoked"],
-    };
+    const path = String(input.path ?? "/api/companies");
+    const method = String(input.method ?? "GET").toUpperCase();
+    const url = `${SPECTRE_BASE}${path}`;
+    try {
+      const res = await fetch(url, {
+        method,
+        headers: { "content-type": "application/json" },
+        body: method === "GET" ? undefined : JSON.stringify(input.body ?? {}),
+      });
+      const text = await res.text();
+      let body: unknown = text;
+      try { body = JSON.parse(text); } catch { /* keep text */ }
+      return {
+        output: { status: res.status, body, path },
+        evidence: [`spectre:${method}:${path}`, `status:${res.status}`],
+      };
+    } catch (err) {
+      return { output: { error: String(err), path }, evidence: [`spectre-error:${path}`] };
+    }
   },
 };
 

@@ -24,6 +24,7 @@
     #out, #rewards-log { white-space: pre-wrap; font-size: 0.85rem; max-height: 12rem; overflow: auto; }
     .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--good); display: inline-block; margin-right: 0.5rem; }
     .status-dot.offline { background: #dc2626; }
+    #page-info { font-size: 0.8rem; color: var(--muted); margin-bottom: 0.5rem; word-break: break-all; }
   </style>
 </head>
 <body>
@@ -39,6 +40,7 @@
   <main>
     <div id="ask" class="panel active">
       <div class="card">
+        <div id="page-info" class="muted"></div>
         <div class="muted" style="margin-bottom:0.5rem">Ask the sidebar assistant (via Conductor)</div>
         <textarea id="q" placeholder="Research this page, or ask about Infinitum..."></textarea>
         <button class="primary" id="ask-btn" style="margin-top:0.5rem">Ask</button>

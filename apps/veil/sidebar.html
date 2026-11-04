@@ -20,11 +20,13 @@
     .card { border: 1px solid var(--line); border-radius: 6px; padding: 0.75rem; margin-bottom: 0.75rem; background: #fff; }
     textarea { width: 100%; min-height: 4rem; background: #f8f9fa; color: var(--fg); border: 1px solid var(--line); border-radius: 4px; padding: 0.5rem; font: inherit; }
     button.primary { background: var(--accent); color: #fff; border: none; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer; font: inherit; }
+    button.ghost { background: transparent; color: var(--fg); border: 1px solid var(--line); padding: 0.4rem 0.8rem; border-radius: 4px; cursor: pointer; font: inherit; margin-left: 0.5rem; }
     .muted { color: var(--muted); font-size: 0.85rem; }
     #out, #rewards-log { white-space: pre-wrap; font-size: 0.85rem; max-height: 12rem; overflow: auto; }
     .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--good); display: inline-block; margin-right: 0.5rem; }
     .status-dot.offline { background: #dc2626; }
     #page-info { font-size: 0.8rem; color: var(--muted); margin-bottom: 0.5rem; word-break: break-all; }
+    #addr { word-break: break-all; }
   </style>
 </head>
 <body>
@@ -53,6 +55,7 @@
         <div id="addr">Not connected</div>
         <div id="bal" class="muted">Balance: —</div>
         <button class="primary" id="connect-wallet" style="margin-top:0.5rem">Connect</button>
+        <button class="ghost" id="copy-addr" style="margin-top:0.5rem">Copy</button>
       </div>
     </div>
     <div id="rewards" class="panel">
@@ -62,6 +65,7 @@
         <div class="muted" id="session-time">Session: 0s</div>
         <pre id="rewards-log" class="muted"></pre>
         <button class="primary" id="claim-btn" style="margin-top:0.5rem" disabled>Claim</button>
+        <button class="ghost" id="export-log" style="margin-top:0.5rem">Export log</button>
       </div>
     </div>
     <div id="privacy" class="panel">
@@ -83,6 +87,7 @@
     </div>
   </main>
   <script src="sign.js"></script>
+  <script src="abi.js"></script>
   <script src="tx.js"></script>
   <script type="module" src="sidebar.js"></script>
   <script type="module" src="rewards-ui.js"></script>

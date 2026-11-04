@@ -7,6 +7,7 @@
 import type { Tool } from "@infinitum/scalus";
 import type { Ledger } from "@infinitum/firmament";
 import type { SpectreCRM } from "./crm.ts";
+import { parseResults, summarize, type RawResult } from "./research-parser.ts";
 
 export interface ToolDeps {
   ledger?: Ledger;
@@ -28,16 +29,17 @@ export function createTools(deps: ToolDeps = {}): Record<string, Tool> {
             headers: { "user-agent": "InfinitumSpectre/0.1" },
           });
           const html = await res.text();
-          // Extract a few result titles and snippets (best-effort)
-          const titles = [...html.matchAll(/<a[^>]*class="result__a"[^>]*>([^<]+)<\/a>/gi)].map((m) => m[1].trim()).slice(0, 5);
-          const snippets = [...html.matchAll(/<a[^>]*class="result__snippet"[^>]*>([^<]+)<\/a>/gi)].map((m) => m[1].trim()).slice(0, 5);
-          const facts = titles.map((title, i) => ({
-            field: "search_result",
-            value: title,
-            source: snippets[i] ?? "DuckDuckGo",
+          const titles = [...html.matchAll(/<a[^>]*class="result__a"[^>]*>([^<]+)<\/a>/gi)].map((m) => m[1].trim()).slice(0, 8);
+          const snippets = [...html.matchAll(/<a[^>]*class="result__snippet"[^>]*>([^<]+)<\/a>/gi)].map((m) => m[1].trim()).slice(0, 8);
+          const hrefs = [...html.matchAll(/<a[^>]*class="result__a"[^>]*href="([^"]+)"/gi)].map((m) => m[1]).slice(0, 8);
+          const raw: RawResult[] = titles.map((title, i) => ({
+            title,
+            snippet: snippets[i],
+            url: hrefs[i],
           }));
+          const facts = parseResults(raw);
           return {
-            summary: titles[0] ?? `No clear result for ${q}`,
+            summary: summarize(facts, q),
             facts,
             query: q,
           };

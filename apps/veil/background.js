@@ -1,6 +1,6 @@
 /**
  * VEIL background service worker.
- * Opens side panel, manages Tor proxy via chrome.proxy, storage.
+ * Opens side panel, manages Tor proxy via chrome.proxy, storage, badge.
  */
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
 
@@ -53,6 +53,14 @@ async function loadDeployed() {
   }
 }
 
+async function updateBadge() {
+  const s = await chrome.storage.local.get(["totalVeil"]);
+  const total = parseFloat(s.totalVeil ?? "0");
+  const text = total > 0 ? total.toFixed(2) : "";
+  await chrome.action.setBadgeText({ text });
+  await chrome.action.setBadgeBackgroundColor({ color: "#111820" });
+}
+
 chrome.runtime.onInstalled.addListener(() => {
   console.log("VEIL installed");
   chrome.storage.local.set({ totalVeil: "0", rewardLog: [], torEnabled: false, autoClean: false });
@@ -62,11 +70,28 @@ chrome.runtime.onInstalled.addListener(() => {
     title: "VEIL: Clean trackers on this page",
     contexts: ["page"]
   });
+  updateBadge();
+});
+
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === "local" && changes.totalVeil) updateBadge();
 });
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
   if (info.menuItemId === "veil-clean" && tab?.id) {
     chrome.tabs.sendMessage(tab.id, { type: "cleanUrl" });
+  }
+});
+
+chrome.commands.onCommand.addListener((command) => {
+  if (command === "open-veil") {
+    chrome.sidePanel.open({}).catch(() => {});
+  }
+  if (command === "clean-page") {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      const tab = tabs[0];
+      if (tab?.id) chrome.tabs.sendMessage(tab.id, { type: "cleanUrl" });
+    });
   }
 });
 

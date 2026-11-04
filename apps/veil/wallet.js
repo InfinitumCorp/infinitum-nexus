@@ -1,7 +1,7 @@
 /**
  * VEIL FIRM Wallet panel — production key management.
  * Uses Web Crypto API to generate an ECDSA P-256 keypair (browser-safe).
- * Stores public key / address-like id in chrome.storage.
+ * Stores JWK private key for later signing via sign.js.
  * Balance still queried via Base RPC.
  */
 const DEFAULT_RPC = "https://mainnet.base.org";
@@ -38,7 +38,8 @@ async function generateKeypair() {
   const pub = await crypto.subtle.exportKey("raw", key.publicKey);
   const hex = Array.from(new Uint8Array(pub)).map(b => b.toString(16).padStart(2, "0")).join("");
   const pseudo = "0x" + hex.slice(-40);
-  await chrome.storage.local.set({ firmAddress: pseudo, firmKeyGenerated: true, firmRpc: DEFAULT_RPC });
+  const jwk = await crypto.subtle.exportKey("jwk", key.privateKey);
+  await chrome.storage.local.set({ firmAddress: pseudo, firmKey: jwk, firmKeyGenerated: true, firmRpc: DEFAULT_RPC });
   return pseudo;
 }
 

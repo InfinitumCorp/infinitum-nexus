@@ -1,6 +1,6 @@
 # VEIL Next Steps
 
-Scaffold complete (2026-11-04) — v0.4.1.
+Scaffold complete (2026-11-04) — v0.4.2.
 
 Done:
 - All-white layout matching Infinitum site
@@ -12,6 +12,7 @@ Done:
 - Base RPC balance query
 - Tracker stripping + Tor proxy + connectivity check
 - VeilClaim.sol + deploy.ts + deployed.json placeholder
+- Background auto-loads deployed.json on install
 - Fonts: Helvetica Neue
 - Manifest references PNG icons (see ICONS.md)
 

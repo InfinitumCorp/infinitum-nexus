@@ -1,0 +1,19 @@
+{
+  "name": "@infinitum/hrvst",
+  "version": "0.1.0",
+  "description": "HRVST: permissioned observations into user-controlled data assets.",
+  "type": "module",
+  "private": true,
+  "engines": { "node": ">=22.18" },
+  "scripts": {
+    "typecheck": "tsc -p . --noEmit",
+    "test": "node --test \"src/**/*.test.ts\""
+  },
+  "dependencies": {
+    "@infinitum/firmament": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.0",
+    "@types/node": "^22.0.0"
+  }
+}

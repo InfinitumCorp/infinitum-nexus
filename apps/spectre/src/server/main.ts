@@ -11,6 +11,7 @@ import { SpectreCRM } from "../core/crm.ts";
 import { scoreDeal, nextBestAction, riskAlerts, forecast } from "../core/intelligence.ts";
 import { researchCompany } from "./research.ts";
 import { handleQuery } from "./query.ts";
+import { listPendingActions } from "./execution.ts";
 
 const PORT = Number(process.env.PORT ?? 3000);
 const WORKSPACE = "demo";
@@ -107,6 +108,11 @@ const indexHtml = `<!DOCTYPE html>
       <div id="pipeline" class="muted">Loading…</div>
     </div>
     <div class="card">
+      <h2 style="margin-top:0">Self-executing actions</h2>
+      <div class="muted" style="margin-bottom:0.5rem">Rules that match open deals. Review before running in production.</div>
+      <div id="actions" class="muted">Loading…</div>
+    </div>
+    <div class="card">
       <h2 style="margin-top:0">Shared Truth Ledger</h2>
       <div class="muted" style="margin-bottom:0.5rem">Every create, update, and fact recorded on Firmament.</div>
       <div id="ledger" class="muted">Loading…</div>
@@ -114,10 +120,11 @@ const indexHtml = `<!DOCTYPE html>
   </main>
   <script>
     async function load() {
-      const [cos, deals, ledger] = await Promise.all([
+      const [cos, deals, ledger, actions] = await Promise.all([
         fetch("/api/companies").then(r => r.json()),
         fetch("/api/deals").then(r => r.json()),
-        fetch("/api/ledger").then(r => r.json())
+        fetch("/api/ledger").then(r => r.json()),
+        fetch("/api/execution").then(r => r.json())
       ]);
       document.getElementById("companies").innerHTML = cos.length
         ? cos.map(c => `<div>${c.id} — ${c.name}${c.domain ? " · " + c.domain : ""}</div>`).join("")
@@ -125,6 +132,9 @@ const indexHtml = `<!DOCTYPE html>
       document.getElementById("pipeline").innerHTML = deals.length
         ? deals.map(d => `<div class="deal"><strong>${d.name}</strong> (${d.stage}) — $${d.amount}<br><span class="prob">${Math.round(d.score.probability * 100)}% win</span> · ${d.next.action}<br><span class="muted">${d.next.why}</span></div>`).join("")
         : "No deals yet.";
+      document.getElementById("actions").innerHTML = actions.length
+        ? actions.map(a => `<div class="deal"><strong>${a.type}</strong> · ${a.dealId}<br>${a.description}<br><span class="muted">${JSON.stringify(a.payload)}</span></div>`).join("")
+        : "No pending actions.";
       document.getElementById("ledger").innerHTML = ledger.length
         ? ledger.map(e => `<div class="ledger-entry"><strong>${e.type}</strong> · ${e.subject}<br><span class="muted">${e.timestamp} · ${e.actor}</span><br>${JSON.stringify(e.payload)}</div>`).join("")
         : "No ledger entries yet.";
@@ -226,6 +236,11 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
       const body = await readBody(req);
       const result = await handleQuery(String(body.text ?? ""), { crm, workspace: WORKSPACE, ledger });
       return json(res, 200, result);
+    }
+
+    if (url.pathname === "/api/execution" && req.method === "GET") {
+      const actions = await listPendingActions(crm, WORKSPACE);
+      return json(res, 200, actions);
     }
 
     if (url.pathname === "/api/ledger" && req.method === "GET") {

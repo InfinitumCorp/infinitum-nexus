@@ -4,3 +4,5 @@ export { createEvmFirmToken, getBalance } from "./evm.ts";
 export { createRpcClient, erc20BalanceOf, getChainId } from "./evm-client.ts";
 export { PROJECT_TOKENS, createProjectToken, createAllProjectTokens } from "./tokens.ts";
 export type { ProjectToken, ProjectTokenSpec } from "./tokens.ts";
+export { createFirmWallet, FirmWalletImpl } from "./wallet.ts";
+export type { FirmWalletOptions, SignedMessage } from "./wallet.ts";

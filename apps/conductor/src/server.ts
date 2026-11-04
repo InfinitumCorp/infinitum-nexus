@@ -8,7 +8,7 @@ import { perform } from "./executor.ts";
 import { recordEvidence } from "./firmament.ts";
 import { podiumHtml } from "./podium.ts";
 import { registerDefaultInstruments } from "./instruments.ts";
-import type { Score } from "./score.ts";
+import type { Score, Autonomy } from "./score.ts";
 
 const PORT = Number(process.env.PORT ?? 3001);
 const ledger = new Ledger(new MemoryStore());
@@ -28,20 +28,23 @@ async function readBody(req: IncomingMessage): Promise<any> {
 }
 
 /** Very simple intent → Score planner (scaffold). */
-function plan(intent: string): Score {
+function plan(intent: string, autonomy: Autonomy = "rehearsal"): Score {
   return {
     id: `score_${Date.now()}`,
+    title: intent.slice(0, 60),
     intent,
-    autonomy: "rehearsal",
+    autonomy,
     steps: [
       {
         id: "s1",
+        description: `Research: ${intent}`,
         instrument: "research",
         input: { query: intent },
         permissions: [{ resource: "web", actions: ["read"] }],
       },
     ],
-    checkpoints: [],
+    success: "research completed",
+    createdAt: new Date().toISOString(),
   };
 }
 
@@ -54,9 +57,11 @@ const server = createServer(async (req, res) => {
     }
     if (url.pathname === "/api/perform" && req.method === "POST") {
       const body = await readBody(req);
-      const score = plan(String(body.intent ?? ""));
+      const autonomy = (body.autonomy as Autonomy) ?? "rehearsal";
+      const score = plan(String(body.intent ?? ""), autonomy);
       const granted = new Set(["web:read"]);
-      const performance = await perform(score, granted);
+      const allowed = new Set<Autonomy>(body.allowedAutonomy ?? ["rehearsal", "accompaniment", "autopilot"]);
+      const performance = await perform(score, granted, allowed);
       const evidenceEntry = await recordEvidence(ledger, performance);
       return json(res, 200, { score, performance, evidenceHash: evidenceEntry.hash });
     }

@@ -32,8 +32,12 @@ document.getElementById("claim-btn")?.addEventListener("click", async () => {
     alert("Set veilClaim contract address in storage first");
     return;
   }
-  console.log("Would claim", stored.totalVeil, "to", stored.veilClaim);
-  alert(`Claim scaffold: ${stored.totalVeil} VEIL via ${stored.veilClaim}`);
+  try {
+    const result = await sendClaim(stored.veilClaim, stored.totalVeil);
+    alert(`Claim prepared. Receipt: ${result.receiptId}\nSignature: ${result.sig.slice(0, 16)}…`);
+  } catch (err) {
+    alert("Claim failed: " + err.message);
+  }
 });
 
 setInterval(() => {

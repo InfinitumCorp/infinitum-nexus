@@ -1,6 +1,6 @@
 # VEIL Next Steps
 
-Scaffold complete (2026-11-04) — v0.5.1.
+Scaffold complete (2026-11-04) — v0.5.2.
 
 Done:
 - All-white layout matching Infinitum site
@@ -14,6 +14,8 @@ Done:
 - Base RPC balance query + Copy address
 - Expanded tracker list + Tor proxy + connectivity check
 - Context menu: "VEIL: Clean trackers on this page"
+- Keyboard shortcuts: Ctrl+Shift+V (open), Ctrl+Shift+C (clean)
+- Badge shows current $VEIL balance
 - Options page (RPC URL + VeilClaim address)
 - VeilClaim.sol with signer + claimWithSig scaffold
 - deploy.ts + deployed.json placeholder

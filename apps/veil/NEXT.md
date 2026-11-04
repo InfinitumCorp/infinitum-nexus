@@ -1,6 +1,6 @@
 # VEIL Next Steps
 
-Scaffold complete (2026-11-04) — v0.4.3.
+Scaffold complete (2026-11-04) — v0.4.4.
 
 Done:
 - All-white layout matching Infinitum site
@@ -12,6 +12,7 @@ Done:
 - Transaction sender (tx.js) builds claim tx + signs it
 - Base RPC balance query
 - Expanded tracker list + Tor proxy + connectivity check
+- Context menu: "VEIL: Clean trackers on this page"
 - VeilClaim.sol + deploy.ts + deployed.json placeholder
 - Background auto-loads deployed.json on install
 - Fonts: Helvetica Neue

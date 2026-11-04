@@ -57,7 +57,7 @@ const server = createServer(async (req, res) => {
       return json(res, 200, { ok: true, service: "conductor", uptime: process.uptime() });
     }
     if (url.pathname === "/api/status") {
-      return json(res, 200, { service: "conductor", ledgerEntries: ledger.length, autonomyLevels: ["rehearsal", "accompaniment", "autopilot"] });
+      return json(res, 200, { service: "conductor", ledgerEntries: (await ledger.entries()).length, autonomyLevels: ["rehearsal", "accompaniment", "autopilot"] });
     }
     if (url.pathname === "/" ) {
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" });

@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "description": "SCALVS.ai: AI workforce platform — agents that research, write, code and operate.",
   "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
   "private": true,
   "engines": { "node": ">=22.18" },
   "scripts": {

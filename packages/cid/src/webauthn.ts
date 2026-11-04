@@ -1,6 +1,6 @@
 import { createHash, createPublicKey, verify, type KeyObject, webcrypto } from "node:crypto";
 
-type JsonWebKey = webcrypto.JsonWebKey;
+
 import { decodeCbor, type CborValue } from "./cbor.ts";
 
 /**
@@ -55,7 +55,7 @@ export function coseToKey(cose: Uint8Array): { key: KeyObject; alg: number } {
   const get = (k: number) => value.get(k) as CborValue;
   const kty = get(1);
   const alg = get(3) as number;
-  let jwk: JsonWebKey;
+  let jwk: import("node:crypto").JsonWebKey;
   if (kty === 2 && get(-1) === 1 && alg === COSE_ALG.ES256) {
     jwk = { kty: "EC", crv: "P-256", x: b64u(get(-2) as Uint8Array), y: b64u(get(-3) as Uint8Array) };
   } else if (kty === 1 && get(-1) === 6 && alg === COSE_ALG.EdDSA) {

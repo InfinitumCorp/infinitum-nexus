@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "description": "METATRON: prediction engine and unified analytics environment.",
   "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
   "private": true,
   "engines": { "node": ">=22.18" },
   "scripts": {

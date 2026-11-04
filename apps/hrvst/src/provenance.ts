@@ -9,9 +9,11 @@ export async function recordPacket(ledger: Ledger, packet: HarvestPacket) {
   const { cleaned, redactions } = privacyFilter(packet.observation);
   const signer = generateSigner();
   const entry = await ledger.append({
-    type: "hrvst.packet",
+    type: "provenance",
+    product: "hrvst",
     actor: packet.ownerCid,
-    data: {
+    subject: `packet:${packet.id}`,
+    payload: {
       packetId: packet.id,
       observation: cleaned,
       redactions,

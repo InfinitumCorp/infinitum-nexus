@@ -7,9 +7,11 @@ import type { Performance } from "./score.ts";
 export async function recordEvidence(ledger: Ledger, performance: Performance, actor = "cid:conductor") {
   const signer = generateSigner();
   return ledger.append({
-    type: "conductor.evidence",
+    type: "audit",
+    product: "conductor",
     actor,
-    data: {
+    subject: `score:${performance.scoreId}`,
+    payload: {
       scoreId: performance.scoreId,
       verified: performance.verified,
       evidence: performance.evidence,

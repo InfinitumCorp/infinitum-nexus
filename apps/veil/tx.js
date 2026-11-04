@@ -1,7 +1,7 @@
 /**
  * VEIL transaction sender.
- * Builds a claim payload, signs it, and posts to the RPC.
- * Scaffold: eth_sendRawTransaction is prepared but not fully RLP-encoded yet.
+ * Builds a claim payload, signs it, and prepares it for the RPC.
+ * Scaffold: eth_sendRawTransaction still needs full RLP encoding.
  */
 async function buildClaimTx(veilClaim, receiptId, amountWei) {
   const stored = await chrome.storage.local.get(["firmAddress", "firmRpc"]);
@@ -9,10 +9,11 @@ async function buildClaimTx(veilClaim, receiptId, amountWei) {
   const from = stored.firmAddress;
   const nonce = await rpcCall(rpc, "eth_getTransactionCount", [from, "latest"]);
   const gasPrice = await rpcCall(rpc, "eth_gasPrice", []);
+  const data = encodeClaim(receiptId, amountWei);
   return {
     from,
     to: veilClaim,
-    data: "0x" + "claim" + receiptId.slice(2) + amountWei.toString(16).padStart(64, "0"), // scaffold calldata
+    data,
     nonce,
     gasPrice,
     gas: "0x5208",
@@ -37,7 +38,6 @@ async function sendClaim(veilClaim, amount) {
   const amountWei = BigInt(Math.floor(parseFloat(amount) * 1e18));
   const tx = await buildClaimTx(veilClaim, receiptId, amountWei);
   const sig = await signClaim({ ...tx, receiptId });
-  // Scaffold: log the signed payload. Real path would RLP-encode and eth_sendRawTransaction.
   console.log("Signed claim tx", { tx, sig });
   return { tx, sig, receiptId };
 }

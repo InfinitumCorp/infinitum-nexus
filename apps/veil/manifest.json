@@ -1,10 +1,10 @@
 {
   "manifest_version": 3,
   "name": "VEIL</>",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Tor-first secure browser sidebar: private browsing, AI assistant, and Infinitum ecosystem access.",
-  "permissions": ["sidePanel", "storage", "activeTab"],
-  "host_permissions": ["https://*/*"],
+  "permissions": ["sidePanel", "storage", "activeTab", "tabs", "proxy"],
+  "host_permissions": ["https://*/*", "http://*/*"],
   "action": {
     "default_title": "Open VEIL sidebar"
   },
@@ -17,12 +17,9 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://*/*"],
+      "matches": ["https://*/*", "http://*/*"],
       "js": ["content.js"],
       "run_at": "document_idle"
     }
-  ],
-  "icons": {
-    "48": "icon.png"
-  }
+  ]
 }

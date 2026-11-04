@@ -1,7 +1,7 @@
 /**
- * VEIL Tor proxy scaffold.
- * In production this would route fetches through a local Tor SOCKS proxy
- * (e.g. 127.0.0.1:9050) or a privacy-preserving fetch service.
+ * VEIL Tor proxy helpers.
+ * Runtime proxy is controlled by the extension background via chrome.proxy.
+ * This module is for monorepo tests / documentation.
  */
 export interface TorFetchOptions {
   url: string;
@@ -10,8 +10,11 @@ export interface TorFetchOptions {
   body?: string;
 }
 
+export const TOR_PROXY = "socks5://127.0.0.1:9050";
+
 export async function torFetch(opts: TorFetchOptions): Promise<{ status: number; body: string }> {
-  // Scaffold: direct fetch. Production replaces this with a SOCKS agent.
+  // In the extension, browser-level proxy is preferred.
+  // This remains a direct fetch for non-extension contexts.
   const res = await fetch(opts.url, {
     method: opts.method ?? "GET",
     headers: opts.headers,
@@ -20,4 +23,11 @@ export async function torFetch(opts: TorFetchOptions): Promise<{ status: number;
   return { status: res.status, body: await res.text() };
 }
 
-export const TOR_PROXY = process.env.TOR_SOCKS ?? "socks5://127.0.0.1:9050";
+export function getTorConfig() {
+  return {
+    host: "127.0.0.1",
+    port: 9050,
+    scheme: "socks5",
+    note: "Enable via VEIL sidebar Privacy panel (requires local Tor on 9050)"
+  };
+}

@@ -2,7 +2,7 @@
  * VEIL content script.
  * Strips tracking parameters from the current URL and supports privacy messages.
  */
-const TRACKERS = ["utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "fbclid", "gclid", "msclkid"];
+const TRACKERS = ["utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "fbclid", "gclid", "msclkid", "igshid", "mc_eid", "ref"];
 
 function stripTrackers(href) {
   try {

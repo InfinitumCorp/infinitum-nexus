@@ -2,7 +2,7 @@
  * VEIL privacy helpers.
  * Strips tracking parameters and common identifiers from URLs.
  */
-const TRACKERS = ["utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "fbclid", "gclid", "msclkid"];
+const TRACKERS = ["utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "fbclid", "gclid", "msclkid", "igshid", "mc_eid", "ref"];
 
 export function stripTrackers(url: string): string {
   try {

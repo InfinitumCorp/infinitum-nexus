@@ -101,8 +101,26 @@ document.getElementById("clean-current").onclick = async () => {
     if (resp?.cleaned) status.textContent = "URL cleaned";
   });
 };
-torStatus.textContent = "Tor proxy: socks5://127.0.0.1:9050 (scaffold — set browser proxy or use local Tor)";
-torDot.classList.add("offline"); // until real check
+
+const torToggle = document.getElementById("tor-toggle");
+async function refreshTor() {
+  const resp = await chrome.runtime.sendMessage({ type: "getTorStatus" });
+  const enabled = resp?.enabled;
+  torStatus.textContent = enabled
+    ? "Tor proxy: ON (socks5://127.0.0.1:9050)"
+    : "Tor proxy: OFF";
+  torDot.classList.toggle("offline", !enabled);
+  if (torToggle) torToggle.textContent = enabled ? "Disable Tor" : "Enable Tor";
+}
+if (torToggle) {
+  torToggle.onclick = async () => {
+    const current = !(await chrome.runtime.sendMessage({ type: "getTorStatus" }))?.enabled;
+    await chrome.runtime.sendMessage({ type: "toggleTor", enabled: current });
+    refreshTor();
+    status.textContent = current ? "Tor enabled (needs local Tor)" : "Tor disabled";
+  };
+}
+refreshTor();
 
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg.type === "status") status.textContent = msg.text;

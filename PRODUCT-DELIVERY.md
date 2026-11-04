@@ -21,8 +21,8 @@ Maps every product advertised on https://infinitum-corporation.vercel.app/#produ
 
 | Product | Advertised task | Status | Evidence | Next steps to perform advertised tasks |
 |---------|-----------------|--------|----------|----------------------------------------|
-| **+SPCTR (Spectre)** | AI intelligent CRM: auto research every account, predictive pipeline (win probability, risk, forecast, next-best-action with reasoning), relationship map + buying-committee gaps, self-cleaning data, AI agents (Researcher, Prospector, Deal coach, etc.), plain-language queries, Shared Truth Ledger, Deal Rehearsal, self-executing deals. | Partial | Core + web server with companies/deals/scoring/next-best-action + `/api/research` + `/api/query` + agent team with real tool backends + Deal Rehearsal + METATRON-backed scorer + Shared Truth Ledger UI + self-executing deals that **run via Conductor** (`POST /api/execution`) | Richer research parsing. |
-| **/CNDCTR/** | Intent in → Score (plan with steps, permissions, checkpoints) → perform across apps/APIs → verify outcome with evidence. Autonomy levels (Rehearsal / Accompaniment / Autopilot). Triggered by other products. | Partial | Score model, executor, Firmament evidence, Podium UI + server, instrument adapters, public API used by Spectre | Real adapters; more autonomy levels. |
+| **+SPCTR (Spectre)** | AI intelligent CRM: auto research every account, predictive pipeline (win probability, risk, forecast, next-best-action with reasoning), relationship map + buying-committee gaps, self-cleaning data, AI agents (Researcher, Prospector, Deal coach, etc.), plain-language queries, Shared Truth Ledger, Deal Rehearsal, self-executing deals. | Partial | Core + web server with companies/deals/scoring/next-best-action + `/api/research` + `/api/query` + agent team with real tool backends + **richer research parsing** + Deal Rehearsal + METATRON-backed scorer + Shared Truth Ledger UI + self-executing deals that run via Conductor | Relationship map UI; self-cleaning. |
+| **/CNDCTR/** | Intent in → Score (plan with steps, permissions, checkpoints) → perform across apps/APIs → verify outcome with evidence. Autonomy levels (Rehearsal / Accompaniment / Autopilot). Triggered by other products. | Partial | Score model, executor, Firmament evidence, Podium UI + server, **real HTTP + research instruments**, public API used by Spectre | More autonomy levels; Spectre HTTP adapter. |
 | **SCALVS.ai** | AI workforce platform: Agent Studio (templates, tools, memory), Command Center, multi-agent teams coordinated by Conductor, Nexus Context Vault memory, private runtime. | Scaffolded | `packages/scalus` (Agent, improved run loop, tests); used by Spectre agents | Expand tool interface and Context Vault; integrate with Conductor. |
 | **METATRON** | Unified financial/intelligence/analytics environment + prediction engine (used by Spectre forecasts, Deal Rehearsal). | Scaffolded | `packages/metatron` (predict interface + tests); wired into Spectre via `scoreWithMetatron` | Analytics dashboard data model; replace baseline by default. |
 | **HRVST** | Permissioned capture from camera glasses → AI refine (privacy filter) → Harvest Packet with provenance → license or keep in Personal Silo. Proof of Perspective on Firmament. | Scaffolded | Packet model, privacy filter, Firmament provenance, Personal Silo store | Real privacy model; licensing flow. |
@@ -48,8 +48,8 @@ These cannot be fully built as software. Interfaces (tasking, telemetry, evidenc
 
 ## Immediate next build
 
-- Spectre: richer research parsing.  
-- Conductor: production instrument adapters.  
+- Spectre: relationship map UI; self-cleaning.  
+- Conductor: Spectre HTTP adapter; more autonomy levels.  
 - FIRM: real EVM clients.  
 - Project-specific tokens.  
 

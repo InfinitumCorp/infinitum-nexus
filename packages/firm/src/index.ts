@@ -6,3 +6,5 @@ export { PROJECT_TOKENS, createProjectToken, createAllProjectTokens } from "./to
 export type { ProjectToken, ProjectTokenSpec } from "./tokens.ts";
 export { createFirmWallet, FirmWalletImpl } from "./wallet.ts";
 export type { FirmWalletOptions, SignedMessage } from "./wallet.ts";
+export { createFirmDex } from "./dex.ts";
+export type { FirmDex, SwapQuote, DexPool } from "./dex.ts";

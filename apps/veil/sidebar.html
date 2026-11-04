@@ -9,7 +9,8 @@
     * { box-sizing: border-box; }
     body { margin: 0; font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; background: var(--bg); color: var(--fg); font-size: 14px; }
     header { padding: 0.75rem 1rem; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center; }
-    h1 { margin: 0; font-size: 1rem; font-weight: 400; letter-spacing: 0.05em; }
+    h1 { margin: 0; font-size: 1.25rem; font-weight: 500; letter-spacing: -0.02em; }
+    h1 sup { font-size: 0.38em; font-weight: 400; margin-left: 0.08em; }
     nav { display: flex; gap: 0.5rem; }
     nav button { background: transparent; color: var(--muted); border: none; padding: 0.25rem 0.5rem; cursor: pointer; font: inherit; border-bottom: 2px solid transparent; }
     nav button.active { color: var(--fg); border-bottom-color: var(--accent); }
@@ -27,7 +28,7 @@
 </head>
 <body>
   <header>
-    <h1>VEIL</>™</h1>
+    <h1>VEIL</><sup>™</sup></h1>
     <nav>
       <button class="active" data-panel="ask">Ask</button>
       <button data-panel="wallet">Wallet</button>

@@ -5,6 +5,9 @@
   "type": "module",
   "private": true,
   "engines": { "node": ">=22.18" },
+  "exports": {
+    ".": : "./src/index.ts"
+  },
   "scripts": {
     "start": "node src/server.ts",
     "typecheck": "tsc -p . --noEmit",

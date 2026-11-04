@@ -102,7 +102,16 @@ document.getElementById("clean-current").onclick = async () => {
   });
 };
 
+const autoClean = document.getElementById("auto-clean");
+if (autoClean) {
+  chrome.storage.local.get(["autoClean"], (s) => { autoClean.checked = !!s.autoClean; });
+  autoClean.onchange = () => {
+    chrome.runtime.sendMessage({ type: "setAutoClean", enabled: autoClean.checked });
+  };
+}
+
 const torToggle = document.getElementById("tor-toggle");
+const checkTorBtn = document.getElementById("check-tor");
 async function refreshTor() {
   const resp = await chrome.runtime.sendMessage({ type: "getTorStatus" });
   const enabled = resp?.enabled;
@@ -118,6 +127,13 @@ if (torToggle) {
     await chrome.runtime.sendMessage({ type: "toggleTor", enabled: current });
     refreshTor();
     status.textContent = current ? "Tor enabled (needs local Tor)" : "Tor disabled";
+  };
+}
+if (checkTorBtn) {
+  checkTorBtn.onclick = async () => {
+    status.textContent = "Checking Tor…";
+    const resp = await chrome.runtime.sendMessage({ type: "checkTor" });
+    status.textContent = resp?.isTor ? "Confirmed on Tor" : "Not on Tor (or check failed)";
   };
 }
 refreshTor();

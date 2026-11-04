@@ -20,6 +20,16 @@ function stripTrackers(href) {
   }
 }
 
+async function maybeAutoClean() {
+  const s = await chrome.storage.local.get(["autoClean"]);
+  if (!s.autoClean) return;
+  const cleaned = stripTrackers(location.href);
+  if (cleaned) {
+    history.replaceState(null, "", cleaned);
+    console.log("VEIL auto-cleaned URL");
+  }
+}
+
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.type === "cleanUrl") {
     const cleaned = stripTrackers(location.href);
@@ -32,10 +42,4 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   }
 });
 
-// Auto-clean on load (soft)
-const cleaned = stripTrackers(location.href);
-if (cleaned) {
-  console.log("VEIL cleaned URL trackers:", cleaned);
-  // history.replaceState would be silent; uncomment for auto
-  // history.replaceState(null, "", cleaned);
-}
+maybeAutoClean();

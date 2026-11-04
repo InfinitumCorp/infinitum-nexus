@@ -64,8 +64,12 @@
       <div class="card">
         <div class="muted">Tor-first / Privacy</div>
         <div><span class="status-dot" id="tor-dot"></span><span id="tor-status">Tor proxy: OFF</span></div>
-        <div class="muted" style="margin-top:0.5rem">Tracker stripping active on pages. Requires local Tor on 127.0.0.1:9050.</div>
+        <div class="muted" style="margin-top:0.5rem">Tracker stripping active. Requires local Tor on 127.0.0.1:9050.</div>
+        <label class="muted" style="display:block; margin-top:0.5rem">
+          <input type="checkbox" id="auto-clean" /> Auto-clean trackers on page load
+        </label>
         <button class="primary" id="tor-toggle" style="margin-top:0.5rem">Enable Tor</button>
+        <button class="primary" id="check-tor" style="margin-top:0.5rem; margin-left:0.5rem">Check Tor</button>
         <button class="primary" id="clean-current" style="margin-top:0.5rem; margin-left:0.5rem">Clean current tab URL</button>
       </div>
     </div>

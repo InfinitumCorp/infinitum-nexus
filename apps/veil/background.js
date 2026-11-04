@@ -30,9 +30,19 @@ async function setTorProxy(enabled) {
   }
 }
 
+async function checkTor() {
+  try {
+    const r = await fetch("https://check.torproject.org/api/ip", { cache: "no-store" });
+    const data = await r.json();
+    return !!data.IsTor;
+  } catch {
+    return false;
+  }
+}
+
 chrome.runtime.onInstalled.addListener(() => {
   console.log("VEIL installed");
-  chrome.storage.local.set({ totalVeil: "0", rewardLog: [], torEnabled: false });
+  chrome.storage.local.set({ totalVeil: "0", rewardLog: [], torEnabled: false, autoClean: false });
 });
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
@@ -42,6 +52,14 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   }
   if (msg.type === "getTorStatus") {
     chrome.storage.local.get(["torEnabled"], (s) => sendResponse({ enabled: !!s.torEnabled }));
+    return true;
+  }
+  if (msg.type === "checkTor") {
+    checkTor().then(isTor => sendResponse({ isTor }));
+    return true;
+  }
+  if (msg.type === "setAutoClean") {
+    chrome.storage.local.set({ autoClean: !!msg.enabled }, () => sendResponse({ ok: true }));
     return true;
   }
   sendResponse({ ok: true });

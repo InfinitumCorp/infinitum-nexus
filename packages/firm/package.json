@@ -1,0 +1,16 @@
+{
+  "name": "@infinitum/firm",
+  "version": "0.1.0",
+  "description": "FIRM ecosystem token interfaces and wallet abstraction.",
+  "type": "module",
+  "private": true,
+  "engines": { "node": ">=22.18" },
+  "scripts": {
+    "typecheck": "tsc -p . --noEmit",
+    "test": "node --test \"src/**/*.test.ts\""
+  },
+  "devDependencies": {
+    "typescript": "^5.9.0",
+    "@types/node": "^22.0.0"
+  }
+}

@@ -2,12 +2,17 @@
  * Endpoint helpers for Spectre self-cleaning.
  */
 import type { SpectreCRM } from "../core/crm.ts";
-import { findCompanyDuplicates, findContactDuplicates, mergeCompanies, mergeContacts } from "../core/cleaning.ts";
+import { findDuplicateCompanies, findDuplicateContacts, dataIssues, repointReferences } from "../core/cleaning.ts";
 
 export function listDuplicates(crm: SpectreCRM, workspace: string) {
+  const companies = crm.list("companies", workspace);
+  const contacts = crm.list("contacts", workspace);
+  const activities = crm.list("activities", workspace);
+  const now = crm.now();
   return {
-    companies: findCompanyDuplicates(crm, workspace),
-    contacts: findContactDuplicates(crm, workspace),
+    companies: findDuplicateCompanies(companies),
+    contacts: findDuplicateContacts(contacts),
+    issues: dataIssues(contacts, companies, activities, now),
   };
 }
 
@@ -19,6 +24,15 @@ export async function runMerge(
   keepId: string,
   mergeIds: string[],
 ) {
-  if (kind === "company") return mergeCompanies(crm, workspace, actor, keepId, mergeIds);
-  return mergeContacts(crm, workspace, actor, keepId, mergeIds);
+  const deals = crm.list("deals", workspace);
+  const activities = crm.list("activities", workspace);
+  repointReferences(keepId, mergeIds, deals, activities);
+
+  if (kind === "company") {
+    for (const id of mergeIds) crm.store.companies.delete(id);
+  } else {
+    for (const id of mergeIds) crm.store.contacts.delete(id);
+  }
+  await crm.recordMerge(actor, kind, keepId, mergeIds);
+  return { kept: keepId, merged: mergeIds };
 }

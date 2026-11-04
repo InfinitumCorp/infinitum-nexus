@@ -22,12 +22,12 @@ Maps every product advertised on https://infinitum-corporation.vercel.app/#produ
 | Product | Advertised task | Status | Evidence | Next steps to perform advertised tasks |
 |---------|-----------------|--------|----------|----------------------------------------|
 | **+SPCTR (Spectre)** | AI intelligent CRM: auto research every account, predictive pipeline (win probability, risk, forecast, next-best-action with reasoning), relationship map + buying-committee gaps, self-cleaning data, AI agents (Researcher, Prospector, Deal coach, etc.), plain-language queries, Shared Truth Ledger, Deal Rehearsal, self-executing deals. | Partial | Core + web server with companies/deals/scoring/next-best-action + `/api/research` + `/api/query` + agent team with real tool backends + richer research parsing + Deal Rehearsal + METATRON-backed scorer + Shared Truth Ledger UI + self-executing deals that run via Conductor + relationship map UI + self-cleaning + buying-committee gaps | Production polish. |
-| **/CNDCTR/** | Intent in → Score (plan with steps, permissions, checkpoints) → perform across apps/APIs → verify outcome with evidence. Autonomy levels (Rehearsal / Accompaniment / Autopilot). Triggered by other products. | Partial | Score model, executor, Firmament evidence, Podium UI + server, real HTTP + research instruments, public API used by Spectre + autonomy levels + **Spectre HTTP adapter** | Production polish. |
+| **/CNDCTR/** | Intent in → Score (plan with steps, permissions, checkpoints) → perform across apps/APIs → verify outcome with evidence. Autonomy levels (Rehearsal / Accompaniment / Autopilot). Triggered by other products. | Partial | Score model, executor, Firmament evidence, Podium UI + server, real HTTP + research instruments, public API used by Spectre + autonomy levels + Spectre HTTP adapter | Production polish. |
 | **SCALVS.ai** | AI workforce platform: Agent Studio (templates, tools, memory), Command Center, multi-agent teams coordinated by Conductor, Nexus Context Vault memory, private runtime. | Scaffolded | `packages/scalus` (Agent, improved run loop, tests); used by Spectre agents | Expand tool interface and Context Vault; integrate with Conductor. |
 | **METATRON** | Unified financial/intelligence/analytics environment + prediction engine (used by Spectre forecasts, Deal Rehearsal). | Scaffolded | `packages/metatron` (predict interface + tests); wired into Spectre via `scoreWithMetatron` | Analytics dashboard data model; replace baseline by default. |
 | **HRVST** | Permissioned capture from camera glasses → AI refine (privacy filter) → Harvest Packet with provenance → license or keep in Personal Silo. Proof of Perspective on Firmament. | Scaffolded | Packet model, privacy filter, Firmament provenance, Personal Silo store | Real privacy model; licensing flow. |
 | **ei·det·ic** | Facial-recognition and identity-intelligence platform (authorized, lawful use only). | Scaffolded | `packages/eidetic` (interface + stub service + test; no biometrics) | Spectre integration point. |
-| **FIRM + FIRM Wallet** | Ecosystem token, self-custody wallet, built-in DEX. Product tokens paired with FIRM. | Scaffolded | `packages/firm` (interfaces + EVM stubs + smoke test) | Concrete EVM implementations; DEX interface. |
+| **FIRM + FIRM Wallet** | Ecosystem token, self-custody wallet, built-in DEX. Product tokens paired with FIRM. | Partial | `packages/firm` (interfaces + **real JSON-RPC EVM client** for balanceOf/totalSupply/getBalance/chainId) | Wallet signing; DEX interface. |
 | **Project-specific tokens** | $HRVST, $CNDT, $SPCTR, $SCLV, etc. | Not started | — | Define after FIRM foundation. |
 
 ## Supporting / infrastructure concepts
@@ -50,7 +50,7 @@ These cannot be fully built as software. Interfaces (tasking, telemetry, evidenc
 
 - Spectre: production polish.  
 - Conductor: production polish.  
-- FIRM: real EVM clients.  
+- FIRM: wallet signing; DEX interface.  
 - Project-specific tokens.  
 
 ## Acceptance criteria (for "performs as advertised")

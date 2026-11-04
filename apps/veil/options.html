@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>VEIL Options</title>
+  <style>
+    body { margin: 0; font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; background: #fff; color: #111820; padding: 1.5rem; max-width: 28rem; }
+    h1 { font-size: 1.25rem; font-weight: 500; margin: 0 0 1rem; }
+    label { display: block; font-size: 0.85rem; color: #52606b; margin-top: 0.75rem; }
+    input { width: 100%; padding: 0.5rem; border: 1px solid #d6dce1; border-radius: 4px; font: inherit; margin-top: 0.25rem; }
+    button { margin-top: 1rem; background: #111820; color: #fff; border: none; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer; font: inherit; }
+    .muted { color: #52606b; font-size: 0.85rem; margin-top: 0.5rem; }
+  </style>
+</head>
+<body>
+  <h1>VEIL</><sup style="font-size:0.5em">™</sup> Options</h1>
+  <label>Base RPC URL
+    <input id="rpc" placeholder="https://mainnet.base.org" />
+  </label>
+  <label>VeilClaim contract address
+    <input id="claim" placeholder="0x..." />
+  </label>
+  <button id="save">Save</button>
+  <div id="msg" class="muted"></div>
+  <script src="options.js"></script>
+</body>
+</html>

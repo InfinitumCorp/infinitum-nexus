@@ -57,6 +57,17 @@ chrome.runtime.onInstalled.addListener(() => {
   console.log("VEIL installed");
   chrome.storage.local.set({ totalVeil: "0", rewardLog: [], torEnabled: false, autoClean: false });
   loadDeployed();
+  chrome.contextMenus.create({
+    id: "veil-clean",
+    title: "VEIL: Clean trackers on this page",
+    contexts: ["page"]
+  });
+});
+
+chrome.contextMenus.onClicked.addListener((info, tab) => {
+  if (info.menuItemId === "veil-clean" && tab?.id) {
+    chrome.tabs.sendMessage(tab.id, { type: "cleanUrl" });
+  }
 });
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {

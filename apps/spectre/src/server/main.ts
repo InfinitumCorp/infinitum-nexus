@@ -13,6 +13,7 @@ import { researchCompany } from "./research.ts";
 import { handleQuery } from "./query.ts";
 import { listPendingActions, runPendingActions } from "./execution.ts";
 import { buildMap } from "./relationships.ts";
+import { listDuplicates, runMerge } from "./cleaning.ts";
 
 const PORT = Number(process.env.PORT ?? 3000);
 const WORKSPACE = "demo";
@@ -122,6 +123,11 @@ const indexHtml = `<!DOCTYPE html>
       <div id="relmap" class="muted">Loading…</div>
     </div>
     <div class="card">
+      <h2 style="margin-top:0">Self-cleaning</h2>
+      <div class="muted" style="margin-bottom:0.5rem">Duplicate companies/contacts and data issues.</div>
+      <div id="cleaning" class="muted">Loading…</div>
+    </div>
+    <div class="card">
       <h2 style="margin-top:0">Self-executing actions</h2>
       <div class="muted" style="margin-bottom:0.5rem">Rules that match open deals. Review before running in production.</div>
       <div id="actions" class="muted">Loading…</div>
@@ -136,12 +142,13 @@ const indexHtml = `<!DOCTYPE html>
   </main>
   <script>
     async function load() {
-      const [cos, deals, ledger, actions, rel] = await Promise.all([
+      const [cos, deals, ledger, actions, rel, clean] = await Promise.all([
         fetch("/api/companies").then(r => r.json()),
         fetch("/api/deals").then(r => r.json()),
         fetch("/api/ledger").then(r => r.json()),
         fetch("/api/execution").then(r => r.json()),
-        fetch("/api/relationships").then(r => r.json())
+        fetch("/api/relationships").then(r => r.json()),
+        fetch("/api/cleaning").then(r => r.json())
       ]);
       document.getElementById("companies").innerHTML = cos.length
         ? cos.map(c => `<div>${c.id} — ${c.name}${c.domain ? " · " + c.domain : ""}</div>`).join("")
@@ -159,6 +166,12 @@ const indexHtml = `<!DOCTYPE html>
             return `<div class="rel">${from?.label ?? e.from} —${e.strength}→ ${to?.label ?? e.to}${e.note ? " · " + e.note : ""}</div>`;
           }).join("")
         : "No relationships yet.";
+      const cleanHtml = [
+        ...clean.companies.map(g => `<div class="deal"><strong>Company dup</strong> · ${g.reason}<br>Keep ${g.keep.name} (${g.keep.id}) — merge ${g.duplicates.map(d => d.name).join(", ")}</div>`),
+        ...clean.contacts.map(g => `<div class="deal"><strong>Contact dup</strong> · ${g.reason}<br>Keep ${g.keep.name} (${g.keep.id}) — merge ${g.duplicates.map(d => d.name).join(", ")}</div>`),
+        ...clean.issues.map(i => `<div class="deal"><strong>${i.kind}</strong> · ${i.message}</div>`)
+      ].join("");
+      document.getElementById("cleaning").innerHTML = cleanHtml || "No duplicates or issues.";
       document.getElementById("ledger").innerHTML = ledger.length
         ? ledger.map(e => `<div class="ledger-entry"><strong>${e.type}</strong> · ${e.subject}<br><span class="muted">${e.timestamp} · ${e.actor}</span><br>${JSON.stringify(e.payload)}</div>`).join("")
         : "No ledger entries yet.";
@@ -285,6 +298,22 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
         body.note ? String(body.note) : undefined,
       );
       return json(res, 201, r);
+    }
+
+    if (url.pathname === "/api/cleaning" && req.method === "GET") {
+      return json(res, 200, listDuplicates(crm, WORKSPACE));
+    }
+    if (url.pathname === "/api/cleaning" && req.method === "POST") {
+      const body = await readBody(req);
+      const result = await runMerge(
+        crm,
+        WORKSPACE,
+        ACTOR,
+        body.kind,
+        String(body.keepId ?? ""),
+        Array.isArray(body.mergeIds) ? body.mergeIds.map(String) : [],
+      );
+      return json(res, 200, result);
     }
 
     if (url.pathname === "/api/research" && req.method === "GET") {

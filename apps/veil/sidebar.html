@@ -3,9 +3,9 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>VEIL</title>
+  <title>VEIL</>™</title>
   <style>
-    :root { --bg: #0a0a0a; --fg: #f5f5f5; --muted: #888; --accent: #fff; --line: #222; --good: #4ade80; }
+    :root { --bg: #ffffff; --fg: #111820; --muted: #52606b; --accent: #111820; --line: #d6dce1; --good: #16a34a; }
     * { box-sizing: border-box; }
     body { margin: 0; font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; background: var(--bg); color: var(--fg); font-size: 14px; }
     header { padding: 0.75rem 1rem; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center; }
@@ -16,18 +16,18 @@
     main { padding: 1rem; }
     .panel { display: none; }
     .panel.active { display: block; }
-    .card { border: 1px solid var(--line); border-radius: 6px; padding: 0.75rem; margin-bottom: 0.75rem; }
-    textarea { width: 100%; min-height: 4rem; background: #111; color: var(--fg); border: 1px solid var(--line); border-radius: 4px; padding: 0.5rem; font: inherit; }
-    button.primary { background: var(--accent); color: #000; border: none; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer; font: inherit; }
+    .card { border: 1px solid var(--line); border-radius: 6px; padding: 0.75rem; margin-bottom: 0.75rem; background: #fff; }
+    textarea { width: 100%; min-height: 4rem; background: #f8f9fa; color: var(--fg); border: 1px solid var(--line); border-radius: 4px; padding: 0.5rem; font: inherit; }
+    button.primary { background: var(--accent); color: #fff; border: none; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer; font: inherit; }
     .muted { color: var(--muted); font-size: 0.85rem; }
     #out, #rewards-log { white-space: pre-wrap; font-size: 0.85rem; max-height: 12rem; overflow: auto; }
     .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--good); display: inline-block; margin-right: 0.5rem; }
-    .status-dot.offline { background: #f87171; }
+    .status-dot.offline { background: #dc2626; }
   </style>
 </head>
 <body>
   <header>
-    <h1>VEIL</h1>
+    <h1>VEIL</>™</h1>
     <nav>
       <button class="active" data-panel="ask">Ask</button>
       <button data-panel="wallet">Wallet</button>
@@ -49,7 +49,7 @@
         <div class="muted">FIRM Wallet</div>
         <div id="addr">Not connected</div>
         <div id="bal" class="muted">Balance: —</div>
-        <button class="primary" id="connect-wallet" style="margin-top:0.5rem">Connect (scaffold)</button>
+        <button class="primary" id="connect-wallet" style="margin-top:0.5rem">Connect</button>
       </div>
     </div>
     <div id="rewards" class="panel">

@@ -58,6 +58,7 @@ const indexHtml = `<!DOCTYPE html>
     .muted { color: var(--muted); font-size: 0.85rem; }
     .deal { padding: 0.5rem 0; border-bottom: 1px solid var(--line); }
     .prob { font-weight: 600; }
+    .ledger-entry { padding: 0.4rem 0; border-bottom: 1px solid var(--line); font-size: 0.85rem; }
   </style>
 </head>
 <body>
@@ -105,12 +106,18 @@ const indexHtml = `<!DOCTYPE html>
       <h2 style="margin-top:0">Pipeline</h2>
       <div id="pipeline" class="muted">Loading…</div>
     </div>
+    <div class="card">
+      <h2 style="margin-top:0">Shared Truth Ledger</h2>
+      <div class="muted" style="margin-bottom:0.5rem">Every create, update, and fact recorded on Firmament.</div>
+      <div id="ledger" class="muted">Loading…</div>
+    </div>
   </main>
   <script>
     async function load() {
-      const [cos, deals] = await Promise.all([
+      const [cos, deals, ledger] = await Promise.all([
         fetch("/api/companies").then(r => r.json()),
-        fetch("/api/deals").then(r => r.json())
+        fetch("/api/deals").then(r => r.json()),
+        fetch("/api/ledger").then(r => r.json())
       ]);
       document.getElementById("companies").innerHTML = cos.length
         ? cos.map(c => `<div>${c.id} — ${c.name}${c.domain ? " · " + c.domain : ""}</div>`).join("")
@@ -118,6 +125,9 @@ const indexHtml = `<!DOCTYPE html>
       document.getElementById("pipeline").innerHTML = deals.length
         ? deals.map(d => `<div class="deal"><strong>${d.name}</strong> (${d.stage}) — $${d.amount}<br><span class="prob">${Math.round(d.score.probability * 100)}% win</span> · ${d.next.action}<br><span class="muted">${d.next.why}</span></div>`).join("")
         : "No deals yet.";
+      document.getElementById("ledger").innerHTML = ledger.length
+        ? ledger.map(e => `<div class="ledger-entry"><strong>${e.type}</strong> · ${e.subject}<br><span class="muted">${e.timestamp} · ${e.actor}</span><br>${JSON.stringify(e.payload)}</div>`).join("")
+        : "No ledger entries yet.";
     }
     document.getElementById("addCo").onclick = async () => {
       const name = document.getElementById("name").value.trim();
@@ -216,6 +226,12 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
       const body = await readBody(req);
       const result = await handleQuery(String(body.text ?? ""), { crm, workspace: WORKSPACE, ledger });
       return json(res, 200, result);
+    }
+
+    if (url.pathname === "/api/ledger" && req.method === "GET") {
+      const entries = await ledger.entries();
+      const spectre = entries.filter((e) => e.product === "spectre");
+      return json(res, 200, spectre.slice(-50).reverse());
     }
 
     if (url.pathname === "/api/alerts" && req.method === "GET") {

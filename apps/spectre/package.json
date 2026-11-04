@@ -14,7 +14,8 @@
     "@infinitum/firmament": "workspace:*",
     "@infinitum/cid": "workspace:*",
     "@infinitum/scalus": "workspace:*",
-    "@infinitum/metatron": "workspace:*"
+    "@infinitum/metatron": "workspace:*",
+    "@infinitum/conductor": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.9.0",

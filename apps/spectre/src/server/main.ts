@@ -214,7 +214,7 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
 
     if (url.pathname === "/api/query" && req.method === "POST") {
       const body = await readBody(req);
-      const result = await handleQuery(String(body.text ?? ""), { crm, workspace: WORKSPACE });
+      const result = await handleQuery(String(body.text ?? ""), { crm, workspace: WORKSPACE, ledger });
       return json(res, 200, result);
     }
 

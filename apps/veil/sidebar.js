@@ -14,6 +14,7 @@ const sessionTime = document.getElementById("session-time");
 const rewardsLog = document.getElementById("rewards-log");
 const torStatus = document.getElementById("tor-status");
 const torDot = document.getElementById("tor-dot");
+const pageInfo = document.getElementById("page-info");
 
 // Tab switching
 document.querySelectorAll("nav button").forEach(btn => {
@@ -24,6 +25,22 @@ document.querySelectorAll("nav button").forEach(btn => {
     document.getElementById(btn.dataset.panel).classList.add("active");
   };
 });
+
+async function refreshPageInfo() {
+  if (!pageInfo) return;
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab?.id) return;
+    chrome.tabs.sendMessage(tab.id, { type: "pageInfo" }, (resp) => {
+      if (resp) {
+        pageInfo.textContent = resp.title || tab.title || "";
+        if (resp.trackers?.length) {
+          pageInfo.textContent += ` · trackers: ${resp.trackers.join(", ")}`;
+        }
+      }
+    });
+  } catch {}
+}
 
 // Ask
 document.getElementById("ask-btn").onclick = async () => {
@@ -42,7 +59,7 @@ document.getElementById("ask-btn").onclick = async () => {
     const data = await r.json();
     out.textContent = JSON.stringify(data, null, 2);
     status.textContent = "Ready";
-    accrueReward(5); // small reward for query
+    accrueReward(5);
   } catch (err) {
     out.textContent = `Conductor unreachable. Local echo:\n${text}\n\n${String(err)}`;
     status.textContent = "Offline";
@@ -137,6 +154,7 @@ if (checkTorBtn) {
   };
 }
 refreshTor();
+refreshPageInfo();
 
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg.type === "status") status.textContent = msg.text;

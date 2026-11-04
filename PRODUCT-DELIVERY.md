@@ -21,7 +21,7 @@ Maps every product advertised on https://infinitum-corporation.vercel.app/#produ
 
 | Product | Advertised task | Status | Evidence | Next steps to perform advertised tasks |
 |---------|-----------------|--------|----------|----------------------------------------|
-| **+SPCTR (Spectre)** | AI intelligent CRM: auto research every account, predictive pipeline (win probability, risk, forecast, next-best-action with reasoning), relationship map + buying-committee gaps, self-cleaning data, AI agents (Researcher, Prospector, Deal coach, etc.), plain-language queries, Shared Truth Ledger, Deal Rehearsal, self-executing deals. | Partial | Core + web server with companies/deals/scoring/next-best-action + `/api/research` + `/api/query` + agent team with real tool backends + richer research parsing + Deal Rehearsal + METATRON-backed scorer + Shared Truth Ledger UI + self-executing deals that run via Conductor + **relationship map UI** (`/api/relationships`) | Self-cleaning; buying-committee gaps. |
+| **+SPCTR (Spectre)** | AI intelligent CRM: auto research every account, predictive pipeline (win probability, risk, forecast, next-best-action with reasoning), relationship map + buying-committee gaps, self-cleaning data, AI agents (Researcher, Prospector, Deal coach, etc.), plain-language queries, Shared Truth Ledger, Deal Rehearsal, self-executing deals. | Partial | Core + web server with companies/deals/scoring/next-best-action + `/api/research` + `/api/query` + agent team with real tool backends + richer research parsing + Deal Rehearsal + METATRON-backed scorer + Shared Truth Ledger UI + self-executing deals that run via Conductor + relationship map UI + **self-cleaning** (`/api/cleaning` — duplicates + issues + merge) | Buying-committee gaps. |
 | **/CNDCTR/** | Intent in → Score (plan with steps, permissions, checkpoints) → perform across apps/APIs → verify outcome with evidence. Autonomy levels (Rehearsal / Accompaniment / Autopilot). Triggered by other products. | Partial | Score model, executor, Firmament evidence, Podium UI + server, real HTTP + research instruments, public API used by Spectre | More autonomy levels; Spectre HTTP adapter. |
 | **SCALVS.ai** | AI workforce platform: Agent Studio (templates, tools, memory), Command Center, multi-agent teams coordinated by Conductor, Nexus Context Vault memory, private runtime. | Scaffolded | `packages/scalus` (Agent, improved run loop, tests); used by Spectre agents | Expand tool interface and Context Vault; integrate with Conductor. |
 | **METATRON** | Unified financial/intelligence/analytics environment + prediction engine (used by Spectre forecasts, Deal Rehearsal). | Scaffolded | `packages/metatron` (predict interface + tests); wired into Spectre via `scoreWithMetatron` | Analytics dashboard data model; replace baseline by default. |
@@ -48,14 +48,14 @@ These cannot be fully built as software. Interfaces (tasking, telemetry, evidenc
 
 ## Immediate next build
 
-- Spectre: self-cleaning; buying-committee gaps.  
+- Spectre: buying-committee gaps.  
 - Conductor: Spectre HTTP adapter; more autonomy levels.  
 - FIRM: real EVM clients.  
 - Project-specific tokens.  
 
 ## Acceptance criteria (for "performs as advertised")
 
-- Spectre: user can create company/contact/deal, see explained win probability + next-best-action, run a basic research query, ask plain-language questions, rehearse a deal, see the Shared Truth Ledger, run self-executing actions via Conductor, view and add relationship edges, and have changes audited on Firmament.  
+- Spectre: user can create company/contact/deal, see explained win probability + next-best-action, run a basic research query, ask plain-language questions, rehearse a deal, see the Shared Truth Ledger, run self-executing actions via Conductor, view and add relationship edges, see duplicate/issue cleaning suggestions, and have changes audited on Firmament.  
 - Conductor: user can write a Score, execute a simulated step with permission check, and receive evidence recorded on Firmament.  
 - SCALVS: agent can be defined, run a tool call, and return a result usable by Spectre/Conductor.  
 - All new code type-checks and has tests.  

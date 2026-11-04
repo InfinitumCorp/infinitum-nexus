@@ -1,6 +1,6 @@
 /**
- * VEIL rewards — claimable receipt structure.
- * Local accrual today; on-chain settlement via Firmament + $VEIL token later.
+ * VEIL rewards — claimable receipt + claim wiring.
+ * Local accrual today. On-chain via VeilClaim.sol once deployed.
  */
 export interface RewardReceipt {
   user: string;
@@ -8,27 +8,29 @@ export interface RewardReceipt {
   seconds: number;
   at: string;
   claimable: boolean;
-  /** Placeholder for on-chain claim tx or Firmament proof. */
+  receiptId?: string;
   proof?: string;
 }
 
 const RATE = 0.001;
 
 export function accrue(user: string, seconds: number): RewardReceipt {
-  return {
+  const receipt = {
     user,
     seconds,
     veil: (seconds * RATE).toFixed(6),
     at: new Date().toISOString(),
     claimable: true,
   };
+  receipt.receiptId = "0x" + Array.from(crypto.getRandomValues(new Uint8Array(32))).map(b => b.toString(16).padStart(2, "0")).join("");
+  return receipt;
 }
 
-export function buildClaim(receipt: RewardReceipt, tokenAddress: string) {
+export function buildClaim(receipt: RewardReceipt, claimContract: string) {
   return {
-    to: tokenAddress,
+    to: claimContract,
     method: "claim",
-    args: [receipt.user, receipt.veil, receipt.at],
-    note: "Submit via FIRM wallet once $VEIL is deployed",
+    args: [receipt.receiptId, receipt.veil],
+    note: "Call VeilClaim.claim once the contract is funded and deployed",
   };
 }

@@ -6,6 +6,7 @@
   "private": true,
   "engines": { "node": ">=22.18" },
   "scripts": {
+    "start": "node src/server.ts",
     "typecheck": "tsc -p . --noEmit",
     "test": "node --test \"src/**/*.test.ts\""
   },

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "VEIL</>™",
-  "version": "0.3.6",
+  "version": "0.4.0",
   "description": "Tor-first secure browser sidebar: private browsing, AI assistant, and Infinitum ecosystem access.",
   "permissions": ["sidePanel", "storage", "activeTab", "tabs", "proxy"],
   "host_permissions": ["https://*/*", "http://*/*"],

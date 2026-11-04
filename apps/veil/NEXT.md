@@ -1,6 +1,8 @@
 # VEIL Next Steps
 
-Progress (2026-11-04) — v0.3.6:
+Scaffold complete (2026-11-04) — v0.4.0.
+
+Done:
 - All-white layout matching Infinitum site
 - Branding: VEIL</>™
 - Multi-panel sidebar + Conductor Ask
@@ -12,7 +14,7 @@ Progress (2026-11-04) — v0.3.6:
 - VeilClaim.sol + deploy.ts + deployed.json placeholder
 - Fonts: Helvetica Neue
 
-Remaining:
+Post-scaffold (bugs / production later):
 - Real RLP encoding + eth_sendRawTransaction
 - Compile + deploy of VeilClaim and $VEIL token on Base
 - PNG icons

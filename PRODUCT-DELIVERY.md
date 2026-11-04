@@ -27,8 +27,8 @@ Maps every product advertised on https://infinitum-corporation.vercel.app/#produ
 | **METATRON** | Unified financial/intelligence/analytics environment + prediction engine (used by Spectre forecasts, Deal Rehearsal). | Scaffolded | `packages/metatron` (predict interface + tests); wired into Spectre via `scoreWithMetatron` | Analytics dashboard data model; replace baseline by default. |
 | **HRVST** | Permissioned capture from camera glasses → AI refine (privacy filter) → Harvest Packet with provenance → license or keep in Personal Silo. Proof of Perspective on Firmament. | Scaffolded | Packet model, privacy filter, Firmament provenance, Personal Silo store | Real privacy model; licensing flow. |
 | **ei·det·ic** | Facial-recognition and identity-intelligence platform (authorized, lawful use only). | Scaffolded | `packages/eidetic` (interface + stub service + test; no biometrics) | Spectre integration point. |
-| **FIRM + FIRM Wallet** | Ecosystem token, self-custody wallet, built-in DEX. Product tokens paired with FIRM. | Partial | `packages/firm` (interfaces + **real JSON-RPC EVM client** for balanceOf/totalSupply/getBalance/chainId) | Wallet signing; DEX interface. |
-| **Project-specific tokens** | $HRVST, $CNDT, $SPCTR, $SCLV, etc. | Not started | — | Define after FIRM foundation. |
+| **FIRM + FIRM Wallet** | Ecosystem token, self-custody wallet, built-in DEX. Product tokens paired with FIRM. | Partial | `packages/firm` (interfaces + real JSON-RPC EVM client for balanceOf/totalSupply/getBalance/chainId) | Wallet signing; DEX interface. |
+| **Project-specific tokens** | $HRVST, $CNDT, $SPCTR, $SCLV, etc. | Scaffolded | `packages/firm/src/tokens.ts` (definitions + `createProjectToken` / `createAllProjectTokens` using the EVM client) | Deploy contracts; pair with FIRM. |
 
 ## Supporting / infrastructure concepts
 
@@ -51,7 +51,7 @@ These cannot be fully built as software. Interfaces (tasking, telemetry, evidenc
 - Spectre: production polish.  
 - Conductor: production polish.  
 - FIRM: wallet signing; DEX interface.  
-- Project-specific tokens.  
+- Project-specific tokens: deploy contracts; pair with FIRM.  
 
 ## Acceptance criteria (for "performs as advertised")
 

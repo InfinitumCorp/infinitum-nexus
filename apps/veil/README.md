@@ -3,20 +3,15 @@
 Tor-first secure browser sidebar for the Infinitum ecosystem.
 
 ## Status
-Partial (v0.3.0): Manifest V3 side panel with multi-panel UI (Ask, Wallet, Rewards, Privacy).
-- Ask calls Conductor
-- Rewards + wallet via chrome.storage
-- Content script strips trackers (manual + optional auto-clean)
-- Tor proxy toggle + connectivity check (requires local Tor on 127.0.0.1:9050)
-- Simple SVG icon
+Partial (v0.3.1): Manifest V3 side panel.
+- Ask → Conductor
+- Rewards with claimable receipts
+- Wallet panel queries Base RPC for native balance
+- Tracker stripping + Tor proxy + connectivity check
 
-## Load in Chrome / Edge
-1. Open `chrome://extensions`
-2. Enable Developer mode
-3. Load unpacked → select `apps/veil`
+## Load
+`chrome://extensions` → Developer mode → Load unpacked → `apps/veil`
 
-## Tor
-Start Tor (or Tor Browser) so SOCKS5 listens on 9050, then toggle in the Privacy panel and use “Check Tor”.
-
-## Packaging
-See PACKAGING.md.
+## Wallet
+Connect generates a scaffold address and queries `https://mainnet.base.org` for ETH balance.
+Set `firmRpc` / `firmToken` in chrome.storage when FIRM token is live.

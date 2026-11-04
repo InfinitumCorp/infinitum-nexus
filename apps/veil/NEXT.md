@@ -1,21 +1,18 @@
 # VEIL Next Steps
 
-Progress (2026-11-04) — v0.3.0:
-- Multi-panel sidebar: Ask / Wallet / Rewards / Privacy
-- Ask wired to Conductor with page context + local fallback
-- Scaffold wallet connect + balance display via chrome.storage
-- $VEIL rewards accrual (session time + query bonus) with log
-- Content script tracker stripping + manual clean + optional auto-clean
-- Tor proxy toggle via chrome.proxy (SOCKS5 127.0.0.1:9050)
-- Tor connectivity check (check.torproject.org)
-- Simple SVG icon
-- Packaging notes
+Progress (2026-11-04) — v0.3.1:
+- Multi-panel sidebar + Conductor Ask
+- $VEIL session rewards with claimable receipt structure
+- FIRM wallet panel with Base RPC balance query (packages/firm pattern)
+- Tracker stripping (manual + auto-clean)
+- Tor proxy toggle + connectivity check
+- SVG icon + packaging notes
 
-Remaining (post-scaffold):
-- Full FIRM wallet package + RPC / on-chain integration
-- Production $VEIL on-chain rewards
-- PNG icon set for broader compatibility
-- Real Tor circuit health + stream isolation
+Remaining:
+- Real passkey / FirmWallet key management in the extension
+- Deploy $VEIL token + claim contract, then wire buildClaim
+- PNG icons
+- Full on-chain settlement via Firmament
 
-See root PRODUCT-DELIVERY.md for overall status.
+See root PRODUCT-DELIVERY.md.
 VEIL is ready for unpacked testing.

@@ -1,0 +1,12 @@
+{
+  "version": 2,
+  "builds": [
+    { "src": "src/server/main.ts", "use": "@vercel/node" }
+  ],
+  "routes": [
+    { "src": "/(.*)", "dest": "src/server/main.ts" }
+  ],
+  "env": {
+    "PORT": "3000"
+  }
+}

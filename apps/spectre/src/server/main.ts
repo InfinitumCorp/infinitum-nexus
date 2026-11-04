@@ -1,25 +1,22 @@
 /**
- * +SPCTR minimal web server.
- * Clean, minimal, white UI foundation. Serves a single-page app
- * and JSON API over the existing core CRM + intelligence modules.
+ * +SPCTR web server.
+ * Clean, minimal, white UI + JSON API over the real SpectreCRM,
+ * Firmament audit trail, and intelligence (scoring / next-best-action).
  *
  * Run: node src/server/main.ts   (from apps/spectre)
  */
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { readFileSync } from "node:fs";
-import { join, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
+import { Ledger, MemoryStore, generateSigner } from "@infinitum/firmament";
+import { SpectreCRM } from "../core/crm.ts";
+import { scoreDeal, nextBestAction, riskAlerts, forecast } from "../core/intelligence.ts";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT ?? 3000);
+const WORKSPACE = "demo";
+const ACTOR = "cid:demo-user";
 
-// In-memory store for the scaffold (replace with Firmament-backed store later).
-const store = {
-  companies: [] as any[],
-  contacts: [] as any[],
-  deals: [] as any[],
-  activities: [] as any[],
-};
+const ledger = new Ledger(new MemoryStore());
+const signer = generateSigner();
+const crm = new SpectreCRM({ ledger, signer });
 
 function json(res: ServerResponse, status: number, body: unknown) {
   res.writeHead(status, { "content-type": "application/json" });
@@ -29,6 +26,13 @@ function json(res: ServerResponse, status: number, body: unknown) {
 function html(res: ServerResponse, body: string) {
   res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
   res.end(body);
+}
+
+async function readBody(req: IncomingMessage): Promise<any> {
+  const chunks: Buffer[] = [];
+  for await (const c of req) chunks.push(c as Buffer);
+  const raw = Buffer.concat(chunks).toString();
+  return raw ? JSON.parse(raw) : {};
 }
 
 const indexHtml = `<!DOCTYPE html>
@@ -48,9 +52,10 @@ const indexHtml = `<!DOCTYPE html>
     label { display: block; font-size: 0.8rem; color: var(--muted); margin-bottom: 0.25rem; }
     input, select, button { font: inherit; padding: 0.5rem 0.75rem; border: 1px solid var(--line); border-radius: 6px; }
     button { background: var(--accent); color: #fff; border: none; cursor: pointer; }
-    button.secondary { background: #fff; color: var(--fg); border: 1px solid var(--line); }
     .row { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
     .muted { color: var(--muted); font-size: 0.85rem; }
+    .deal { padding: 0.5rem 0; border-bottom: 1px solid var(--line); }
+    .prob { font-weight: 600; }
   </style>
 </head>
 <body>
@@ -61,23 +66,42 @@ const indexHtml = `<!DOCTYPE html>
       <div class="row">
         <div><label>Name</label><input id="name" /></div>
         <div><label>Domain</label><input id="domain" /></div>
-        <div><label>&nbsp;</label><button id="add">Add</button></div>
+        <div><label>&nbsp;</label><button id="addCo">Add</button></div>
+      </div>
+    </div>
+    <div class="card">
+      <h2 style="margin-top:0">New deal</h2>
+      <div class="row">
+        <div><label>Company ID</label><input id="coId" placeholder="co_..." /></div>
+        <div><label>Name</label><input id="dealName" /></div>
+        <div><label>Amount</label><input id="amount" type="number" value="10000" /></div>
+        <div><label>Close date</label><input id="close" type="date" /></div>
+        <div><label>&nbsp;</label><button id="addDeal">Add deal</button></div>
       </div>
     </div>
     <div class="card">
       <h2 style="margin-top:0">Companies</h2>
-      <div id="list" class="muted">Loading…</div>
+      <div id="companies" class="muted">Loading…</div>
+    </div>
+    <div class="card">
+      <h2 style="margin-top:0">Pipeline</h2>
+      <div id="pipeline" class="muted">Loading…</div>
     </div>
   </main>
   <script>
     async function load() {
-      const r = await fetch("/api/companies");
-      const data = await r.json();
-      document.getElementById("list").innerHTML = data.length
-        ? data.map(c => `<div>${c.name}${c.domain ? " · " + c.domain : ""}</div>`).join("")
+      const [cos, deals] = await Promise.all([
+        fetch("/api/companies").then(r => r.json()),
+        fetch("/api/deals").then(r => r.json())
+      ]);
+      document.getElementById("companies").innerHTML = cos.length
+        ? cos.map(c => `<div>${c.id} — ${c.name}${c.domain ? " · " + c.domain : ""}</div>`).join("")
         : "No companies yet.";
+      document.getElementById("pipeline").innerHTML = deals.length
+        ? deals.map(d => `<div class="deal"><strong>${d.name}</strong> (${d.stage}) — $${d.amount}<br><span class="prob">${Math.round(d.score.probability * 100)}% win</span> · ${d.next.action}<br><span class="muted">${d.next.why}</span></div>`).join("")
+        : "No deals yet.";
     }
-    document.getElementById("add").onclick = async () => {
+    document.getElementById("addCo").onclick = async () => {
       const name = document.getElementById("name").value.trim();
       if (!name) return;
       await fetch("/api/companies", {
@@ -89,6 +113,20 @@ const indexHtml = `<!DOCTYPE html>
       document.getElementById("domain").value = "";
       load();
     };
+    document.getElementById("addDeal").onclick = async () => {
+      const companyId = document.getElementById("coId").value.trim();
+      const name = document.getElementById("dealName").value.trim();
+      const amount = Number(document.getElementById("amount").value);
+      const closeDate = document.getElementById("close").value;
+      if (!companyId || !name || !closeDate) return;
+      await fetch("/api/deals", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ companyId, name, amount, closeDate })
+      });
+      document.getElementById("dealName").value = "";
+      load();
+    };
     load();
   </script>
 </body>
@@ -96,30 +134,62 @@ const indexHtml = `<!DOCTYPE html>
 
 const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
   const url = new URL(req.url ?? "/", `http://${req.headers.host}`);
-  if (url.pathname === "/" || url.pathname === "/index.html") {
-    return html(res, indexHtml);
+  try {
+    if (url.pathname === "/" || url.pathname === "/index.html") {
+      return html(res, indexHtml);
+    }
+
+    if (url.pathname === "/api/companies" && req.method === "GET") {
+      return json(res, 200, crm.list("companies", WORKSPACE));
+    }
+    if (url.pathname === "/api/companies" && req.method === "POST") {
+      const body = await readBody(req);
+      const c = await crm.addCompany(WORKSPACE, ACTOR, { name: String(body.name ?? ""), domain: body.domain });
+      return json(res, 201, c);
+    }
+
+    if (url.pathname === "/api/deals" && req.method === "GET") {
+      const deals = crm.list("deals", WORKSPACE);
+      const activities = crm.list("activities", WORKSPACE);
+      const now = crm.now();
+      const enriched = deals.map((d) => {
+        const score = scoreDeal(d, activities, now);
+        const next = nextBestAction(d, score, activities, now);
+        return { ...d, score, next };
+      });
+      return json(res, 200, enriched);
+    }
+    if (url.pathname === "/api/deals" && req.method === "POST") {
+      const body = await readBody(req);
+      const d = await crm.addDeal(WORKSPACE, ACTOR, {
+        companyId: String(body.companyId ?? ""),
+        name: String(body.name ?? ""),
+        amount: Number(body.amount ?? 0),
+        closeDate: String(body.closeDate ?? ""),
+      });
+      return json(res, 201, d);
+    }
+
+    if (url.pathname === "/api/alerts" && req.method === "GET") {
+      const deals = crm.list("deals", WORKSPACE);
+      const activities = crm.list("activities", WORKSPACE);
+      const now = crm.now();
+      const scores = new Map(deals.map((d) => [d.id, scoreDeal(d, activities, now)]));
+      return json(res, 200, riskAlerts(deals, scores));
+    }
+
+    if (url.pathname === "/api/forecast" && req.method === "GET") {
+      const deals = crm.list("deals", WORKSPACE);
+      const activities = crm.list("activities", WORKSPACE);
+      const now = crm.now();
+      const scores = new Map(deals.map((d) => [d.id, scoreDeal(d, activities, now)]));
+      return json(res, 200, forecast(deals, scores, 3, now));
+    }
+
+    json(res, 404, { error: "not found" });
+  } catch (err: any) {
+    json(res, 400, { error: err.message ?? String(err), code: err.code });
   }
-  if (url.pathname === "/api/companies" && req.method === "GET") {
-    return json(res, 200, store.companies);
-  }
-  if (url.pathname === "/api/companies" && req.method === "POST") {
-    const chunks: Buffer[] = [];
-    for await (const c of req) chunks.push(c as Buffer);
-    const body = JSON.parse(Buffer.concat(chunks).toString() || "{}");
-    const company = {
-      id: crypto.randomUUID(),
-      workspace: "demo",
-      name: String(body.name ?? "Untitled"),
-      domain: body.domain,
-      kind: "company",
-      facts: [],
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    store.companies.push(company);
-    return json(res, 201, company);
-  }
-  json(res, 404, { error: "not found" });
 });
 
 server.listen(PORT, () => {

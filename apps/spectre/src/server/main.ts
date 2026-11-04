@@ -15,10 +15,9 @@ import { listPendingActions, runPendingActions } from "./execution.ts";
 import { buildMap } from "./relationships.ts";
 import { listDuplicates, runMerge } from "./cleaning.ts";
 import { listCommitteeGaps } from "./committee.ts";
+import { config, log } from "./config.ts";
 
-const PORT = Number(process.env.PORT ?? 3000);
-const WORKSPACE = "demo";
-const ACTOR = "cid:demo-user";
+const { port: PORT, workspace: WORKSPACE, actor: ACTOR } = config;
 
 const ledger = new Ledger(new MemoryStore());
 const signer = generateSigner();
@@ -257,8 +256,13 @@ const indexHtml = `<!DOCTYPE html>
 </html>`;
 
 const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
+  const start = Date.now();
   const url = new URL(req.url ?? "/", `http://${req.headers.host}`);
   try {
+    if (url.pathname === "/health") {
+      return json(res, 200, { ok: true, service: "spectre", uptime: process.uptime() });
+    }
+
     if (url.pathname === "/" || url.pathname === "/index.html") {
       return html(res, indexHtml);
     }
@@ -376,10 +380,13 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
 
     json(res, 404, { error: "not found" });
   } catch (err: any) {
+    log("error", "request failed", { path: url.pathname, error: err.message ?? String(err) });
     json(res, 400, { error: err.message ?? String(err), code: err.code });
+  } finally {
+    log("info", "request", { method: req.method, path: url.pathname, ms: Date.now() - start });
   }
 });
 
 server.listen(PORT, () => {
-  console.log(`+SPCTR listening on http://localhost:${PORT}`);
+  log("info", `+SPCTR listening on http://localhost:${PORT}`);
 });

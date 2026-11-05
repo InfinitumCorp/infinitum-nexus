@@ -44,7 +44,7 @@ document.getElementById("ask-btn").onclick = async () => {
     status.textContent = "Ready";
     accrueReward(5); // small reward for query
   } catch (err) {
-    out.textContent = `Conductor unreachable. Local echo:\n${text}\n\n${String(err)}`;
+    out.textContent = `/CNDCTR/™ unreachable. Local echo:\n${text}\n\n${String(err)}`;
     status.textContent = "Offline";
   }
 };

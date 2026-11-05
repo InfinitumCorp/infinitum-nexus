@@ -3,31 +3,36 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>VEIL</title>
+  <title>VEIL&lt;/&gt;™</title>
+  <link rel="stylesheet" href="brand.css" />
   <style>
-    :root { --bg: #0a0a0a; --fg: #f5f5f5; --muted: #888; --accent: #fff; --line: #222; --good: #4ade80; }
+    /* Brand tokens, font and wordmark styles come from brand.css. White, as on infinitum-corporation.vercel.app. */
+    :root { --good: #1a7f37; --bad: #c62828; --soft: #f7f8f9; }
     * { box-sizing: border-box; }
-    body { margin: 0; font-family: system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--fg); font-size: 14px; }
-    header { padding: 0.75rem 1rem; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center; }
-    h1 { margin: 0; font-size: 1rem; font-weight: 500; letter-spacing: 0.05em; }
-    nav { display: flex; gap: 0.5rem; }
-    nav button { background: transparent; color: var(--muted); border: none; padding: 0.25rem 0.5rem; cursor: pointer; font: inherit; border-bottom: 2px solid transparent; }
-    nav button.active { color: var(--fg); border-bottom-color: var(--accent); }
+    body { font-size: 14px; }
+    header { padding: 0.75rem 1rem; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+    header .wordmark { margin: 0; }
+    nav { display: flex; gap: 0.25rem; flex-wrap: wrap; }
+    nav button { background: transparent; color: var(--muted); border: none; padding: 0.25rem 0.5rem; cursor: pointer; border-bottom: 2px solid transparent; }
+    nav button.active { color: var(--ink); border-bottom-color: var(--ink); }
     main { padding: 1rem; }
     .panel { display: none; }
     .panel.active { display: block; }
-    .card { border: 1px solid var(--line); border-radius: 6px; padding: 0.75rem; margin-bottom: 0.75rem; }
-    textarea { width: 100%; min-height: 4rem; background: #111; color: var(--fg); border: 1px solid var(--line); border-radius: 4px; padding: 0.5rem; font: inherit; }
-    button.primary { background: var(--accent); color: #000; border: none; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer; font: inherit; }
+    .card { border: 1px solid var(--line); border-radius: 12px; padding: 0.875rem; margin-bottom: 0.75rem; background: var(--paper); }
+    textarea { width: 100%; min-height: 4rem; background: var(--paper); border: 1px solid var(--line); border-radius: 12px; padding: 0.5rem 0.75rem; outline: none; }
+    textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(36,84,221,.12); }
+    button.primary { background: var(--ink); color: var(--paper); border: none; padding: 0.5rem 1rem; border-radius: 999px; cursor: pointer; font-weight: 500; }
+    button.primary:hover { opacity: .88; }
     .muted { color: var(--muted); font-size: 0.85rem; }
-    #out, #rewards-log { white-space: pre-wrap; font-size: 0.85rem; max-height: 12rem; overflow: auto; }
+    #out, #rewards-log { white-space: pre-wrap; font-size: 0.85rem; max-height: 12rem; overflow: auto; background: var(--soft); border-radius: 8px; padding: 0.5rem; }
+    #out:empty, #rewards-log:empty { display: none; }
     .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--good); display: inline-block; margin-right: 0.5rem; }
-    .status-dot.offline { background: #f87171; }
+    .status-dot.offline { background: var(--bad); }
   </style>
 </head>
 <body>
   <header>
-    <h1>VEIL</h1>
+    <h1 class="wordmark">VEIL&lt;/&gt;<sup class="tm">™</sup></h1>
     <nav>
       <button class="active" data-panel="ask">Ask</button>
       <button data-panel="wallet">Wallet</button>
@@ -39,7 +44,7 @@
   <main>
     <div id="ask" class="panel active">
       <div class="card">
-        <div class="muted" style="margin-bottom:0.5rem">Ask the sidebar assistant (via Conductor)</div>
+        <div class="muted" style="margin-bottom:0.5rem">Ask the sidebar assistant (via /CNDCTR/<sup class="tm">™</sup>)</div>
         <textarea id="q" placeholder="Research this page, or ask about Infinitum..."></textarea>
         <button class="primary" id="ask-btn" style="margin-top:0.5rem">Ask</button>
         <pre id="out" class="muted"></pre>
@@ -47,7 +52,7 @@
     </div>
     <div id="wallet" class="panel">
       <div class="card">
-        <div class="muted">FIRM Wallet</div>
+        <div class="muted">FIRM Wallet<sup class="tm">™</sup></div>
         <div id="addr">Not connected</div>
         <div id="bal" class="muted">Balance: —</div>
         <button class="primary" id="connect-wallet" style="margin-top:0.5rem">Connect (scaffold)</button>
@@ -55,7 +60,7 @@
     </div>
     <div id="rewards" class="panel">
       <div class="card">
-        <div class="muted">$VEIL Rewards</div>
+        <div class="muted">$VEIL rewards</div>
         <div id="veil-balance">0.000000 VEIL</div>
         <div class="muted" id="session-time">Session: 0s</div>
         <pre id="rewards-log" class="muted"></pre>
@@ -81,7 +86,7 @@
   
     <div id="signin" class="panel">
       <div class="card">
-        <div class="muted">Sign in with Cumulus://ID</div>
+        <div class="muted">Sign in with Cumulus://ID<sup class="tm">™</sup></div>
         <div id="social-buttons"></div>
         <p class="muted small" style="margin-top:0.5rem">Uses the same Google, GitHub, ChatGPT, etc. providers as the rest of Infinitum.</p>
       </div>

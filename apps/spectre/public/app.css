@@ -1,21 +1,20 @@
 :root {
-  --bg: #ffffff;
-  --side: #f9f9f9;
-  --text: #141619;
-  --muted: #6b6b6b;
-  --faint: #9b9b9b;
-  --line: #ececec;
+  /* Brand tokens come from brand.css (linked first); these map them for this app. */
+  --bg: var(--paper);
+  --side: #f9fafb;
+  --text: var(--ink);
+  --faint: #8a96a0;
   --hover: #f3f3f3;
   --chip: #f4f4f4;
-  --accent: #141619;
+  --brand-accent: #2454dd; /* links and focus */
+  --accent: var(--ink); /* primary buttons stay ink, as on the site */
   --on-accent: #ffffff;
   --good: #1a7f37;
   --warn: #9a6700;
   --bad: #c62828;
   --radius: 12px;
   --shadow: 0 1px 2px rgba(0,0,0,.04), 0 4px 16px rgba(0,0,0,.06);
-  /* Matches infinitum-corporation.vercel.app */
-  font-family: Arial, Helvetica, sans-serif; /* same stack as infinitum-corporation.vercel.app */
+  font-family: var(--font); /* Helvetica Neue stack from brand.css */
   color: var(--text);
   background: var(--bg);
   -webkit-font-smoothing: antialiased;
@@ -27,10 +26,8 @@ body { font-size: 15px; line-height: 1.5; }
 button, input, select, textarea { font: inherit; color: inherit; }
 a { color: inherit; }
 h1, h2, h3 { margin: 0; font-weight: 400; letter-spacing: -0.03em; }
-/* Trademark mark, matching the Infinitum site: small, raised, regular weight */
-sup.tm { font-size: .38em; vertical-align: super; line-height: 0; margin-left: .08em; letter-spacing: 0; font-weight: 400; }
-/* As on the site (.pillars .tm, .catalog-status .tm): a larger mark in small text so it stays legible. */
-.muted .tm, .faint .tm, .small .tm, .title .tm, .sub .tm { font-size: .65em; }
+/* sup.tm comes from brand.css. Legible mark in small text, as on the site: */
+.faint .tm, .title .tm, .sub .tm { font-size: .65em; }
 .muted { color: var(--muted); }
 .faint { color: var(--faint); }
 .small { font-size: 13px; }
@@ -53,7 +50,7 @@ sup.tm { font-size: .38em; vertical-align: super; line-height: 0; margin-left: .
   background: var(--bg); outline: none;
 }
 textarea.input { height: auto; min-height: 88px; padding: 12px 14px; resize: vertical; }
-.input:focus { border-color: #cfcfcf; box-shadow: 0 0 0 3px rgba(0,0,0,.04); }
+.input:focus { border-color: var(--brand-accent); box-shadow: 0 0 0 3px rgba(36,84,221,.12); }
 label.field { display: grid; gap: 6px; font-size: 13px; color: var(--muted); }
 .row { display: flex; gap: 12px; align-items: center; }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
@@ -62,7 +59,8 @@ label.field { display: grid; gap: 6px; font-size: 13px; color: var(--muted); }
 /* Sign-in */
 .auth { min-height: 100%; display: grid; place-items: center; padding: 24px; }
 .auth-card { width: 100%; max-width: 360px; text-align: center; display: grid; gap: 14px; }
-.logo { font-weight: 400; font-size: 34px; letter-spacing: -0.055em; line-height: 1.03; }
+/* Product logo = text wordmark: brand font, weight 500, ink, normal tracking */
+.logo { font-weight: 500; font-size: 34px; letter-spacing: normal; line-height: 1.1; color: var(--ink); }
 .logo span { font-weight: 400; color: var(--muted); letter-spacing: -0.03em; }
 .auth-card .btn { width: 100%; height: 48px; }
 .social { display: grid; gap: 10px; }
@@ -75,7 +73,7 @@ label.field { display: grid; gap: 6px; font-size: 13px; color: var(--muted); }
 /* Shell */
 .shell { display: grid; grid-template-columns: 260px 1fr; height: 100%; }
 .side { background: var(--side); display: flex; flex-direction: column; padding: 12px; gap: 2px; overflow-y: auto; }
-.side .brand { padding: 10px 12px 18px; font-weight: 400; font-size: 22px; letter-spacing: -0.04em; }
+.side .brand { padding: 10px 12px 18px; font-weight: 500; font-size: 20px; letter-spacing: normal; color: var(--ink); }
 .nav a {
   display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 10px;
   text-decoration: none; color: var(--text);

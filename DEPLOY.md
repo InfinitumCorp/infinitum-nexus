@@ -33,6 +33,13 @@
 - [x] `pnpm --filter @infinitum/conductor typecheck`
 - [ ] Deploy via Docker or Vercel
 
+## METATRON (apps/metatron)
+- [x] Server: Plaid linking, Alpaca/paper trading, guardrails, approvals, agents, Firmament audit
+- [x] Tests: `node --test --experimental-strip-types apps/metatron/src/*.test.ts`
+- [ ] Env: `METATRON_VAULT_KEY`, `FIRMAMENT_SIGNER_KEY`, `PUBLIC_ORIGIN`, `METATRON_ALLOWED_ORIGINS`, `PLAID_CLIENT_ID`, `PLAID_SECRET`, `PLAID_ENV`, `PLAID_COUNTRY_CODES` (+ optional `ALPACA_DATA_KEY_ID`/`ALPACA_DATA_SECRET`)
+- [ ] Mount in the Cumulus://ID host with `cidAuth(cid)`; register `{PUBLIC_ORIGIN}/webhooks/plaid` with Plaid
+- [ ] Refresh `pnpm-lock.yaml` (`pnpm install`) to include `@infinitum/metatron-app`
+
 ## FIRM
 - [ ] `pnpm --filter @infinitum/firm compile`
 - [ ] Set RPC URL and private key env vars

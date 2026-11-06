@@ -22,7 +22,7 @@ export const APPS = Object.freeze([
   { id: "mail", name: "Cumulus://Mail", blurb: "Free email at you@cumulusmail.cloud", origin: "mail" },
   { id: "cloud", name: "Cumulus://Cloud", blurb: "15 GB of Drive storage and a free cloud tier" },
   { id: "scalvs", name: "SCALVS.ai", blurb: "Free AI agents beside every page" },
-  { id: "architect", name: ":\\ARCHITCT\\", blurb: "Turn a page, an email or an idea into finished work", origin: "architect" },
+  { id: "architect", name: ":\\ARCHITECT\\", blurb: "Turn a page, an email or an idea into finished work", origin: "architect" },
   { id: "metatron", name: "METATRON¹⁰⁰", blurb: "The open-source dashboard for everything you follow" },
   { id: "wallet", name: "FIRM Wallet", blurb: "Hold, send and swap every Infinitum token", panel: "wallet" },
 ]);

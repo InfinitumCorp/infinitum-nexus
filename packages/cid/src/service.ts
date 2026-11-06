@@ -689,9 +689,9 @@ export class CidService {
   }
 
   /** Grant an app access, app by app. Every grant is recorded on Firmament Network. */
-  async grant(cid: string, app: string, scopes: string[]): Promise<Grant> {
+  async grant(cid: string, appName: string, scopes: string[]): Promise<Grant> {
     this.account(cid);
-    app = this.appId(app);
+    const app = this.appId(appName);
     if (scopes.length === 0 || scopes.some((s) => !/^[a-z0-9-]+:[a-z0-9-]+$/.test(s))) {
       throw new CidError("invalid_scope", "Scopes look like 'contacts:read'");
     }
@@ -704,8 +704,8 @@ export class CidService {
   }
 
   /** Revoke some scopes, or all access when scopes are omitted. Recorded on Firmament. */
-  async revoke(cid: string, app: string, scopes?: string[]) {
-    app = this.appId(app);
+  async revoke(cid: string, appName: string, scopes?: string[]) {
+    const app = this.appId(appName);
     const key = `${cid}|${app}`;
     const current = this.store.grants.get(key);
     if (!current) return;
@@ -716,7 +716,8 @@ export class CidService {
   }
 
   can(cid: string, app: string, scope: string): boolean {
-    return this.store.grants.get(`${cid}|${app}`)?.scopes.includes(scope) ?? false;
+    const id = LEGACY_APP_IDS[app] ?? app;
+    return this.store.grants.get(`${cid}|${id}`)?.scopes.includes(scope) ?? false;
   }
 
   /** One permissions dashboard: which product can use what. */

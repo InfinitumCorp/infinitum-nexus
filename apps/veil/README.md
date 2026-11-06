@@ -9,7 +9,7 @@ v0.5.0: roadmap Phase I (browser foundation), the start of Phase II (identity an
 communications), and the rewards ledger from Phase IV.
 
 - **Two workspaces.** Anonymous (default): Tor, tracker stripping and New Identity only.
-  Signed-in: Cumulus://ID, Mail, the Infinitum apps, Ask (:\ARCHITCT\), FIRM Wallet and $VEIL rewards.
+  Signed-in: Cumulus://ID, Mail, the Infinitum apps, Ask (:\ARCHITECT\), FIRM Wallet and $VEIL rewards.
   Every switch is confirmed in the panel and clears cookies and site data first.
 - **Tor.** SOCKS5 proxy to a local Tor service on 127.0.0.1:9050 (DNS goes over Tor),
   WebRTC limited to the proxy, connectivity check against check.torproject.org.
@@ -25,7 +25,7 @@ communications), and the rewards ledger from Phase IV.
   Mail + Cloud storage; the Wallet tab shows the FIRM Wallet account that comes with the CID. Unread
   mail also shows on the toolbar badge, refreshed every 5 minutes. All of it is dropped when you
   leave the signed-in workspace or use New Identity.
-- **Apps (VEIL Nexus).** The seven free-tier products from the product page. Mail, :\ARCHITCT\ and
+- **Apps (VEIL Nexus).** The seven free-tier products from the product page. Mail, :\ARCHITECT\ and
   Cumulus://ID open in their own tab; FIRM Wallet opens its panel; the rest are marked Coming soon.
 - **Ask** shares the current tab's title and address only when you tick the box.
 
@@ -46,4 +46,4 @@ node scripts/make-icons.js   # regenerate icons/ from the icon.svg design
 | --- | --- | --- |
 | `cid` | `http://localhost:3000` | Cumulus://ID sign-in and `/api/me` (served by +SPCTR today) |
 | `mail` | `http://localhost:3010` | Cumulus://Mail (the account summary can override it) |
-| `architect` | `http://localhost:3001` | :\ARCHITCT\ endpoint for Ask |
+| `architect` | `http://localhost:3001` | :\ARCHITECT\ endpoint for Ask |

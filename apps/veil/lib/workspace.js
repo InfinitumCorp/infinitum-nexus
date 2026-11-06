@@ -4,7 +4,7 @@
  * Anonymous: Tor-first browsing with no account, no AI, no wallet, no sync
  *   and no rewards. Nothing links browsing to a person.
  * Authenticated: Cumulus://ID, Cumulus://Mail, FIRM Wallet, SCALVS.ai,
- *   :\ARCHITCT\ and $VEIL rewards. Never described as anonymous.
+ *   :\ARCHITECT\ and $VEIL rewards. Never described as anonymous.
  *
  * Switching is always a deliberate, labeled action, and it clears site data
  * so identifying state never moves silently from one workspace to the other.

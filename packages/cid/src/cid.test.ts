@@ -240,6 +240,7 @@ describe("CID permissions dashboard", () => {
     await cid.grant(a.cid, "cndctr", ["contacts:read"]);
     assert.ok(cid.can(a.cid, "architect", "drive:read"));
     assert.ok(cid.can(a.cid, "architect", "contacts:read"));
+    assert.ok(cid.can(a.cid, "architct", "drive:read"));
   });
 
   it("grants app by app, records every change on Firmament, and revokes", async () => {

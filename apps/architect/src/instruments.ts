@@ -1,5 +1,5 @@
 /**
- * Conductor instrument adapters.
+ * Architect instrument adapters.
  * Real adapters (browser, HTTP APIs, Spectre, etc.) register here.
  */
 import { registerInstrument, type Instrument } from "./executor.ts";
@@ -13,7 +13,7 @@ export const researchInstrument: Instrument = {
     if (!query) return { output: { error: "empty query" }, evidence: [] };
     try {
       const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
-      const res = await fetch(url, { headers: { "user-agent": "InfinitumConductor/0.1" } });
+      const res = await fetch(url, { headers: { "user-agent": "InfinitumArchitect/0.1" } });
       const html = await res.text();
       const titles = [...html.matchAll(/<a[^>]*class="result__a"[^>]*>([^<]+)<\/a>/gi)].map((m) => m[1].trim()).slice(0, 5);
       return {

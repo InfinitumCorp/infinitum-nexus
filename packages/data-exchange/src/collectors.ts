@@ -94,14 +94,14 @@ export class SpectreCollector extends ProductCollector {
   }
 }
 
-/** /CNDCTR/ Conductor: workflow execution patterns */
-export class ConductorCollector extends ProductCollector {
-  product: ProductId = "conductor";
+/** :\ARCHITCT\ Architect: workflow execution patterns */
+export class ArchitectCollector extends ProductCollector {
+  product: ProductId = "architect";
   collect(cid: string) {
     return listDataset(this.dx, {
       cid,
       product: this.product,
-      title: "Conductor workflow aggregates",
+      title: "Architect workflow aggregates",
       description: "Anonymized intent-to-completion rates and tool usage",
       schema: "intentType,completionRate,avgSteps",
       sizeEstimate: 40_000,
@@ -310,7 +310,7 @@ export function createCollectors(dx: DataExchange): ProductCollector[] {
     new ScalusCollector(dx),
     new CumulusCollector(dx),
     new SpectreCollector(dx),
-    new ConductorCollector(dx),
+    new ArchitectCollector(dx),
     new MetatronCollector(dx),
     new VeilCollector(dx),
     new FabricCollector(dx),

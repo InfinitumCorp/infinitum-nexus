@@ -1,14 +1,14 @@
 /**
- * Record Conductor performance evidence on Firmament.
+ * Record Architect performance evidence on Firmament.
  */
 import { Ledger, generateSigner } from "@infinitum/firmament";
 import type { Performance } from "./score.ts";
 
-export async function recordEvidence(ledger: Ledger, performance: Performance, actor = "cid:conductor") {
+export async function recordEvidence(ledger: Ledger, performance: Performance, actor = "cid:architect") {
   const signer = generateSigner();
   return ledger.append({
     type: "audit",
-    product: "conductor",
+    product: "architect",
     actor,
     subject: performance.scoreId,
     payload: {

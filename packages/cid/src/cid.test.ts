@@ -2,7 +2,7 @@ import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { generateKeyPairSync, sign } from "node:crypto";
 import { Ledger, generateSigner } from "@infinitum/firmament";
-import { CidService, CidError, hotp, verifyTotp, base32Decode, base32Encode } from "./index.ts";
+import { CidService, CidStore, CidError, hotp, verifyTotp, base32Decode, base32Encode } from "./index.ts";
 import { VirtualAuthenticator } from "./testing/virtual-authenticator.ts";
 
 const RP_ID = "infinitum.id";
@@ -232,6 +232,22 @@ describe("CID sessions", () => {
 });
 
 describe("CID permissions dashboard", () => {
+  it("accepts a renamed product's former id and keeps grants saved under it", async () => {
+    const store = new CidStore();
+    const signer = generateSigner();
+    const ledger = new Ledger(undefined, { authorizedSigners: [signer.publicKey] });
+    const cid = new CidService({ ledger, signer, rpId: RP_ID, origins: [ORIGIN], store });
+    const a = await cid.createAccount({ username: "alex" });
+    // A grant written before /CNDCTR/ was renamed :\ARCHITCT\.
+    store.grants.set(`${a.cid}|cndctr`, { cid: a.cid, app: "cndctr" as never, scopes: ["tasks:run"], grantedAt: "2026-11-01T00:00:00Z", ledgerHash: "old" });
+    assert.ok(cid.can(a.cid, "architct", "tasks:run"));
+    assert.ok(cid.can(a.cid, "cndctr", "tasks:run"));
+    await cid.grant(a.cid, "cndctr", ["tasks:read"]);
+    assert.deepEqual(cid.permissions(a.cid).map((g) => [g.app, g.scopes]), [["architct", ["tasks:read", "tasks:run"]]]);
+    await cid.revoke(a.cid, "architct");
+    assert.ok(!cid.can(a.cid, "cndctr", "tasks:run"));
+  });
+
   it("grants app by app, records every change on Firmament, and revokes", async () => {
     const { cid, ledger } = setup();
     const a = await cid.createAccount({ username: "alex" });

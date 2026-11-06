@@ -1,17 +1,17 @@
 /**
- * SCALVS ↔ Conductor integration.
- * Runs an agent and records the result as a Conductor-style evidence note.
+ * SCALVS ↔ Architect integration.
+ * Runs an agent and records the result as a Architect-style evidence note.
  */
 import { runAgent, type Agent, type RunResult } from "./agent.ts";
 
-export interface ConductorEvidence {
+export interface ArchitectEvidence {
   agentId: string;
   output: unknown;
   verified: boolean;
   at: string;
 }
 
-export async function runAndRecord(agent: Agent, prompt: string): Promise<ConductorEvidence> {
+export async function runAndRecord(agent: Agent, prompt: string): Promise<ArchitectEvidence> {
   const result: RunResult = await runAgent(agent, prompt);
   return {
     agentId: agent.id,

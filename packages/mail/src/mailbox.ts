@@ -1,11 +1,11 @@
 import { EVENTS, ME, SEED_CONTACTS, SEED_MESSAGES, SEED_TASKS } from "./model.ts";
-import type { Attachment, ConductorTask, Contact, FolderId, MailMessage, MailRule } from "./model.ts";
+import type { Attachment, ArchitectTask, Contact, FolderId, MailMessage, MailRule } from "./model.ts";
 import { applyRules, audienceLabel, isCumulus, parsePeople, planDelivery, quota, validEmail, withSignature } from "./logic.ts";
 
 export interface MailSnapshot {
   messages: MailMessage[];
   aliases: string[];
-  tasks: ConductorTask[];
+  tasks: ArchitectTask[];
   contacts: Contact[];
   signature?: string;
   rules?: MailRule[];
@@ -33,7 +33,7 @@ export interface SendInput {
 export class Mailbox {
   messages: MailMessage[];
   aliases: string[];
-  tasks: ConductorTask[];
+  tasks: ArchitectTask[];
   contacts: Contact[];
   readonly owner: MailOwner;
   signature: string;
@@ -184,7 +184,7 @@ export class Mailbox {
     return true;
   }
 
-  addTask(task: ConductorTask) {
+  addTask(task: ArchitectTask) {
     if (task.messageId && this.tasks.some((item) => item.messageId === task.messageId)) return false;
     this.tasks.unshift(task);
     return true;

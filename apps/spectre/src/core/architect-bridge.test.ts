@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { actionToScore, executeAction } from "./conductor-bridge.ts";
+import { actionToScore, executeAction } from "./architect-bridge.ts";
 import type { ExecutionAction } from "./execution.ts";
 
 test("actionToScore creates a valid Score", () => {

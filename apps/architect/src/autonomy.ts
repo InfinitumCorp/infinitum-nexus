@@ -1,5 +1,5 @@
 /**
- * Autonomy levels for Conductor Scores.
+ * Autonomy levels for Architect Scores.
  * - rehearsal: dry-run only (no side effects)
  * - accompaniment: execute with human confirmation points
  * - autopilot: execute fully if permissions allow

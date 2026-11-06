@@ -4,7 +4,7 @@ export type {
   FolderId,
   BoxId,
   MailMessage,
-  ConductorTask,
+  ArchitectTask,
   Contact,
   CalEvent,
   ViewId,

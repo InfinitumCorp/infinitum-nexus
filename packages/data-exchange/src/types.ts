@@ -6,6 +6,8 @@ export type ProductId =
   | "cumulus" 
   | "scalus" 
   | "spectre" 
+  | "architect" 
+  /** Former name of architect; older listings may still carry it. */
   | "conductor" 
   | "veil" 
   | "fabric" 

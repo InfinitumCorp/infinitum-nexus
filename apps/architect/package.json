@@ -1,7 +1,7 @@
 {
-  "name": "@infinitum/conductor",
+  "name": "@infinitum/architect",
   "version": "0.1.0",
-  "description": "/CNDCTR/ (Conductor): intent in, verified outcome out.",
+  "description": ":\\ARCHITCT\\ (Architect): intent in, verified outcome out.",
   "type": "module",
   "private": true,
   "engines": {

@@ -1,5 +1,5 @@
 /**
- * Conductor health aggregation.
+ * Architect health aggregation.
  * Checks local and optional Spectre health.
  */
 export interface HealthStatus {
@@ -9,7 +9,7 @@ export interface HealthStatus {
 }
 
 export async function aggregateHealth(spectreUrl?: string): Promise<HealthStatus[]> {
-  const out: HealthStatus[] = [{ service: "conductor", ok: true }];
+  const out: HealthStatus[] = [{ service: "architect", ok: true }];
   if (spectreUrl) {
     try {
       const r = await fetch(`${spectreUrl}/health`);

@@ -3,6 +3,7 @@ export {
   CidStore,
   CidError,
   INFINITUM_APPS,
+  RENAMED_APPS,
   FREE_ENTITLEMENTS,
   MAIL_DOMAIN,
 } from "./service.ts";

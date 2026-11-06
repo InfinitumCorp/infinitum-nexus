@@ -1,5 +1,5 @@
 /**
- * Conductor server: serves the Podium UI and /api/perform.
+ * Architect server: serves the Podium UI and /api/perform.
  * Records evidence on Firmament.
  */
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
@@ -54,10 +54,10 @@ const server = createServer(async (req, res) => {
   const url = new URL(req.url ?? "/", `http://${req.headers.host}`);
   try {
     if (url.pathname === "/health") {
-      return json(res, 200, { ok: true, service: "conductor", uptime: process.uptime() });
+      return json(res, 200, { ok: true, service: "architect", uptime: process.uptime() });
     }
     if (url.pathname === "/api/status") {
-      return json(res, 200, { service: "conductor", ledgerEntries: (await ledger.entries()).length, autonomyLevels: ["rehearsal", "accompaniment", "autopilot"] });
+      return json(res, 200, { service: "architect", ledgerEntries: (await ledger.entries()).length, autonomyLevels: ["rehearsal", "accompaniment", "autopilot"] });
     }
     if (url.pathname === "/" ) {
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
@@ -83,5 +83,5 @@ const server = createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => {
-  log("info", `/CNDCTR/ listening on http://localhost:${PORT}`);
+  log("info", `:\\ARCHITCT\\ listening on http://localhost:${PORT}`);
 });

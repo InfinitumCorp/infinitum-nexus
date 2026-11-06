@@ -1,6 +1,6 @@
 # SCALVS.ai Next Steps
 
-- Production integration with Conductor evidence
+- Production integration with Architect evidence
 - Context Vault persistence
 - Tool registry expansion
 - Team orchestration

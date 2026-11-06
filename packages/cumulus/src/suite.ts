@@ -121,7 +121,7 @@ export class CumulusSuite {
           `• Cumulus://Mail at ${account.mailAddress}`,
           `• Cumulus://Cloud storage: ${FREE_ENTITLEMENTS.storageGb} GB, shared between Mail and Cloud`,
           `• A FIRM Wallet: ${wallet.address}`,
-          "• SCALVS.ai and /CNDCTR/ on the free plan, and the METATRON dashboard",
+          "• SCALVS.ai and :\\ARCHITCT\\ on the free plan, and the METATRON dashboard",
           "",
           "One account signs you in to every Infinitum product. Security notices, Cloud shares and wallet receipts will arrive here.",
           "",

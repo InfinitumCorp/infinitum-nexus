@@ -8,7 +8,7 @@ importers:
 
   .: {}
 
-  apps/conductor:
+  apps/architect:
     dependencies:
       '@infinitum/firmament':
         specifier: workspace:*
@@ -86,9 +86,9 @@ importers:
       '@infinitum/cid':
         specifier: workspace:*
         version: link:../../packages/cid
-      '@infinitum/conductor':
+      '@infinitum/architect':
         specifier: workspace:*
-        version: link:../conductor
+        version: link:../architect
       '@infinitum/conjure':
         specifier: workspace:*
         version: link:../../packages/conjure

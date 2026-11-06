@@ -207,7 +207,7 @@ function helpDialog() {
 
 function sidebar(data) {
   const boxes = [["inbox", "Inbox"], ["snoozed", "Snoozed"], ["outbox", "Outbox"], ["starred", "Starred"], ["sent", "Sent"], ["drafts", "Drafts"], ["scheduled", "Scheduled"], ["archive", "Archive"], ["trash", "Trash"]];
-  const views = [["clean", "Clean"], ["wallet", "Wallet"], ["contacts", "People"], ["tasks", "Conductor"]];
+  const views = [["clean", "Clean"], ["wallet", "Wallet"], ["contacts", "People"], ["tasks", "Architect"]];
   const navButton = (current, label, onClick, extra) => el("button", { "aria-current": current, onClick }, [label, extra ?? none()]);
   return el("nav", { "aria-label": "Mail" }, [
     el("button", { class: "compose", onClick: () => { state.composer = blankComposer(); state.error = ""; render(); } }, [el("span", { "aria-hidden": "true" }, ["✎"]), "Compose"]),
@@ -427,7 +427,7 @@ function reader(message) {
         : el("button", { class: "quiet", title: "Move to Trash (#)", onClick: () => thread_("trash") }, ["Trash"]),
       el("button", { class: "quiet", title: "Mark as unread (Shift + u)", onClick: () => thread_("unread") }, ["Mark unread"]),
       message.system || mine(message) ? none() : el("button", { class: "quiet", onClick: () => { if (confirm(`Send future mail from ${message.from.email} to Archive?`)) act(async () => { await api("/api/clean/mute", { email: message.from.email }); close(); }); } }, ["Mute sender"]),
-      el("button", { class: "quiet", onClick: () => act(async () => { await api("/api/task", { title: message.subject, detail: "Queued from mail · waiting on you", messageId: message.id }); state.view = "tasks"; }) }, ["Conductor"]),
+      el("button", { class: "quiet", onClick: () => act(async () => { await api("/api/task", { title: message.subject, detail: "Queued from mail · waiting on you", messageId: message.id }); state.view = "tasks"; }) }, ["Architect"]),
       message.system ? none() : el("button", { class: "quiet", onClick: () => briefThread(message, key) }, [state.busy === key ? "Briefing…" : "Brief with SCALVS"]),
     ]),
     el("div", { class: "sheet" }, [
@@ -755,7 +755,7 @@ function aux(data) {
     return el("section", { class: "pane" }, [el("div", { class: "sheet" }, [el("h1", {}, ["Waiting on you"]), ...(data.tasks.length ? data.tasks.map((task) => el("div", { class: "item" }, [
       el("div", {}, [el("div", { class: task.done ? "muted" : "" }, [task.title]), el("div", { class: "sub" }, [task.detail])]),
       el("button", { class: "quiet", onClick: () => act(() => api("/api/task/toggle", { id: task.id })) }, [task.done ? "Reopen" : "Done"]),
-    ])) : [el("p", { class: "muted" }, ["Nothing queued. Send any thread to Conductor from the message toolbar."])])])]);
+    ])) : [el("p", { class: "muted" }, ["Nothing queued. Send any thread to Architect from the message toolbar."])])])]);
   }
   const a = data.account;
   return el("section", { class: "pane" }, [el("div", { class: "sheet" }, [
@@ -775,7 +775,7 @@ function aux(data) {
       el("li", {}, [`Mail · ${a.mailAddress}`]),
       el("li", {}, [`Cloud · ${a.storage.label} (Mail ${a.storage.mail}, Cloud ${a.storage.cloud})`]),
       el("li", {}, ["FIRM Wallet"]),
-      el("li", {}, ["SCALVS Clean, SCALVS.ai and /CNDCTR/"]),
+      el("li", {}, ["SCALVS Clean, SCALVS.ai and :\\ARCHITCT\\"]),
     ]),
     el("h3", {}, ["Cumulus Tunnel"]),
     el("p", {}, ["Mail between Cumulus accounts is sealed to the recipient and signed by the sender. Your keys were made for you when your Cumulus://ID was created. There's nothing to set up or remember."]),

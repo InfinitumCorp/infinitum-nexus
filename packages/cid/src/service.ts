@@ -23,11 +23,16 @@ import {
  * ------------------------------------------------------------------ */
 
 export const INFINITUM_APPS = [
-  "veil", "fabric", "throne", "eon", "scalvs", "cndctr", "spectre", "metatron",
+  "veil", "fabric", "throne", "eon", "scalvs", "architct", "spectre", "metatron",
   "cumulus", "cumulus-mail", "firm-wallet", "aether", "argus", "hrvst", "eidetic",
   "orbis", "pollen", "flower", "nemesis",
 ] as const;
 export type AppId = (typeof INFINITUM_APPS)[number];
+
+/** Former app ids, still accepted and mapped to the current one (e.g. /CNDCTR/ became :\ARCHITCT\). */
+export const RENAMED_APPS: Readonly<Record<string, AppId>> = { cndctr: "architct" };
+const currentApp = (app: string) => RENAMED_APPS[app] ?? app;
+const formerIds = (app: string) => Object.keys(RENAMED_APPS).filter((k) => RENAMED_APPS[k] === app);
 
 /**
  * What every new CID comes with, per the Cumulus://ID page. Like a Google account and Gmail,
@@ -39,7 +44,7 @@ export const FREE_ENTITLEMENTS = {
   cloud: true,
   firmWallet: true,
   scalvs: "free",
-  cndctr: "free",
+  architct: "free",
   metatronDashboard: true,
 } as const;
 
@@ -686,7 +691,9 @@ export class CidService {
   /** Grant an app access, app by app. Every grant is recorded on Firmament Network. */
   async grant(cid: string, app: string, scopes: string[]): Promise<Grant> {
     this.account(cid);
+    app = currentApp(app);
     this.assertApp(app);
+    this.migrateGrant(cid, app);
     if (scopes.length === 0 || scopes.some((s) => !/^[a-z0-9-]+:[a-z0-9-]+$/.test(s))) {
       throw new CidError("invalid_scope", "Scopes look like 'contacts:read'");
     }
@@ -700,7 +707,9 @@ export class CidService {
 
   /** Revoke some scopes, or all access when scopes are omitted. Recorded on Firmament. */
   async revoke(cid: string, app: string, scopes?: string[]) {
+    app = currentApp(app);
     this.assertApp(app);
+    this.migrateGrant(cid, app);
     const key = `${cid}|${app}`;
     const current = this.store.grants.get(key);
     if (!current) return;
@@ -711,7 +720,20 @@ export class CidService {
   }
 
   can(cid: string, app: string, scope: string): boolean {
-    return this.store.grants.get(`${cid}|${app}`)?.scopes.includes(scope) ?? false;
+    app = currentApp(app);
+    const keys = [app, ...formerIds(app)].map((a) => `${cid}|${a}`);
+    return keys.some((k) => this.store.grants.get(k)?.scopes.includes(scope) ?? false);
+  }
+
+  /** Moves a grant saved under a product's former id onto its current id. */
+  private migrateGrant(cid: string, app: string) {
+    for (const old of formerIds(app)) {
+      const g = this.store.grants.get(`${cid}|${old}`);
+      if (!g) continue;
+      const key = `${cid}|${app}`, cur = this.store.grants.get(key);
+      this.store.grants.set(key, { ...g, app: app as AppId, scopes: [...new Set([...(cur?.scopes ?? []), ...g.scopes])].sort() });
+      this.store.grants.delete(`${cid}|${old}`);
+    }
   }
 
   /** One permissions dashboard: which product can use what. */

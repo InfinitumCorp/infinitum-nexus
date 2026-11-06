@@ -1,5 +1,5 @@
 /**
- * /CNDCTR/ Score: an executable plan with steps, permissions, checkpoints
+ * :\ARCHITCT\ Score: an executable plan with steps, permissions, checkpoints
  * and a definition of success.
  */
 

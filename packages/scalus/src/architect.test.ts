@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { runAndRecord } from "./conductor.ts";
+import { runAndRecord } from "./architect.ts";
 import type { Agent } from "./agent.ts";
 
 test("runAndRecord returns evidence", async () => {

@@ -65,7 +65,7 @@ export type MailPayment = {
   ledgerHash?: string;
 };
 
-export type ConductorTask = {
+export type ArchitectTask = {
   id: string;
   title: string;
   detail: string;
@@ -103,7 +103,7 @@ export const SEED_MESSAGES: MailMessage[] = [
     to: [alex],
     cc: [],
     subject: "VYRAL London — hold the forecast",
-    body: "Alex,\n\nHolding the Q4 forecast on VYRAL as you asked. Win probability is still 62%, explained mostly by the open security review, not by budget.\n\nNext best action has not changed: send the security appendix before Thursday’s call. Conductor already logged it and is waiting on you.\n\nBuying committee is one seat short. We still do not have their comms lead in the room. Priya can bring them if the appendix is in their hands first.\n\nMira\nSpectre · account team",
+    body: "Alex,\n\nHolding the Q4 forecast on VYRAL as you asked. Win probability is still 62%, explained mostly by the open security review, not by budget.\n\nNext best action has not changed: send the security appendix before Thursday’s call. Architect already logged it and is waiting on you.\n\nBuying committee is one seat short. We still do not have their comms lead in the room. Priya can bring them if the appendix is in their hands first.\n\nMira\nSpectre · account team",
     at: "2026-11-05T12:40:00.000Z",
     unread: true,
     starred: true,
@@ -173,11 +173,11 @@ export const SEED_MESSAGES: MailMessage[] = [
     to: [alex],
     cc: [],
     subject: "Score 0.81 — security appendix for VYRAL",
-    body: "Alex,\n\nConductor scored “Send the security appendix to VYRAL London”.\n\nScore: 0.81\nIntent we read: you told Mira you would send it before Thursday’s call.\nEvidence: your sent note, Mira’s hold, Priya’s request to move the briefing to 15:00 ET.\nStatus: waiting on you. I will not send mail on your behalf.\n\nHand it back when the appendix is out and I will mark the task performed.\n\nJordan\n/CNDCTR/",
+    body: "Alex,\n\nArchitect scored “Send the security appendix to VYRAL London”.\n\nScore: 0.81\nIntent we read: you told Mira you would send it before Thursday’s call.\nEvidence: your sent note, Mira’s hold, Priya’s request to move the briefing to 15:00 ET.\nStatus: waiting on you. I will not send mail on your behalf.\n\nHand it back when the appendix is out and I will mark the task performed.\n\nJordan\n:\\ARCHITCT\\",
     at: "2026-11-05T11:05:00.000Z",
     unread: true,
     starred: false,
-    labels: ["Conductor"],
+    labels: ["Architect"],
   },
   {
     id: "m-firm-1",
@@ -293,7 +293,7 @@ export const SEED_MESSAGES: MailMessage[] = [
   },
 ];
 
-export const SEED_TASKS: ConductorTask[] = [
+export const SEED_TASKS: ArchitectTask[] = [
   {
     id: "t1",
     title: "Send the security appendix to VYRAL",
@@ -315,7 +315,7 @@ export const SEED_CONTACTS: Contact[] = [
     id: "c-jordan",
     name: "Jordan Hale",
     email: "jordan.hale@cumulusmail.cloud",
-    org: "Infinitum · Conductor",
+    org: "Infinitum · Architect",
     note: "Scores intent. Does not send mail for you.",
   },
   {

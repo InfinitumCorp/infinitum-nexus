@@ -6,7 +6,7 @@ export const config = {
   workspace: process.env.SPECTRE_WORKSPACE ?? "demo",
   actor: process.env.SPECTRE_ACTOR ?? "cid:demo-user",
   logLevel: process.env.LOG_LEVEL ?? "info",
-  conductorUrl: process.env.CONDUCTOR_URL ?? "http://localhost:3001",
+  architectUrl: process.env.ARCHITECT_URL ?? process.env.CONDUCTOR_URL ?? "http://localhost:3001",
 };
 
 export function log(level: string, msg: string, extra?: Record<string, unknown>) {

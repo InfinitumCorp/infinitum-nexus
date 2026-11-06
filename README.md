@@ -10,7 +10,7 @@ Shared foundation for every Infinitum product.
 | `apps/spectre` | +SPCTR™ (Spectre) intelligent CRM. Core so far: companies, contacts, deals, activities and relationships with a Firmament audit trail and source provenance; opt-out handling; predictive pipeline with explained win probability, risk alerts, next best action and monthly forecast; warmest-path relationship map and buying-committee gaps; duplicate detection, merging and stale-data flags (17 passing tests). |
 
 | `packages/cumulus` | The Cumulus account suite. Every CID gets Cumulus://Mail, Cumulus://Cloud and a FIRM Wallet on the free tier (15 GB shared by Mail and Cloud), like Gmail with a Google account. Sends login security notices, Cloud share notices and wallet receipts by mail. Products build their CID from `createCumulus()`. |
-| `packages/mail` | Cumulus://Mail post office: one mailbox per CID, delivery between Cumulus addresses, bounces, an outbound queue, reserved product senders, pay-by-mail, folders, threads, aliases and Conductor tasks. |
+| `packages/mail` | Cumulus://Mail post office: one mailbox per CID, delivery between Cumulus addresses, bounces, an outbound queue, reserved product senders, pay-by-mail, folders, threads, aliases and Architect tasks. |
 | `apps/cumulus-mail` | Cumulus://Mail web client (unlisted, noindex). Sign in with a Cumulus://ID. |
 
 Run Cumulus://Mail: `node --experimental-strip-types apps/cumulus-mail/src/server.ts`, then open http://localhost:3010. Set `XAI_API_KEY` to turn on SCALVS briefs. Mail is intentionally not listed on the public site.
@@ -39,7 +39,7 @@ Coming next: AI account research the Spectre agent team, then `$FIRM` and produc
 - `POST /api/query` — plain-language CRM query via agent team
 - `POST /api/agents/:id/run` — run a specific agent (researcher, prospector, deal-coach, query)
 - `POST /api/prospect` — ICP matching suggestions
-- `GET /api/execution/pending` / `POST /api/execution/run` — self-executing deal actions via Conductor (logs activities)
+- `GET /api/execution/pending` / `POST /api/execution/run` — self-executing deal actions via Architect (logs activities)
 - `GET /api/metrics` — workspace counts
 - `GET /api/export` — dump companies, contacts, deals, activities
 - `GET /api/search?q=` — search companies, contacts, deals

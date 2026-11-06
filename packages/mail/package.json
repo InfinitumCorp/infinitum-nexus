@@ -1,7 +1,7 @@
 {
   "name": "@infinitum/mail",
   "version": "0.1.0",
-  "description": "Cumulus://Mail mailbox: folders, threads, end-to-end marking, aliases, and Conductor tasks.",
+  "description": "Cumulus://Mail mailbox: folders, threads, end-to-end marking, aliases, and Architect tasks.",
   "type": "module",
   "exports": {
     ".": "./src/index.ts"

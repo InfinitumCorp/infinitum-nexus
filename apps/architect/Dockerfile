@@ -3,9 +3,9 @@ WORKDIR /app
 RUN corepack enable
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY packages ./packages
-COPY apps/conductor ./apps/conductor
-RUN pnpm install --filter @infinitum/conductor... --frozen-lockfile || pnpm install --filter @infinitum/conductor...
-WORKDIR /app/apps/conductor
+COPY apps/architect ./apps/architect
+RUN pnpm install --filter @infinitum/architect... --frozen-lockfile || pnpm install --filter @infinitum/architect...
+WORKDIR /app/apps/architect
 ENV PORT=3001
 EXPOSE 3001
 CMD ["node", "src/server.ts"]

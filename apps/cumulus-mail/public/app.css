@@ -125,7 +125,7 @@ form.composer { display: flex; flex-direction: column; }
 .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding-top: 12px; }
 .error { color: var(--bad); font-size: 13px; }
 
-/* Clean, Wallet, People, Conductor, Account */
+/* Clean, Wallet, People, Architect, Account */
 .stat-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; margin: 20px 0 4px; }
 .stat { padding: 14px 16px; border-radius: var(--radius); background: var(--chip); }
 .stat b { display: block; font-size: 22px; font-weight: 400; font-variant-numeric: tabular-nums; }

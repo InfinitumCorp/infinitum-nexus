@@ -15,7 +15,7 @@
   "dependencies": {
     "@infinitum/firmament": "workspace:*",
     "@infinitum/cid": "workspace:*",
-    "@infinitum/conductor": "workspace:*",
+    "@infinitum/architect": "workspace:*",
     "@infinitum/conjure": "workspace:*",
     "@infinitum/cumulus": "workspace:*",
     "@infinitum/metatron": "workspace:*",

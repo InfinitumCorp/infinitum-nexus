@@ -1,8 +1,8 @@
 /**
  * VEIL sidebar logic.
- * Multi-panel: Ask (Conductor), Wallet, Rewards, Privacy.
+ * Multi-panel: Ask (Architect), Wallet, Rewards, Privacy.
  */
-const CONDUCTOR_URL = "http://localhost:3001";
+const ARCHITECT_URL = "http://localhost:3001";
 
 const q = document.getElementById("q");
 const out = document.getElementById("out");
@@ -33,18 +33,18 @@ document.getElementById("ask-btn").onclick = async () => {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     const intent = `${text} (page: ${tab?.title ?? "unknown"} — ${tab?.url ?? ""})`;
-    const r = await fetch(`${CONDUCTOR_URL}/api/perform`, {
+    const r = await fetch(`${ARCHITECT_URL}/api/perform`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ intent, autonomy: "rehearsal" }),
     });
-    if (!r.ok) throw new Error(`Conductor ${r.status}`);
+    if (!r.ok) throw new Error(`Architect ${r.status}`);
     const data = await r.json();
     out.textContent = JSON.stringify(data, null, 2);
     status.textContent = "Ready";
     accrueReward(5); // small reward for query
   } catch (err) {
-    out.textContent = `Conductor unreachable. Local echo:\n${text}\n\n${String(err)}`;
+    out.textContent = `Architect unreachable. Local echo:\n${text}\n\n${String(err)}`;
     status.textContent = "Offline";
   }
 };

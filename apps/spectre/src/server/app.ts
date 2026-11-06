@@ -998,7 +998,7 @@ export function createApp(deps: AppDeps) {
   });
 
   route("POST", "/api/execution/run", async (ctx) => {
-    const { executeAll } = await import("../core/conductor-bridge.ts");
+    const { executeAll } = await import("../core/architect-bridge.ts");
     const { listPendingActions } = await import("./execution.ts");
     const pending = await listPendingActions(crm, ctx.user!.workspace);
     const results = await executeAll(pending, { crm, workspace: ctx.user!.workspace, actor: ctx.user!.account.cid } as any);

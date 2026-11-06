@@ -7,7 +7,7 @@ export class DatasetCatalog {
   private datasets = new Map<string, Dataset>();
   changed?: () => void;
 
-  create(params: Omit<Dataset, "id" | "createdAt" | "status"> & { status?: Dataset["status"] }): Dataset {
+  create(params: Omit<Dataset, "id" | "createdAt" | "status" | "revSharePct"> & { status?: Dataset["status"]; revSharePct?: number }): Dataset {
     const id = `ds_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const ds: Dataset = {
       ...params,

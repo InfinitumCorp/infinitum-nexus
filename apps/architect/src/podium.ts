@@ -8,7 +8,7 @@ export const podiumHtml = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>:\\ARCHITCT\\ Podium</title>
+  <title>:\\ARCHITECT\\ Podium</title>
   <style>
     body { font-family: system-ui, sans-serif; max-width: 720px; margin: 2rem auto; }
     textarea { width: 100%; height: 8rem; font-family: inherit; }
@@ -17,7 +17,7 @@ export const podiumHtml = `<!DOCTYPE html>
   </style>
 </head>
 <body>
-  <h1>:\\ARCHITCT\\</h1>
+  <h1>:\\ARCHITECT\\</h1>
   <div id="social" style="margin-bottom:1rem"></div>
   <p>Write a Score intent (plain text). The executor will plan and simulate.</p>
   <textarea id="intent" placeholder="Research the top 3 competitors of Acme and summarize"></textarea><br>

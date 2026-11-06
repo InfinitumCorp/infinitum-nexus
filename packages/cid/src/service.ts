@@ -23,14 +23,14 @@ import {
  * ------------------------------------------------------------------ */
 
 export const INFINITUM_APPS = [
-  "veil", "fabric", "throne", "eon", "scalvs", "architct", "spectre", "metatron",
+  "veil", "fabric", "throne", "eon", "scalvs", "architect", "spectre", "metatron",
   "cumulus", "cumulus-mail", "firm-wallet", "aether", "argus", "hrvst", "eidetic",
   "orbis", "pollen", "flower", "nemesis",
 ] as const;
 export type AppId = (typeof INFINITUM_APPS)[number];
 
-/** Former app ids, still accepted and mapped to the current one (e.g. /CNDCTR/ became :\ARCHITCT\). */
-export const RENAMED_APPS: Readonly<Record<string, AppId>> = { cndctr: "architct" };
+/** Former app ids, still accepted and mapped to the current one (e.g. /CNDCTR/ became :\ARCHITECT\). */
+export const RENAMED_APPS: Readonly<Record<string, AppId>> = { cndctr: "architect" };
 const currentApp = (app: string) => RENAMED_APPS[app] ?? app;
 const formerIds = (app: string) => Object.keys(RENAMED_APPS).filter((k) => RENAMED_APPS[k] === app);
 
@@ -44,7 +44,7 @@ export const FREE_ENTITLEMENTS = {
   cloud: true,
   firmWallet: true,
   scalvs: "free",
-  architct: "free",
+  architect: "free",
   metatronDashboard: true,
 } as const;
 

@@ -238,13 +238,13 @@ describe("CID permissions dashboard", () => {
     const ledger = new Ledger(undefined, { authorizedSigners: [signer.publicKey] });
     const cid = new CidService({ ledger, signer, rpId: RP_ID, origins: [ORIGIN], store });
     const a = await cid.createAccount({ username: "alex" });
-    // A grant written before /CNDCTR/ was renamed :\ARCHITCT\.
+    // A grant written before /CNDCTR/ was renamed :\ARCHITECT\.
     store.grants.set(`${a.cid}|cndctr`, { cid: a.cid, app: "cndctr" as never, scopes: ["tasks:run"], grantedAt: "2026-11-01T00:00:00Z", ledgerHash: "old" });
-    assert.ok(cid.can(a.cid, "architct", "tasks:run"));
+    assert.ok(cid.can(a.cid, "architect", "tasks:run"));
     assert.ok(cid.can(a.cid, "cndctr", "tasks:run"));
     await cid.grant(a.cid, "cndctr", ["tasks:read"]);
-    assert.deepEqual(cid.permissions(a.cid).map((g) => [g.app, g.scopes]), [["architct", ["tasks:read", "tasks:run"]]]);
-    await cid.revoke(a.cid, "architct");
+    assert.deepEqual(cid.permissions(a.cid).map((g) => [g.app, g.scopes]), [["architect", ["tasks:read", "tasks:run"]]]);
+    await cid.revoke(a.cid, "architect");
     assert.ok(!cid.can(a.cid, "cndctr", "tasks:run"));
   });
 

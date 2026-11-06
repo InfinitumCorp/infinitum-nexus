@@ -94,7 +94,7 @@ export class SpectreCollector extends ProductCollector {
   }
 }
 
-/** :\ARCHITCT\ Architect: workflow execution patterns */
+/** :\ARCHITECT\ Architect: workflow execution patterns */
 export class ArchitectCollector extends ProductCollector {
   product: ProductId = "architect";
   collect(cid: string) {

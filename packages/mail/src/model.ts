@@ -173,7 +173,7 @@ export const SEED_MESSAGES: MailMessage[] = [
     to: [alex],
     cc: [],
     subject: "Score 0.81 — security appendix for VYRAL",
-    body: "Alex,\n\nArchitect scored “Send the security appendix to VYRAL London”.\n\nScore: 0.81\nIntent we read: you told Mira you would send it before Thursday’s call.\nEvidence: your sent note, Mira’s hold, Priya’s request to move the briefing to 15:00 ET.\nStatus: waiting on you. I will not send mail on your behalf.\n\nHand it back when the appendix is out and I will mark the task performed.\n\nJordan\n:\\ARCHITCT\\",
+    body: "Alex,\n\nArchitect scored “Send the security appendix to VYRAL London”.\n\nScore: 0.81\nIntent we read: you told Mira you would send it before Thursday’s call.\nEvidence: your sent note, Mira’s hold, Priya’s request to move the briefing to 15:00 ET.\nStatus: waiting on you. I will not send mail on your behalf.\n\nHand it back when the appendix is out and I will mark the task performed.\n\nJordan\n:\\ARCHITECT\\",
     at: "2026-11-05T11:05:00.000Z",
     unread: true,
     starred: false,

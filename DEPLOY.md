@@ -29,7 +29,7 @@
 - [ ] Vercel env: `SPECTRE_ORIGIN`, `FIRMAMENT_SIGNER_KEY`, `NEXUS_STORE_URL`, `NEXUS_STORE_KEY` (+ optional `ANTHROPIC_API_KEY`, social sign-in)
 - [ ] Deploy to Vercel
 
-## Architect (:\ARCHITCT\)
+## Architect (:\ARCHITECT\)
 - [x] `pnpm --filter @infinitum/architect typecheck`
 - [ ] Deploy via Docker or Vercel
 

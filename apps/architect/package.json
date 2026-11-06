@@ -1,7 +1,7 @@
 {
   "name": "@infinitum/architect",
   "version": "0.1.0",
-  "description": ":\\ARCHITCT\\ (Architect): intent in, verified outcome out.",
+  "description": ":\\ARCHITECT\\ (Architect): intent in, verified outcome out.",
   "type": "module",
   "private": true,
   "engines": {

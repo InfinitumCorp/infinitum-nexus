@@ -775,7 +775,7 @@ function aux(data) {
       el("li", {}, [`Mail · ${a.mailAddress}`]),
       el("li", {}, [`Cloud · ${a.storage.label} (Mail ${a.storage.mail}, Cloud ${a.storage.cloud})`]),
       el("li", {}, ["FIRM Wallet"]),
-      el("li", {}, ["SCALVS Clean, SCALVS.ai and :\\ARCHITCT\\"]),
+      el("li", {}, ["SCALVS Clean, SCALVS.ai and :\\ARCHITECT\\"]),
     ]),
     el("h3", {}, ["Cumulus Tunnel"]),
     el("p", {}, ["Mail between Cumulus accounts is sealed to the recipient and signed by the sender. Your keys were made for you when your Cumulus://ID was created. There's nothing to set up or remember."]),

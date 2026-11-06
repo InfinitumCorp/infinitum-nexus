@@ -83,5 +83,5 @@ const server = createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => {
-  log("info", `:\\ARCHITCT\\ listening on http://localhost:${PORT}`);
+  log("info", `:\\ARCHITECT\\ listening on http://localhost:${PORT}`);
 });

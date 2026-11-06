@@ -1,6 +1,6 @@
 /**
  * VEIL sidebar logic.
- * Multi-panel: Ask (Conductor), Wallet, Rewards, Privacy.
+ * Multi-panel: Ask (Architect), Wallet, Rewards, Privacy.
  */
 const CONDUCTOR_URL = "http://localhost:3001";
 
@@ -38,13 +38,13 @@ document.getElementById("ask-btn").onclick = async () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ intent, autonomy: "rehearsal" }),
     });
-    if (!r.ok) throw new Error(`Conductor ${r.status}`);
+    if (!r.ok) throw new Error(`Architect ${r.status}`);
     const data = await r.json();
     out.textContent = JSON.stringify(data, null, 2);
     status.textContent = "Ready";
     accrueReward(5); // small reward for query
   } catch (err) {
-    out.textContent = `Conductor unreachable. Local echo:\n${text}\n\n${String(err)}`;
+    out.textContent = `Architect unreachable. Local echo:\n${text}\n\n${String(err)}`;
     status.textContent = "Offline";
   }
 };

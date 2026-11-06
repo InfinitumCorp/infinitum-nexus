@@ -1,7 +1,7 @@
 /**
  * Self-executing deals.
  * Rules evaluate a deal + score and, when matched, produce an executable action
- * that Conductor (or a local executor) can perform.
+ * that Architect (or a local executor) can perform.
  */
 import type { Deal, Activity } from "./model.ts";
 import type { Score } from "./intelligence.ts";

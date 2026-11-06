@@ -1,5 +1,5 @@
 /**
- * Record Conductor performance evidence on Firmament.
+ * Record Architect performance evidence on Firmament.
  */
 import { Ledger, generateSigner } from "@infinitum/firmament";
 import type { Performance } from "./score.ts";

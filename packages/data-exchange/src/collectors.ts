@@ -94,14 +94,14 @@ export class SpectreCollector extends ProductCollector {
   }
 }
 
-/** /CNDCTR/ Conductor: workflow execution patterns */
+/** :\ARCHITCT\ Architect: workflow execution patterns */
 export class ConductorCollector extends ProductCollector {
   product: ProductId = "conductor";
   collect(cid: string) {
     return listDataset(this.dx, {
       cid,
       product: this.product,
-      title: "Conductor workflow aggregates",
+      title: "Architect workflow aggregates",
       description: "Anonymized intent-to-completion rates and tool usage",
       schema: "intentType,completionRate,avgSteps",
       sizeEstimate: 40_000,

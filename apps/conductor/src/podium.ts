@@ -1,5 +1,5 @@
 /**
- * Minimal Conductor Podium: a single HTML page that lets a user
+ * Minimal Architect Podium: a single HTML page that lets a user
  * submit a Score intent and see the performance result.
  * In production this would be a real UI; this is a self-contained scaffold.
  */
@@ -8,7 +8,7 @@ export const podiumHtml = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>/CNDCTR/ Podium</title>
+  <title>:\\ARCHITCT\\ Podium</title>
   <style>
     body { font-family: system-ui, sans-serif; max-width: 720px; margin: 2rem auto; }
     textarea { width: 100%; height: 8rem; font-family: inherit; }
@@ -17,7 +17,7 @@ export const podiumHtml = `<!DOCTYPE html>
   </style>
 </head>
 <body>
-  <h1>/CNDCTR/</h1>
+  <h1>:\\ARCHITCT\\</h1>
   <div id="social" style="margin-bottom:1rem"></div>
   <p>Write a Score intent (plain text). The executor will plan and simulate.</p>
   <textarea id="intent" placeholder="Research the top 3 competitors of Acme and summarize"></textarea><br>

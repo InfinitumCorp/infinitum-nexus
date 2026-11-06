@@ -1,5 +1,5 @@
 /**
- * Conductor Spectre adapter.
+ * Architect Spectre adapter.
  * Thin wrapper around the HTTP instrument for Spectre endpoints.
  */
 export interface SpectreCall {

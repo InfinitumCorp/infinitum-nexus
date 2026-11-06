@@ -1,4 +1,4 @@
-# Conductor Deploy
+# Architect Deploy
 
 1. `pnpm --filter @infinitum/conductor typecheck`
 2. `pnpm --filter @infinitum/conductor start` (or use Dockerfile / vercel.json)

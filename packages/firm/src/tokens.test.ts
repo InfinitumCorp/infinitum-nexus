@@ -5,7 +5,7 @@ import { PROJECT_TOKENS, createProjectToken } from "./tokens.ts";
 test("PROJECT_TOKENS includes expected symbols", () => {
   const symbols = PROJECT_TOKENS.map((t) => t.symbol);
   assert.ok(symbols.includes("HRVST"));
-  assert.ok(symbols.includes("CNDT"));
+  assert.ok(symbols.includes("ARCT"));
   assert.ok(symbols.includes("SPCTR"));
   assert.ok(symbols.includes("SCLV"));
 });

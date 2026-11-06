@@ -1,7 +1,7 @@
 # VEIL Next Steps
 
 Progress (2026-11-04) — v0.3.1:
-- Multi-panel sidebar + Conductor Ask
+- Multi-panel sidebar + Architect Ask
 - $VEIL session rewards with claimable receipt structure
 - FIRM wallet panel with Base RPC balance query (packages/firm pattern)
 - Tracker stripping (manual + auto-clean)

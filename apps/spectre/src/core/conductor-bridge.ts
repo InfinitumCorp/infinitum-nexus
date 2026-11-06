@@ -1,12 +1,12 @@
 /**
- * Bridge Spectre ExecutionActions to Conductor Scores and perform them.
+ * Bridge Spectre ExecutionActions to Architect Scores and perform them.
  */
 import { perform, registerInstrument } from "@infinitum/conductor";
 import type { Score } from "@infinitum/conductor";
 import type { ExecutionAction } from "./execution.ts";
 import type { SpectreCRM } from "./crm.ts";
 
-// Register a Spectre instrument that Conductor can call
+// Register a Spectre instrument that Architect can call
 registerInstrument({
   name: "spectre-action",
   async execute(input) {

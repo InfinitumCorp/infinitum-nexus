@@ -4,7 +4,7 @@ Extracted from https://infinitum-corporation.vercel.app/#products
 
 These are the product titles as displayed on the website, each with the trademark symbol (™):
 
-- /CNDCTR/™
+- :\ARCHITCT\™
 - SCALVS.ai™
 - Flower™
 - NEMESIS™

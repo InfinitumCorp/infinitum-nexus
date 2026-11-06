@@ -1,5 +1,5 @@
 /**
- * Conductor health aggregation.
+ * Architect health aggregation.
  * Checks local and optional Spectre health.
  */
 export interface HealthStatus {

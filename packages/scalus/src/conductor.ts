@@ -1,6 +1,6 @@
 /**
- * SCALVS ↔ Conductor integration.
- * Runs an agent and records the result as a Conductor-style evidence note.
+ * SCALVS ↔ Architect integration.
+ * Runs an agent and records the result as a Architect-style evidence note.
  */
 import { runAgent, type Agent, type RunResult } from "./agent.ts";
 

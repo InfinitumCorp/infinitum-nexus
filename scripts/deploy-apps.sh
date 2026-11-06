@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deploy Spectre and Conductor.
+# Deploy Spectre and Architect.
 # Local: docker compose up -d
 # Vercel: vercel --cwd apps/spectre && vercel --cwd apps/conductor
 set -euo pipefail
@@ -9,7 +9,7 @@ MODE="${1:-docker}"
 if [ "$MODE" = "docker" ]; then
   docker compose up -d --build
   echo "Spectre: http://localhost:3000"
-  echo "Conductor: http://localhost:3001"
+  echo "Architect: http://localhost:3001"
 elif [ "$MODE" = "vercel" ]; then
   if ! command -v vercel >/dev/null; then
     echo "vercel CLI not found. npm i -g vercel"

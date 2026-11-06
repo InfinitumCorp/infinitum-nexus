@@ -1,5 +1,5 @@
 /**
- * Conductor instrument adapters.
+ * Architect instrument adapters.
  * Real adapters (browser, HTTP APIs, Spectre, etc.) register here.
  */
 import { registerInstrument, type Instrument } from "./executor.ts";

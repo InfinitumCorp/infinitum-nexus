@@ -1,5 +1,5 @@
 /**
- * Conductor server: serves the Podium UI and /api/perform.
+ * Architect server: serves the Podium UI and /api/perform.
  * Records evidence on Firmament.
  */
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
@@ -83,5 +83,5 @@ const server = createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => {
-  log("info", `/CNDCTR/ listening on http://localhost:${PORT}`);
+  log("info", `:\\ARCHITCT\\ listening on http://localhost:${PORT}`);
 });

@@ -1,18 +1,24 @@
 import { veilLabyrinth } from "./lib/labyrinth.js";
 /**
  * VEIL background service worker.
- * Owns the workspace, the Tor proxy, New Identity and the $VEIL ledger.
- * Pages and the sidebar only send requests; all state changes happen here.
+ * Owns the workspace, the Tor proxy, the browser proxy, New Identity and the $VEIL ledger.
+ * Pages and the extension UI only send requests; all state changes happen here.
+ * The browser proxy protects this browser's traffic only. It is not a device-wide VPN.
  */
 import { emptyLedger, recordActivity, summarize, issueReceipt } from "./lib/rewards.js";
 import {
   ANONYMOUS, DEFAULT_WORKSPACE, can, normalize, planSwitch, SITE_DATA_TYPES,
 } from "./lib/workspace.js";
 import { APPS, badgeText, launcher, parseSummary, resolveOrigins } from "./lib/nexus.js";
+import { createBrowserProxy, detectPlatform } from "./lib/browser-proxy.js";
+import { bypassHostsFor } from "./lib/proxy.js";
+import { fetchSession, postConnect, postDisconnect, VeilApiError } from "./lib/veil-api.js";
 
-chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
+chrome.sidePanel?.setPanelBehavior?.({ openPanelOnActionClick: false })?.catch?.(() => {});
 
 const TOR = Object.freeze({ scheme: "socks5", host: "127.0.0.1", port: 9050 });
+const VEIL_ALARM = "veil-proxy";
+const proxy = createBrowserProxy(detectPlatform());
 
 // chrome.storage has no transactions; run every read-modify-write in order.
 let queue = Promise.resolve();
@@ -30,9 +36,14 @@ async function getWorkspace() {
   return normalize(workspace);
 }
 
+function veilView(session) {
+  return { ...proxy.publicState, session: session ?? null };
+}
+
 // ---------- Tor ----------
 
 async function setTor(enabled) {
+  if (enabled && proxy.mode !== "off") throw new Error("Disconnect VEIL before turning Tor on");
   if (enabled) {
     await chrome.proxy.settings.set({
       value: {
@@ -61,6 +72,103 @@ async function checkTor() {
     return { isTor: !!data.IsTor };
   } catch (err) {
     return { isTor: false, error: String(err) };
+  }
+}
+
+// ---------- Browser proxy ----------
+
+let proxyAuthReady = false;
+
+function registerProxyAuth() {
+  const firefox = !!globalThis.browser?.proxy?.onRequest;
+  const api = firefox ? globalThis.browser.webRequest : chrome.webRequest;
+  if (!api?.onAuthRequired?.addListener) return;
+  try {
+    api.onAuthRequired.addListener((details, callback) => {
+      const result = proxy.onAuthRequired(details);
+      if (result.failClosed) serial(() => enterFailClosed());
+      if (typeof callback === "function") {
+        callback(result.response);
+        return undefined;
+      }
+      return result.response;
+    }, { urls: ["<all_urls>"] }, firefox ? ["blocking"] : ["asyncBlocking"]);
+    proxyAuthReady = true;
+  } catch {
+    proxyAuthReady = false;
+  }
+}
+
+if (globalThis.browser?.proxy?.onRequest?.addListener) {
+  globalThis.browser.proxy.onRequest.addListener(
+    (details) => proxy.onRequest(details.url),
+    { urls: ["<all_urls>"] },
+  );
+}
+registerProxyAuth();
+chrome.proxy?.onProxyError?.addListener(() => {
+  serial(async () => {
+    if (proxy.onProxyError()) await enterFailClosed();
+  });
+});
+
+async function enterFailClosed() {
+  const o = await origins();
+  await proxy.failClosed(bypassHostsFor(o));
+  await set({ veilStatus: "fail-closed" });
+  return veilView((await get(["veilSession"])).veilSession ?? null);
+}
+
+async function disconnectVeil() {
+  const { veil: origin } = await origins();
+  if (proxy.mode !== "off") await postDisconnect(origin).catch(() => {});
+  await proxy.disconnect();
+  await chrome.alarms?.clear(VEIL_ALARM).catch(() => {});
+  await set({ veilStatus: "off" });
+  return veilView((await get(["veilSession"])).veilSession ?? null);
+}
+
+async function connectVeil(serverId) {
+  if (!can(await getWorkspace(), "signin")) throw new Error("Sign-in is off in the anonymous workspace");
+  if (!proxyAuthReady) throw new Error("Proxy authentication is unavailable in this browser");
+  const stored = await get(["torEnabled"]);
+  if (stored.torEnabled) throw new Error("Turn off Tor before connecting VEIL");
+  const o = await origins();
+  const grant = await postConnect(o.veil, serverId);
+  await proxy.connect(grant.server, grant.auth, bypassHostsFor(o));
+  const minutes = Math.max(1, Math.ceil((Date.parse(grant.auth.expiresAt) - Date.now() - 30_000) / 60_000));
+  await chrome.alarms?.create(VEIL_ALARM, { delayInMinutes: minutes }).catch(() => {});
+  await set({ veilStatus: "connected", veilServerId: grant.server.id });
+  const view = veilView((await get(["veilSession"])).veilSession ?? null);
+  if (JSON.stringify(view).includes(grant.auth.password)) throw new Error("Refused to retain the proxy password");
+  return view;
+}
+
+async function refreshVeil() {
+  if (!can(await getWorkspace(), "signin")) throw new Error("Sign-in is off in the anonymous workspace");
+  const o = await origins();
+  try {
+    const session = await fetchSession(o.veil);
+    await set({ veilSession: session });
+    if (!session.entitled && proxy.mode !== "off") await enterFailClosed();
+    return { session, veil: veilView(session) };
+  } catch (err) {
+    if (proxy.mode !== "off" && (err instanceof VeilApiError) && (err.status === 401 || err.status === 403)) {
+      await enterFailClosed();
+    }
+    throw err;
+  }
+}
+
+async function restoreVeil() {
+  const { veilStatus, veilServerId } = await get(["veilStatus", "veilServerId"]);
+  if (veilStatus !== "connected" && veilStatus !== "fail-closed") return;
+  await enterFailClosed();
+  if (!veilServerId) return;
+  try {
+    await connectVeil(veilServerId);
+  } catch {
+    await enterFailClosed();
   }
 }
 
@@ -103,8 +211,8 @@ const ACCOUNT_ALARM = "veil-account";
 const ACCOUNT_REFRESH_MINUTES = 5;
 
 async function origins() {
-  const { origins } = await get(["origins"]);
-  return resolveOrigins(origins);
+  const { origins: stored } = await get(["origins"]);
+  return resolveOrigins(stored);
 }
 
 async function setBadge(unread) {
@@ -113,7 +221,8 @@ async function setBadge(unread) {
 }
 
 async function signOutLocally() {
-  await set({ cidUser: null, account: null });
+  if (proxy.mode !== "off") await disconnectVeil();
+  await set({ cidUser: null, account: null, veilSession: null });
   await chrome.alarms.clear(ACCOUNT_ALARM).catch(() => {});
   await setBadge(0);
 }
@@ -141,10 +250,30 @@ async function refreshAccount() {
 }
 
 chrome.alarms?.onAlarm.addListener((alarm) => {
+  if (alarm.name === VEIL_ALARM) {
+    serial(async () => {
+      const { veilServerId, veilStatus } = await get(["veilServerId", "veilStatus"]);
+      if (veilStatus !== "connected" || !veilServerId) return;
+      try {
+        await connectVeil(veilServerId);
+      } catch {
+        await enterFailClosed();
+      }
+    });
+    return;
+  }
   if (alarm.name !== ACCOUNT_ALARM) return;
   serial(async () => {
     if (!can(await getWorkspace(), "signin")) return signOutLocally();
     await refreshAccount().catch(() => {}); // offline: keep the last summary
+    if (proxy.mode === "off") return;
+    try {
+      const session = await fetchSession((await origins()).veil);
+      await set({ veilSession: session });
+      if (!session.entitled) await enterFailClosed();
+    } catch (err) {
+      if ((err instanceof VeilApiError) && (err.status === 401 || err.status === 403)) await enterFailClosed();
+    }
   });
 });
 
@@ -201,23 +330,36 @@ async function claimRewards() {
 
 // ---------- Lifecycle & messages ----------
 
+async function bootVeil() {
+  const { veilStatus } = await get(["veilStatus"]);
+  if (veilStatus === "connected" || veilStatus === "fail-closed") await restoreVeil();
+  else proxy.readyOff();
+}
+
 chrome.runtime.onInstalled.addListener(async () => {
   // Fill only missing keys; updates must never wipe a ledger.
-  const s = await get(["workspace", "torEnabled", "autoClean", "rewardsLedger"]);
+  const s = await get(["workspace", "torEnabled", "autoClean", "rewardsLedger", "veilStatus"]);
   const defaults = {};
   if (s.workspace === undefined) defaults.workspace = DEFAULT_WORKSPACE;
   if (s.torEnabled === undefined) defaults.torEnabled = false;
   if (s.autoClean === undefined) defaults.autoClean = true;
   if (s.rewardsLedger === undefined) defaults.rewardsLedger = emptyLedger();
+  if (s.veilStatus === undefined) defaults.veilStatus = "off";
   await set(defaults);
   // v0.3 kept a float total that was not tied to the published policy.
   await chrome.storage.local.remove(["totalVeil", "rewardLog", "firmBalance"]);
 });
 
+chrome.runtime.onStartup?.addListener(() => {
+  serial(() => bootVeil());
+});
+
+serial(() => bootVeil());
+
 const handlers = {
   labyrinth: async (m) => veilLabyrinth((await origins()).cid, await getWorkspace(), m.command),
   getState: async () => {
-    const s = await get(["torEnabled", "autoClean", "cidUser", "account"]);
+    const s = await get(["torEnabled", "autoClean", "cidUser", "account", "veilSession", "veilStatus"]);
     const workspace = await getWorkspace();
     const signedIn = can(workspace, "signin");
     const o = await origins();
@@ -229,9 +371,13 @@ const handlers = {
       account: signedIn ? s.account ?? null : null,
       apps: signedIn ? launcher(o, s.account) : [],
       origins: o,
+      veil: signedIn ? veilView(s.veilSession ?? null) : { ...veilView(null), session: null, mode: proxy.mode },
     };
   },
   refreshAccount: () => refreshAccount(),
+  refreshVeil: () => refreshVeil(),
+  connectVeil: (m) => connectVeil(m.serverId).then((veil) => ({ veil })),
+  disconnectVeil: () => disconnectVeil().then((veil) => ({ veil })),
   openApp: (m) => openApp(m.id),
   toggleTor: (m) => setTor(m.enabled).then((enabled) => ({ enabled })),
   checkTor: () => checkTor(),

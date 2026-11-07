@@ -38,7 +38,7 @@ Maps every product advertised on https://infinitum-corporation.vercel.app/#produ
 | Product | Notes | Software path |
 |---------|-------|---------------|
 | Cumulus://Cloud | Storage, licensing, agent runtime, data exchange | Partial for exchange (API + collectors) |
-| VEIL</> | Tor-first browser + sidebar | Partial — v0.5.0 anonymous/signed-in workspaces, Cumulus account + unread badge, Nexus app launcher, Tor + WebRTC hardening, New Identity, $VEIL rewards at the published policy with claim receipts, CID sign-in, Architect Ask | See apps/veil/NEXT.md + PACKAGING.md. VeilCollector ready. |
+| VEIL</> | Browser cyber proxy | Partial — v0.6.0 Chrome MV3 and Firefox browser proxy with Cumulus ID sign-in, server-side VEIL entitlement, exit selection, authenticated HTTPS/SOCKS, and fail-closed leak controls. Protects that browser's traffic only, not a device-wide VPN. Earlier sidebar (Tor, New Identity, rewards, Nexus) remains. | See apps/veil/README.md. No in-repo exit fleet. VeilCollector ready. |
 | FABRIC | Encrypted calls/messaging | Scaffolded — AES-256-GCM AEAD + session. FabricCollector ready. |
 | >_ARGUS | AI sensor fusion & ISR | Core logic — `packages/argus`: multi-sensor fusion with chi-square gating, global-nearest-neighbour association, 2D constant-velocity Kalman filter, tentative/confirmed/coasting/dropped lifecycle and per-track sensor provenance (6 tests). Next: 3D + bearing-only sensors, sign each picture on Firmament, feed ODIN°. Excluded from public Data Exchange. |
 | ÆTHER™ | Distributed communications | Partial — M1 protocol core: signed packets, flooding + store-and-forward, receipts, simulator (100% delivery, 100 nodes, 20% churn). No encryption or device transports yet. AetherCollector ready. | See packages/aether/README.md |

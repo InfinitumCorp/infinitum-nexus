@@ -24,7 +24,8 @@
     "@infinitum/lbrnth-client": "workspace:*",
     "@infinitum/drone-backend": "workspace:*",
     "@infinitum/orbital": "workspace:*",
-    "@infinitum/conjure-backend": "workspace:*"
+    "@infinitum/conjure-backend": "workspace:*",
+    "@infinitum/veil": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.9.0",

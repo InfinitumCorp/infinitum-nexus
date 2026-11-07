@@ -10,6 +10,7 @@ export const DEFAULT_ORIGINS = Object.freeze({
   cid: "http://localhost:3000",      // +SPCTR server hosts Cumulus://ID sign-in today
   mail: "http://localhost:3010",     // apps/cumulus-mail
   architect: "http://localhost:3001", // apps/architect
+  veil: "http://localhost:3000",     // same CID host, so the existing session cookie is sent
 });
 
 /**

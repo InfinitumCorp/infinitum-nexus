@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>VEIL</title>
+  <style>
+    :root { --bg: #0a0a0a; --fg: #f5f5f5; --muted: #8a8a8a; --line: #222; --card: #101010; --good: #4ade80; --warn: #fbbf24; --bad: #f87171; }
+    * { box-sizing: border-box; }
+    body { margin: 0; width: 360px; font-family: system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--fg); font-size: 14px; }
+    header, main, footer { padding: 0.85rem 1rem; }
+    header { border-bottom: 1px solid var(--line); }
+    h1 { margin: 0; font-size: 1rem; letter-spacing: 0.08em; }
+    .brand { color: var(--muted); font-size: 0.75rem; margin-top: 0.2rem; }
+    .status { display: flex; align-items: center; gap: 0.45rem; margin-top: 0.7rem; font-weight: 600; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+    .dot.on { background: var(--good); }
+    .dot.block { background: var(--bad); }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 0.75rem; margin-bottom: 0.75rem; }
+    label { display: block; color: var(--muted); font-size: 0.78rem; margin-bottom: 0.35rem; }
+    select, button { font: inherit; }
+    select { width: 100%; background: #0c0c0c; color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: 0.4rem; }
+    .row { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.65rem; }
+    button { background: var(--fg); color: #000; border: none; border-radius: 6px; padding: 0.45rem 0.8rem; cursor: pointer; }
+    button.ghost { background: transparent; color: var(--fg); border: 1px solid #333; }
+    button.warn { background: var(--warn); }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+    .muted { color: var(--muted); font-size: 0.8rem; line-height: 1.4; }
+    .err { color: var(--bad); font-size: 0.8rem; min-height: 1rem; }
+    footer { padding-top: 0; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>VEIL&lt;/&gt;</h1>
+    <div class="brand">Infinitum Corporation® browser cyber proxy</div>
+    <div class="status"><span id="dot" class="dot"></span><span id="status">Off</span></div>
+  </header>
+  <main>
+    <div class="card">
+      <label>Cumulus ID</label>
+      <div id="who" class="muted">Checking the signed-in workspace…</div>
+      <div class="row">
+        <button id="signin" class="ghost" type="button">Open Cumulus ID sign-in</button>
+        <button id="refresh" class="ghost" type="button">Refresh session</button>
+      </div>
+    </div>
+    <div class="card">
+      <label for="server">Exit server</label>
+      <select id="server"></select>
+      <div class="row">
+        <button id="toggle" type="button">Connect</button>
+        <button id="sidebar" class="ghost" type="button">Open sidebar</button>
+      </div>
+      <div id="detail" class="muted" style="margin-top:0.6rem"></div>
+    </div>
+    <div id="error" class="err" role="status"></div>
+  </main>
+  <footer>
+    <p class="muted">This protects traffic in this browser only. It is not a device-wide VPN. Other applications, the operating system, and devices you have not installed VEIL on are unchanged. DNS for proxied requests goes through the proxy. If the proxy drops, browsing in this browser is blocked until you reconnect or disconnect.</p>
+  </footer>
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

@@ -787,6 +787,11 @@ boot();
 
 async function renderSettings() {
   const data = await api("GET", "/api/me/identities");
+  const mt = await api("GET", "/api/metatron").catch(() => null);
+  const mtLine = !mt ? "Default on for win probability"
+    : !mt.on ? "Off. Using the baseline scorer"
+    : mt.model === "metatron-logistic-v1" ? `Learned from ${mt.closedDeals} closed deals (${mt.won} won, ${mt.lost} lost)`
+    : `Default model · learns from your history when it has enough closed deals (${esc(mt.learning || "")})`;
   const linked = new Map(data.linked.map((i) => [i.provider, i]));
   const label = Object.fromEntries(data.available.map((p) => [p.id, p.label]));
   for (const i of data.linked) label[i.provider] ??= i.provider;
@@ -831,7 +836,7 @@ async function renderSettings() {
       <div class="section">
         <h2>AI</h2>
         <div class="list">
-          <div class="item"><div class="main"><div class="title">METATRON¹⁰⁰<sup class="tm">™</sup> scoring</div><div class="sub">Default on for win probability</div></div></div>
+          <div class="item"><div class="main"><div class="title">METATRON¹⁰⁰<sup class="tm">™</sup> scoring</div><div class="sub">${mtLine}</div></div></div>
           <div class="item"><div class="main"><div class="title">Research</div><div class="sub">Public web search for account facts</div></div></div>
           <div class="item"><div class="main"><div class="title">Agents</div><div class="sub">Researcher, Prospector, Deal Coach, Query</div></div></div>
         </div>

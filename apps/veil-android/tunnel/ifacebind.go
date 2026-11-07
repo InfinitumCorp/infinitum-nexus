@@ -8,6 +8,7 @@ package tunnel
 
 import (
 	"context"
+	"errors"
 	"net"
 	"net/netip"
 	"strings"
@@ -64,13 +65,15 @@ func (b *ifaceBind) Open(port uint16) ([]conn.ReceiveFunc, uint16, error) {
 
 	lc := net.ListenConfig{
 		Control: func(network, address string, c syscall.RawConn) error {
-			host, _, err := net.SplitHostPort(address)
-			if err != nil || host != b.listenIP {
-				return ErrEndpoint
+			host, _, splitErr := net.SplitHostPort(address)
+			got := net.ParseIP(host)
+			want := net.ParseIP(b.listenIP)
+			if splitErr != nil || got == nil || want == nil || !got.Equal(want) {
+				return ErrStageListen
 			}
 			var fd int
 			if err := c.Control(func(f uintptr) { fd = int(f) }); err != nil {
-				return err
+				return ErrStageListen
 			}
 			if err := b.protect(fd); err != nil {
 				return err
@@ -86,7 +89,10 @@ func (b *ifaceBind) Open(port uint16) ([]conn.ReceiveFunc, uint16, error) {
 		b.mu.Lock()
 		b.protected = false
 		b.mu.Unlock()
-		return nil, 0, err
+		if errors.Is(err, ErrProtectRequired) || errors.Is(err, ErrNotProtected) || errors.Is(err, ErrStageProtect) {
+			return nil, 0, ErrProtectRequired
+		}
+		return nil, 0, ErrStageListen
 	}
 	pc := packet.(*net.UDPConn)
 	actual := uint16(pc.LocalAddr().(*net.UDPAddr).Port)

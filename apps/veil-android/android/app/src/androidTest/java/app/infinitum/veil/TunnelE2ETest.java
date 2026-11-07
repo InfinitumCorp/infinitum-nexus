@@ -80,7 +80,7 @@ public class TunnelE2ETest {
         byte[] payload = "VEIL-E2E-ROUNDTRIP".getBytes(StandardCharsets.US_ASCII);
 
         String up = service.connect(config(client[0], peer[1], "127.0.0.1:9", false, 0, false));
-        assertEquals("interface-up", up);
+        assertEquals("code=" + service.code(), "interface-up", up);
         assertFalse(service.dnsInstalled());
         int peerPort = Mobile.peerStart(peer[0], client[1], "127.0.0.1:9", 0, fd -> service.protect((int) fd));
         Mobile.setClientPeer(deviceIp + ":" + peerPort);
@@ -99,7 +99,7 @@ public class TunnelE2ETest {
 
         String[] wrong = Mobile.mintKey().split(" ");
         up = service.connect(config(client[0], wrong[1], "127.0.0.1:9", false, 0, false));
-        assertEquals("interface-up", up);
+        assertEquals("code=" + service.code(), "interface-up", up);
         peerPort = Mobile.peerStart(peer[0], client[1], "127.0.0.1:9", 0, fd -> service.protect((int) fd));
         Mobile.setClientPeer(deviceIp + ":" + peerPort);
         Mobile.setInprocessPeer(deviceIp + ":" + service.listenPort());
@@ -116,7 +116,7 @@ public class TunnelE2ETest {
         assertEquals("down", service.status());
 
         up = service.connect(config(client[0], peer[1], "127.0.0.1:9", true, 1500, false));
-        assertEquals("interface-up", up);
+        assertEquals("code=" + service.code(), "interface-up", up);
         peerPort = Mobile.peerStart(peer[0], client[1], "127.0.0.1:9", 0, fd -> service.protect((int) fd));
         Mobile.setClientPeer(deviceIp + ":" + peerPort);
         service.onRevoke();
@@ -125,7 +125,7 @@ public class TunnelE2ETest {
         Mobile.stopPeer();
 
         up = service.connect(config(client[0], peer[1], "127.0.0.1:9", false, 0, false));
-        assertEquals("interface-up", up);
+        assertEquals("code=" + service.code(), "interface-up", up);
         peerPort = Mobile.peerStart(peer[0], client[1], "127.0.0.1:9", 0, fd -> service.protect((int) fd));
         Mobile.setClientPeer(deviceIp + ":" + peerPort);
         Mobile.setInprocessPeer(deviceIp + ":" + service.listenPort());

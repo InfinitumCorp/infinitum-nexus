@@ -29,7 +29,7 @@ var (
 func MintKey() (string, error) {
 	priv, pub, err := tunnel.MintHex()
 	if err != nil {
-		return "", err
+		return "", tunnel.ErrStageKey
 	}
 	return priv + " " + pub, nil
 }
@@ -39,19 +39,19 @@ func MintKey() (string, error) {
 // The fd is duplicated; the caller still owns the original descriptor.
 func Start(tunFd int32, privateKeyHex, peerPublicHex, endpoint, localCIDR string, keepalive int32, protector Protector) (int32, error) {
 	if localCIDR == "" {
-		return 0, errors.New("local address is required")
+		return 0, tunnel.ErrStageCIDR
 	}
 	priv, err := tunnel.ParseHexKey(privateKeyHex)
 	if err != nil {
-		return 0, err
+		return 0, tunnel.ErrStageKey
 	}
 	pub, err := tunnel.ParseHexKey(peerPublicHex)
 	if err != nil {
-		return 0, err
+		return 0, tunnel.ErrStageKey
 	}
 	dup, err := unix.Dup(int(tunFd))
 	if err != nil {
-		return 0, err
+		return 0, tunnel.ErrStageDup
 	}
 	file := os.NewFile(uintptr(dup), "veil0")
 	listen, unspecified := tunnel.DeviceListenIP()
@@ -63,13 +63,13 @@ func Start(tunFd int32, privateKeyHex, peerPublicHex, endpoint, localCIDR string
 	})
 	if err != nil {
 		file.Close()
-		return 0, err
+		return 0, publicStage(err)
 	}
 	mu.Lock()
 	if client != nil {
 		mu.Unlock()
 		rt.Stop()
-		return 0, errors.New("tunnel is already connected")
+		return 0, tunnel.ErrStageUp
 	}
 	client = rt
 	mu.Unlock()
@@ -82,9 +82,9 @@ func SetClientPeer(endpoint string) error {
 	rt := client
 	mu.Unlock()
 	if rt == nil {
-		return errors.New("tunnel is not connected")
+		return tunnel.ErrStageUp
 	}
-	return rt.SetEndpoint(endpoint)
+	return publicStage(rt.SetEndpoint(endpoint))
 }
 
 // ClientHandshakeUnix is 0 until a handshake completes.
@@ -121,11 +121,11 @@ func StopClient() {
 func PeerStart(privateKeyHex, peerPublicHex, endpoint string, keepalive int32, protector Protector) (int32, error) {
 	priv, err := tunnel.ParseHexKey(privateKeyHex)
 	if err != nil {
-		return 0, err
+		return 0, tunnel.ErrStageKey
 	}
 	pub, err := tunnel.ParseHexKey(peerPublicHex)
 	if err != nil {
-		return 0, err
+		return 0, tunnel.ErrStageKey
 	}
 	dev, _ := tunnel.NewChannelDevice()
 	listen, unspecified := tunnel.DeviceListenIP()
@@ -135,13 +135,13 @@ func PeerStart(privateKeyHex, peerPublicHex, endpoint string, keepalive int32, p
 		KeepaliveSeconds: int(keepalive), TUN: dev, Protect: adapt(protector),
 	})
 	if err != nil {
-		return 0, err
+		return 0, publicStage(err)
 	}
 	mu.Lock()
 	if peer != nil {
 		mu.Unlock()
 		rt.Stop()
-		return 0, errors.New("peer is already running")
+		return 0, tunnel.ErrStageUp
 	}
 	peer = rt
 	mu.Unlock()
@@ -154,9 +154,9 @@ func SetInprocessPeer(endpoint string) error {
 	rt := peer
 	mu.Unlock()
 	if rt == nil {
-		return errors.New("peer is not running")
+		return tunnel.ErrStageUp
 	}
-	return rt.SetEndpoint(endpoint)
+	return publicStage(rt.SetEndpoint(endpoint))
 }
 
 // StopPeer stops the in-process peer.
@@ -209,5 +209,32 @@ func adapt(protector Protector) func(int) error {
 			return tunnel.ErrProtectRequired
 		}
 		return nil
+	}
+}
+
+// publicStage returns an allowlisted token. The original error is dropped
+// because IpcSet and syscall text can carry a key or an endpoint.
+func publicStage(err error) error {
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, tunnel.ErrStageProtect), errors.Is(err, tunnel.ErrProtectRequired), errors.Is(err, tunnel.ErrNotProtected):
+		return tunnel.ErrStageProtect
+	case errors.Is(err, tunnel.ErrStageListen):
+		return tunnel.ErrStageListen
+	case errors.Is(err, tunnel.ErrStagePort):
+		return tunnel.ErrStagePort
+	case errors.Is(err, tunnel.ErrStageKey), errors.Is(err, tunnel.ErrPrivateKey):
+		return tunnel.ErrStageKey
+	case errors.Is(err, tunnel.ErrStageDup):
+		return tunnel.ErrStageDup
+	case errors.Is(err, tunnel.ErrStageTun):
+		return tunnel.ErrStageTun
+	case errors.Is(err, tunnel.ErrStageCIDR):
+		return tunnel.ErrStageCIDR
+	case errors.Is(err, tunnel.ErrStageConfig), errors.Is(err, tunnel.ErrEndpoint), errors.Is(err, tunnel.ErrEndpointNotLoopback):
+		return tunnel.ErrStageConfig
+	default:
+		return tunnel.ErrStageUp
 	}
 }

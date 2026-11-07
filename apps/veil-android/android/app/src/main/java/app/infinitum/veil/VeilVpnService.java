@@ -180,8 +180,7 @@ public final class VeilVpnService extends VpnService {
             closeTun();
             Mobile.stopClient();
             status = "down";
-            String message = ex.getMessage() == null ? "" : ex.getMessage().toLowerCase(Locale.US);
-            code = message.contains("protect") ? "protect-failed" : "failed";
+            code = failureCode(ex);
             return code;
         }
         status = "interface-up";
@@ -210,6 +209,44 @@ public final class VeilVpnService extends VpnService {
             code = "down";
         }
         stopForeground(STOP_FOREGROUND_REMOVE);
+    }
+
+    /**
+     * Maps a native failure onto a fixed code. The exception text is never copied.
+     * Only allowlisted stage tokens and the two protect sentences we return are read.
+     */
+    static String failureCode(Throwable ex) {
+        String message = ex == null || ex.getMessage() == null ? "" : ex.getMessage().toLowerCase(Locale.US);
+        if (message.contains("stage:protect")
+                || message.contains("protect callback is required")
+                || message.contains("tunnel socket was not protected")) {
+            return "protect-failed";
+        }
+        if (message.contains("stage:dup")) {
+            return "failed:dup";
+        }
+        if (message.contains("stage:key")) {
+            return "failed:key";
+        }
+        if (message.contains("stage:listen")) {
+            return "failed:listen";
+        }
+        if (message.contains("stage:port")) {
+            return "failed:port";
+        }
+        if (message.contains("stage:config")) {
+            return "failed:config";
+        }
+        if (message.contains("stage:tun")) {
+            return "failed:tun";
+        }
+        if (message.contains("stage:cidr")) {
+            return "failed:cidr";
+        }
+        if (message.contains("stage:up")) {
+            return "failed:up";
+        }
+        return "failed:unlisted";
     }
 
     private void closeTun() {

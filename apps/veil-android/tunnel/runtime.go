@@ -56,10 +56,10 @@ func StartRuntime(cfg RuntimeConfig) (*Runtime, error) {
 		return nil, ErrPrivateKey
 	}
 	if cfg.TUN == nil {
-		return nil, errors.New("TUN is required")
+		return nil, ErrStageTun
 	}
 	if cfg.KeepaliveSeconds < 0 || cfg.KeepaliveSeconds > 65535 {
-		return nil, errors.New("keepalive is invalid")
+		return nil, ErrStageConfig
 	}
 	bind, err := NewIfaceBind(cfg.Protect, cfg.ListenIP, cfg.AllowUnspecifiedListen)
 	if err != nil {
@@ -83,16 +83,16 @@ func StartRuntime(cfg RuntimeConfig) (*Runtime, error) {
 	}, "\n")
 	if err := dev.IpcSet(uapi); err != nil {
 		dev.Close()
-		return nil, err
+		return nil, ErrStageConfig
 	}
 	if err := dev.Up(); err != nil {
 		dev.Close()
-		return nil, err
+		return nil, stageBind(err)
 	}
 	port, err := portFromAddr(bind.localAddr())
 	if err != nil {
 		dev.Close()
-		return nil, err
+		return nil, ErrStagePort
 	}
 	rt := &Runtime{
 		dev: dev, bind: bind, policy: policy, log: logs, peer: cfg.PeerPublic, port: port,
@@ -153,7 +153,22 @@ func (r *Runtime) SetEndpoint(endpoint string) error {
 		return ErrDown
 	}
 	uapi := "public_key=" + keyHex(peer) + "\nendpoint=" + endpoint + "\n"
-	return dev.IpcSet(uapi)
+	if err := dev.IpcSet(uapi); err != nil {
+		return ErrStageConfig
+	}
+	return nil
+}
+
+// stageBind keeps protect distinct from listen and drops syscall text.
+func stageBind(err error) error {
+	switch {
+	case errors.Is(err, ErrProtectRequired), errors.Is(err, ErrNotProtected), errors.Is(err, ErrStageProtect):
+		return ErrStageProtect
+	case errors.Is(err, ErrStageListen), errors.Is(err, ErrEndpoint), errors.Is(err, ErrEndpointNotLoopback):
+		return ErrStageListen
+	default:
+		return ErrStageUp
+	}
 }
 
 // Stop closes the device and its UDP socket.

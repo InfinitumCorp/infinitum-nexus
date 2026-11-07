@@ -6,6 +6,7 @@
 package tunnel
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -90,8 +91,74 @@ func TestRuntimeProtectFailureDoesNotSend(t *testing.T) {
 		ListenIP: "127.0.0.1", TUN: tunDevice,
 		Protect: func(int) error { return ErrProtectRequired },
 	})
-	if err == nil {
-		t.Fatal("connect succeeded without protect")
+	if !errors.Is(err, ErrStageProtect) {
+		t.Fatalf("protect error = %v", err)
+	}
+	if strings.Contains(err.Error(), keyHex(priv)) || strings.Contains(err.Error(), "private_key") {
+		t.Fatal("protect stage included key material")
+	}
+}
+
+func TestUnspecifiedListenAddressKeepsPort(t *testing.T) {
+	port, err := portFromAddr("0.0.0.0:51820")
+	if err != nil || port != 51820 {
+		t.Fatalf("device listen port = %d %v", port, err)
+	}
+	port, err = portFromAddr("127.0.0.1:9")
+	if err != nil || port != 9 {
+		t.Fatalf("loopback listen port = %d %v", port, err)
+	}
+	if _, err = portFromAddr("192.0.2.1:9"); err == nil {
+		t.Fatal("public address accepted as a local listen port")
+	}
+	if _, err = portFromAddr("not-an-address"); !errors.Is(err, ErrStagePort) {
+		t.Fatalf("malformed listen error = %v", err)
+	}
+
+	priv, pub, err := generateKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	tunDevice, _ := NewChannelDevice()
+	rt, err := StartRuntime(RuntimeConfig{
+		PrivateKey: priv, PeerPublic: pub, Endpoint: "127.0.0.1:9",
+		ListenIP: "0.0.0.0", AllowUnspecifiedListen: true,
+		TUN: tunDevice, Protect: allowProtect,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(rt.Stop)
+	if rt.Port() <= 0 || rt.Port() > 65535 {
+		t.Fatalf("device-style listen port = %d", rt.Port())
+	}
+	if strings.Contains(keyHex(priv), "stage:") {
+		t.Fatal("stage token collided with a key")
+	}
+}
+
+func TestStageConfigDropsKeyMaterial(t *testing.T) {
+	priv, pub, err := generateKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	tunDevice, _ := NewChannelDevice()
+	_, err = StartRuntime(RuntimeConfig{
+		PrivateKey: priv, PeerPublic: pub, Endpoint: "127.0.0.1:9",
+		ListenIP: "127.0.0.1", KeepaliveSeconds: -1,
+		TUN: tunDevice, Protect: allowProtect,
+	})
+	if !errors.Is(err, ErrStageConfig) {
+		t.Fatalf("keepalive error = %v", err)
+	}
+	for _, stage := range []error{
+		ErrStageDup, ErrStageKey, ErrStageListen, ErrStagePort, ErrStageConfig,
+		ErrStageProtect, ErrStageTun, ErrStageUp, ErrStageCIDR, err,
+	} {
+		text := stage.Error()
+		if !strings.HasPrefix(text, "stage:") || strings.Contains(text, keyHex(priv)) || strings.Contains(text, "private_key") {
+			t.Fatalf("stage text = %q", text)
+		}
 	}
 }
 

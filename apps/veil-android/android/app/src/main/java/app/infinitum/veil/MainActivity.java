@@ -162,9 +162,29 @@ public final class MainActivity extends Activity {
             detail = "Handshake did not finish. The TUN was closed.";
         } else if ("already-up".equals(code)) {
             detail = "The interface is already up. Disconnect before starting another peer.";
-        } else {
+        } else if ("failed:dup".equals(code)) {
+            detail = "The tunnel file could not be duplicated. The TUN was closed.";
+        } else if ("failed:key".equals(code)) {
+            detail = "The native key check failed. The TUN was closed.";
+        } else if ("failed:listen".equals(code)) {
+            detail = "The tunnel socket did not open. The TUN was closed.";
+        } else if ("failed:port".equals(code)) {
+            detail = "The tunnel socket did not report a listen port. The TUN was closed.";
+        } else if ("failed:config".equals(code)) {
+            detail = "The native peer configuration was refused. The TUN was closed.";
+        } else if ("failed:tun".equals(code)) {
+            detail = "The native TUN was missing. Nothing was left up.";
+        } else if ("failed:up".equals(code)) {
+            detail = "The native device did not come up. The TUN was closed.";
+        } else if ("failed:cidr".equals(code)) {
+            detail = "A local address is required. Nothing was started.";
+        } else if ("failed:unlisted".equals(code)) {
+            detail = "The tunnel did not stay up (failed:unlisted).";
+        } else if (code != null && code.length() <= 32 && code.matches("[a-z0-9]+(:[a-z0-9]+)?")) {
             detail = "The tunnel did not stay up (" + code + ").";
+        } else {
+            detail = "The tunnel did not stay up (failed:unlisted).";
         }
-        return detail + "\n\n" + getString(R.string.limits);
+        return detail;
     }
 }

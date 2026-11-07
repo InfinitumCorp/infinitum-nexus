@@ -45,7 +45,7 @@ public final class DebugHooks {
             client = Mobile.mintKey();
             peer = Mobile.mintKey();
         } catch (Exception ex) {
-            activity.showCode("failed");
+            activity.showCode(VeilVpnService.failureCode(ex));
             return;
         }
         String[] clientParts = client.split(" ");
@@ -67,7 +67,7 @@ public final class DebugHooks {
                 socket.close();
                 activity.showCode(svc.phase());
             } catch (Exception ex) {
-                activity.showCode("failed");
+                activity.showCode(VeilVpnService.failureCode(ex));
             }
         };
         if (activity.service == null) {

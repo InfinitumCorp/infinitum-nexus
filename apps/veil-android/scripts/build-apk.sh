@@ -31,6 +31,7 @@ if [ ! -x "$root/android/gradlew" ]; then
   gradle_bin=${GRADLE_BIN:-gradle}
   (cd "$root/android" && "$gradle_bin" wrapper --gradle-version 8.11.1)
 fi
-(cd "$root/android" && ./gradlew :app:assembleDebug --no-daemon)
+(cd "$root/android" && ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon)
 apk=$root/android/app/build/outputs/apk/debug/app-debug.apk
-sha256sum "$apk"
+testapk=$root/android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+sha256sum "$apk" "$testapk"

@@ -243,15 +243,18 @@ func (s *Session) fromOS() chan []byte {
 func portFromAddr(addr string) (int, error) {
 	host, portText, err := net.SplitHostPort(addr)
 	if err != nil {
-		return 0, err
+		return 0, ErrStagePort
 	}
 	ip := net.ParseIP(host)
-	if ip == nil || !ip.IsLoopback() || ip.To4() == nil {
-		return 0, ErrEndpointNotLoopback
+	// 127.0.0.1 is the host lab socket. 0.0.0.0 is the address a device
+	// process gets back after it listens on every interface. A public
+	// address is not a local listen result.
+	if ip == nil || ip.To4() == nil || (!ip.IsLoopback() && !ip.IsUnspecified()) {
+		return 0, ErrStagePort
 	}
-	port, err := strconv.Atoi(portText)
-	if err != nil || port <= 0 || port > 65535 {
-		return 0, errors.New("bad listen port")
+	port, conv := strconv.Atoi(portText)
+	if conv != nil || port <= 0 || port > 65535 {
+		return 0, ErrStagePort
 	}
 	return port, nil
 }

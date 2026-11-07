@@ -48,7 +48,16 @@ Gradle’s debug keystore signs it. That is not a Play upload key.
 
 Agent build of this tree:
 
-The visible wordmark is exactly VEIL</>™ on a white screen. Prior 0.1.2 artifacts were not overwritten.
+The visible wordmark is exactly VEIL</>™ on a white screen. The routing disclosure is the layout paragraph only. `1ba14be` / 0.1.3 returned `failed` after `establish()` because the device listen address `0.0.0.0:port` was rejected as if it were a peer. Native failures now return a fixed `stage:` token. The Java code maps that token and does not copy the exception text. Prior 0.1.2 and 0.1.3 artifacts were not overwritten.
+
+```
+app:  /opt/cursor/artifacts/veil-0.1.4-arm64-debug.apk
+      4548a18ae72cf80faa73a046b68c754dc9e37a759eb135edee08de791c5b4e5d
+test: /opt/cursor/artifacts/veil-0.1.4-arm64-androidTest.apk
+      4e3070bd26cde74bbb95d9e2d249d35b7f55e82f916a3d765f546a54bea4dcf8
+```
+
+Kept:
 
 ```
 app:  /opt/cursor/artifacts/veil-0.1.3-arm64-debug.apk
@@ -59,8 +68,8 @@ test: /opt/cursor/artifacts/veil-0.1.3-arm64-androidTest.apk
 
 ```
 applicationId: app.infinitum.veil
-versionName: 0.1.3-debug
-versionCode: 4
+versionName: 0.1.4-debug
+versionCode: 5
 minSdk: 26
 targetSdk: 35
 abi: arm64-v8a
@@ -93,8 +102,8 @@ VPN consent screen and does not start at launch. The supported service entry is
 Install and open, after `adb` is available:
 
 ```sh
-adb install -r veil-arm64-v8a-debug.apk
-adb install -r veil-arm64-v8a-debug-androidTest.apk
+adb install -r veil-0.1.4-arm64-debug.apk
+adb install -r veil-0.1.4-arm64-androidTest.apk
 adb shell am start -n app.infinitum.veil/.MainActivity
 adb shell am instrument -w app.infinitum.veil.test/androidx.test.runner.AndroidJUnitRunner
 ```

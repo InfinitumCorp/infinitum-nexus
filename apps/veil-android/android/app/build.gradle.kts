@@ -10,8 +10,8 @@ android {
         applicationId = "app.infinitum.veil"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "0.1.1-debug"
+        versionCode = 3
+        versionName = "0.1.2-debug"
         testApplicationId = "app.infinitum.veil.test"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk {

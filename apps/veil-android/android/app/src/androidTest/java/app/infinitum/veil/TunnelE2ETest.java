@@ -3,8 +3,8 @@ package app.infinitum.veil;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 import android.content.ComponentName;
 import android.content.Context;
@@ -45,13 +45,14 @@ public class TunnelE2ETest {
     private VeilVpnService service;
 
     @Before
-    public void grantAndBind() throws Exception {
-        InstrumentationRegistry.getInstrumentation()
-                .getUiAutomation()
-                .executeShellCommand("appops set app.infinitum.veil ACTIVATE_VPN allow")
-                .close();
-        Context context = target();
-        assertNull(VpnService.prepare(context));
+    public void requireConsentAndBind() throws Exception {
+        Intent prepare = VpnService.prepare(target());
+        if (prepare != null) {
+            fail("OS VPN consent is not granted for app.infinitum.veil. "
+                    + "Approve the system VPN consent dialog for this app, then rerun. "
+                    + "This test does not call appops and does not accept that dialog. "
+                    + "prepare=" + prepare);
+        }
         bind();
     }
 
@@ -69,7 +70,9 @@ public class TunnelE2ETest {
         assertEquals(
                 "domain-is-not-an-endpoint",
                 service.connect(config("", "", "infinitumveilvpn.app:51820", false, 0, false)));
+        assertEquals("domain-is-not-an-endpoint", service.code());
         assertEquals("down", service.status());
+        assertFalse(Mobile.clientUp());
 
         String deviceIp = underlyingV4();
         String[] client = Mobile.mintKey().split(" ");

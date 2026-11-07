@@ -167,7 +167,13 @@ public final class MainActivity extends Activity {
             statusView.setText(describe("down"));
             return;
         }
-        statusView.setText(describe(service.phase()));
+        String tunnel = service.status();
+        String last = service.code();
+        if ("down".equals(tunnel) && last != null && !"down".equals(last)) {
+            statusView.setText(describe(last) + "\nTunnel state: down.");
+        } else {
+            statusView.setText(describe(tunnel));
+        }
     }
 
     private static String text(EditText view) {

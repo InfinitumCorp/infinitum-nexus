@@ -50,15 +50,15 @@ Agent build of this tree:
 
 ```
 app:  /opt/cursor/artifacts/veil-arm64-v8a-debug.apk
-      3a39b48de5d35f33e6d2900717c4746331bdae521060684a03272e63ffdc5152
+      5a3d41f1c7d287482bdf2808c7e4acc0b32268d751d5e2c71e33cdc782f28569
 test: /opt/cursor/artifacts/veil-arm64-v8a-debug-androidTest.apk
-      f6a63819374398aba9dd66a27220d1788bd7a8c7d5d1468fed08d1b642b23b1e
+      77ca897d1b89e8ee2d56a5672b4c40632bcdc9f5b72885e3be2e5a0c5f05fae5
 ```
 
 ```
 applicationId: app.infinitum.veil
-versionName: 0.1.1-debug
-versionCode: 2
+versionName: 0.1.2-debug
+versionCode: 3
 minSdk: 26
 targetSdk: 35
 abi: arm64-v8a
@@ -73,10 +73,11 @@ that package first if the tester must avoid mixing logcat.
 
 ## Disposable peer
 
-There is no production endpoint and no settings field. `MainActivity` only
-displays the product name. The supported entry is `VeilVpnService.connect`:
+There is no production endpoint. Connect on `MainActivity` asks for the system
+VPN consent screen and does not start at launch. The supported service entry is
+`VeilVpnService.connect`:
 
-1. `VpnService.prepare` returns null. On a test image: `adb shell appops set app.infinitum.veil ACTIVATE_VPN allow`.
+1. `VpnService.prepare` returns null because the person already approved the system VPN dialog for `app.infinitum.veil`. The test does not call `appops` and does not accept that dialog.
 2. Bind `app.infinitum.veil.VeilVpnService`.
 3. Mint keys in process with `Mobile.mintKey()` (`privateHex publicHex`). Do not log or store them.
 4. `connect` with an IPv4 `host:port` only. `infinitumveilvpn.app`, a scheme, or a hostname returns `domain-is-not-an-endpoint` or `bad-endpoint` and does not call `establish()`.
@@ -104,9 +105,10 @@ an IPv4 `host:port`, a local CIDR, and disposable WireGuard keys. The
 instrumented test mints those keys in process (`Mobile.mintKey`), starts an
 in-process peer after `establish()`, then points both sides at the device’s
 own non-loopback IPv4. The inner datagram is UDP to `10.77.0.1:9`. No public
-server is required. `VpnService.prepare` must already be granted (`appops set
-app.infinitum.veil ACTIVATE_VPN allow` on a test image, or the system consent
-screen). Instrumentation, when a device is attached:
+server is required. The instrumented test does not call `appops` and does not accept the system
+VPN dialog. If consent is missing it fails before any tunnel work and names
+that precondition. Approve the OS dialog for `app.infinitum.veil`, then rerun.
+Instrumentation, when a device is attached:
 
 ```sh
 cd apps/veil-android/android

@@ -85,23 +85,26 @@ public final class VeilVpnService extends VpnService {
         super.onDestroy();
     }
 
-    public String status() {
-        return phase();
-    }
-
     /**
-     * interface-up means the TUN exists. handshake-complete means the peer
-     * finished a WireGuard handshake. Neither means public internet access.
+     * Tunnel lifecycle only: down, interface-up, or handshake-complete.
+     * A refused peer name does not change this. interface-up is not a
+     * handshake and is not internet access.
      */
-    public synchronized String phase() {
-        if ("interface-up".equals(code) && Mobile.clientHandshakeUnix() > 0L) {
-            code = "handshake-complete";
+    public synchronized String status() {
+        if ("interface-up".equals(status) && Mobile.clientHandshakeUnix() > 0L) {
             status = "handshake-complete";
+            code = "handshake-complete";
         }
-        return code;
+        return status;
     }
 
-    public String code() {
+    /** Same as {@link #status()}. */
+    public synchronized String phase() {
+        return status();
+    }
+
+    /** Last request result, including domain-is-not-an-endpoint while the tunnel stays down. */
+    public synchronized String code() {
         return code;
     }
 
@@ -126,6 +129,9 @@ public final class VeilVpnService extends VpnService {
             code = endpoint.toLowerCase(Locale.US).contains("infinitumveilvpn.app")
                     ? "domain-is-not-an-endpoint"
                     : "bad-endpoint";
+            if (!"interface-up".equals(status) && !"handshake-complete".equals(status)) {
+                status = "down";
+            }
             return code;
         }
         if ("interface-up".equals(status) || "handshake-complete".equals(status)) {

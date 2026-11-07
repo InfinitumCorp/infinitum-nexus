@@ -32,8 +32,10 @@ Deployed services can't reach an OmniRoute running on a laptop. In production, p
 
 These are the canonical ids, in tier order:
 
-- **smart:** `gpt-oss-120b` (Apache-2.0), `llama-3.3-70b`, `qwen3-235b` (Apache-2.0), `deepseek-v3` (MIT)
-- **fast:** `gpt-oss-20b`, `qwen3-32b`, `llama-3.1-8b`
+- **smart:** `gpt-oss-120b` (Apache-2.0), `qwen3-235b` (Apache-2.0), `deepseek-v3` (MIT)
+- **fast:** `gpt-oss-20b` (Apache-2.0), `qwen3-32b` (Apache-2.0)
+
+Only OSI-licensed models are included. Llama is excluded because its custom license isn't open source.
 
 Each host's model names are listed in `src/catalog.ts`. Override or add names with `AI_MODEL_MAP='{"groq":{"gpt-oss-120b":"..."}}'`, without touching code.
 

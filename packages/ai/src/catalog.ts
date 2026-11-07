@@ -1,9 +1,10 @@
 /**
  * Open-weight models and the hosts that serve them.
  *
- * Every model here has openly published weights (Apache 2.0, MIT, Llama or
- * Qwen licenses), so any of them can also be self-hosted with vLLM, SGLang,
- * llama.cpp or Ollama. Hosts all speak the OpenAI-compatible
+ * Every model here is released under an OSI-approved license (Apache 2.0 or
+ * MIT), so any of them can also be self-hosted with vLLM, SGLang, llama.cpp or
+ * Ollama. Llama models are deliberately excluded: their custom license is not
+ * open source (InfinitumCorp/RULES reports/oss-reuse.md). Hosts all speak the OpenAI-compatible
  * /chat/completions API, which is what lets the router move a conversation
  * from one model or host to another mid-task.
  *
@@ -26,12 +27,10 @@ export interface OpenModel {
 
 export const MODELS: readonly OpenModel[] = [
   { id: "gpt-oss-120b", label: "gpt-oss 120B", license: "Apache-2.0", tier: "smart", tools: true, contextTokens: 131_072 },
-  { id: "llama-3.3-70b", label: "Llama 3.3 70B Instruct", license: "Llama 3.3", tier: "smart", tools: true, contextTokens: 131_072 },
   { id: "qwen3-235b", label: "Qwen3 235B A22B", license: "Apache-2.0", tier: "smart", tools: true, contextTokens: 131_072 },
   { id: "deepseek-v3", label: "DeepSeek V3", license: "MIT", tier: "smart", tools: true, contextTokens: 131_072 },
   { id: "gpt-oss-20b", label: "gpt-oss 20B", license: "Apache-2.0", tier: "fast", tools: true, contextTokens: 131_072 },
   { id: "qwen3-32b", label: "Qwen3 32B", license: "Apache-2.0", tier: "fast", tools: true, contextTokens: 32_768 },
-  { id: "llama-3.1-8b", label: "Llama 3.1 8B Instruct", license: "Llama 3.1", tier: "fast", tools: true, contextTokens: 131_072 },
 ];
 
 export interface ProviderPreset {
@@ -52,8 +51,6 @@ export const PRESETS: readonly ProviderPreset[] = [
     models: {
       "gpt-oss-120b": "openai/gpt-oss-120b",
       "gpt-oss-20b": "openai/gpt-oss-20b",
-      "llama-3.3-70b": "llama-3.3-70b-versatile",
-      "llama-3.1-8b": "llama-3.1-8b-instant",
       "qwen3-32b": "qwen/qwen3-32b",
     },
   },
@@ -63,8 +60,6 @@ export const PRESETS: readonly ProviderPreset[] = [
     keyEnv: "CEREBRAS_API_KEY",
     models: {
       "gpt-oss-120b": "gpt-oss-120b",
-      "llama-3.3-70b": "llama-3.3-70b",
-      "llama-3.1-8b": "llama3.1-8b",
       "qwen3-32b": "qwen-3-32b",
     },
   },
@@ -75,8 +70,6 @@ export const PRESETS: readonly ProviderPreset[] = [
     models: {
       "gpt-oss-120b": "openai/gpt-oss-120b",
       "gpt-oss-20b": "openai/gpt-oss-20b",
-      "llama-3.3-70b": "meta-llama/Llama-3.3-70B-Instruct-Turbo",
-      "llama-3.1-8b": "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
       "deepseek-v3": "deepseek-ai/DeepSeek-V3",
       "qwen3-235b": "Qwen/Qwen3-235B-A22B-Instruct-2507-tput",
     },
@@ -88,7 +81,6 @@ export const PRESETS: readonly ProviderPreset[] = [
     models: {
       "gpt-oss-120b": "accounts/fireworks/models/gpt-oss-120b",
       "gpt-oss-20b": "accounts/fireworks/models/gpt-oss-20b",
-      "llama-3.3-70b": "accounts/fireworks/models/llama-v3p3-70b-instruct",
       "deepseek-v3": "accounts/fireworks/models/deepseek-v3",
       "qwen3-235b": "accounts/fireworks/models/qwen3-235b-a22b",
     },
@@ -100,8 +92,6 @@ export const PRESETS: readonly ProviderPreset[] = [
     models: {
       "gpt-oss-120b": "openai/gpt-oss-120b",
       "gpt-oss-20b": "openai/gpt-oss-20b",
-      "llama-3.3-70b": "meta-llama/Llama-3.3-70B-Instruct-Turbo",
-      "llama-3.1-8b": "meta-llama/Meta-Llama-3.1-8B-Instruct",
       "deepseek-v3": "deepseek-ai/DeepSeek-V3",
       "qwen3-235b": "Qwen/Qwen3-235B-A22B",
     },
@@ -113,8 +103,6 @@ export const PRESETS: readonly ProviderPreset[] = [
     models: {
       "gpt-oss-120b": "openai/gpt-oss-120b",
       "gpt-oss-20b": "openai/gpt-oss-20b",
-      "llama-3.3-70b": "meta-llama/llama-3.3-70b-instruct",
-      "llama-3.1-8b": "meta-llama/llama-3.1-8b-instruct",
       "deepseek-v3": "deepseek/deepseek-chat",
       "qwen3-235b": "qwen/qwen3-235b-a22b",
       "qwen3-32b": "qwen/qwen3-32b",
@@ -126,8 +114,6 @@ export const PRESETS: readonly ProviderPreset[] = [
     models: {
       "gpt-oss-120b": "gpt-oss:120b",
       "gpt-oss-20b": "gpt-oss:20b",
-      "llama-3.3-70b": "llama3.3:70b",
-      "llama-3.1-8b": "llama3.1:8b",
       "qwen3-32b": "qwen3:32b",
     },
   },

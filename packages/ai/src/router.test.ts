@@ -19,7 +19,7 @@ function fakeFetch(handler: Handler) {
 const reply = (content: string | null, extra: Record<string, unknown> = {}) =>
   Response.json({ choices: [{ message: { content, ...extra }, finish_reason: "stop" }], usage: { prompt_tokens: 3, completion_tokens: 2 } });
 
-const A: Provider = { name: "a", baseUrl: "https://a.test/v1", apiKey: "ka", models: { "gpt-oss-120b": "a-120b", "llama-3.3-70b": "a-llama" } };
+const A: Provider = { name: "a", baseUrl: "https://a.test/v1", apiKey: "ka", models: { "gpt-oss-120b": "a-120b", "deepseek-v3": "a-deepseek" } };
 const B: Provider = { name: "b", baseUrl: "https://b.test/v1/", apiKey: "kb", models: { "gpt-oss-120b": "b-120b" } };
 
 test("no providers: not configured", async () => {

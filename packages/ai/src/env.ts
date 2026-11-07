@@ -75,8 +75,7 @@ export function providersFromEnv(env: Env = process.env): Provider[] {
       models: {
         "gpt-oss-120b": "@cf/openai/gpt-oss-120b",
         "gpt-oss-20b": "@cf/openai/gpt-oss-20b",
-        "llama-3.3-70b": "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
-        "llama-3.1-8b": "@cf/meta/llama-3.1-8b-instruct",
+        "qwen3-32b": "@cf/qwen/qwen3-30b-a3b-fp8",
       },
     });
   }

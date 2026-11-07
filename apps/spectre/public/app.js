@@ -213,7 +213,7 @@ function renderShell(page) {
             <a href="#/people" data-p="people">${icon.people}People</a>
             <a href="#/health" data-p="health">${icon.health}Data health</a>
             <a href="#/agents" data-p="agents">${icon.agents}Agents<span class="badge hidden" id="agents-badge"></span></a>
-            <a href="#/conjure" data-p="conjure">${icon.conjure}<span>Conjure<sup class="tm">™</sup></span></a>
+            <a href="#/conjure" data-p="conjure">${icon.conjure}<span>CONJURE<sup class="tm">™</sup></span></a>
           </nav>
           <div class="spacer"></div>
           <nav class="nav"><a href="#/settings" data-p="settings">${icon.settings}Settings</a></nav>
@@ -423,7 +423,7 @@ async function openDeal(id) {
         ${d.score.factors.map((f) => `<div class="factor"><span>${esc(f.label)}</span><span class="${f.effect >= 1 ? "up" : "down"}">${f.effect >= 1 ? "▲" : "▼"} ×${f.effect}</span></div>`).join("")}
       </div>
       <div class="section"><h2>Next best action</h2><div class="next"><div class="act">${esc(d.next.action)}</div><div class="muted small">${esc(d.next.why)}</div></div>
-        <button class="btn small" id="rehearse">Rehearse with AI</button><button class="btn small" id="simulate">Simulate with Conjure<sup class="tm">™</sup></button></div>` : ""}
+        <button class="btn small" id="rehearse">Rehearse with AI</button><button class="btn small" id="simulate">Simulate with CONJURE<sup class="tm">™</sup></button></div>` : ""}
 
       <div class="section"><h2>People</h2>
         ${d.contacts.length ? d.contacts.map((c) => `<div class="factor"><span>${esc(c.name)}<span class="muted"> · ${esc(c.title ?? "")}</span></span><span class="pill">${esc(c.influence ?? "contact")}</span></div>`).join("") : `<div class="muted small">No one linked yet.</div>`}
@@ -981,7 +981,7 @@ async function renderAgents() {
   main().querySelectorAll("[data-starter]").forEach((b) => b.onclick = () => { q.value = b.textContent; run(); });
 }
 
-/* ---------------- Conjure™ swarm forecasting ---------------- */
+/* ---------------- CONJURE™ swarm forecasting ---------------- */
 
 const stanceLabel = (v) => (v > 0.2 ? "for" : v < -0.2 ? "against" : "undecided");
 
@@ -1014,8 +1014,8 @@ async function renderConjure() {
   const data = await api("GET", "/api/conjure");
   main().innerHTML = `
     <div class="page narrow">
-      <div class="page-head"><h1>Conjure<sup class="tm">™</sup></h1><span class="faint small">Swarm forecasting</span></div>
-      <p class="muted">Give Conjure a question and some background. It builds the people involved as AI agents, lets them react to each other over several rounds, and writes a forecast. You can inject “what if” events, compare futures and interview any agent.</p>
+      <div class="page-head"><h1>CONJURE<sup class="tm">™</sup></h1><span class="faint small">Swarm forecasting</span></div>
+      <p class="muted">Give CONJURE a question and some background. It builds the people involved as AI agents, lets them react to each other over several rounds, and writes a forecast. You can inject “what if” events, compare futures and interview any agent.</p>
       ${data.aiConnected ? "" : `<div class="notice">AI isn't connected yet, so simulations can't run. Add ANTHROPIC_API_KEY to the server environment.</div>`}
       <form id="new-sim" class="section">
         <label class="field">Question<input class="input" name="question" required maxlength="500" placeholder="Will the city approve the new transit budget this quarter?"></label>
@@ -1062,7 +1062,7 @@ async function renderSimulation(id) {
   const r = s.report;
   main().innerHTML = `
     <div class="page narrow">
-      <a class="faint small" href="#/conjure">← Conjure</a>
+      <a class="faint small" href="#/conjure">← CONJURE</a>
       <div class="page-head"><h1 class="sim-q">${esc(s.question)}</h1></div>
       <p class="muted small">${s.personas.length} agents · round ${s.round} of ${s.rounds} · ${s.calls}/${s.maxCalls} AI calls${s.forkedFrom ? ` · forked from <a href="#/conjure/${esc(s.forkedFrom.id)}">another simulation</a> at round ${s.forkedFrom.round}` : ""}</p>
       ${stanceChart(s.stats, s.poles)}
@@ -1081,7 +1081,7 @@ async function renderSimulation(id) {
         ${r.drivers.length ? `<h3>Drivers</h3><ul>${r.drivers.map((d) => `<li>${esc(d)}</li>`).join("")}</ul>` : ""}
         ${r.signals.length ? `<h3>Signals to watch</h3><ul>${r.signals.map((d) => `<li>${esc(d)}</li>`).join("")}</ul>` : ""}
         ${r.assumptions.length ? `<h3>Assumptions</h3><ul>${r.assumptions.map((d) => `<li>${esc(d)}</li>`).join("")}</ul>` : ""}
-        <p class="faint small">A simulation is evidence, not proof. The estimate is Conjure's judgement from ${s.personas.length} simulated agents.</p></div>` : ""}
+        <p class="faint small">A simulation is evidence, not proof. The estimate is CONJURE's judgement from ${s.personas.length} simulated agents.</p></div>` : ""}
       <div class="section"><h2>Feed</h2>${s.feed.length ? `<div class="feed">${[...s.feed].reverse().slice(0, 60).map((x) => `
         <div class="post${x.authorId === "world" ? " news" : ""}"><div class="sub">${esc(x.author)} · round ${x.round}${x.replyTo ? " · reply" : ""}</div><div>${esc(x.text)}</div>
         ${x.authorId === "world" ? "" : `<div class="faint small">${x.likes} likes · ${x.reposts} reposts</div>`}</div>`).join("")}</div>` : `<p class="faint">Run a round to see the agents talk.</p>`}</div>

@@ -169,7 +169,7 @@ function render() {
   const initial = (data.me.name || data.me.email).trim().charAt(0).toUpperCase();
   root.append(
     el("header", {}, [
-      el("div", { class: "brand" }, [el("div", { class: "mark" }, ["Cumulus", el("span", {}, ["://"]), "Mail"])]),
+      el("div", { class: "brand" }, [el("div", { class: "mark" }, ["Cumulus://Mail", el("sup", { class: "tm" }, ["™"])])]),
       el("label", { class: "search" }, [el("span", { class: "glass", "aria-hidden": "true" }, ["⌕"]), search]),
       el("button", { class: "avatar", title: `${data.me.name} · ${data.me.email}`, "aria-label": "Your Cumulus://ID", onClick: () => go("account") }, [initial]),
     ]),
@@ -845,7 +845,7 @@ function renderAuth(message = "") {
     .then((providers) => social.replaceChildren(...providers.map((p) => el("a", { class: "outline", href: `/api/auth/oauth/${encodeURIComponent(p.id)}/start` }, [`Continue with ${p.label}`]))))
     .catch(() => {});
   root.replaceChildren(el("div", { class: "auth" }, [el("div", { class: "auth-card" }, [
-    el("div", { class: "mark" }, ["Cumulus", el("span", {}, ["://"]), "Mail"]),
+    el("div", { class: "mark" }, ["Cumulus://Mail", el("sup", { class: "tm" }, ["™"])]),
     el("p", { class: "muted" }, ["Sign in with your Cumulus://ID"]),
     el("button", { class: "primary", onClick: async () => {
       err.textContent = "";

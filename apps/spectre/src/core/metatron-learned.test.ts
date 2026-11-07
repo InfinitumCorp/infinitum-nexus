@@ -107,3 +107,29 @@ test("METATRON off: no learned context", () => {
   const { deals, acts } = history(60);
   assert.equal(learnedContextFor("ws", deals, acts, []), null);
 });
+
+test("learns stage once history records the stage deals closed from", async () => {
+  const { learnsStage } = await import("./metatron-learned.ts");
+  // Here discovery deals close far better than the default model's stage prior expects, and negotiation far worse.
+  const deals: Deal[] = [];
+  for (let i = 0; i < 60; i++) {
+    const from = i % 2 === 0 ? "discovery" : "negotiation";
+    const won = from === "discovery" ? i % 10 !== 0 : i % 10 === 5;
+    deals.push({ ...deal(i, won ? "won" : "lost", T0 + i * DAY), closedFrom: from });
+  }
+  const rows = closedDealRows(deals, []);
+  assert.equal(rows[0]!.features.stage, "discovery");
+  const ctx = learnedContextFor("ws", deals, [], []);
+  assert.ok(ctx && learnsStage(ctx.model));
+  const now = new Date(T0 + 70 * DAY);
+  const disc = scoreDealMetatron(deal(300, "discovery", now.getTime()), [], now, ctx);
+  const nego = scoreDealMetatron(deal(301, "negotiation", now.getTime()), [], now, ctx);
+  assert.ok(disc.probability > nego.probability + 0.3, `${disc.probability} vs ${nego.probability}`);
+  assert.ok(disc.factors.some((f) => f.label === "Stage: discovery" && f.effect > 1));
+  // The default model ranks them the other way round.
+  const dd = scoreDealMetatron(deal(300, "discovery", now.getTime()), [], now);
+  const dn = scoreDealMetatron(deal(301, "negotiation", now.getTime()), [], now);
+  assert.ok(dn.probability > dd.probability);
+  const r = backtestReport(deals, []);
+  assert.ok(r.ready && r.better === "learned");
+});

@@ -69,3 +69,11 @@ test("series backtest: trend-aware forecasters beat naive on a noisy trend", () 
   assert.ok(res.holt!.mae < res.naive!.mae);
   assert.ok(res.holt!.mae < res.lastDelta!.mae, `holt ${res.holt!.mae} lastDelta ${res.lastDelta!.mae}`);
 });
+
+test("numeric features far outside training are clamped", () => {
+  const rows = Array.from({ length: 40 }, (_, i) => ({ subject: `s${i}`, features: { amount: 100 + (i % 10), hot: i % 2 === 0 }, outcome: i % 2 === 0 }));
+  const model = train(rows);
+  const huge = predictWith(model, { subject: "x", features: { amount: 1e9, hot: false } });
+  const edge = predictWith(model, { subject: "x", features: { amount: 100 + 9 + 3 * 3, hot: false } });
+  assert.ok(Math.abs(huge.probability - edge.probability) < 0.05, `${huge.probability} vs ${edge.probability}`);
+});

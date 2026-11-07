@@ -3,9 +3,12 @@
  *
  * Once a workspace has enough closed deals (won and lost), METATRON trains a
  * logistic model on what was true about each deal when it closed: contact
- * recency, touches, inbound replies, amount, market and industry. Spectre
- * keeps no stage history, so stage stays with the default model as the
- * prior, and the learned model adds the workspace's own evidence on top:
+ * recency, touches, inbound replies, amount, market and industry, plus the
+ * open stage it closed from (Deal.closedFrom, recorded since stage moves
+ * started tracking it). When the history includes that stage, the model
+ * learns the workspace's own stage win rates and scores deals on its own.
+ * For older history without it, stage stays with the default model as the
+ * prior and the learned model adds the workspace's evidence on top:
  *
  *   logit(p) = logit(stage prior) + Σ learned contributions
  *
@@ -15,6 +18,7 @@
 import {
   backtestProbability,
   predict,
+  predictWith,
   train,
   type LearnedModel,
   type ProbabilityBacktest,
@@ -55,10 +59,12 @@ export function closedDealRows(
     .filter((d) => d.stage === "won" || d.stage === "lost")
     .map((d) => {
       const closedAt = d.stageEnteredAt || d.updatedAt;
+      const features = dealFeatures(d, activities, new Date(closedAt), industryOf(d.companyId));
+      if (d.closedFrom) features.stage = d.closedFrom;
       return {
         subject: d.id,
         t: closedAt,
-        features: dealFeatures(d, activities, new Date(closedAt), industryOf(d.companyId)),
+        features,
         outcome: d.stage === "won",
       };
     });
@@ -133,15 +139,28 @@ export interface LearnedPrediction {
   model: string;
 }
 
-/** Stage prior from the default model, adjusted by the workspace's learned evidence. */
+/** Whether the model learned stage itself (its history recorded the stage deals closed from). */
+export function learnsStage(model: LearnedModel): boolean {
+  return model.columns.some((c) => c.feature === "stage");
+}
+
+/**
+ * Score an open deal. With stage in the model, the model scores on its own;
+ * otherwise the default model's stage estimate is the prior and the learned
+ * evidence adjusts it.
+ */
 export function predictLearned(model: LearnedModel, stage: string, features: DealFeatures): LearnedPrediction {
+  if (learnsStage(model)) {
+    const p = predictWith(model, { subject: "deal", features: { ...features, stage } });
+    return { probability: Math.min(0.97, p.probability), factors: p.factors, model: LEARNED_MODEL };
+  }
   const prior = predict({ subject: "deal", features: { stage } });
   let z = logit(Math.min(0.99, Math.max(0.01, prior.probability)));
   const factors: LearnedPrediction["factors"] = [...prior.factors];
   for (const c of model.columns) {
     const v = features[c.feature];
     let x = 0;
-    if (c.kind === "number") x = typeof v === "number" ? (v - c.mean!) / c.std! : 0;
+    if (c.kind === "number") x = typeof v === "number" ? Math.max(-3, Math.min(3, (v - c.mean!) / c.std!)) : 0;
     else if (c.kind === "boolean") x = v === true ? 1 : 0;
     else x = v === c.value ? 1 : 0;
     const contribution = c.weight * x;

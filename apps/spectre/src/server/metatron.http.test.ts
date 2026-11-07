@@ -103,6 +103,10 @@ describe("METATRON learned model over HTTP", () => {
 
     const open = await crm.addDeal(ws, cid, { companyId: co.id, name: "Open", amount: 10_000, closeDate: "2026-06-01" });
     const detail = await call("GET", `/api/deals/${open.id}`, undefined, cookie);
-    assert.ok(detail.body.score.factors.some((f: { label: string }) => f.label === "Stage: lead"));
+    assert.ok(detail.body.score.probability > 0 && detail.body.score.probability < 1);
+    assert.ok(detail.body.score.factors.length > 0);
+    // Every deal closed from "lead", so the model learned stage from history.
+    const closed = (await crm.list("deals", ws)).filter((d) => d.stage === "won" || d.stage === "lost");
+    assert.ok(closed.every((d) => d.closedFrom === "lead"));
   });
 });

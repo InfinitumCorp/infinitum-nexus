@@ -69,10 +69,13 @@ function columnsFor(rows: readonly PredictionInput[]): Column[] {
   return cols;
 }
 
+/** Standardized numbers are clamped to ±3σ so values far outside training (a record-size deal) can't dominate. */
+export const Z_CLAMP = 3;
+
 function encode(cols: readonly Column[], f: PredictionInput["features"]): number[] {
   return cols.map((c) => {
     const v = f[c.feature];
-    if (c.kind === "number") return typeof v === "number" ? (v - c.mean!) / c.std! : 0;
+    if (c.kind === "number") return typeof v === "number" ? Math.max(-Z_CLAMP, Math.min(Z_CLAMP, (v - c.mean!) / c.std!)) : 0;
     if (c.kind === "boolean") return v === true ? 1 : 0;
     return v === c.value ? 1 : 0;
   });

@@ -49,8 +49,11 @@ for (const path of runtime) {
 const honest = [
   ["popup.html", /not a device-wide VPN/],
   ["popup.html", /Infinitum Corporation®/],
+  ["popup.html", /fingerprinting/i],
   ["README.md", /not a device-wide VPN/],
   ["README.md", /this browser/i],
+  ["README.md", /fingerprinting/i],
+  ["README.md", /IsolateSOCKSAuth/],
 ];
 for (const [name, pattern] of honest) {
   const text = readFileSync(join(root, name), "utf8");

@@ -1,8 +1,8 @@
 # VEIL Packaging
 
-Current version: 0.6.0
+Current version: 0.7.0
 
-VEIL here is a browser cyber proxy for Infinitum Corporation®. The packaged extension protects traffic in that browser only. It is not a device-wide VPN.
+VEIL is a Tor extension for this browser from Infinitum Corporation®. The package routes that browser through a local Tor SOCKS client. It is not a device-wide VPN, and it does not provide Tor Browser fingerprinting protection. The Tor binary is not included.
 
 ## Unpacked Chrome
 
@@ -21,9 +21,9 @@ This writes:
 - `dist/chrome/` and `dist/veil-chrome.zip`
 - `dist/firefox/` and `dist/veil-firefox.zip`
 
-Firefox uses `browser.proxy`, `webRequestBlocking`, and the extension id `veil@infinitum.corporation` (strict minimum 128). Chrome uses `chrome.proxy` and `webRequestAuthProvider`. The zips contain the extension sources, popup, sidebar, and icons. They do not contain the control server, tests, or dependencies.
+Firefox uses `browser.proxy` (per-request SOCKS authentication and remote DNS), `webRequestBlocking`, and the extension id `veil@infinitum.corporation` (strict minimum 128). Chrome uses `chrome.proxy` with SOCKS5 and `webRequestAuthProvider` for the isolation credentials. The zips contain the extension sources, popup, sidebar, and icons. They do not contain the control server, tests, or a Tor executable.
 
-Load `dist/firefox` as a temporary add-on in Firefox. The zip is the store/distribution artifact.
+Load `dist/firefox` as a temporary add-on in Firefox.
 
 ## Icons
 

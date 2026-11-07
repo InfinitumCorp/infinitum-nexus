@@ -16,13 +16,17 @@
 - VEIL Nexus app launcher for the seven free-tier products
 - Account, badge and refresh are dropped on leaving the workspace, New Identity or an expired session
 
+## Done in v0.7.0
+
+- Tor routing for this browser through a local SOCKS5 client (`127.0.0.1:9050`, or Tor Browser `9150`)
+- Per-site and per-tab circuit isolation via SOCKS username/password (`IsolateSOCKSAuth` on the user's Tor)
+- New circuit and New Identity, Tor check, remote DNS including `.onion`, WebRTC non-proxied UDP disabled, fail-closed when Tor is down
+- Cumulus ID and a VEIL plan gate optional bridge lines only. Tor itself does not call Infinitum servers
+- Honest limit: not Tor Browser fingerprinting protection, and not a device-wide VPN
+
 ## Done in v0.6.0
 
-- Chrome MV3 and Firefox browser proxy (popup, server list, connect/disconnect)
-- Cumulus ID session reused from the CID host cookie; VEIL plan checked on the server
-- Authenticated HTTPS and SOCKS5 settings, WebRTC non-proxied UDP disabled, DNS through the proxy, fail-closed if the proxy drops
-- `node scripts/package.js` writes Chrome and Firefox zips
-- Honest limit: this browser's traffic only, not a device-wide VPN
+- First browser-proxy pass. v0.7.0 replaces the operator exit fleet with local Tor.
 
 ## Remaining
 - FIRM Wallet key management (passkey / hardware-backed) in the extension
@@ -33,8 +37,9 @@
 - Per-app permissions dashboard (needs grant/revoke HTTP routes on the CID server; `packages/cid` has `grant`/`revoke`)
 - Clients for Cumulus://Cloud, SCALVS.ai and METATRON¹⁰⁰, then add their origins to `lib/nexus.js`
 - A shared CID session across products (today Mail and +SPCTR each keep their own cookie)
-- Device-wide VPN, OS DNS, and non-browser traffic are out of scope for this extension
-- An operated exit fleet is not in this repository; `VEIL_SERVERS` must name exits the operator runs
-- Proxy credentials are process-local on the CID host and are not written to Firmament
+- Device-wide VPN, OS DNS, and non-browser traffic are out of scope
+- Tor Browser fingerprinting resistance (fonts, screen, APIs) is out of scope for a regular-browser extension
+- The Tor executable is not bundled. The user runs Tor, with `IsolateSOCKSAuth` if they want separate circuits
+- Chrome may cache one SOCKS login for the local port; Firefox attaches a new username and password on every request
 
 See root PRODUCT-DELIVERY.md.

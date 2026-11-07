@@ -1,143 +1,181 @@
 /**
- * Applies VEIL's proxy policy through chrome.proxy.settings or Firefox's
- * browser.proxy.onRequest. Proxy passwords stay in memory on this object.
+ * Applies the local Tor SOCKS policy.
+ * Firefox attaches per-request SOCKS credentials (circuit isolation).
+ * Chrome supplies those same credentials when the proxy asks.
+ * While Tor is on, non-loopback traffic never falls back to DIRECT.
  */
 import {
   WEBRTC_POLICY,
-  chromeFailClosed,
-  chromeFixedServers,
+  chromeTorSettings,
   directFirefox,
   failClosedFirefox,
-  firefoxProxyInfo,
-  isDirectHost,
-  normalizeServer,
+  firefoxTorProxy,
+  isLoopback,
+  normalizeTorEndpoint,
+  socksIsolation,
 } from "./proxy.js";
 
-export function createBrowserProxy(platform, now = () => Date.now()) {
-  let mode = "booting";
-  let server = null;
-  let secret = null;
-  let bypassHosts = [];
-  const attempts = new Map();
+function freshIdentity(random) {
+  const value = random();
+  if (typeof value !== "string" || !/^[A-Za-z0-9_-]{8,80}$/.test(value)) {
+    throw new Error("Could not mint a Tor isolation identity");
+  }
+  return value;
+}
 
-  async function applyWebRtc() {
-    if (mode === "off") await platform.clearWebRtc();
-    else await platform.setWebRtc(WEBRTC_POLICY);
+export function createTorProxy(platform, random = () => `id_${Math.random().toString(36).slice(2, 12)}`) {
+  let mode = "booting";
+  let status = "off";
+  let endpoint = normalizeTorEndpoint();
+  let identity = freshIdentity(random);
+  let generation = 1;
+
+  function isolate(url, tabId) {
+    return socksIsolation(url, identity, tabId);
+  }
+
+  function firefoxRoute(url, tabId) {
+    let host = "";
+    try {
+      host = new URL(url).hostname;
+    } catch {
+      return mode === "off" ? directFirefox() : failClosedFirefox();
+    }
+    if (isLoopback(host)) return directFirefox();
+    if (mode === "off") return directFirefox();
+    if (mode === "booting") return failClosedFirefox();
+    return firefoxTorProxy(endpoint, isolate(url, tabId));
   }
 
   return {
     get mode() {
       return mode;
     },
+    get status() {
+      return status;
+    },
+    get generation() {
+      return generation;
+    },
     get publicState() {
       return {
-        mode,
-        server: server ? { ...server } : null,
-        expiresAt: secret?.expiresAt ?? null,
+        mode: mode === "booting" ? "booting" : mode,
+        status: mode === "booting" ? "booting" : status,
+        endpoint: { host: endpoint.host, port: endpoint.port },
+        generation,
+        dns: mode === "off" ? "local" : "tor",
         browserOnly: true,
         deviceWide: false,
-        dns: mode === "off" ? "local" : "through-proxy",
+        fingerprinting: "not-tor-browser",
+        webrtc: WEBRTC_POLICY,
       };
     },
-    onRequest(url) {
-      let host = "";
-      try {
-        host = new URL(url).hostname;
-      } catch {
-        return mode === "off" ? directFirefox() : failClosedFirefox();
-      }
-      if (isDirectHost(host, bypassHosts)) return directFirefox();
-      if (mode === "connected" && server) return firefoxProxyInfo(server);
-      if (mode === "off") return directFirefox();
-      return failClosedFirefox();
+    onRequest(details) {
+      const url = typeof details === "string" ? details : details?.url;
+      const tabId = typeof details === "object" ? details?.tabId : undefined;
+      return firefoxRoute(url, tabId);
     },
     onAuthRequired(details) {
       if (!details?.isProxy) return { response: {}, failClosed: false };
-      const id = String(details.requestId ?? "");
-      const seen = (attempts.get(id) ?? 0) + 1;
-      if (attempts.size > 200) attempts.clear();
-      attempts.set(id, seen);
       const host = String(details.challenger?.host ?? "").toLowerCase();
       const port = Number(details.challenger?.port);
-      const matches = !!server && host === server.host && port === server.port && !!secret;
-      if (!matches || seen > 1 || mode !== "connected") {
-        return { response: { cancel: true }, failClosed: mode === "connected" };
-      }
-      return {
-        response: { authCredentials: { username: secret.username, password: secret.password } },
-        failClosed: false,
-      };
+      const ours = isLoopback(host) && port === endpoint.port;
+      if (mode !== "on" || !ours) return { response: { cancel: true }, failClosed: false };
+      const creds = isolate(details.url, details.tabId);
+      return { response: { authCredentials: creds }, failClosed: false };
     },
     onProxyError() {
-      return mode === "connected";
+      return mode === "on";
     },
-    async connect(nextServer, auth, hosts) {
-      const chosen = normalizeServer(nextServer);
-      if (!auth || typeof auth.username !== "string" || typeof auth.password !== "string") {
-        throw new Error("Proxy credentials are missing");
+    markUnreachable() {
+      if (mode !== "on") return;
+      status = "unreachable";
+    },
+    setStatus(next) {
+      if (mode === "on") status = next;
+    },
+    readyOff() {
+      if (mode === "booting") {
+        mode = "off";
+        status = "off";
       }
-      const expiresAt = Date.parse(auth.expiresAt);
-      if (!Number.isFinite(expiresAt) || expiresAt <= now()) throw new Error("Proxy credentials are already expired");
-      const previous = { mode, server, secret, bypassHosts: [...bypassHosts] };
-      server = chosen;
-      secret = { username: auth.username, password: auth.password, expiresAt: auth.expiresAt };
-      bypassHosts = [...(hosts ?? [])];
-      mode = "connected";
+    },
+    async enable(next) {
+      const chosen = normalizeTorEndpoint(next);
+      const previous = { mode, status, endpoint };
+      endpoint = chosen;
+      mode = "on";
+      status = "checking";
       try {
-        await applyWebRtc();
-        if (platform.kind === "chrome") await platform.setProxy(chromeFixedServers(chosen, bypassHosts));
+        await platform.setWebRtc(WEBRTC_POLICY);
+        if (platform.kind === "chrome") await platform.setProxy(chromeTorSettings(chosen));
+        await platform.disablePrediction?.();
       } catch (err) {
         mode = previous.mode;
-        server = previous.server;
-        secret = previous.secret;
-        bypassHosts = previous.bypassHosts;
-        if (previous.mode === "off") await platform.clearWebRtc().catch(() => {});
+        status = previous.status;
+        endpoint = previous.endpoint;
+        if (previous.mode === "off" || previous.mode === "booting") await platform.clearWebRtc().catch(() => {});
         throw err;
       }
     },
-    async failClosed(hosts) {
-      if (hosts) bypassHosts = [...hosts];
-      secret = null;
-      mode = "fail-closed";
-      if (platform.kind === "chrome") await platform.setProxy(chromeFailClosed(bypassHosts));
-      await platform.setWebRtc(WEBRTC_POLICY);
+    async reapply() {
+      if (mode !== "on") return;
+      if (platform.kind === "chrome") await platform.setProxy(chromeTorSettings(endpoint));
+      await platform.flushAuth?.();
     },
-    readyOff() {
-      if (mode === "booting") mode = "off";
+    rotate() {
+      identity = freshIdentity(random);
+      generation += 1;
+      return generation;
     },
-    async disconnect() {
+    async disable() {
       if (mode === "off" || mode === "booting") {
         mode = "off";
+        status = "off";
         return;
       }
       mode = "off";
-      secret = null;
-      server = null;
-      attempts.clear();
+      status = "off";
       if (platform.kind === "chrome") await platform.clearProxy();
       await platform.clearWebRtc();
+      await platform.enablePrediction?.();
     },
   };
 }
 
 export function detectPlatform(root = globalThis) {
+  const predictionOf = (privacy) => privacy?.network?.networkPredictionEnabled;
+  const webrtcOf = (privacy) => privacy?.network?.webRTCIPHandlingPolicy;
   if (root.browser?.proxy?.onRequest?.addListener) {
-    const privacy = root.browser.privacy?.network?.webRTCIPHandlingPolicy;
+    const privacy = root.browser.privacy;
+    const policy = webrtcOf(privacy);
+    const prediction = predictionOf(privacy);
     return {
       kind: "firefox",
       async setProxy() {},
       async clearProxy() {},
+      async flushAuth() {
+        await root.browser.webRequest?.handlerBehaviorChanged?.();
+      },
       async setWebRtc(value) {
-        if (!privacy?.set) throw new Error("This browser cannot limit WebRTC leaks");
-        await privacy.set({ value });
+        if (!policy?.set) throw new Error("This browser cannot limit WebRTC leaks");
+        await policy.set({ value });
       },
       async clearWebRtc() {
-        await privacy?.clear?.({});
+        await policy?.clear?.({});
+      },
+      async disablePrediction() {
+        await prediction?.set?.({ value: false });
+      },
+      async enablePrediction() {
+        await prediction?.clear?.({});
       },
     };
   }
   const settings = root.chrome?.proxy?.settings;
-  const privacy = root.chrome?.privacy?.network?.webRTCIPHandlingPolicy;
+  const privacy = root.chrome?.privacy;
+  const policy = webrtcOf(privacy);
+  const prediction = predictionOf(privacy);
   return {
     kind: "chrome",
     async setProxy(value) {
@@ -147,12 +185,21 @@ export function detectPlatform(root = globalThis) {
     async clearProxy() {
       await settings?.clear?.({ scope: "regular" });
     },
+    async flushAuth() {
+      await root.chrome?.webRequest?.handlerBehaviorChanged?.();
+    },
     async setWebRtc(value) {
-      if (!privacy?.set) throw new Error("This browser cannot limit WebRTC leaks");
-      await privacy.set({ value });
+      if (!policy?.set) throw new Error("This browser cannot limit WebRTC leaks");
+      await policy.set({ value });
     },
     async clearWebRtc() {
-      await privacy?.clear?.({});
+      await policy?.clear?.({});
+    },
+    async disablePrediction() {
+      await prediction?.set?.({ value: false });
+    },
+    async enablePrediction() {
+      await prediction?.clear?.({});
     },
   };
 }

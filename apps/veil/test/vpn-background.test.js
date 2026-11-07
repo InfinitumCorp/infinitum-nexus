@@ -7,29 +7,19 @@ env.chrome.runtime.onStartup = { addListener: (fn) => { env.listeners.startup = 
 env.chrome.proxy.onProxyError = { addListener: (fn) => { env.listeners.proxyError = fn; } };
 env.chrome.webRequest = {
   onAuthRequired: { addListener: (fn, filter, extra) => { env.listeners.auth = { fn, filter, extra }; } },
+  handlerBehaviorChanged: async () => { env.calls.flush = (env.calls.flush ?? 0) + 1; },
 };
 globalThis.chrome = env.chrome;
 const fromPopup = (msg) => env.send(msg, { id: "veilid", url: "chrome-extension://veilid/popup.html" });
 const fromPage = (msg) => env.send(msg, { id: "veilid", url: "https://example.com/", tab: { id: 1, windowId: 1, active: true } });
 
-const grant = {
-  coverage: "browser",
-  deviceWide: false,
-  dns: "through-proxy",
-  server: { id: "iad-1", name: "Washington", region: "us-east", host: "veil-iad.example", port: 443, scheme: "https" },
-  auth: { username: "v_username_ok", password: "0123456789abcdefEXTRA", expiresAt: "2099-01-01T00:00:00Z" },
-};
-const session = {
-  cid: "cid_1", username: "alex", entitled: true, browserOnly: true, deviceWide: false,
-  servers: [grant.server],
-};
-
 function mockFetch(routes) {
   const seen = [];
   globalThis.fetch = async (url, opts) => {
-    seen.push({ url, opts });
+    seen.push({ url: String(url), opts });
     const hit = routes.find((route) => String(url).includes(route.match));
     if (!hit) return { ok: false, status: 404, json: async () => ({}) };
+    if (hit.throw) throw new Error("offline");
     return { ok: hit.status < 400, status: hit.status, json: async () => hit.body };
   };
   return seen;
@@ -40,90 +30,98 @@ before(async () => {
   await env.listeners.installed[0]();
 });
 
-test("a page cannot connect or disconnect the proxy", async () => {
-  for (const type of ["connectVeil", "disconnectVeil", "refreshVeil"]) {
-    const response = await fromPage({ type, serverId: "iad-1" });
+test("a page cannot turn Tor on or request a new circuit", async () => {
+  for (const type of ["toggleTor", "newCircuit", "checkTor", "newIdentity"]) {
+    const response = await fromPage({ type, enabled: true });
     assert.match(response.error, /not allowed/, type);
   }
   assert.equal(env.calls.proxySet.length, 0);
 });
 
-test("anonymous workspace cannot fetch a proxy grant", async () => {
+test("anonymous browsing can use local Tor without calling VEIL servers", async () => {
   const seen = mockFetch([]);
-  const response = await fromPopup({ type: "connectVeil", serverId: "iad-1" });
-  assert.match(response.error, /anonymous/);
-  assert.equal(seen.length, 0);
-});
-
-test("connect applies the authenticated proxy and keeps the password out of storage", async () => {
-  await fromPopup({ type: "switchWorkspace", to: "authenticated", confirmed: true });
-  const seen = mockFetch([
-    { match: "/api/veil/connect", status: 200, body: grant },
-  ]);
-  const response = await fromPopup({ type: "connectVeil", serverId: "iad-1" });
-  assert.equal(response.error, undefined);
-  assert.equal(response.veil.mode, "connected");
-  assert.equal(response.veil.deviceWide, false);
-  assert.equal(seen[0].opts.credentials, "include");
-  assert.equal(seen[0].url, "http://localhost:3000/api/veil/connect");
-  const applied = env.calls.proxySet.at(-1).value;
-  assert.equal(applied.mode, "fixed_servers");
-  assert.deepEqual(applied.rules.singleProxy, { scheme: "https", host: "veil-iad.example", port: 443 });
-  assert.ok(applied.rules.bypassList.includes("localhost"));
-  assert.equal(env.calls.webrtc.at(-1), "disable_non_proxied_udp");
-  assert.equal(env.listeners.auth.extra[0], "asyncBlocking");
-  const stored = JSON.stringify(env.store);
-  assert.equal(stored.includes(grant.auth.password), false);
-  assert.equal(stored.includes("0123456789abcdef"), false);
-  assert.equal(env.store.veilStatus, "connected");
-});
-
-test("Tor and VEIL cannot own the proxy together", async () => {
   const response = await fromPopup({ type: "toggleTor", enabled: true });
-  assert.match(response.error, /Disconnect VEIL/);
-  await fromPopup({ type: "disconnectVeil" });
-  assert.equal(env.store.veilStatus, "off");
-  assert.equal(env.calls.proxyClear >= 1, true);
-  await fromPopup({ type: "toggleTor", enabled: true });
-  const blocked = await fromPopup({ type: "connectVeil", serverId: "iad-1" });
-  assert.match(blocked.error, /Turn off Tor/);
-  await fromPopup({ type: "toggleTor", enabled: false });
+  assert.equal(response.error, undefined);
+  assert.equal(response.enabled, true);
+  assert.equal(seen.length, 0);
+  const proxy = env.calls.proxySet.at(-1).value;
+  assert.deepEqual(proxy.rules.singleProxy, { scheme: "socks5", host: "127.0.0.1", port: 9050 });
+  assert.equal(proxy.rules.bypassList.includes("example.onion"), false);
+  assert.equal(env.calls.webrtc.at(-1), "disable_non_proxied_udp");
+  const state = await fromPopup({ type: "getState" });
+  assert.equal(state.tor.dns, "tor");
+  assert.equal(state.tor.deviceWide, false);
+  assert.equal(state.tor.fingerprinting, "not-tor-browser");
 });
 
-test("a dropped proxy fails closed, and an explicit disconnect browses directly again", async () => {
-  mockFetch([{ match: "/api/veil/connect", status: 200, body: grant }]);
-  await fromPopup({ type: "connectVeil", serverId: "iad-1" });
-  const before = env.calls.proxySet.length;
-  await env.listeners.proxyError();
-  await new Promise((resolve) => setTimeout(resolve, 0));
-  assert.equal(env.calls.proxySet.length > before, true);
-  assert.equal(env.calls.proxySet.at(-1).value.mode, "pac_script");
-  assert.match(env.calls.proxySet.at(-1).value.pacScript.data, /SOCKS5 127\.0\.0\.1:1/);
-  assert.equal(env.store.veilStatus, "fail-closed");
-  mockFetch([{ match: "/api/veil/disconnect", status: 200, body: { ok: true } }]);
-  const off = await fromPopup({ type: "disconnectVeil" });
-  assert.equal(off.veil.mode, "off");
-  assert.equal(env.store.veilStatus, "off");
+test("Tor Browser's port is selectable and .onion gets its own SOCKS identity", async () => {
+  await fromPopup({ type: "toggleTor", enabled: true, port: 9150 });
+  assert.equal(env.calls.proxySet.at(-1).value.rules.singleProxy.port, 9150);
+  const auth = env.listeners.auth.fn({
+    isProxy: true,
+    url: "http://example.onion/secret",
+    tabId: 4,
+    challenger: { host: "127.0.0.1", port: 9150 },
+  }, () => {});
+  assert.match(auth.authCredentials.username, /example\.onion/);
+  const other = env.listeners.auth.fn({
+    isProxy: true,
+    url: "https://news.example/",
+    tabId: 4,
+    challenger: { host: "127.0.0.1", port: 9150 },
+  }, () => {});
+  assert.notEqual(other.authCredentials.username, auth.authCredentials.username);
+  assert.equal(JSON.stringify(env.store).includes(auth.authCredentials.password), false);
 });
 
-test("startup with a saved connection blocks until a new grant is issued", async () => {
-  env.store.veilStatus = "connected";
-  env.store.veilServerId = "iad-1";
-  const seen = mockFetch([{ match: "/api/veil/connect", status: 200, body: grant }]);
-  await env.listeners.startup();
-  await new Promise((resolve) => setTimeout(resolve, 0));
-  assert.equal(seen.at(-1).url.endsWith("/api/veil/connect"), true);
-  assert.equal(env.store.veilStatus, "connected");
-  assert.equal(env.calls.proxySet.at(-1).value.mode, "fixed_servers");
-  assert.equal(JSON.stringify(env.store).includes(grant.auth.password), false);
-});
-
-test("a missing VEIL plan does not configure a proxy", async () => {
-  await fromPopup({ type: "disconnectVeil" });
+test("a new circuit changes SOCKS auth and a dead Tor stays fail-closed", async () => {
+  const before = env.listeners.auth.fn({
+    isProxy: true, url: "https://news.example/", tabId: 1, challenger: { host: "127.0.0.1", port: 9150 },
+  }, () => {});
+  const circuit = await fromPopup({ type: "newCircuit" });
+  assert.equal(circuit.generation > 1, true);
+  const after = env.listeners.auth.fn({
+    isProxy: true, url: "https://news.example/", tabId: 1, challenger: { host: "127.0.0.1", port: 9150 },
+  }, () => {});
+  assert.notEqual(before.authCredentials.password, after.authCredentials.password);
   const sets = env.calls.proxySet.length;
-  mockFetch([{ match: "/api/veil/connect", status: 403, body: { error: "veil_plan_required" } }]);
-  const response = await fromPopup({ type: "connectVeil", serverId: "iad-1" });
-  assert.match(response.error, /no VEIL entitlement/);
+  const clears = env.calls.proxyClear;
+  await env.listeners.proxyError();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(env.calls.proxyClear, clears);
   assert.equal(env.calls.proxySet.length, sets);
-  assert.equal(env.store.veilStatus, "off");
+  const state = await fromPopup({ type: "getState" });
+  assert.equal(state.tor.status, "unreachable");
+  assert.equal(state.torEnabled, true);
+});
+
+test("the Tor check reads check.torproject.org and does not fall open on failure", async () => {
+  mockFetch([{ match: "check.torproject.org/api/ip", status: 200, body: { IsTor: true, IP: "192.0.2.55" } }]);
+  const ok = await fromPopup({ type: "checkTor" });
+  assert.equal(ok.isTor, true);
+  assert.equal(ok.status, "tor");
+  mockFetch([{ match: "check.torproject.org/api/ip", throw: true }]);
+  const down = await fromPopup({ type: "checkTor" });
+  assert.equal(down.status, "unreachable");
+  assert.equal((await fromPopup({ type: "getState" })).torEnabled, true);
+  assert.equal(env.calls.proxySet.at(-1).value.rules.singleProxy.scheme, "socks5");
+});
+
+test("a missing VEIL plan does not remove the Tor route", async () => {
+  await fromPopup({ type: "switchWorkspace", to: "authenticated", confirmed: true });
+  const clears = env.calls.proxyClear;
+  mockFetch([{ match: "/api/veil/session", status: 403, body: { error: "veil_plan_required" } }]);
+  const response = await fromPopup({ type: "refreshVeil" });
+  assert.match(response.error, /no VEIL entitlement/);
+  assert.equal(env.calls.proxyClear, clears);
+  assert.equal((await fromPopup({ type: "getState" })).tor.mode, "on");
+});
+
+test("turning Tor off is the explicit return to a direct connection", async () => {
+  const response = await fromPopup({ type: "toggleTor", enabled: false });
+  assert.equal(response.enabled, false);
+  assert.equal(env.calls.webrtc.at(-1), "cleared");
+  const state = await fromPopup({ type: "getState" });
+  assert.equal(state.torEnabled, false);
+  assert.equal(state.tor.status, "off");
 });

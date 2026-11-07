@@ -16,6 +16,7 @@
     .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
     .dot.on { background: var(--good); }
     .dot.block { background: var(--bad); }
+    .dot.warn { background: var(--warn); }
     .card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 0.75rem; margin-bottom: 0.75rem; }
     label { display: block; color: var(--muted); font-size: 0.78rem; margin-bottom: 0.35rem; }
     select, button { font: inherit; }
@@ -27,37 +28,44 @@
     button:disabled { opacity: 0.45; cursor: not-allowed; }
     .muted { color: var(--muted); font-size: 0.8rem; line-height: 1.4; }
     .err { color: var(--bad); font-size: 0.8rem; min-height: 1rem; }
+    pre { white-space: pre-wrap; font-size: 0.75rem; margin: 0.4rem 0 0; }
     footer { padding-top: 0; }
   </style>
 </head>
 <body>
   <header>
     <h1>VEIL&lt;/&gt;</h1>
-    <div class="brand">Infinitum Corporation® browser cyber proxy</div>
-    <div class="status"><span id="dot" class="dot"></span><span id="status">Off</span></div>
+    <div class="brand">Infinitum Corporation® Tor for this browser</div>
+    <div class="status"><span id="dot" class="dot"></span><span id="status">Tor off</span></div>
   </header>
   <main>
     <div class="card">
-      <label>Cumulus ID</label>
-      <div id="who" class="muted">Checking the signed-in workspace…</div>
+      <label for="endpoint">Local Tor client</label>
+      <select id="endpoint">
+        <option value="9050">System Tor · 127.0.0.1:9050</option>
+        <option value="9150">Tor Browser · 127.0.0.1:9150</option>
+      </select>
       <div class="row">
-        <button id="signin" class="ghost" type="button">Open Cumulus ID sign-in</button>
-        <button id="refresh" class="ghost" type="button">Refresh session</button>
-      </div>
-    </div>
-    <div class="card">
-      <label for="server">Exit server</label>
-      <select id="server"></select>
-      <div class="row">
-        <button id="toggle" type="button">Connect</button>
-        <button id="sidebar" class="ghost" type="button">Open sidebar</button>
+        <button id="toggle" type="button">Use Tor</button>
+        <button id="check" class="ghost" type="button">Check</button>
+        <button id="circuit" class="ghost" type="button">New circuit</button>
       </div>
       <div id="detail" class="muted" style="margin-top:0.6rem"></div>
     </div>
+    <div class="card">
+      <label>Cumulus ID · optional bridges</label>
+      <div id="who" class="muted">Tor does not need a sign-in. A VEIL plan can fetch bridge lines for your local Tor client.</div>
+      <div class="row">
+        <button id="signin" class="ghost" type="button">Open Cumulus ID sign-in</button>
+        <button id="refresh" class="ghost" type="button">Refresh plan</button>
+      </div>
+      <pre id="bridges" class="muted" hidden></pre>
+    </div>
     <div id="error" class="err" role="status"></div>
+    <div class="row"><button id="sidebar" class="ghost" type="button">Open sidebar</button></div>
   </main>
   <footer>
-    <p class="muted">This protects traffic in this browser only. It is not a device-wide VPN. Other applications, the operating system, and devices you have not installed VEIL on are unchanged. DNS for proxied requests goes through the proxy. If the proxy drops, browsing in this browser is blocked until you reconnect or disconnect.</p>
+    <p class="muted">This routes traffic in this browser through Tor. It is not a device-wide VPN. A Tor extension in a regular browser does not give Tor Browser fingerprinting protection: fonts, screen size, and browser APIs can still identify this browser. WebRTC non-proxied UDP is disabled. DNS, including .onion names, is resolved by Tor. If Tor is unreachable, browsing in this browser is blocked.</p>
   </footer>
   <script type="module" src="popup.js"></script>
 </body>

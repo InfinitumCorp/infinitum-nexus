@@ -7,7 +7,7 @@
 export const VEIL_GECKO_ID = "veil@infinitum.corporation";
 
 export function extensionDescription() {
-  return "Browser cyber proxy from Infinitum Corporation®. Protects this browser's traffic only, not a device-wide VPN.";
+  return "Tor for this browser from Infinitum Corporation®. Not Tor Browser fingerprinting protection, and not a device-wide VPN.";
 }
 
 const icons = {
@@ -26,7 +26,7 @@ function shared(version) {
     permissions: ["storage", "tabs", "proxy", "privacy", "browsingData", "alarms", "webRequest"],
     host_permissions: ["https://*/*", "http://*/*"],
     action: {
-      default_title: "VEIL browser proxy",
+      default_title: "VEIL Tor",
       default_popup: "popup.html",
       default_icon: { "16": icons["16"], "32": icons["32"], "48": icons["48"] },
     },

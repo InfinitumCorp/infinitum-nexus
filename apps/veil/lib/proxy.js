@@ -1,18 +1,16 @@
 /**
- * Browser proxy policy for VEIL.
- * Chrome's socks5 and https fixed_servers modes hand the destination name to
- * the proxy, so DNS for those requests is resolved there. SOCKS4 is refused
- * because it does not. Fail-closed uses a dead SOCKS5 proxy so a dropped
- * tunnel does not fall open to the network.
- *
- * Keep host checks aligned with server/model.ts.
+ * Tor routing policy for VEIL.
+ * Traffic goes to a local Tor SOCKS5 client. SOCKS5 (never SOCKS4) and
+ * Firefox proxyDNS send the destination name, including .onion, to Tor.
+ * Loopback is the only direct exception, so the browser can reach that client.
+ * There is no operator exit in this path.
  */
 
 export const WEBRTC_POLICY = "disable_non_proxied_udp";
-export const LOOPBACK = Object.freeze(["localhost", "127.0.0.1", "::1", "[::1]"]);
+export const DEFAULT_TOR_PORT = 9050;
+export const TOR_BROWSER_PORT = 9150;
+export const CHECK_URL = "https://check.torproject.org/api/ip";
 
-const ID = /^[a-z0-9][a-z0-9-]{0,40}$/;
-const DNS = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 const IPV4 = /^(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)$/;
 
 function ipv4(host) {
@@ -20,67 +18,83 @@ function ipv4(host) {
   return host.split(".").map((part) => Number(part));
 }
 
-export function isUnsafeProxyHost(host) {
-  const parts = ipv4(host);
-  if (!parts) return host === "metadata.google.internal";
-  const [a, b] = parts;
-  return a === 0 || a === 255 || (a === 169 && b === 254);
+export function isLoopback(host) {
+  if (typeof host !== "string" || !host) return false;
+  const name = host.toLowerCase().replace(/^\[|\]$/g, "");
+  if (name === "localhost" || name === "::1") return true;
+  const parts = ipv4(name);
+  return !!parts && parts[0] === 127;
 }
 
-export function isProxyHost(host) {
-  if (typeof host !== "string") return false;
-  const name = host.toLowerCase();
-  if (name.includes("%") || name.includes("@") || name.includes("/") || name.includes(":") || name.includes("\\")) return false;
-  if (!(DNS.test(name) || IPV4.test(name))) return false;
-  return !isUnsafeProxyHost(name);
+export function isOnion(host) {
+  return typeof host === "string" && host.toLowerCase().replace(/\.$/, "").endsWith(".onion");
 }
 
-export function normalizeServer(input) {
-  if (!input || typeof input !== "object") throw new Error("VEIL server is missing");
-  if (typeof input.id !== "string" || !ID.test(input.id)) throw new Error("VEIL server id is invalid");
-  if (!isProxyHost(input.host)) throw new Error("VEIL server host is invalid");
-  if (!Number.isInteger(input.port) || input.port < 1 || input.port > 65535) throw new Error("VEIL server port is invalid");
-  if (input.scheme !== "https" && input.scheme !== "socks5") throw new Error("VEIL server scheme must be https or socks5");
-  const name = typeof input.name === "string" ? input.name.trim() : "";
-  const region = typeof input.region === "string" ? input.region.trim() : "";
-  if (!name || name.length > 60 || !region || region.length > 40) throw new Error("VEIL server label is invalid");
-  return {
-    id: input.id,
-    name,
-    region,
-    host: input.host.toLowerCase(),
-    port: input.port,
-    scheme: input.scheme,
-  };
+/** Only a local Tor client. Remote SOCKS endpoints are rejected. */
+export function normalizeTorEndpoint(input = {}) {
+  const host = typeof input.host === "string" && input.host ? input.host : "127.0.0.1";
+  if (!isLoopback(host)) throw new Error("VEIL only routes through a local Tor client");
+  const port = input.port === undefined ? DEFAULT_TOR_PORT : input.port;
+  if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("Tor port is invalid");
+  return { host: "127.0.0.1", port, scheme: "socks5" };
 }
 
-export function safeBypassHosts(hosts) {
-  const out = [];
-  for (const host of hosts ?? []) {
-    if (LOOPBACK.includes(host) || isProxyHost(host)) out.push(host === "[::1]" || host === "::1" ? host : host.toLowerCase());
+export function endpointLabel(endpoint) {
+  const chosen = normalizeTorEndpoint(endpoint);
+  if (chosen.port === DEFAULT_TOR_PORT) return `System Tor · ${chosen.host}:${chosen.port}`;
+  if (chosen.port === TOR_BROWSER_PORT) return `Tor Browser · ${chosen.host}:${chosen.port}`;
+  return `Local Tor · ${chosen.host}:${chosen.port}`;
+}
+
+/**
+ * SOCKS username/password pair used as Tor's IsolateSOCKSAuth key.
+ * Username is the site. Password mixes the identity epoch and the tab,
+ * so a new identity and a different tab do not share a circuit.
+ * The local Tor client must be started with IsolateSOCKSAuth (Tor Browser's
+ * 9150 port already does this).
+ */
+export function socksIsolation(url, identity, tabId) {
+  if (typeof identity !== "string" || !/^[A-Za-z0-9_-]{8,200}$/.test(identity)) {
+    throw new Error("Tor isolation identity is invalid");
   }
-  return [...new Set(out)];
+  let host = "unknown";
+  try {
+    host = new URL(url).hostname.toLowerCase();
+  } catch {
+    host = "unknown";
+  }
+  const site = host.replace(/[^a-z0-9.-]/g, "_").replace(/^\.+|\.+$/g, "").slice(0, 180) || "unknown";
+  const stream = Number.isInteger(tabId) && tabId >= 0 ? `.${tabId}` : "";
+  const username = `s_${site}`.slice(0, 255);
+  const password = `${identity}${stream}`.slice(0, 255);
+  if (username.includes("\0") || password.includes("\0") || /[\r\n]/.test(username + password)) {
+    throw new Error("Tor isolation credentials were refused");
+  }
+  return { username, password };
 }
 
-/** Chrome fixed server. socks5 and https both carry the hostname to the proxy. */
-export function chromeFixedServers(server, bypassHosts) {
-  const chosen = normalizeServer(server);
+export function chromeTorSettings(endpoint) {
+  const chosen = normalizeTorEndpoint(endpoint);
   return {
     mode: "fixed_servers",
     rules: {
-      singleProxy: { scheme: chosen.scheme, host: chosen.host, port: chosen.port },
-      bypassList: safeBypassHosts(bypassHosts),
+      singleProxy: { scheme: "socks5", host: chosen.host, port: chosen.port },
+      bypassList: ["localhost", "127.0.0.1", "[::1]"],
     },
   };
 }
 
-/** Firefox browser.proxy.onRequest result. proxyDNS keeps SOCKS name resolution on the proxy. */
-export function firefoxProxyInfo(server) {
-  const chosen = normalizeServer(server);
-  if (chosen.scheme === "socks5") {
-    return { type: "socks", host: chosen.host, port: chosen.port, proxyDNS: true };
-  }
-  return { type: "https", host: chosen.host, port: chosen.port };
+/** No failoverTimeout: Firefox must not fall through to a direct connection. */
+export function firefoxTorProxy(endpoint, isolation) {
+  const chosen = normalizeTorEndpoint(endpoint);
+  return {
+    type: "socks",
+    host: chosen.host,
+    port: chosen.port,
+    proxyDNS: true,
+    username: isolation.username,
+    password: isolation.password,
+  };
 }
 
 export function failClosedFirefox() {
@@ -91,44 +105,10 @@ export function directFirefox() {
   return { type: "direct" };
 }
 
-export function failClosedPac(bypassHosts) {
-  const allow = safeBypassHosts(bypassHosts).map((host) => JSON.stringify(host)).join(",");
-  return `function FindProxyForURL(url, host) {
-  if (host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "[::1]") return "DIRECT";
-  var allow = [${allow}];
-  for (var i = 0; i < allow.length; i++) if (host === allow[i]) return "DIRECT";
-  return "SOCKS5 127.0.0.1:1";
-}`;
-}
-
-export function chromeFailClosed(bypassHosts) {
-  return { mode: "pac_script", pacScript: { data: failClosedPac(bypassHosts) } };
-}
-
-export function isDirectHost(host, bypassHosts) {
-  if (typeof host !== "string") return false;
-  const name = host.toLowerCase().replace(/^\[|\]$/g, "");
-  if (name === "localhost" || name === "127.0.0.1" || name === "::1") return true;
-  return safeBypassHosts(bypassHosts).some((item) => item.toLowerCase().replace(/^\[|\]$/g, "") === name);
-}
-
-export function bypassHostsFor(origins) {
-  const hosts = [...LOOPBACK];
-  for (const key of ["cid", "veil"]) {
-    try {
-      const host = new URL(origins?.[key]).hostname;
-      if (host) hosts.push(host);
-    } catch {
-      /* ignore unusable origins */
-    }
+export function parseTorCheck(body) {
+  if (!body || typeof body !== "object" || typeof body.IsTor !== "boolean") {
+    return { isTor: false, ip: null, error: "Tor check was unreadable" };
   }
-  return safeBypassHosts(hosts);
-}
-
-export function selectServer(servers, id) {
-  const list = Array.isArray(servers) ? servers.map((server) => normalizeServer(server)) : [];
-  if (!list.length) throw new Error("No VEIL servers are available");
-  const chosen = list.find((server) => server.id === id) ?? null;
-  if (!chosen) throw new Error("Select a VEIL server");
-  return { servers: list, chosen };
+  const ip = typeof body.IP === "string" && /^[0-9a-f:.]+$/i.test(body.IP) ? body.IP : null;
+  return { isTor: body.IsTor, ip, error: null };
 }

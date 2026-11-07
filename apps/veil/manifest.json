@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "VEIL</>",
-  "version": "0.6.0",
-  "description": "Browser cyber proxy from Infinitum Corporation®. Protects this browser's traffic only, not a device-wide VPN.",
+  "version": "0.7.0",
+  "description": "Tor for this browser from Infinitum Corporation®. Not Tor Browser fingerprinting protection, and not a device-wide VPN.",
   "permissions": [
     "storage",
     "tabs",
@@ -19,7 +19,7 @@
     "http://*/*"
   ],
   "action": {
-    "default_title": "VEIL browser proxy",
+    "default_title": "VEIL Tor",
     "default_popup": "popup.html",
     "default_icon": {
       "16": "icons/icon-16.png",

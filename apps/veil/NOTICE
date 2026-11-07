@@ -1,13 +1,13 @@
-Infinitum Corporation® — VEIL browser proxy
+Infinitum Corporation® — VEIL Tor extension
 
 This directory is original source written for Infinitum Corporation®.
-No third-party VPN client, proxy implementation, or GPL-licensed code is
-copied into the extension or the control server.
+No Tor source, Tor binary, or GPL-licensed code is copied here.
 
-The extension calls the Chrome proxy API (chrome.proxy) and the Firefox
-proxy API (browser.proxy). Those are browser platform interfaces, not
-vendored source.
+Tor itself is published by The Tor Project under the 3-clause BSD license:
+https://gitweb.torproject.org/tor.git/tree/LICENSE
+VEIL does not vendor that code. It speaks SOCKS5 to a Tor client the user
+installs and starts. That interoperability is not a grant of Tor's license
+and not an endorsement by The Tor Project.
 
-VEIL here protects traffic inside the browser that loaded the extension.
-It is not a device-wide VPN, and this notice is not a grant of exit-node
-capacity or a claim that any particular network path is private.
+A Tor extension in Chrome or Firefox routes this browser's traffic. It does
+not reproduce Tor Browser and it is not a device-wide VPN.

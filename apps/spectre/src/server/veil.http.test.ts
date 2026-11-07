@@ -12,9 +12,11 @@ import { createApp } from "./app.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const ORIGIN = "http://localhost";
-const SERVERS = [{ id: "iad-1", name: "Washington", region: "us-east", host: "veil-iad.example", port: 443, scheme: "https" as const }];
+const BRIDGES = [
+  "bridge obfs4 192.0.2.10:443 AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA cert=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa iat-mode=0",
+];
 
-describe("VEIL browser proxy on the Cumulus ID host", () => {
+describe("VEIL Tor bridges on the Cumulus ID host", () => {
   let server: Server;
   let base: string;
   let cid: CidService;
@@ -31,7 +33,7 @@ describe("VEIL browser proxy on the Cumulus ID host", () => {
       publicDir: join(here, "../../public"),
       secureCookies: false,
       origin: ORIGIN,
-      veil: { entitled: (account) => entitled.has(account), servers: SERVERS },
+      veil: { entitled: (account) => entitled.has(account), bridges: BRIDGES },
     });
     server = app.server();
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -58,7 +60,7 @@ describe("VEIL browser proxy on the Cumulus ID host", () => {
     return { cookie: signed.headers.get("set-cookie")!.split(";")[0], cid: started.cid as string };
   }
 
-  it("uses the existing CID session cookie and does not treat a free account as a VEIL plan", async () => {
+  it("uses the existing CID session and does not treat a free account as a bridge plan", async () => {
     assert.equal("veil" in FREE_ENTITLEMENTS, false);
     const user = await signIn("veiluser");
     const headers = { "x-veil": "1", cookie: user.cookie };
@@ -67,41 +69,25 @@ describe("VEIL browser proxy on the Cumulus ID host", () => {
     const body = await session.json();
     assert.equal(body.cid, user.cid);
     assert.equal(body.entitled, false);
+    assert.equal(body.routing, "local-tor");
     assert.equal(body.deviceWide, false);
-    assert.deepEqual(body.servers, []);
-    assert.equal(JSON.stringify(body).includes("password"), false);
-    const connect = await fetch(`${base}/api/veil/connect`, {
-      method: "POST",
-      headers: { ...headers, "content-type": "application/json" },
-      body: JSON.stringify({ serverId: "iad-1" }),
-    });
-    assert.equal(connect.status, 403);
-    assert.equal((await connect.json()).error, "veil_plan_required");
+    assert.equal(JSON.stringify(body).includes("192.0.2.10"), false);
+    const blocked = await fetch(`${base}/api/veil/bridges`, { headers });
+    assert.equal(blocked.status, 403);
+    assert.equal((await blocked.json()).error, "veil_plan_required");
     entitled.add(user.cid);
-    const allowed = await fetch(`${base}/api/veil/session`, { headers });
+    const allowed = await fetch(`${base}/api/veil/bridges`, { headers });
     const plan = await allowed.json();
-    assert.equal(plan.entitled, true);
-    assert.equal(plan.servers[0].host, "veil-iad.example");
-    assert.equal(JSON.stringify(plan).includes("password"), false);
-    const granted = await fetch(`${base}/api/veil/connect`, {
+    assert.deepEqual(plan.bridges, BRIDGES);
+    assert.equal(plan.optional, true);
+    assert.equal(plan.routing, "local-tor");
+    const retired = await fetch(`${base}/api/veil/connect`, { method: "POST", headers: { ...headers, "content-type": "application/json" }, body: "{}" });
+    assert.equal(retired.status, 404);
+    await fetch(`${base}/api/auth/signout`, {
       method: "POST",
-      headers: { ...headers, "content-type": "application/json" },
-      body: JSON.stringify({ serverId: "iad-1", host: "evil.example" }),
+      headers: { ...headers, "x-spectre": "1", "content-type": "application/json" },
+      body: "{}",
     });
-    assert.equal(granted.status, 400);
-    const clean = await fetch(`${base}/api/veil/connect`, {
-      method: "POST",
-      headers: { ...headers, "content-type": "application/json" },
-      body: JSON.stringify({ serverId: "iad-1" }),
-    });
-    assert.equal(clean.status, 200);
-    const credential = await clean.json();
-    assert.equal(credential.coverage, "browser");
-    assert.equal(credential.deviceWide, false);
-    assert.equal(credential.server.host, "veil-iad.example");
-    assert.equal(typeof credential.auth.password, "string");
-    await fetch(`${base}/api/auth/signout`, { method: "POST", headers: { ...headers, "x-spectre": "1", "content-type": "application/json" }, body: "{}" });
-    const gone = await fetch(`${base}/api/veil/session`, { headers });
-    assert.equal(gone.status, 401);
+    assert.equal((await fetch(`${base}/api/veil/session`, { headers })).status, 401);
   });
 });

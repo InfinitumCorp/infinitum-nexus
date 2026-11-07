@@ -1,7 +1,6 @@
 import {serveNodeConjureBackend} from "@infinitum/conjure-backend";
 import type {ConjureService} from "@infinitum/conjure-backend";
 import { createVeilControl, serveNodeVeil } from "@infinitum/veil/server";
-import type { VeilServer } from "@infinitum/veil/server";
 import { serveNodeOrbitalBackend } from "@infinitum/orbital";
 import { serveNodeDroneBackend } from "@infinitum/drone-backend";
 import { serveNodeLabyrinth } from "@infinitum/lbrnth";
@@ -72,13 +71,12 @@ export interface AppDeps {
   /** Tests: scripted model for Conjure simulations. */
   conjureComplete?: Complete;
   /**
-   * VEIL browser-proxy plan. Absent means nobody is entitled.
-   * A Cumulus ID session does not imply this plan.
+   * Optional Tor bridge lines for entitled Cumulus IDs.
+   * Absent means nobody is entitled. Browser Tor routing does not call this.
    */
   veil?: {
     entitled?: (cid: string) => boolean;
-    servers?: VeilServer[];
-    clock?: () => Date;
+    bridges?: readonly string[];
   };
 }
 
@@ -1058,8 +1056,7 @@ export function createApp(deps: AppDeps) {
   const veilControl = createVeilControl({
     cid,
     entitled: deps.veil?.entitled,
-    servers: deps.veil?.servers,
-    clock: deps.veil?.clock,
+    bridges: deps.veil?.bridges,
   });
 
   const MUTATING = new Set(["POST", "PATCH", "PUT", "DELETE"]);

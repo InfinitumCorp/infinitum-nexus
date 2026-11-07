@@ -1,7 +1,7 @@
 {
   "name": "@infinitum/veil",
-  "version": "0.6.0",
-  "description": "VEIL</>: Infinitum Corporation® browser cyber proxy (Chrome MV3 and Firefox). Protects this browser's traffic only, not a device-wide VPN.",
+  "version": "0.7.0",
+  "description": "VEIL</>: Infinitum Corporation® Tor extension for this browser (Chrome MV3 and Firefox). Not Tor Browser fingerprinting protection, and not a device-wide VPN.",
   "type": "module",
   "private": true,
   "exports": {

@@ -1,0 +1,8 @@
+TestSystemTUNWireGuardPing and TestNetNSKillSwitchDrops
+=== RUN   TestSystemTUNWireGuardPing
+    system_linux_test.go:72: system TUN ping ok via veiltc -> veilts
+--- PASS: TestSystemTUNWireGuardPing (0.05s)
+PASS
+=== RUN   TestNetNSKillSwitchDrops
+--- PASS: TestNetNSKillSwitchDrops (2.06s)
+PASS

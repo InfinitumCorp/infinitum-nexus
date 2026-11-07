@@ -71,14 +71,20 @@ export function veilHttp(control: VeilControl) {
       const url = new URL(request.url);
       if (url.search) return json(404, { error: "not_found" });
       const path = url.pathname;
-      const known = path === "/api/veil/session" || path === "/api/veil/servers" || path === "/api/veil/bridges" || path === "/api/veil/connect" || path === "/api/veil/disconnect";
+      const known = path === "/api/veil/session" || path === "/api/veil/servers" || path === "/api/veil/bridges" || path === "/api/veil/connect" || path === "/api/veil/disconnect" || path === "/api/veil/device/session" || path === "/api/veil/device/connect" || path === "/api/veil/device/disconnect" || path === "/api/veil/device/peers";
       if (!known) return json(404, { error: "not_found" });
       if (request.headers.get("x-veil") !== "1") return json(403, { error: "missing_header" });
+      if (path === "/api/veil/device/peers") {
+        if (request.method !== "GET" && request.method !== "HEAD") return json(405, { error: "method_not_allowed" }, { allow: "GET" });
+        const exit = request.headers.get("x-veil-exit") ?? "";
+        return json(200, control.devicePeers(exit));
+      }
       const token = tokenFrom(request);
       if (!token) return json(401, { error: "sign_in_required" });
-      if (path === "/api/veil/session" || path === "/api/veil/servers" || path === "/api/veil/bridges") {
+      if (path === "/api/veil/session" || path === "/api/veil/servers" || path === "/api/veil/bridges" || path === "/api/veil/device/session") {
         if (request.method !== "GET" && request.method !== "HEAD") return json(405, { error: "method_not_allowed" }, { allow: "GET" });
         if (path === "/api/veil/bridges") return json(200, control.bridges(token));
+        if (path === "/api/veil/device/session") return json(200, control.deviceSession(token));
         const session = control.session(token);
         if (path === "/api/veil/servers") {
           if (!session.entitled) return json(403, { error: "veil_plan_required", entitled: false, deviceWide: false });
@@ -92,7 +98,12 @@ export function veilHttp(control: VeilControl) {
         exact(body, []);
         return json(200, control.disconnect(token));
       }
+      if (path === "/api/veil/device/disconnect") {
+        exact(body, []);
+        return json(200, control.disconnectDevice(token));
+      }
       exact(body, ["serverId"]);
+      if (path === "/api/veil/device/connect") return json(200, control.connectDevice(token, serverId(body.serverId)));
       return json(200, control.connect(token, serverId(body.serverId)));
     } catch (err) {
       if (err instanceof VeilError) return json(err.status, { error: err.code, deviceWide: false });

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleIdentifier</key><string>corporation.infinitum.veil.utun.arm64</string>
+  <key>CFBundleName</key><string>VEIL Desktop</string>
+  <key>CFBundleDisplayName</key><string>VEIL</string>
+  <key>CFBundleExecutable</key><string>veil-desktop</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>0.9.0</string>
+  <key>CFBundleVersion</key><string>1</string>
+  <key>LSMinimumSystemVersion</key><string>12.0</string>
+  <key>NSHumanReadableCopyright</key><string>Infinitum Corporation®</string>
+</dict>
+</plist>

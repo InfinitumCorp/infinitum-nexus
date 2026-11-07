@@ -4,7 +4,7 @@ Infinitum Corporation® cyber proxy for this browser. The default route is the V
 
 ## Limits
 
-Both modes cover **traffic in this browser**. This is not a device-wide VPN.
+Both modes cover **traffic in this browser**. This is not a device-wide VPN. Device-wide coverage is a separate client, `apps/veil-desktop`, and it is not this extension.
 
 Tor mode does **not** give Tor Browser fingerprinting protection. Sites can still see this browser's fonts, screen size, APIs, and other traits that Tor Browser equalizes. VEIL does not modify those surfaces.
 

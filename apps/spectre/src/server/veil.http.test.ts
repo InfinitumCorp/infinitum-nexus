@@ -77,6 +77,11 @@ describe("VEIL Tor bridges on the Cumulus ID host", () => {
       method: "POST", headers: { ...headers, "content-type": "application/json" }, body: JSON.stringify({ serverId: "iad-1" }),
     });
     assert.equal(blockedProxy.status, 403);
+    const blockedDevice = await fetch(`${base}/api/veil/device/connect`, {
+      method: "POST", headers: { ...headers, "content-type": "application/json" }, body: JSON.stringify({ serverId: "iad-1" }),
+    });
+    assert.equal(blockedDevice.status, 403);
+    assert.equal((await blockedDevice.text()).includes("privateKey"), false);
     const blocked = await fetch(`${base}/api/veil/bridges`, { headers });
     assert.equal(blocked.status, 403);
     entitled.add(user.cid);
@@ -89,6 +94,13 @@ describe("VEIL Tor bridges on the Cumulus ID host", () => {
     assert.equal(credential.defaultMode, "veil");
     assert.equal(credential.dns, "through-proxy");
     assert.equal(credential.server.host, "veil-iad.example");
+    const unconfigured = await fetch(`${base}/api/veil/device/connect`, {
+      method: "POST", headers: { ...headers, "content-type": "application/json" }, body: JSON.stringify({ serverId: "iad-1" }),
+    });
+    assert.equal(unconfigured.status, 503);
+    const unconfiguredBody = await unconfigured.json();
+    assert.equal(unconfiguredBody.error, "device_exit_unconfigured");
+    assert.equal(JSON.stringify(unconfiguredBody).includes("privateKey"), false);
     const allowed = await fetch(`${base}/api/veil/bridges`, { headers });
     const plan = await allowed.json();
     assert.deepEqual(plan.bridges, BRIDGES);

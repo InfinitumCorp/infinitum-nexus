@@ -6,3 +6,5 @@ export { veilFromEnv } from "./env.ts";
 export type { VeilHostConfig } from "./env.ts";
 export { VeilError, parseCatalog, parseServer, parseBridge, parseBridges } from "./model.ts";
 export type { VeilServer, VeilScheme } from "./model.ts";
+export { wireGuardKeyPair, parseWireGuardKey, parseDeviceEndpoint } from "./wireguard.ts";
+export type { DeviceExitConfig, DeviceGrant, DevicePeerView } from "./wireguard.ts";

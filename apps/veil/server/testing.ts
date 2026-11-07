@@ -2,6 +2,7 @@ import { CidService } from "@infinitum/cid";
 import { Ledger, generateSigner } from "@infinitum/firmament";
 import { VirtualAuthenticator } from "../../../packages/cid/src/testing/virtual-authenticator.ts";
 import { createVeilControl, type VeilControl } from "./control.ts";
+import type { DeviceExitConfig } from "./wireguard.ts";
 
 export const VEIL_SERVERS = [
   { id: "iad-1", name: "Washington", region: "us-east", host: "veil-iad.example", port: 443, scheme: "https" as const },
@@ -12,7 +13,7 @@ export const VEIL_BRIDGES = [
   "bridge obfs4 192.0.2.10:443 AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA cert=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa iat-mode=0",
 ];
 
-export async function veilFixture(servers = VEIL_SERVERS, bridges: string[] = VEIL_BRIDGES) {
+export async function veilFixture(servers = VEIL_SERVERS, bridges: string[] = VEIL_BRIDGES, deviceExit?: DeviceExitConfig) {
   let now = new Date("2026-11-07T12:00:00Z");
   const entitled = new Set<string>();
   const signer = generateSigner();
@@ -30,6 +31,7 @@ export async function veilFixture(servers = VEIL_SERVERS, bridges: string[] = VE
     bridges,
     clock: () => now,
     entitled: (account) => entitled.has(account),
+    deviceExit,
   });
   let count = 0;
   async function login(plan = false) {

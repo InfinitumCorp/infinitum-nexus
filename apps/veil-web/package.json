@@ -6,6 +6,11 @@
   "private": true,
   "scripts": {
     "build": "node scripts/build.js",
-    "test": "node --test test/"
+    "cf:build": "node scripts/build.js && cf build",
+    "deploy": "node scripts/build.js && cf deploy"
+  },
+  "devDependencies": {
+    "cf": "^1.0.0-beta.28",
+    "wrangler": "^4.158.0"
   }
 }

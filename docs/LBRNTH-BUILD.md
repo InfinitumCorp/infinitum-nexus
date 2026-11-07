@@ -32,6 +32,14 @@ nodes/textarea, and clears cached private panels on a changed CID organization.
 The shell and its assets carry noindex, no-store, frame denial and a strict CSP.
 No motion is used. Desktop and 390px mobile layouts are supported.
 
+## Persistent service
+
+A deployable non-root image, Compose service, health check and automated restart
+test are in [deploy/labyrinth](../deploy/labyrinth/README.md). The workspace now
+lets a directly signed-in CID create its own first organization; this persists
+through the host and never creates an entitlement. The organization id is shown
+so an operator can approve the client plan.
+
 ## Run
 
 ```sh
@@ -53,8 +61,8 @@ node --experimental-strip-types apps/spectre/src/server/main.ts
 node --experimental-strip-types apps/cumulus-mail/src/server.ts
 ```
 
-Visit `/labyrinth` on that host. Existing Cumulus://ID sign-in and trusted
-organization onboarding are prerequisites. In “First-time organization setup,”
+Visit `/labyrinth` on that host. Existing Cumulus://ID sign-in is required. A user without an organization can
+create their first organization under First-time organization setup. In “First-time organization setup,”
 choose the scopes to grant. An entitled CID organization admin can provision the
 workspace. Permission consent does not purchase or activate a plan. When storage
 is unconfigured the API returns 503, and a missing/expired CID session returns 401.
@@ -69,7 +77,7 @@ The browser-safe `createLabyrinthClient(product, options)` additionally exposes:
 
 | Method | Behavior |
 |---|---|
-| `session()` | Current verified CID, organization, consent scopes and delegated flag; no credential bytes |
+| `session()` | Current verified CID, organization (null before onboarding), consent scopes and delegated flag; no credential bytes |
 | `createBranch(repo, name, from)` | Fork at a retained commit or start empty with null |
 | `createTag(repo, name, commit)` | Immutable reference |
 | `members()`, `setMember(cid, roleOrNull)` | Existing-org repository roles; null revokes |
@@ -106,7 +114,10 @@ A `.lock` left by a crash requires operator inspection, never automatic removal.
 
 ## Validation
 
-Local verification used Node 24.22.1 and pnpm 10.28.0. CI retains its pinned Node
+Local verification passed 509 workspace tests, full typecheck and the dependency/
+license/secrets scan on Node 24.22.1 and pnpm 10.28.0. The packaged service also
+passed its real Node 22.23.4 container test, including restart persistence, offline
+backup/integrity and binary restore after key rotation. CI retains its pinned Node
 22.23.4 configuration. Full workspace tests and typecheck, dependency/license/secrets
 checks and package generation are required before the PR is ready.
 

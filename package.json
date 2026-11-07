@@ -9,6 +9,7 @@
     "typecheck": "pnpm -r typecheck",
     "pack:labyrinth": "bash scripts/pack-labyrinth.sh",
     "security:labyrinth": "bash scripts/labyrinth-security.sh",
-    "labyrinth:maintain": "node --experimental-strip-types scripts/labyrinth-maintain.ts"
+    "labyrinth:maintain": "node --experimental-strip-types scripts/labyrinth-maintain.ts",
+    "test:labyrinth:runtime": "node --experimental-strip-types scripts/test-labyrinth-runtime.ts"
   }
 }

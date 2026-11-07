@@ -1,0 +1,12 @@
+# Copy OUTSIDE the repository and restrict to mode 0600. Never commit real values.
+LABYRINTH_ORIGIN=http://localhost:3030
+LABYRINTH_PORT=3030
+# Populate from a secret manager. Must decode to exactly 32 bytes, canonical base64.
+LBRNTH_MASTER_KEY=
+# Empty denies repository access. Add a verified client org id after plan approval.
+LBRNTH_ENTITLED_ORGS=
+# For managed build networks, use the supplied CA bundle; ordinary hosts can omit.
+LABYRINTH_BUILD_CA=/etc/ssl/certs/ca-certificates.crt
+
+# Override after verified offline key rotation to a new snapshot on the same volume.
+LBRNTH_SNAPSHOT_FILE=/var/lib/labyrinth/labyrinth.json

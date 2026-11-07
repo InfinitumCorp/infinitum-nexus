@@ -1,5 +1,5 @@
 const $ = id => document.getElementById(id);
-const state = { repos: [], repo: null, branch: 'main', history: [], commit: null, product: document.documentElement.dataset.product ?? 'spectre', dirty: false, busy: false, binary: null, audit: [], identity: null };
+const state = { repos: [], repo: null, branch: 'main', history: [], commit: null, product: document.documentElement.dataset.product ?? 'spectre', dirty: false, busy: false, binary: null, sourceBytes: null, audit: [], identity: null };
 const notice = message => { $('notice').textContent = message; };
 class RequestError extends Error { constructor(status) { super(({ 400: 'Invalid name, path or request. Check the entered values.', 401: 'Your Cumulus://ID session is missing or expired. Sign in through the host product.', 403: 'Access denied. Check your organization plan, repository role and consent permissions.', 404: 'This file or version was not found. Refresh the repository.', 409: 'The branch changed since you opened it. Your text is preserved. Copy your changes, refresh, then apply them to the latest version.', 413: 'This artifact exceeds the HTTP request limit. Use a smaller text file.', 429: 'The organization request or storage limit was reached. Wait a minute before retrying, or ask your administrator.', 503: 'Labyrinth is not configured on this host. An operator must configure encrypted storage and organization entitlements.' })[status] ?? 'Labyrinth is unavailable. Your unsaved text is preserved.'); this.status = status; } }
 async function rpc(action, args = {}) {
@@ -22,7 +22,7 @@ function table(target, columns, rows) {
   const body = element('tbody'); rows.forEach(row => { const tr = element('tr'); row.forEach(value => tr.append(element('td', String(value ?? '—')))); body.append(tr); }); t.append(body); $(target).replaceChildren(t);
 }
 function discard() { return !state.dirty || window.confirm('Discard unsaved file changes?'); }
-function clearEditor() { $('editor').reset(); $('content').readOnly = false; state.binary = null; state.dirty = false; }
+function clearEditor() { $('editor').reset(); $('content').readOnly = false; state.binary = null; state.sourceBytes = null; state.dirty = false; }
 function clearPrivateState() {
   state.repos = []; state.repo = null; state.history = []; state.commit = null; state.audit = [];
   for (const id of ['repositories', 'files', 'history', 'members', 'audit', 'changes', 'tags']) $(id).replaceChildren();
@@ -31,10 +31,17 @@ function clearPrivateState() {
 async function connect() {
   try {
     const session = await rpc('session');
+    $('create-organization').hidden = !!session.organization;
+    if (!session.organization) {
+      clearPrivateState(); state.identity = session.cid;
+      $('identity').textContent = session.cid;
+      $('connect').hidden = false; $('app').hidden = true; $('provision').hidden = true;
+      notice('Signed in. Create your organization in First-time organization setup.'); return;
+    }
     const identity = `${session.cid}/${session.organization.id}`;
     if (state.identity !== identity) clearPrivateState();
     state.identity = identity;
-    $('identity').textContent = `${session.organization.name} / ${session.cid}`;
+    $('identity').textContent = `${session.organization.name} / ${session.cid} · ${session.organization.id}`;
     $('provision').hidden = !session.organization.admin;
     $('consent-level').value = session.scopes.includes('repo:admin') ? 'admin' : session.scopes.includes('repo:write') ? 'write' : 'read';
     await list(); $('connect').hidden = true; $('app').hidden = false;
@@ -70,10 +77,10 @@ function renderHistory() {
   $('more-history').hidden = !state.history.at(-1)?.parent;
 }
 function showBytes(bytes) {
-  state.binary = null; $('content').readOnly = false;
+  state.binary = null; state.sourceBytes = bytes; $('content').readOnly = false;
   try {
     if (bytes.includes(0)) throw new Error('binary');
-    $('content').value = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+    $('content').value = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
   } catch { state.binary = bytes; $('content').readOnly = true; $('content').value = `Binary artifact · ${bytes.length.toLocaleString()} bytes\n\nDownload to view, or import a replacement file to commit a new version.`; }
 }
 function base64(bytes) {
@@ -102,6 +109,7 @@ function head() {
   return expected;
 }
 async function afterChange(message) { state.dirty = false; await list(); notice(message); }
+bind('create-organization', 'submit', async () => { await rpc('organization', { name: $('organization-name').value.trim() }); await connect(); });
 bind('retry', 'click', connect);
 bind('refresh', 'click', async () => { if (!discard()) return; clearEditor(); await connect(); });
 bind('consent', 'click', async () => { const scopes = ['repo:read']; if (['write', 'admin'].includes($('consent-level').value)) scopes.push('repo:write'); if ($('consent-level').value === 'admin') scopes.push('repo:admin'); await rpc('consent', { scopes }); notice('Permissions recorded. An entitled organization admin may now provision the workspace.'); });
@@ -112,7 +120,7 @@ bind('branch', 'change', async () => { if (!discard()) { $('branch').value = sta
 bind('revision', 'change', async () => { if (!discard()) { $('revision').value = state.commit?.id ?? ''; return; } state.commit = state.history.find(c => c.id === $('revision').value) ?? null; clearEditor(); renderFiles(); notice('Historical version selected. Select the branch head before committing.'); });
 bind('editor', 'submit', async () => {
   let expectedHead; try { expectedHead = head(); } catch { notice('Select the latest version before committing. Your text is preserved.'); return; }
-  await rpc('save', { repo: state.repo.id, branch: state.branch, path: $('file-path').value.trim(), content: state.binary ? base64(state.binary) : $('content').value, encoding: state.binary ? 'base64' : 'utf-8', expectedHead, message: $('message').value.trim() });
+  await rpc('save', { repo: state.repo.id, branch: state.branch, path: $('file-path').value.trim(), content: state.sourceBytes ? base64(state.sourceBytes) : $('content').value, encoding: state.sourceBytes ? 'base64' : 'utf-8', expectedHead, message: $('message').value.trim() });
   await afterChange('Change committed. Earlier versions remain available.');
 });
 bind('remove', 'click', async () => {
@@ -123,7 +131,7 @@ bind('remove', 'click', async () => {
 });
 bind('download', 'click', async () => {
   if (!$('file-path').value) return;
-  const blob = URL.createObjectURL(new Blob([state.binary ?? $('content').value], { type: state.binary ? 'application/octet-stream' : 'text/plain;charset=utf-8' }));
+  const blob = URL.createObjectURL(new Blob([state.sourceBytes ?? $('content').value], { type: state.binary ? 'application/octet-stream' : 'text/plain;charset=utf-8' }));
   const a = element('a'); a.href = blob; a.download = $('file-path').value.split('/').pop(); a.click(); setTimeout(() => URL.revokeObjectURL(blob), 1000);
 });
 bind('create-branch', 'submit', async () => { if (!discard()) return; const name = $('branch-name').value.trim(); await rpc('branch', { repo: state.repo.id, name, from: state.commit?.id ?? null }); state.branch = name; clearEditor(); $('create-branch').reset(); await afterChange('Branch created from the selected version.'); });
@@ -156,7 +164,7 @@ bind('artifact-upload', 'change', async () => {
   if (!$('file-path').value) $('file-path').value = file.name;
   state.dirty = true; $('artifact-upload').value = ''; notice('Artifact imported. Enter a commit message to save this version.');
 });
-$('editor').addEventListener('input', () => { state.dirty = true; });
+$('editor').addEventListener('input', event => { state.dirty = true; if (event.target.id === 'content') state.sourceBytes = null; });
 window.addEventListener('beforeunload', e => { if (state.dirty) { e.preventDefault(); e.returnValue = ''; } });
 $('product').value = state.product;
 void run(connect);

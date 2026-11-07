@@ -1,3 +1,4 @@
+import { labyrinthProduct } from "@infinitum/lbrnth-client";
 import { CidLabyrinth } from "./auth.ts";
 import type { CommitInput, Role, Scope } from "./model.ts";
 import { LabyrinthError } from "./model.ts";
@@ -17,14 +18,16 @@ export function labyrinthToken(header: string | null): string | undefined {
 }
 /** No cid/org/role claims accepted. Server derives all authority from the live CID session. */
 export function labyrinthCommand(auth: CidLabyrinth, token: string, value: unknown): unknown {
-  auth.forSession(token); // authenticate before interpreting the request body
+  auth.session(token); // authenticate before interpreting the request body
   if (!value || typeof value !== "object" || Array.isArray(value)) return invalid();
   const p = value as Record<string, unknown>;
   if (["cid", "org", "orgId", "role", "entitled"].some(k => Object.hasOwn(p, k))) return invalid();
+  try { labyrinthProduct(text(p.product)); } catch { return invalid(); }
+  if (p.action === "session") return auth.session(token);
+  if (p.action === "organization") return auth.createOrganization(token, text(p.name));
   const client = auth.forProduct(token, text(p.product));
   const session = auth.forSession(token);
   switch (p.action) {
-    case "session": return auth.session(token);
     case "branch": return session.createBranch(text(p.repo), text(p.name), head(p.from));
     case "tag": return session.createTag(text(p.repo), text(p.name), text(p.commit));
     case "members": return session.members();

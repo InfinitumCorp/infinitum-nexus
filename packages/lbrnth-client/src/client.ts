@@ -6,9 +6,10 @@ export type ArtifactChanges = Record<string, string | EncodedArtifact | null>;
 export type RepositoryRole = "owner" | "admin" | "writer" | "reader";
 export interface RepositoryMember { cid: string; role: RepositoryRole }
 export interface RepositoryAuditEntry { sequence: number; actor: string; action: string; repoId?: string; at: string; previous: string | null; hash: string }
-export interface RepositorySession { cid: string; organization: { id: string; name: string; admin: boolean }; scopes: string[]; delegated: boolean }
+export interface RepositorySession { cid: string; organization: { id: string; name: string; admin: boolean } | null; scopes: string[]; delegated: boolean }
 export type LabyrinthCommand =
   | { action: "commit"; repo: string; changes: ArtifactChanges; expectedHead: string | null; message: string; branch?: string }
+  | { action: "organization"; name: string }
   | { action: "session" }
   | { action: "branch"; repo: string; name: string; from: string | null }
   | { action: "tag"; repo: string; name: string; commit: string }
@@ -54,6 +55,7 @@ export function createLabyrinthClient(product: string, options: LabyrinthClientO
     commit: (repo: string, changes: ArtifactChanges, expectedHead: string | null, message: string, branch?: string) => send<ArtifactCommit>({ action: "commit", repo, changes, expectedHead, message, branch }),
     saveArtifact: (repo: string, path: string, artifact: EncodedArtifact, expectedHead: string | null, message?: string, branch?: string) => send<ArtifactCommit>({ action: "save", repo, path, ...artifact, expectedHead, message, branch }),
     loadArtifact: (repo: string, commit: string, path: string) => send<EncodedArtifact>({ action: "load", repo, commit, path, encoding: "base64" }),
+    createOrganization: (name: string) => send<{ id: string; name: string }>({ action: "organization", name }),
     session: () => send<RepositorySession>({ action: "session" }),
     createBranch: (repo: string, name: string, from: string | null) => send<void>({ action: "branch", repo, name, from }),
     createTag: (repo: string, name: string, commit: string) => send<void>({ action: "tag", repo, name, commit }),

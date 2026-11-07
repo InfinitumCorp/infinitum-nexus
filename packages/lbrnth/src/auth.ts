@@ -38,9 +38,18 @@ export class CidLabyrinth {
     return { cid: actor, org, parentSession: auth?.session.id ?? delegated!.parentSession, delegated: !auth };
   }
   session(token: string) {
-    const { cid, org, delegated } = this.#identity(token);
-    return { cid, organization: { id: org.id, name: org.name, admin: org.admin }, delegated,
-      scopes: (["repo:read", "repo:write", "repo:admin"] as Scope[]).filter(scope => this.#cid.can(cid, "LBRNTH", scope)) };
+    const direct = this.#cid.authenticate(token);
+    const identity = direct ? { cid: direct.account.cid, org: this.#cid.organizationMembership(direct.account.cid), delegated: false } : this.#identity(token);
+    return { cid: identity.cid, organization: identity.org ? { id: identity.org.id, name: identity.org.name, admin: identity.org.admin } : null, delegated: identity.delegated,
+      scopes: (["repo:read", "repo:write", "repo:admin"] as Scope[]).filter(scope => this.#cid.can(identity.cid, "LBRNTH", scope)) };
+  }
+  async createOrganization(token: string, name: string) {
+    const direct = this.#cid.authenticate(token);
+    if (!direct) throw new LabyrinthError("forbidden", "Direct Cumulus ID sign-in required");
+    if (this.#cid.organizationMembership(direct.account.cid)) throw new LabyrinthError("conflict", "Account already belongs to an organization");
+    if (typeof name !== "string" || !name.trim() || name.length > 120 || /[\x00-\x1f\x7f]/.test(name)) throw new LabyrinthError("invalid", "Organization name required");
+    const org = await this.#cid.createOrganization(name.trim(), direct.account.cid);
+    return { id: org.id, name: org.name };
   }
   /** Exchange an authenticated browser CID cookie for a short-lived, repository-only bearer.
    * This credential is NOT a CID login token and cannot authenticate to other CID products. */

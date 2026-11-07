@@ -105,3 +105,6 @@ Mail: private repositories, text/binary artifacts, commits, branches/tags, membe
 roles and paged history/audit. Offline maintenance supports verify, backup and key
 rotation. See [build/run guide](docs/LBRNTH-BUILD.md). Production activation remains
 operator-controlled.
+
+For a persistent, non-root Labyrinth deployment with health checks and verified
+restart durability, see [service deployment](deploy/labyrinth/README.md).

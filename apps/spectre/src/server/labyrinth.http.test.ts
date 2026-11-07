@@ -183,3 +183,20 @@ test("history cursors stay on their branch and audit pages remain bounded", asyn
     assert.equal((await command("audit", { after: 0, limit: 1001 })).status, 400);
   } finally { await h.close(); }
 });
+
+test("new CID users can onboard an organization without creating a free repository entitlement", async () => {
+  const h = await harness({ labyrinth: { entitled: () => false, storage: new MemoryStorage() } });
+  try {
+    const owner = await h.signUp("onboarding-owner");
+    const command = (action: string, args: Record<string, unknown> = {}, cookie = owner.cookie) => h.call("POST", "/api/labyrinth", { product: "spectre", action, ...args }, cookie, { "x-labyrinth": "1" });
+    const session = await command("session"); assert.equal(session.status, 200); assert.equal(session.body.organization, null);
+    assert.equal((await command("organization", { name: "Forged" }, "")).status, 401);
+    assert.equal((await command("organization", { name: "   " })).status, 400);
+    const org = await command("organization", { name: "New Client" }); assert.equal(org.status, 200);
+    assert.equal((await command("session")).body.organization.id, org.body.id);
+    assert.equal((await command("organization", { name: "Duplicate" })).status, 409);
+    assert.equal((await command("consent", { scopes: ["repo:read", "repo:write", "repo:admin"] })).status, 200);
+    assert.equal((await command("provision")).status, 403);
+    assert.equal((await command("list")).status, 403);
+  } finally { await h.close(); }
+});

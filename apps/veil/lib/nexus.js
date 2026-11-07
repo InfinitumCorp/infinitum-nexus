@@ -4,14 +4,22 @@
  *
  * Nothing here is reachable from the anonymous workspace.
  */
+import { VEIL_DEV } from "./build.js";
 
-/** Where each product runs. Override per key in chrome.storage.local `origins`. */
+/** Production hosts. Stored overrides cannot replace these. */
+export const PINNED_ORIGINS = Object.freeze({
+  scalvs: "https://scalvs.app",
+  architect: "https://cndctr.app",
+  veil: "https://infinitumveil.app",
+});
+
+/** Where each product runs. `cid` and `mail` still accept a stored http(s) origin. */
 export const DEFAULT_ORIGINS = Object.freeze({
   cid: "http://localhost:3000",      // +SPCTR server hosts Cumulus://ID sign-in today
   mail: "http://localhost:3010",     // apps/cumulus-mail
-  architect: "https://cndctr.app", // CNDCTR public host, on Cloudflare. apps/architect is this service.
-  scalvs: "https://scalvs.app",      // SCALVS.ai public host, on Cloudflare. packages/scalus is this product.
-  veil: "http://localhost:3000",     // same CID host, so the existing session cookie is sent
+  architect: PINNED_ORIGINS.architect,
+  scalvs: PINNED_ORIGINS.scalvs,
+  veil: PINNED_ORIGINS.veil, // VEIL browser control plane, hosted on Cloudflare
 });
 
 /**
@@ -42,11 +50,25 @@ export function safeOrigin(value) {
   }
 }
 
-export function resolveOrigins(stored) {
+/** Dev packages may point SCALVS, CNDCTR, or VEIL at this machine. No other host is accepted. */
+export function isDevLoopback(origin) {
+  const safe = safeOrigin(origin);
+  if (!safe) return false;
+  const host = new URL(safe).hostname;
+  return host === "localhost" || host === "127.0.0.1";
+}
+
+export function resolveOrigins(stored, options = {}) {
+  const dev = options.dev ?? VEIL_DEV;
   const out = { ...DEFAULT_ORIGINS };
   for (const key of Object.keys(DEFAULT_ORIGINS)) {
     const o = safeOrigin(stored?.[key]);
-    if (o) out[key] = o;
+    if (!o) continue;
+    if (Object.hasOwn(PINNED_ORIGINS, key)) {
+      if (dev && isDevLoopback(o)) out[key] = o;
+      continue;
+    }
+    out[key] = o;
   }
   return out;
 }

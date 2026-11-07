@@ -24,8 +24,17 @@ function shared(version) {
     version,
     description: extensionDescription(),
     permissions: ["storage", "tabs", "proxy", "privacy", "browsingData", "alarms", "webRequest"],
-    // https://cndctr.app and https://scalvs.app (both on Cloudflare) are covered by https://*/*.
+    // Chrome and Firefox apply proxy.onRequest / chrome.proxy and the content script
+    // only to hosts the extension may access. VEIL VPN and Tor must cover every
+    // http(s) page in this browser, so these two patterns stay required.
+    // optional_host_permissions would leave those pages on the ordinary network
+    // until a later grant, which breaks fail-closed routing.
     host_permissions: ["https://*/*", "http://*/*"],
+    // MV3 allows only script-src, object-src, and worker-src on extension pages.
+    // Firefox uses the same extension_pages key. No eval and no remote scripts.
+    content_security_policy: {
+      extension_pages: "script-src 'self'; object-src 'self'; worker-src 'self'",
+    },
     action: {
       default_title: "VEIL Tor",
       default_popup: "popup.html",

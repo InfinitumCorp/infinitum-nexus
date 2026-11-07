@@ -2,11 +2,10 @@
  * VEIL Ask. The sidebar sends the text to CNDCTR (apps/architect) and does not
  * run packages/scalus. Autonomy is rehearsal: the extension cannot raise it.
  */
-import { safeOrigin } from "./nexus.js";
+import { resolveOrigins } from "./nexus.js";
 
-export async function submitAsk({ origin, text, page, fetchImpl = globalThis.fetch }) {
-  const base = safeOrigin(origin);
-  if (!base) throw new Error("Architect origin is not an http(s) URL");
+export async function submitAsk({ origin, text, page, fetchImpl = globalThis.fetch, dev }) {
+  const base = resolveOrigins({ architect: origin }, { dev }).architect;
   const intent = page
     ? `${text}\n\n(Page the user shared: ${page.title ?? ""} — ${page.url ?? ""})`
     : String(text ?? "");

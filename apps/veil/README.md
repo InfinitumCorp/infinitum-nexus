@@ -71,12 +71,14 @@ node scripts/make-icons.js
 
 ## Configuration (chrome.storage.local)
 
-`origins` overrides where each product runs. Plain HTTP is limited to localhost. `torPort` is `9050` or `9150` (or another local port).
+`cid` and `mail` accept a stored http(s) origin. `torPort` is `9050` or `9150` (or another local port).
+
+Production packages pin `veil`, `architect`, and `scalvs`. A stored value for those keys is ignored. `VEIL_DEV=1 node scripts/package.js` is the dev build: those three keys then accept `http` or `https` on `localhost` or `127.0.0.1` only.
 
 | Key in `origins` | Default | Product |
 | --- | --- | --- |
 | `cid` | `http://localhost:3000` | Cumulus://ID sign-in and `/api/me` |
-| `veil` | `http://localhost:3000` | Optional bridge list on that CID host |
+| `veil` | `https://infinitumveil.app` | VEIL browser control plane. Hosted on Cloudflare. |
 | `mail` | `http://localhost:3010` | Cumulus://Mail |
 | `architect` | `https://cndctr.app` | :\ARCHITECT\ (CNDCTR) endpoint for Ask. Hosted on Cloudflare. |
 | `scalvs` | `https://scalvs.app` | SCALVS.ai. Hosted on Cloudflare. |

@@ -25,6 +25,11 @@ test("the unpacked manifest is the Chrome build and Firefox gets its own proxy p
   assert.equal(firefox.background.service_worker, "background.js");
   assert.match(firefox.description, /not a device-wide VPN/);
   assert.match(firefox.description, /Infinitum Corporation®/);
+  const csp = "script-src 'self'; object-src 'self'; worker-src 'self'";
+  assert.equal(firefox.content_security_policy.extension_pages, csp);
+  assert.equal(chromeManifest(version).content_security_policy.extension_pages, csp);
+  assert.deepEqual(chromeManifest(version).host_permissions, ["https://*/*", "http://*/*"]);
+  assert.equal(chromeManifest(version).optional_host_permissions, undefined);
 });
 
 test("packaging writes Chrome and Firefox zips without the control server or tests", () => {
@@ -46,6 +51,16 @@ test("packaging writes Chrome and Firefox zips without the control server or tes
     const chromeManifestText = spawnSync("unzip", ["-p", join(out, "veil-chrome.zip"), "manifest.json"], { encoding: "utf8" }).stdout;
     assert.match(chromeManifestText, /webRequestAuthProvider/);
     assert.doesNotMatch(chromeManifestText, /webRequestBlocking/);
+    const buildFlag = spawnSync("unzip", ["-p", join(out, "veil-chrome.zip"), "lib/build.js"], { encoding: "utf8" }).stdout;
+    assert.match(buildFlag, /VEIL_DEV = false/);
+    const devOut = mkdtempSync(join(tmpdir(), "veil-dev-"));
+    try {
+      packageExtension(fileURLToPath(new URL("../", import.meta.url)), devOut, { dev: true });
+      const devFlag = spawnSync("unzip", ["-p", join(devOut, "veil-chrome.zip"), "lib/build.js"], { encoding: "utf8" }).stdout;
+      assert.match(devFlag, /VEIL_DEV = true/);
+    } finally {
+      rmSync(devOut, { recursive: true, force: true });
+    }
   } finally {
     rmSync(out, { recursive: true, force: true });
   }

@@ -18,6 +18,9 @@
     "https://*/*",
     "http://*/*"
   ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'; worker-src 'self'"
+  },
   "action": {
     "default_title": "VEIL Tor",
     "default_popup": "popup.html",

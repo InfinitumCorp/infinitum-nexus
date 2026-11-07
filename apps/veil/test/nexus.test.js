@@ -33,6 +33,33 @@ test("only plain http(s) origins are accepted", () => {
   }
 });
 
+test("production pins VEIL, CNDCTR, and SCALVS and ignores stored hosts", () => {
+  const stored = {
+    veil: "https://evil.example",
+    architect: "http://127.0.0.1:3001",
+    scalvs: "https://user:secret@scalvs.app/path",
+    mail: "https://mail.example/",
+  };
+  const o = resolveOrigins(stored);
+  assert.equal(o.veil, "https://infinitumveil.app");
+  assert.equal(o.architect, "https://cndctr.app");
+  assert.equal(o.scalvs, "https://scalvs.app");
+  assert.equal(o.mail, "https://mail.example");
+});
+
+test("dev builds accept only localhost and 127.0.0.1 for pinned products", () => {
+  const o = resolveOrigins({
+    veil: "http://localhost:3000",
+    architect: "https://127.0.0.1:3001",
+    scalvs: "https://evil.example",
+  }, { dev: true });
+  assert.equal(o.veil, "http://localhost:3000");
+  assert.equal(o.architect, "https://127.0.0.1:3001");
+  assert.equal(o.scalvs, "https://scalvs.app");
+  const v6 = resolveOrigins({ architect: "http://[::1]:3001" }, { dev: true });
+  assert.equal(v6.architect, "https://cndctr.app");
+});
+
 test("stored origins override defaults only when valid", () => {
   const o = resolveOrigins({ mail: "https://mail.example/", cid: "javascript:x", evil: "https://e.example" });
   assert.equal(o.mail, "https://mail.example");

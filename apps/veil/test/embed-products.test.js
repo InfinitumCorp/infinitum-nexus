@@ -63,6 +63,7 @@ test("VEIL Ask posts a rehearsal to the CNDCTR server and omits credentials", as
       origin: `http://127.0.0.1:${port}/not-part-of-the-origin`,
       text: "Summarize the launch",
       page: { title: "Pricing", url: "https://example.com/pricing" },
+      dev: true,
       fetchImpl: async (url, init) => {
         calls.push({ url, init });
         return fetch(url, init);
@@ -79,7 +80,16 @@ test("VEIL Ask posts a rehearsal to the CNDCTR server and omits credentials", as
     assert.equal(result.performance.verified, true);
     assert.equal(typeof result.evidenceHash, "string");
     assert.ok(result.evidenceHash.length > 0);
-    await assert.rejects(() => submitAsk({ origin: "javascript:alert(1)", text: "no" }), /http\(s\)/);
+    let pinned = "";
+    await submitAsk({
+      origin: "javascript:alert(1)",
+      text: "no",
+      fetchImpl: async (url) => {
+        pinned = url;
+        return { ok: true, json: async () => ({}) };
+      },
+    });
+    assert.equal(pinned, "https://cndctr.app/api/perform");
   } finally {
     child.kill();
   }

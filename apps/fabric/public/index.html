@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FABRIC++</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <header>
+    <div>
+      <p class="mark">FABRIC++</p>
+      <h1>Encrypted messages</h1>
+    </div>
+    <p id="domain" class="domain"></p>
+  </header>
+  <p id="error" class="error" role="alert" hidden></p>
+  <section id="signed-out">
+    <p>Sign in with your Cumulus ID. Message bodies are sealed before they are stored.</p>
+    <a id="sign-in" class="button" href="/api/auth/login">Sign in with Cumulus ID</a>
+  </section>
+  <section id="app" hidden>
+    <div class="layout">
+      <aside>
+        <form id="start-form">
+          <label for="peer">Start a conversation</label>
+          <div class="row">
+            <input id="peer" name="username" autocomplete="off" maxlength="64" placeholder="username" required>
+            <button id="start" type="submit">Open</button>
+          </div>
+        </form>
+        <ul id="sessions"></ul>
+      </aside>
+      <section class="thread">
+        <div class="thread-head">
+          <h2 id="thread-title">Choose a conversation</h2>
+          <button id="logout" type="button">Sign out</button>
+        </div>
+        <ol id="messages"></ol>
+        <form id="send-form">
+          <label for="text" class="sr">Message</label>
+          <textarea id="text" name="text" rows="3" maxlength="4000" placeholder="Write a message" required></textarea>
+          <button id="send" type="submit">Send</button>
+        </form>
+      </section>
+    </div>
+  </section>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

@@ -1,7 +1,10 @@
 /**
- * FABRIC encrypted messaging scaffold.
- * Production would use X25519 + XChaCha20-Poly1305 or similar.
+ * FABRIC message sealed with AES-256-GCM.
+ * The string key is a shared secret. {@link encrypt} derives the AES key with scrypt.
  */
+import { randomUUID } from "node:crypto";
+import { decryptAead, encryptAead } from "./aead.ts";
+
 export interface FabricMessage {
   id: string;
   from: string;
@@ -10,18 +13,17 @@ export interface FabricMessage {
   createdAt: string;
 }
 
-export function encrypt(plaintext: string, _key: string): string {
-  // Scaffold: base64. Replace with real AEAD.
-  return Buffer.from(plaintext).toString("base64");
+export function encrypt(plaintext: string, key: string): string {
+  return encryptAead(plaintext, key);
 }
 
-export function decrypt(ciphertext: string, _key: string): string {
-  return Buffer.from(ciphertext, "base64").toString("utf8");
+export function decrypt(ciphertext: string, key: string): string {
+  return decryptAead(ciphertext, key);
 }
 
 export function createMessage(from: string, to: string, plaintext: string, key: string): FabricMessage {
   return {
-    id: `fab_${Date.now()}`,
+    id: `fab_${randomUUID()}`,
     from,
     to,
     ciphertext: encrypt(plaintext, key),

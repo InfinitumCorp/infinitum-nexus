@@ -24,7 +24,7 @@ function shared(version) {
     version,
     description: extensionDescription(),
     permissions: ["storage", "tabs", "proxy", "privacy", "browsingData", "alarms", "webRequest"],
-    // https://cndctr.app (CNDCTR, on Cloudflare) is covered by https://*/*.
+    // https://cndctr.app and https://scalvs.app (both on Cloudflare) are covered by https://*/*.
     host_permissions: ["https://*/*", "http://*/*"],
     action: {
       default_title: "VEIL Tor",

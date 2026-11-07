@@ -10,6 +10,7 @@ export const DEFAULT_ORIGINS = Object.freeze({
   cid: "http://localhost:3000",      // +SPCTR server hosts Cumulus://ID sign-in today
   mail: "http://localhost:3010",     // apps/cumulus-mail
   architect: "https://cndctr.app", // CNDCTR public host, on Cloudflare. apps/architect is this service.
+  scalvs: "https://scalvs.app",      // SCALVS.ai public host, on Cloudflare. packages/scalus is this product.
   veil: "http://localhost:3000",     // same CID host, so the existing session cookie is sent
 });
 
@@ -22,7 +23,7 @@ export const APPS = Object.freeze([
   { id: "cid", name: "Cumulus://ID", blurb: "Your account and permissions", origin: "cid" },
   { id: "mail", name: "Cumulus://Mail", blurb: "Free email at you@cumulusmail.cloud", origin: "mail" },
   { id: "cloud", name: "Cumulus://Cloud", blurb: "15 GB of Drive storage and a free cloud tier" },
-  { id: "scalvs", name: "SCALVS.ai", blurb: "Free AI agents beside every page" },
+  { id: "scalvs", name: "SCALVS.ai", blurb: "Free AI agents beside every page", origin: "scalvs" },
   { id: "architect", name: ":\\ARCHITECT\\", blurb: "Turn a page, an email or an idea into finished work", origin: "architect" },
   { id: "metatron", name: "METATRON¹⁰⁰", blurb: "The open-source dashboard for everything you follow" },
   { id: "wallet", name: "FIRM Wallet", blurb: "Hold, send and swap every Infinitum token", panel: "wallet" },

@@ -16,6 +16,12 @@ test("Ask uses the CNDCTR public host by default", () => {
   assert.equal(DEFAULT_ORIGINS.architect, "https://cndctr.app");
 });
 
+test("SCALVS.ai uses the purchased public host by default", () => {
+  assert.equal(DEFAULT_ORIGINS.scalvs, "https://scalvs.app");
+  const by = Object.fromEntries(launcher(resolveOrigins({}), null).map((a) => [a.id, a]));
+  assert.equal(by.scalvs.url, "https://scalvs.app");
+});
+
 test("lists the seven free-tier products from the product page", () => {
   assert.deepEqual(APPS.map((a) => a.id), ["cid", "mail", "cloud", "scalvs", "architect", "metatron", "wallet"]);
 });

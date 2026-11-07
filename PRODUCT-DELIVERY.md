@@ -24,7 +24,7 @@ Maps every product advertised on https://infinitum-corporation.vercel.app/#produ
 |---------|-----------------|--------|----------|------------|
 | **+SPCTR™ (Spectre)** | AI intelligent CRM. | Partial | Full app.ts + METATRON + research ... | Typecheck, tests, deploy. SpectreCollector ready. |
 | **:\ARCHITECT\\** | Intent → Score → perform → verify. | Partial | Score, executor, autonomy | Deploy via Docker/Vercel. ArchitectCollector ready. |
-| **SCALVS.ai** | AI workforce platform. | Scaffolded | Agent + Context Vault + tools + Team + Architect evidence + Firmament vault + NEXT.md | See packages/scalus/NEXT.md. ScalusCollector ready. |
+| **SCALVS.ai** | AI workforce platform. Public host `https://scalvs.app` on Cloudflare. | Scaffolded | Agent + Context Vault + tools + Team + Architect evidence + Firmament vault + NEXT.md | See packages/scalus/NEXT.md. ScalusCollector ready. Recording the hostname does not deploy it. |
 | **METATRON** | Prediction + analytics. | Scaffolded | Default scorer + analytics + Spectre wrapper + forecast projection | MetatronCollector ready. |
 | **HRVST** | Capture → privacy filter → Harvest Packet. | Scaffolded | Packet + privacy filter + licensing + Personal Silo | Production privacy model. HrvstCollector ready. |
 | **ei·det·ic** | Identity-intelligence (authorized use only). | Scaffolded | Service + Spectre integration | Production sources. Restricted. EideticCollector ready. |

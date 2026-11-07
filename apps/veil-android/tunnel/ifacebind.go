@@ -13,6 +13,7 @@ import (
 	"net/netip"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 
 	"golang.zx2c4.com/wireguard/conn"
@@ -53,6 +54,8 @@ type ifaceBind struct {
 	pc        *net.UDPConn
 	protected bool
 	seen      [][]byte
+	tx        atomic.Uint64
+	rx        atomic.Uint64
 }
 
 func (b *ifaceBind) Open(port uint16) ([]conn.ReceiveFunc, uint16, error) {
@@ -110,6 +113,7 @@ func (b *ifaceBind) Open(port uint16) ([]conn.ReceiveFunc, uint16, error) {
 		}
 		sizes[0] = n
 		eps[0] = &ifaceEP{ap: addr.AddrPort()}
+		b.rx.Add(1)
 		return 1, nil
 	}
 	return []conn.ReceiveFunc{fn}, actual, nil
@@ -155,8 +159,13 @@ func (b *ifaceBind) Send(bufs [][]byte, ep conn.Endpoint) error {
 		if _, err := pc.WriteToUDP(buf, net.UDPAddrFromAddrPort(dst.ap)); err != nil {
 			return err
 		}
+		b.tx.Add(1)
 	}
 	return nil
+}
+
+func (b *ifaceBind) counts() (tx, rx uint64) {
+	return b.tx.Load(), b.rx.Load()
 }
 
 func (b *ifaceBind) ParseEndpoint(s string) (conn.Endpoint, error) {

@@ -290,6 +290,39 @@ func (r *Runtime) Dropped() uint64 {
 	return policy.dropped.Load()
 }
 
+// FlowText is fixed counters only: TUN reads, IPv4 kept, drops, UDP tx/rx,
+// whether a handshake time exists, and decrypted packets held. No keys or endpoints.
+func (r *Runtime) FlowText() string {
+	r.mu.Lock()
+	policy := r.policy
+	bind := r.bind
+	held := len(r.inner)
+	dev := r.dev
+	r.mu.Unlock()
+	var tun, v4, drop, tx, rx uint64
+	if policy != nil {
+		v4 = policy.kept.Load()
+		drop = policy.dropped.Load()
+		if fd, ok := policy.inner.(*fdTUN); ok {
+			tun = fd.reads.Load()
+		}
+	}
+	if bind != nil {
+		tx, rx = bind.counts()
+	}
+	hs := 0
+	if dev != nil && r.HandshakeUnix() > 0 {
+		hs = 1
+	}
+	return "tun=" + strconv.FormatUint(tun, 10) +
+		" v4=" + strconv.FormatUint(v4, 10) +
+		" drop=" + strconv.FormatUint(drop, 10) +
+		" tx=" + strconv.FormatUint(tx, 10) +
+		" rx=" + strconv.FormatUint(rx, 10) +
+		" hs=" + strconv.Itoa(hs) +
+		" in=" + strconv.Itoa(held)
+}
+
 // LogText is the redacted error log.
 func (r *Runtime) LogText() string {
 	r.mu.Lock()

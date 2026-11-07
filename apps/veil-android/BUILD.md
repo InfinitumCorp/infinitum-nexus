@@ -48,7 +48,16 @@ Gradle’s debug keystore signs it. That is not a Play upload key.
 
 Agent build of this tree:
 
-The visible wordmark is exactly VEIL</>™ on a white screen. The routing disclosure is the layout paragraph only. `1ba14be` / 0.1.3 returned `failed` after `establish()` because the device listen address `0.0.0.0:port` was rejected as if it were a peer. Native failures now return a fixed `stage:` token. The Java code maps that token and does not copy the exception text. Prior 0.1.2 and 0.1.3 artifacts were not overwritten.
+The visible wordmark is exactly VEIL</>™ on a white screen. The routing disclosure is the layout paragraph only. The in-process test peer uses `127.0.0.1` after the ports are known. `Mobile.flow` is numeric counters only. Prior artifacts were not overwritten.
+
+```
+app:  /opt/cursor/artifacts/veil-0.1.5-arm64-debug.apk
+      3e8ef503956bc0d9dbac70c0c3177287da940a3a82b760135eb0f68ea28cc5ad
+test: /opt/cursor/artifacts/veil-0.1.5-arm64-androidTest.apk
+      84ef1ca32900ee10c142203d4d0a74cb2c5caf1cf167010b0430621a539ca181
+```
+
+Kept 0.1.4:
 
 ```
 app:  /opt/cursor/artifacts/veil-0.1.4-arm64-debug.apk
@@ -68,8 +77,8 @@ test: /opt/cursor/artifacts/veil-0.1.3-arm64-androidTest.apk
 
 ```
 applicationId: app.infinitum.veil
-versionName: 0.1.4-debug
-versionCode: 5
+versionName: 0.1.5-debug
+versionCode: 6
 minSdk: 26
 targetSdk: 35
 abi: arm64-v8a
@@ -94,7 +103,7 @@ VPN consent screen and does not start at launch. The supported service entry is
 4. `connect` with an IPv4 `host:port` only. `infinitumveilvpn.app`, a scheme, or a hostname returns `domain-is-not-an-endpoint` or `bad-endpoint` and does not call `establish()`.
 5. The service adds address `10.77.0.2/32` when the test passes that CIDR, route `0.0.0.0/0`, and route `::/0`. It does not call `addDnsServer`.
 6. `wireguard-go` owns the TUN fd. `protect(fd)` must return true for the UDP socket or `connect` returns `protect-failed` and closes the TUN.
-7. After `establish()`, start the in-process peer with `Mobile.peerStart` using the other keypair. Point the client at `<device-non-loopback-ipv4>:<peerPort>` and the peer at `<same-ip>:<clientListenPort>`.
+7. After `establish()`, start the in-process peer with `Mobile.peerStart` using the other keypair. Point both sides at `127.0.0.1` and the ports just returned. That address is on the phone and is outside the VPN route. Do not use the phone's Wi-Fi address.
 8. Send UDP to `10.77.0.1:9` from an unprotected socket. Those bytes are the inner payload. They must not appear in the clear on the WireGuard UDP socket.
 9. `disconnect` or `onRevoke` closes the TUN. Other traffic is then not blocked. `SUPPORTS_ALWAYS_ON` is false. This is not a kill switch.
 10. IPv6 to `::/0` is captured and discarded, not encapsulated. No resolver is installed, so there is no tunnel DNS and no fallback resolver inside the VPN.
@@ -102,8 +111,8 @@ VPN consent screen and does not start at launch. The supported service entry is
 Install and open, after `adb` is available:
 
 ```sh
-adb install -r veil-0.1.4-arm64-debug.apk
-adb install -r veil-0.1.4-arm64-androidTest.apk
+adb install -r veil-0.1.5-arm64-debug.apk
+adb install -r veil-0.1.5-arm64-androidTest.apk
 adb shell am start -n app.infinitum.veil/.MainActivity
 adb shell am instrument -w app.infinitum.veil.test/androidx.test.runner.AndroidJUnitRunner
 ```
@@ -115,7 +124,7 @@ rejected as a peer. A tunnel starts only when `VeilVpnService.connect` is given
 an IPv4 `host:port`, a local CIDR, and disposable WireGuard keys. The
 instrumented test mints those keys in process (`Mobile.mintKey`), starts an
 in-process peer after `establish()`, then points both sides at the device’s
-own non-loopback IPv4. The inner datagram is UDP to `10.77.0.1:9`. No public
+`127.0.0.1` and the bound ports. The inner datagram is UDP to `10.77.0.1:9`. No public
 server is required. The instrumented test does not call `appops` and does not accept the system
 VPN dialog. If consent is missing it fails before any tunnel work and names
 that precondition. Approve the OS dialog for `app.infinitum.veil`, then rerun.

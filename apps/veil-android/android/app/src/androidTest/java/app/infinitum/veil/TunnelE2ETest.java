@@ -74,7 +74,6 @@ public class TunnelE2ETest {
         assertEquals("down", service.status());
         assertFalse(Mobile.clientUp());
 
-        String deviceIp = underlyingV4();
         String[] client = Mobile.mintKey().split(" ");
         String[] peer = Mobile.mintKey().split(" ");
         byte[] payload = "VEIL-E2E-ROUNDTRIP".getBytes(StandardCharsets.US_ASCII);
@@ -83,11 +82,11 @@ public class TunnelE2ETest {
         assertEquals("code=" + service.code(), "interface-up", up);
         assertFalse(service.dnsInstalled());
         int peerPort = Mobile.peerStart(peer[0], client[1], "127.0.0.1:9", 0, fd -> service.protect((int) fd));
-        Mobile.setClientPeer(deviceIp + ":" + peerPort);
-        Mobile.setInprocessPeer(deviceIp + ":" + service.listenPort());
+        Mobile.setClientPeer("127.0.0.1:" + peerPort);
+        Mobile.setInprocessPeer("127.0.0.1:" + service.listenPort());
 
         sendV4(payload);
-        assertTrue("decrypted payload did not arrive", waitForPayload(payload, 12_000));
+        assertTrue("decrypted payload did not arrive " + Mobile.flow(), waitForPayload(payload, 12_000));
         assertFalse("inner payload was on the UDP socket", Mobile.wireHasPlaintext(payload));
         assertTrue(Mobile.clientHandshakeUnix() > 0L);
         assertEquals("handshake-complete", service.phase());
@@ -101,8 +100,8 @@ public class TunnelE2ETest {
         up = service.connect(config(client[0], wrong[1], "127.0.0.1:9", false, 0, false));
         assertEquals("code=" + service.code(), "interface-up", up);
         peerPort = Mobile.peerStart(peer[0], client[1], "127.0.0.1:9", 0, fd -> service.protect((int) fd));
-        Mobile.setClientPeer(deviceIp + ":" + peerPort);
-        Mobile.setInprocessPeer(deviceIp + ":" + service.listenPort());
+        Mobile.setClientPeer("127.0.0.1:" + peerPort);
+        Mobile.setInprocessPeer("127.0.0.1:" + service.listenPort());
         sendV4(payload);
         Thread.sleep(1500);
         assertFalse(Mobile.peerHas(payload));
@@ -118,7 +117,7 @@ public class TunnelE2ETest {
         up = service.connect(config(client[0], peer[1], "127.0.0.1:9", true, 1500, false));
         assertEquals("code=" + service.code(), "interface-up", up);
         peerPort = Mobile.peerStart(peer[0], client[1], "127.0.0.1:9", 0, fd -> service.protect((int) fd));
-        Mobile.setClientPeer(deviceIp + ":" + peerPort);
+        Mobile.setClientPeer("127.0.0.1:" + peerPort);
         service.onRevoke();
         assertEquals("down", service.status());
         assertFalse(Mobile.clientUp());
@@ -127,11 +126,11 @@ public class TunnelE2ETest {
         up = service.connect(config(client[0], peer[1], "127.0.0.1:9", false, 0, false));
         assertEquals("code=" + service.code(), "interface-up", up);
         peerPort = Mobile.peerStart(peer[0], client[1], "127.0.0.1:9", 0, fd -> service.protect((int) fd));
-        Mobile.setClientPeer(deviceIp + ":" + peerPort);
-        Mobile.setInprocessPeer(deviceIp + ":" + service.listenPort());
+        Mobile.setClientPeer("127.0.0.1:" + peerPort);
+        Mobile.setInprocessPeer("127.0.0.1:" + service.listenPort());
         byte[] again = "VEIL-E2E-RESTART".getBytes(StandardCharsets.US_ASCII);
         sendV4(again);
-        assertTrue(waitForPayload(again, 12_000));
+        assertTrue("restart payload did not arrive " + Mobile.flow(), waitForPayload(again, 12_000));
         service.disconnect();
 
         long dropped = Mobile.dropped();

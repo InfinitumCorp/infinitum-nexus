@@ -32,13 +32,6 @@ public final class DebugHooks {
     }
 
     private static void run(MainActivity activity) {
-        String ip;
-        try {
-            ip = deviceIpv4();
-        } catch (Exception ex) {
-            activity.showCode("no-device-ipv4");
-            return;
-        }
         String client;
         String peer;
         try {
@@ -59,8 +52,8 @@ public final class DebugHooks {
             }
             try {
                 int peerPort = Mobile.peerStart(peerParts[0], clientParts[1], "127.0.0.1:9", 0, fd -> svc.protect((int) fd));
-                Mobile.setClientPeer(ip + ":" + peerPort);
-                Mobile.setInprocessPeer(ip + ":" + svc.listenPort());
+                Mobile.setClientPeer("127.0.0.1:" + peerPort);
+                Mobile.setInprocessPeer("127.0.0.1:" + svc.listenPort());
                 byte[] payload = "VEIL-LOCAL-TEST".getBytes(StandardCharsets.US_ASCII);
                 DatagramSocket socket = new DatagramSocket();
                 socket.send(new DatagramPacket(payload, payload.length, InetAddress.getByName("10.77.0.1"), 9));

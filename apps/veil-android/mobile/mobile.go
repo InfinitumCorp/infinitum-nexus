@@ -192,6 +192,24 @@ func WireHasPlaintext(payload []byte) bool {
 	return rt.ContainsPlaintext(payload)
 }
 
+// Flow returns numeric tunnel counters for the client and the in-process peer.
+// The text is labels and integers only.
+func Flow() string {
+	mu.Lock()
+	c := client
+	p := peer
+	mu.Unlock()
+	cs := "down"
+	if c != nil {
+		cs = c.FlowText()
+	}
+	ps := "down"
+	if p != nil {
+		ps = p.FlowText()
+	}
+	return "c." + cs + " p." + ps
+}
+
 // Dropped is the number of non-IPv4 packets the device tunnel discarded.
 func Dropped() int64 {
 	mu.Lock()

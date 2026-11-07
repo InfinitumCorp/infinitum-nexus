@@ -5,10 +5,12 @@
 package tunnel
 
 import (
+	"encoding/binary"
 	"errors"
 	"io"
 	"os"
 	"sync"
+	"sync/atomic"
 	"syscall"
 
 	"golang.zx2c4.com/wireguard/tun"
@@ -19,6 +21,8 @@ type fdTUN struct {
 	mtu    int
 	events chan tun.Event
 	once   sync.Once
+	reads  atomic.Uint64
+	pi     atomic.Uint32
 }
 
 // NewFDTUN wraps a duplicated TUN descriptor. Closing the device closes this copy.
@@ -42,7 +46,14 @@ func (t *fdTUN) Read(bufs [][]byte, sizes []int, offset int) (int, error) {
 	for {
 		n, err := t.file.Read(bufs[0][offset:])
 		if n > 0 {
+			body, sawPI := consumePI(bufs[0][offset : offset+n])
+			if sawPI {
+				copy(bufs[0][offset:], body)
+				n = len(body)
+				t.pi.Store(1)
+			}
 			sizes[0] = n
+			t.reads.Add(1)
 			return 1, nil
 		}
 		if err == nil {
@@ -63,7 +74,18 @@ func (t *fdTUN) Write(bufs [][]byte, offset int) (int, error) {
 		if offset > len(buf) {
 			return i, io.ErrShortBuffer
 		}
-		if _, err := t.file.Write(buf[offset:]); err != nil {
+		pkt := buf[offset:]
+		if t.pi.Load() == 1 {
+			frame := make([]byte, 4+len(pkt))
+			if len(pkt) > 0 && pkt[0]>>4 == 6 {
+				frame[2], frame[3] = 0x86, 0xdd
+			} else {
+				frame[2], frame[3] = 0x08, 0x00
+			}
+			copy(frame[4:], pkt)
+			pkt = frame
+		}
+		if _, err := t.file.Write(pkt); err != nil {
 			return i, err
 		}
 	}
@@ -87,3 +109,23 @@ func (t *fdTUN) Close() error {
 }
 
 var _ tun.Device = (*fdTUN)(nil)
+
+// consumePI removes a 4-byte tun_pi prefix when the following bytes are IP.
+// A packet that already starts with IPv4 or IPv6 is returned unchanged.
+func consumePI(pkt []byte) ([]byte, bool) {
+	if len(pkt) >= 20 && (pkt[0]>>4 == 4 || pkt[0]>>4 == 6) {
+		return pkt, false
+	}
+	if len(pkt) <= 4 || pkt[0] != 0 || pkt[1] != 0 {
+		return pkt, false
+	}
+	rest := pkt[4:]
+	proto := binary.BigEndian.Uint16(pkt[2:4])
+	if len(rest) >= 20 && rest[0]>>4 == 4 && proto == 0x0800 {
+		return rest, true
+	}
+	if len(rest) >= 40 && rest[0]>>4 == 6 && proto == 0x86dd {
+		return rest, true
+	}
+	return pkt, false
+}

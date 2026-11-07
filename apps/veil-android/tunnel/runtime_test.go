@@ -137,6 +137,22 @@ func TestUnspecifiedListenAddressKeepsPort(t *testing.T) {
 	}
 }
 
+func TestConsumePILeavesRawIPv4(t *testing.T) {
+	raw := make([]byte, 20)
+	raw[0] = 0x45
+	body, pi := consumePI(raw)
+	if pi || len(body) != len(raw) || body[0] != 0x45 {
+		t.Fatalf("raw ipv4 changed pi=%v len=%d", pi, len(body))
+	}
+	prefixed := make([]byte, 24)
+	prefixed[2] = 0x08
+	prefixed[4] = 0x45
+	body, pi = consumePI(prefixed)
+	if !pi || body[0] != 0x45 || len(body) != 20 {
+		t.Fatalf("pi not removed pi=%v len=%d", pi, len(body))
+	}
+}
+
 func TestStageConfigDropsKeyMaterial(t *testing.T) {
 	priv, pub, err := generateKey()
 	if err != nil {

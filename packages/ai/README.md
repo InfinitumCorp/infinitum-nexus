@@ -49,3 +49,10 @@ const reply = await ai.chat({ system, messages, tools }); // tool calling for ag
 ```
 
 For tests, import from `@infinitum/ai/testing`: `scriptedRouter`, `queuedRouter`, `textReply` and `toolReply` script the replies without any network.
+
+## Free setup
+
+Nothing here needs a paid plan.
+
+- **Local:** OmniRoute routes to Ollama on the same machine. The `infinitum-open` combo lists the local models (qwen3:8b, gpt-oss:20b). Set `OMNIROUTE_BASE_URL=http://localhost:20128/v1` and `OMNIROUTE_SMART_MODEL=infinitum-open`. A local gateway needs no key.
+- **Deployed on Cloudflare Workers:** declare the AI binding (`"ai": { "binding": "AI" }`) and add `workersAiProvider(env.AI)` to the router's providers. It runs Workers AI open models inside Cloudflare's free daily allowance with no token. When the allowance runs out, the router cools the host down and moves to the next one.

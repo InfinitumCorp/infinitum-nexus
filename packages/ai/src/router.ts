@@ -30,6 +30,8 @@ export interface Provider {
    */
   tierModels?: Partial<Record<Tier, string>>;
   headers?: Record<string, string>;
+  /** Transport for this host only (e.g. the Workers AI binding); defaults to the router's fetch. */
+  fetch?: typeof fetch;
 }
 
 export interface ToolCall {
@@ -243,7 +245,7 @@ export function createRouter(opts: RouterOptions): AiRouter {
     }
     let res: Response;
     try {
-      res = await fetchImpl(`${c.provider.baseUrl.replace(/\/+$/, "")}/chat/completions`, {
+      res = await (c.provider.fetch ?? fetchImpl)(`${c.provider.baseUrl.replace(/\/+$/, "")}/chat/completions`, {
         method: "POST",
         headers: {
           "content-type": "application/json",

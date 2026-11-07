@@ -8,12 +8,8 @@ import android.content.ServiceConnection;
 import android.net.VpnService;
 import android.os.Bundle;
 import android.os.IBinder;
-import android.text.InputType;
-import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
-import android.widget.LinearLayout;
-import android.widget.ScrollView;
 import android.widget.TextView;
 
 /**
@@ -23,11 +19,6 @@ import android.widget.TextView;
  */
 public final class MainActivity extends Activity {
     private static final int CONSENT = 1;
-    private static final String LIMITS =
-            "Full-device IPv4 route 0.0.0.0/0. IPv6 route ::/0 is captured and dropped, not tunneled. "
-                    + "No DNS server is installed. No kill switch: when the tunnel is down, other traffic is not blocked. "
-                    + "Product name infinitumveilvpn.app is not a server.";
-
     private TextView statusView;
     private EditText endpointView;
     private EditText publicView;
@@ -50,55 +41,22 @@ public final class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        LinearLayout column = new LinearLayout(this);
-        column.setOrientation(LinearLayout.VERTICAL);
-        int pad = 48;
-        column.setPadding(pad, pad, pad, pad);
-
-        TextView title = new TextView(this);
-        title.setText("VEIL");
-        column.addView(title);
-
-        TextView limits = new TextView(this);
-        limits.setText(LIMITS);
-        column.addView(limits);
-
-        statusView = new TextView(this);
+        setContentView(R.layout.activity_main);
+        statusView = findViewById(R.id.status);
+        endpointView = findViewById(R.id.endpoint);
+        publicView = findViewById(R.id.peer_public);
+        privateView = findViewById(R.id.private_key);
         statusView.setText(describe("down"));
-        column.addView(statusView);
-
-        TextView operator = new TextView(this);
-        operator.setText("Operator-provided peer. This is not a local test and not a built-in server.");
-        column.addView(operator);
-
-        endpointView = field("IPv4:port", InputType.TYPE_CLASS_TEXT);
-        publicView = field("Peer public key, 64 hex characters", InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD);
-        privateView = field("Private key, 64 hex characters, not saved", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
-        privateView.setSaveEnabled(false);
-        column.addView(endpointView);
-        column.addView(publicView);
-        column.addView(privateView);
-
-        Button connect = new Button(this);
-        connect.setText("Connect");
+        Button connect = findViewById(R.id.connect);
         connect.setOnClickListener(v -> requestConsent(this::connectOperator));
-        column.addView(connect);
-
-        Button disconnect = new Button(this);
-        disconnect.setText("Disconnect");
+        Button disconnect = findViewById(R.id.disconnect);
         disconnect.setOnClickListener(v -> {
             if (service != null) {
                 service.disconnect();
             }
             showPhase();
         });
-        column.addView(disconnect);
-
-        DebugHooks.attach(this, column);
-
-        ScrollView scroll = new ScrollView(this);
-        scroll.addView(column);
-        setContentView(scroll);
+        DebugHooks.attach(this, findViewById(R.id.debug_slot));
     }
 
     @Override
@@ -180,15 +138,7 @@ public final class MainActivity extends Activity {
         return view.getText() == null ? "" : view.getText().toString().trim();
     }
 
-    private EditText field(String hint, int inputType) {
-        EditText view = new EditText(this);
-        view.setHint(hint);
-        view.setInputType(inputType);
-        view.setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_NO);
-        return view;
-    }
-
-    static String describe(String code) {
+    String describe(String code) {
         String detail;
         if ("down".equals(code)) {
             detail = "Down. The tunnel is off. Other traffic is not blocked.";
@@ -215,6 +165,6 @@ public final class MainActivity extends Activity {
         } else {
             detail = "The tunnel did not stay up (" + code + ").";
         }
-        return detail + "\n\n" + LIMITS;
+        return detail + "\n\n" + getString(R.string.limits);
     }
 }

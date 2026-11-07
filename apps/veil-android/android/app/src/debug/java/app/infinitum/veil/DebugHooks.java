@@ -21,10 +21,12 @@ public final class DebugHooks {
 
     public static void attach(MainActivity activity, LinearLayout column) {
         TextView label = new TextView(activity);
+        label.setTextColor(0xFF1A1A1A);
         label.setText("Local test peer. Debug build only. Disposable keys stay in memory and are not an operator server.");
         column.addView(label);
         Button button = new Button(activity);
         button.setText("Start local test peer");
+        button.setContentDescription("Start local test peer");
         button.setOnClickListener(v -> activity.requestConsent(() -> run(activity)));
         column.addView(button);
     }

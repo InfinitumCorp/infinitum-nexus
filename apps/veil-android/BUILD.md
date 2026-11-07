@@ -48,17 +48,19 @@ Gradle’s debug keystore signs it. That is not a Play upload key.
 
 Agent build of this tree:
 
+The visible wordmark is exactly VEIL</>™ on a white screen. Prior 0.1.2 artifacts were not overwritten.
+
 ```
-app:  /opt/cursor/artifacts/veil-arm64-v8a-debug.apk
-      5a3d41f1c7d287482bdf2808c7e4acc0b32268d751d5e2c71e33cdc782f28569
-test: /opt/cursor/artifacts/veil-arm64-v8a-debug-androidTest.apk
+app:  /opt/cursor/artifacts/veil-0.1.3-arm64-debug.apk
+      571d6531860512b288bf5f05f236f8bb6b440b915646df5ba224efe066bb5c18
+test: /opt/cursor/artifacts/veil-0.1.3-arm64-androidTest.apk
       77ca897d1b89e8ee2d56a5672b4c40632bcdc9f5b72885e3be2e5a0c5f05fae5
 ```
 
 ```
 applicationId: app.infinitum.veil
-versionName: 0.1.2-debug
-versionCode: 3
+versionName: 0.1.3-debug
+versionCode: 4
 minSdk: 26
 targetSdk: 35
 abi: arm64-v8a

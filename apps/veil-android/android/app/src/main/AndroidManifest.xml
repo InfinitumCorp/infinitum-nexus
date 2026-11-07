@@ -8,9 +8,9 @@
 
     <application
         android:allowBackup="false"
-        android:label="VEIL"
+        android:label="@string/wordmark"
         android:supportsRtl="true"
-        android:theme="@android:style/Theme.DeviceDefault">
+        android:theme="@style/VeilTheme">
 
         <activity
             android:name=".MainActivity"

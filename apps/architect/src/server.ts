@@ -4,6 +4,7 @@ import { serveNodeLabyrinthProxy } from "@infinitum/lbrnth";
  * Records evidence on Firmament.
  */
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { pathToFileURL } from "node:url";
 import { Ledger, MemoryStore } from "@infinitum/firmament";
 import { perform } from "./executor.ts";
 import { recordEvidence } from "./firmament.ts";
@@ -84,6 +85,22 @@ const server = createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, () => {
-  log("info", `:\\ARCHITECT\\ listening on http://localhost:${PORT}`, { publicOrigin: config.publicOrigin });
-});
+export function listen(port = PORT) {
+  return new Promise<number>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(port, () => {
+      const address = server.address();
+      const bound = address && typeof address === "object" ? address.port : port;
+      log("info", `:\\ARCHITECT\\ listening on http://localhost:${bound}`, { publicOrigin: config.publicOrigin, port: bound });
+      resolve(bound);
+    });
+  });
+}
+
+const invoked = process.argv[1] ? pathToFileURL(process.argv[1]).href : "";
+if (import.meta.url === invoked) {
+  listen().catch((err) => {
+    log("error", "listen failed", { error: String(err?.message ?? err) });
+    process.exit(1);
+  });
+}

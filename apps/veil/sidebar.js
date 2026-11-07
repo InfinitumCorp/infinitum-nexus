@@ -4,6 +4,7 @@
  */
 import { ANONYMOUS, AUTHENTICATED, LABELS, can } from "./lib/workspace.js";
 import { formatVeil, POLICY } from "./lib/rewards.js";
+import { submitAsk } from "./lib/ask.js";
 
 const $ = (id) => document.getElementById(id);
 const statusEl = $("status");
@@ -142,20 +143,13 @@ $("ask-btn").onclick = async () => {
   if (!can(state.workspace, "ai")) return;
   const text = $("q").value.trim();
   if (!text) return;
-  let intent = text;
-  if ($("include-page").checked) {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (tab) intent = `${text}\n\n(Page the user shared: ${tab.title ?? ""} — ${tab.url ?? ""})`;
-  }
   say("Thinking…");
   try {
-    const r = await fetch(`${state.origins.architect}/api/perform`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ intent, autonomy: "rehearsal" }),
-    });
-    if (!r.ok) throw new Error(`Architect answered ${r.status}`);
-    $("out").textContent = JSON.stringify(await r.json(), null, 2);
+    const page = $("include-page").checked
+      ? await chrome.tabs.query({ active: true, currentWindow: true }).then(([tab]) => tab ? { title: tab.title, url: tab.url } : null)
+      : null;
+    const result = await submitAsk({ origin: state.origins.architect, text, page });
+    $("out").textContent = JSON.stringify(result, null, 2);
     say("Ready");
   } catch (err) {
     $("out").textContent = `Architect unreachable at ${state.origins.architect}.\n${err.message}`;

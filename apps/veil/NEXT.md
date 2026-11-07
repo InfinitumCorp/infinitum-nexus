@@ -41,7 +41,7 @@
 - New Tor circuit control (needs the Tor control port; extension cannot reach it)
 - Chain decision: the product page says $VEIL is on Solana; packages/firm targets Base
 - Per-app permissions dashboard (needs grant/revoke HTTP routes on the CID server; `packages/cid` has `grant`/`revoke`)
-- Clients for Cumulus://Cloud, SCALVS.ai and METATRON¹⁰⁰, then add their origins to `lib/nexus.js`
+- Clients for Cumulus://Cloud and METATRON¹⁰⁰. SCALVS.ai opens `https://scalvs.app`; the extension does not run `packages/scalus`. Ask calls CNDCTR at `origins.architect` and stays in rehearsal.
 - A shared CID session across products (today Mail and +SPCTR each keep their own cookie)
 - Device-wide VPN, OS DNS, and non-browser traffic are out of scope
 - Tor Browser fingerprinting resistance (fonts, screen, APIs) is out of scope for a regular-browser extension

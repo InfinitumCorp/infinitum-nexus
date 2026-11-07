@@ -138,6 +138,10 @@ export class Labyrinth {
   repositories(cid: string, orgId: string) {
     return this.#run(cid, orgId, "repo:read", "repositories.read", org => org.repositories.map(r => this.#summary(r)));
   }
+  /** Point-in-time aggregate before this read's own audit entry; no contents, paths or CID data. */
+  usage(cid:string,orgId:string) {
+    return this.#run(cid,orgId,"repo:read","usage.read",org=>({snapshotBytes:Buffer.byteLength(JSON.stringify(org)),orgLimitBytes:this.#limits.orgBytes,repositories:org.repositories.length,commits:org.repositories.reduce((n,r)=>n+r.commits.length,0),auditEntries:org.audit.length}));
+  }
   #preflightCommit(input: CommitInput): void {
     // Called after authorization, before snapshot cloning or allocating content buffers.
     if (!input || typeof input !== "object" || !input.changes || typeof input.changes !== "object" || Array.isArray(input.changes)) fail("invalid", "Commit changes must be a path map");

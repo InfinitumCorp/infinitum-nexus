@@ -1,3 +1,5 @@
+import type {CidLabyrinth} from "@infinitum/lbrnth";
+import type {ConjureService} from "@infinitum/conjure-backend";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { AddressInfo } from "node:net";
@@ -15,7 +17,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const ORIGIN = "http://localhost";
 
 /** Shared harness for the growth-feature HTTP tests. */
-export async function harness(opts: { providers?: Providers; cronSecret?: string; twilioAuthToken?: string; labyrinth?: CumulusConfig["labyrinth"] } = {}) {
+export async function harness(opts: { providers?: Providers; cronSecret?: string; twilioAuthToken?: string; labyrinth?: CumulusConfig["labyrinth"]; conjure?:(auth:CidLabyrinth)=>ConjureService } = {}) {
   const signer = generateSigner();
   const ledger = new Ledger(undefined, { authorizedSigners: [signer.publicKey] });
   const suite = createCumulus({ ledger, signer, rpId: "localhost", origins: [ORIGIN], labyrinth: opts.labyrinth });
@@ -28,6 +30,7 @@ export async function harness(opts: { providers?: Providers; cronSecret?: string
     cid, suite, crm, ai: { model: "m" }, publicDir: join(here, "../../public"), secureCookies: false, origin: ORIGIN,
     emit: (ws, e) => emitImpl(ws, e),
     ...opts,
+    predictionService:opts.conjure&&suite.labyrinth?opts.conjure(suite.labyrinth):undefined,
   });
   const server: Server = app.server();
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));

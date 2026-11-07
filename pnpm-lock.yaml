@@ -107,6 +107,9 @@ importers:
       '@infinitum/conjure':
         specifier: workspace:*
         version: link:../../packages/conjure
+      '@infinitum/conjure-backend':
+        specifier: workspace:*
+        version: link:../../packages/conjure-backend
       '@infinitum/cumulus':
         specifier: workspace:*
         version: link:../../packages/cumulus
@@ -224,6 +227,37 @@ importers:
         specifier: workspace:*
         version: link:../scalus
     devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.20.5
+      typescript:
+        specifier: ^5.9.0
+        version: 5.9.3
+
+  packages/conjure-backend:
+    dependencies:
+      '@infinitum/conjure':
+        specifier: workspace:*
+        version: link:../conjure
+      '@infinitum/lbrnth':
+        specifier: workspace:*
+        version: link:../lbrnth
+      '@infinitum/lbrnth-client':
+        specifier: workspace:*
+        version: link:../lbrnth-client
+    devDependencies:
+      '@infinitum/cid':
+        specifier: workspace:*
+        version: link:../cid
+      '@infinitum/event-ingest':
+        specifier: workspace:*
+        version: link:../event-ingest
+      '@infinitum/firmament':
+        specifier: workspace:*
+        version: link:../firmament
+      '@infinitum/orbital':
+        specifier: workspace:*
+        version: link:../orbital
       '@types/node':
         specifier: ^22.0.0
         version: 22.20.5

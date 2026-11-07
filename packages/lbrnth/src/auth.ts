@@ -37,6 +37,8 @@ export class CidLabyrinth {
     if (!org || (delegated && org.id !== delegated.orgId)) throw new LabyrinthError("forbidden", "Client organization membership required");
     return { cid: actor, org, parentSession: auth?.session.id ?? delegated!.parentSession, delegated: !auth };
   }
+  /** Trusted server-side identity context only; does not grant any product/paid-plan authority. */
+  verifiedOrganization(token:string):string {return this.#identity(token).org.id;}
   /** Exchange an authenticated browser CID cookie for a short-lived, repository-only bearer.
    * This credential is NOT a CID login token and cannot authenticate to other CID products. */
   issueToken(token: string): { token: string; expiresAt: string } {
@@ -77,6 +79,7 @@ export class CidLabyrinth {
       return fn(cid, org.id);
     };
     return {
+      usage: () => call((cid,org) => this.#lab.usage(cid,org)),
       repositories: () => call((cid, org) => this.#lab.repositories(cid, org)),
       createRepository: (name: string) => call((cid, org) => this.#lab.createRepository(cid, org, name)),
       commit: (repo: string, input: CommitInput) => call((cid, org) => this.#lab.commit(cid, org, repo, input)),
@@ -106,6 +109,7 @@ export class CidLabyrinth {
     };
     return {
       product: id,
+      usage: session.usage,
       repositories: session.repositories, createRepository: session.createRepository,
       save: (repo: string, path: string, content: string | Uint8Array, expectedHead: string | null, message = `Save ${id} artifact`, branch = "main") => session.commit(repo, { branch, expectedHead, message, changes: { [pathFor(path)]: content } }),
       load: (repo: string, commit: string, path: string) => session.readFile(repo, commit, pathFor(path)),

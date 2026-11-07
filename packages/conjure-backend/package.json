@@ -1,0 +1,31 @@
+{
+  "name": "@infinitum/conjure-backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "CID-authorized product evidence and CONJURE job persistence; not a new predictive model.",
+  "exports": {
+    ".": "./src/index.ts",
+    "./client": "./src/client.ts"
+  },
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "test": "node --test --experimental-strip-types src/*.test.ts",
+    "typecheck": "tsc -p . --noEmit"
+  },
+  "dependencies": {
+    "@infinitum/conjure": "workspace:*",
+    "@infinitum/lbrnth": "workspace:*",
+    "@infinitum/lbrnth-client": "workspace:*"
+  },
+  "devDependencies": {
+    "@infinitum/cid": "workspace:*",
+    "@infinitum/event-ingest": "workspace:*",
+    "@infinitum/firmament": "workspace:*",
+    "@infinitum/orbital": "workspace:*",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.9.0"
+  }
+}

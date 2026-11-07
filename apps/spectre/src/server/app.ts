@@ -1,3 +1,5 @@
+import {serveNodeConjureBackend} from "@infinitum/conjure-backend";
+import type {ConjureService} from "@infinitum/conjure-backend";
 import { serveNodeOrbitalBackend } from "@infinitum/orbital";
 import { serveNodeDroneBackend } from "@infinitum/drone-backend";
 import { serveNodeLabyrinth } from "@infinitum/lbrnth";
@@ -42,6 +44,8 @@ export interface AppDeps {
   cid: CidService;
   /** The Cumulus account suite (Mail, Cloud, FIRM Wallet) behind `cid`, when wired in. */
   suite?: CumulusSuite;
+  /** Explicit CONJURE private-engine integration; absent means /api/predict fails 503. */
+  predictionService?: ConjureService;
   crm: SpectreCRM;
   ai: AiConfig;
   publicDir: string;
@@ -1068,6 +1072,7 @@ export function createApp(deps: AppDeps) {
     res.setHeader("Content-Security-Policy", `default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors ${embeddable ? "*" : "'none'"}`);
     try {
       if (url.pathname === "/api/labyrinth") return await serveNodeLabyrinth(req, res, deps.suite?.labyrinth, parseCookies(req.headers.cookie)[COOKIE], deps.onChange);
+      if (url.pathname.startsWith("/api/predict/")) return await serveNodeConjureBackend(req, res, deps.predictionService, deps.origin);
       if (url.pathname.startsWith("/api/orbital/")) return await serveNodeOrbitalBackend(req, res, deps.suite?.labyrinth, deps.origin);
       if (url.pathname.startsWith("/api/drones/")) return await serveNodeDroneBackend(req, res, deps.suite?.labyrinth, deps.origin);
       if (!url.pathname.startsWith("/api/")) {

@@ -1,3 +1,4 @@
+import {conjureFromEnvironment} from "@infinitum/conjure-backend";
 import { labyrinthFromEnvironment } from "@infinitum/lbrnth";
 import { existsSync, readFileSync, writeFileSync, mkdirSync, chmodSync } from "node:fs";
 import { join, dirname } from "node:path";
@@ -80,6 +81,7 @@ const ai = aiConfigFromEnv();
 const app = createApp({
   cid,
   suite,
+  predictionService: conjureFromEnvironment(suite.labyrinth, process.env),
   crm,
   ai,
   publicDir: join(here, "../../public"),

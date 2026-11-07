@@ -4,7 +4,8 @@
   "description": "Conjure\u2122: swarm prediction built into every Infinitum product. A swarm of AI agents plays out a question so you can read the likely outcome.",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./forecaster": "./src/forecaster.ts"
   },
   "private": true,
   "engines": {

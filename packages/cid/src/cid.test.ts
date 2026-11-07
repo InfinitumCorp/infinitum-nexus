@@ -343,3 +343,17 @@ describe("CID organizations and SSO", () => {
     assert.equal(cid.authenticate(s.token), null);
   });
 });
+
+it("registers LBRNTH with explicit scopes, no free access, and live revocation", async () => {
+  const { cid } = setup();
+  const account = await cid.createAccount({ username: "labyrinth-client" });
+  assert.equal(cid.can(account.cid, "LBRNTH", "repo:read"), false);
+  await cid.grant(account.cid, "LBRNTH", ["repo:read", "repo:write", "repo:admin"]);
+  assert.equal(cid.can(account.cid, "LBRNTH", "repo:read"), true);
+  assert.equal(cid.can(account.cid, "LBRNTH", "repo:write"), true);
+  await cid.revoke(account.cid, "LBRNTH", ["repo:write"]);
+  assert.equal(cid.can(account.cid, "LBRNTH", "repo:write"), false);
+  assert.equal(cid.can(account.cid, "LBRNTH", "repo:read"), true);
+  await cid.revoke(account.cid, "LBRNTH");
+  assert.equal(cid.can(account.cid, "LBRNTH", "repo:read"), false);
+});

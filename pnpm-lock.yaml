@@ -112,6 +112,8 @@ importers:
         specifier: ^5.9.0
         version: 5.9.3
 
+  apps/veil: {}
+
   packages/aether:
     devDependencies:
       '@types/node':
@@ -275,6 +277,21 @@ importers:
 
   packages/hrvst:
     devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.20.5
+      typescript:
+        specifier: ^5.9.0
+        version: 5.9.3
+
+  packages/lbrnth:
+    devDependencies:
+      '@infinitum/cid':
+        specifier: workspace:*
+        version: link:../cid
+      '@infinitum/firmament':
+        specifier: workspace:*
+        version: link:../firmament
       '@types/node':
         specifier: ^22.0.0
         version: 22.20.5

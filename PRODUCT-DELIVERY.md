@@ -79,3 +79,7 @@ See **DEPLOY.md**, **apps/spectre/src/server/RESTORE-APP.md**, **packages/firm/s
 - Data Exchange: opt-in packaging, listing, sale with 85% rev-share, Firmament consent audit, collectors for all software products.  
 - All new code type-checks and has tests.  
 - No product is claimed production-complete until deployed.
+
+## Labyrinth *LBRNTH
+
+Infinitum Corporation® client repository capability: `packages/lbrnth`. Backend SDK with org isolation, roles, versioned code/artifacts, branches/tags, file-level diff, CID consent plus plan gating, hash-chained audit and encrypted single-writer persistence. Not deployed; UI/Git hosting and distributed storage are follow-ons. [Integration contract](packages/lbrnth/README.md).

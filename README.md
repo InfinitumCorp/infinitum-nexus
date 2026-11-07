@@ -1,6 +1,6 @@
 # Infinitum Nexus
 
-Shared foundation for every Infinitum product.
+Shared foundation for every Infinitum product, by Infinitum Corporation®.
 
 | Package | What it is |
 |---|---|
@@ -76,3 +76,7 @@ pnpm typecheck
 ### Conjure™ (swarm forecasting, built into every product)
 
 `packages/conjure` (`@infinitum/conjure`): one engine that every Infinitum product imports; its agents run on the SCALVS.ai agent engine. Give it a question and background material; it maps who's involved, creates AI agents with personas, goals, stances and memory, and lets them react to each other on a shared feed over several rounds. Inject "what if" events between rounds, fork a simulation to compare futures, have the report agent investigate and write a forecast, and interview any agent. Runs one round per request (fits serverless limits), estimates AI calls up front and enforces a budget. In +SPCTR: the Conjure page, and "Simulate with Conjure" on any deal (seeded from that deal's records). Original implementation inspired by swarm-simulation research such as MiroFish/OASIS; no third-party code included.
+
+### Labyrinth *LBRNTH — private client repositories
+
+`packages/lbrnth` (`@infinitum/lbrnth`) gives client organizations private code and artifact repositories inside Infinitum products: org roles, SHA-256 versions, branches/tags, history, file diffs, audit and per-org encrypted persistence. Access requires a client LBRNTH plan entitlement **and** existing CID `can()` scopes. This release is the backend SDK; product UI/HTTP deployment and Git protocol are separate. See [integration/API guide](packages/lbrnth/README.md) and [design](docs/LBRNTH.md).

@@ -25,7 +25,7 @@ import {
 export const INFINITUM_APPS = [
   "veil", "fabric", "throne", "eon", "scalvs", "architect", "spectre", "metatron",
   "cumulus", "cumulus-mail", "firm-wallet", "aether", "argus", "hrvst", "eidetic",
-  "orbis", "pollen", "flower", "nemesis",
+  "orbis", "pollen", "flower", "nemesis", "LBRNTH",
 ] as const;
 export type AppId = (typeof INFINITUM_APPS)[number];
 

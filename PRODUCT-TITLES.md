@@ -25,5 +25,6 @@ These are the product titles as displayed on the website, each with the trademar
 - +SPCTR™ (Spectre)
 - ODIN°™
 - FIRM Wallet™
+- Labyrinth *LBRNTH
 
-All titles use the ™ symbol as shown on the live site.
+Earlier titles use the ™ symbol as shown on the live site. Labyrinth *LBRNTH is the new client repository product by Infinitum Corporation®; product id `LBRNTH`, display name `Labyrinth`.

@@ -2,7 +2,7 @@
 
 - Date: 2026-11-07
 - Status: Draft for review. No implementation until this spec is approved.
-- Scope owner decisions: shared Android/iPhone app, Matrix end-to-end encryption, self-hosted Synapse backend (approved 2026-11-07); monetization built in according to repo notes (2026-11-07).
+- Scope owner decisions: shared Android/iPhone app, Matrix end-to-end encryption, self-hosted Synapse backend (approved 2026-11-07); monetization built in according to repo notes (2026-11-07). Domain: `infinitumfabric.app`, hosted at Cloudflare.
 
 ## 1. Goal
 
@@ -47,6 +47,7 @@ Synapse homeserver + PostgreSQL (self-hosted)
 - Bridge: one local Expo module (`modules/fabric-matrix`) written with the Expo Modules API, wrapping the FFI `Client`, `SyncService`, `RoomListService`, `Timeline`, `Encryption` and `SessionVerificationController`.
 - The JS layer receives only display data (room ids, sender ids, decrypted text for rendering, statuses). Keys, store secrets and access tokens stay native.
 - Location in repo: `apps/fabric-mobile` (app) and `infra/fabric-synapse` (local dev compose). `packages/fabric` is left as is.
+- Public domain: `infinitumfabric.app`, hosted at Cloudflare. Local development stays on localhost.
 - Feasibility risk: the FFI bindings are generated with UniFFI and documented by upstream as unstable between releases. Element X (iOS/Android) is the reference consumer. The bridge must stay thin so upgrades touch one module.
 
 FFI APIs confirmed in `matrix-rust-sdk/bindings/matrix-sdk-ffi` on main (2026-11-07):
@@ -112,7 +113,7 @@ Synapse configuration for release 1:
 - Any non-local environment: TLS required.
 - Server logs at INFO or above; access-log retention period to be decided with hosting.
 
-Hosting and domain are unresolved deployment dependencies (section 11). They do not change the architecture.
+The domain is `infinitumfabric.app`, hosted at Cloudflare (section 11). That does not change the architecture.
 
 ## 8. Block and report
 
@@ -178,7 +179,7 @@ This spec uses those values: 70% contributor share, 14-day hold, Personal free, 
 
 ## 11. Dependencies outside the code
 
-- Hosting and domain for Synapse: undecided. Needed before any device test outside the local network.
+- FABRIC++ domain: `infinitumfabric.app`, hosted at Cloudflare. Local development stays on plain HTTP localhost. A device test outside the local network uses this domain.
 - iOS: a Mac with Xcode is required for iOS builds. This Linux box cannot build or validate iOS.
   - Free Apple ID (personal team): can install a development build on your own device; profiles expire after 7 days; no TestFlight or App Store.
   - Paid Apple Developer Program: needed for TestFlight and App Store distribution.
@@ -197,7 +198,9 @@ This spec uses those values: 70% contributor share, 14-day hold, Personal free, 
 
 ## 13. Owner decisions still open
 
-1. Hosting provider and domain for Synapse and the revenue API.
+The FABRIC++ domain is `infinitumfabric.app`, hosted at Cloudflare. That decision is closed.
+
+1. Hosting for the revenue API.
 2. In-app purchase vs web checkout for Business on iOS and Android.
 3. When to enable live Stripe charges and Connect payouts.
 4. Counsel review of the data revenue programme and tokens before any payout.

@@ -14,7 +14,7 @@
 - Federation off: `federation_domain_whitelist: []` and no `federation` resource on any listener.
 - Postgres, not SQLite. Ports bound to `127.0.0.1` only. Plain HTTP is allowed only on localhost.
 - Unmodified Synapse image (AGPL source-offer duties apply to modified versions; see index, decision 4).
-- Nothing is deployed or exposed publicly.
+- Nothing is deployed or exposed publicly. The public domain, not used by this local plan, is `infinitumfabric.app`, hosted at Cloudflare.
 
 Location: `<app-repo>/server/` where `<app-repo>` is the repo chosen in index decision 1.
 

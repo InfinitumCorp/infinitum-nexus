@@ -34,8 +34,9 @@
     .muted { color: var(--muted); font-size: 0.85rem; }
     .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.8rem; word-break: break-all; }
     pre { white-space: pre-wrap; font-size: 0.8rem; max-height: 14rem; overflow: auto; margin: 0.5rem 0 0; }
-    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 0.4rem; background: var(--bad); }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 0.4rem; background: var(--muted); }
     .dot.on { background: var(--good); }
+    .dot.bad { background: var(--bad); }
     .bar { height: 6px; background: #1c1c1c; border-radius: 3px; overflow: hidden; margin-top: 0.4rem; }
     .bar > div { height: 100%; background: var(--good); width: 0; }
     label.check { display: flex; gap: 0.4rem; align-items: center; margin-top: 0.5rem; }
@@ -81,10 +82,11 @@
       <div class="card">
         <div class="label">Tor</div>
         <div><span class="dot" id="tor-dot"></span><span id="tor-status">Tor proxy off</span></div>
-        <div class="muted" style="margin-top:0.35rem">Routes this browser through a local Tor service on 127.0.0.1:9050 (SOCKS5, DNS over Tor, WebRTC limited to the proxy). Start Tor first, or pages will not load.</div>
+        <div class="muted" style="margin-top:0.35rem">Optional. The toolbar defaults to the VEIL VPN. Tor routes this browser through your local Tor client (SOCKS5, DNS and .onion resolved by Tor). If Tor is unreachable, pages stay blocked. This is not a device-wide VPN, and it does not give Tor Browser fingerprinting protection.</div>
         <div class="row">
           <button class="btn" id="tor-toggle">Turn on Tor</button>
           <button class="btn ghost" id="check-tor">Check connection</button>
+          <button class="btn ghost" id="new-circuit">New circuit</button>
         </div>
       </div>
       <div class="card">
@@ -94,7 +96,7 @@
       </div>
       <div class="card">
         <div class="label">New Identity</div>
-        <div class="muted">Clears cookies, caches and site storage, then closes every tab. History, passwords and downloads stay. For a new Tor circuit, also restart your Tor service.</div>
+        <div class="muted">Clears cookies, caches and site storage, closes every tab, and rotates Tor's SOCKS isolation so the next circuits are new. History, passwords and downloads stay. Tor itself stays on. Your Tor client needs IsolateSOCKSAuth (Tor Browser's port 9150 already has it).</div>
         <div class="row"><button class="btn danger" id="new-identity">New Identity</button></div>
       </div>
     </section>

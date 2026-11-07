@@ -24,7 +24,7 @@ Maps every product advertised on https://infinitum-corporation.vercel.app/#produ
 |---------|-----------------|--------|----------|------------|
 | **+SPCTR™ (Spectre)** | AI intelligent CRM. | Partial | Full app.ts + METATRON + research ... | Typecheck, tests, deploy. SpectreCollector ready. |
 | **:\ARCHITECT\\** | Intent → Score → perform → verify. | Partial | Score, executor, autonomy | Deploy via Docker/Vercel. ArchitectCollector ready. |
-| **SCALVS.ai** | AI workforce platform. | Scaffolded | Agent + Context Vault + tools + Team + Architect evidence + Firmament vault + NEXT.md | See packages/scalus/NEXT.md. ScalusCollector ready. |
+| **SCALVS.ai** | AI workforce platform. Public host `https://scalvs.app` on Cloudflare. | Scaffolded | Agent + Context Vault + tools + Team + Architect evidence + Firmament vault + NEXT.md | See packages/scalus/NEXT.md. ScalusCollector ready. Recording the hostname does not deploy it. |
 | **METATRON** | Prediction + analytics. | Scaffolded | Default scorer + analytics + Spectre wrapper + forecast projection | MetatronCollector ready. |
 | **HRVST** | Capture → privacy filter → Harvest Packet. | Scaffolded | Packet + privacy filter + licensing + Personal Silo | Production privacy model. HrvstCollector ready. |
 | **ei·det·ic** | Identity-intelligence (authorized use only). | Scaffolded | Service + Spectre integration | Production sources. Restricted. EideticCollector ready. |
@@ -38,7 +38,7 @@ Maps every product advertised on https://infinitum-corporation.vercel.app/#produ
 | Product | Notes | Software path |
 |---------|-------|---------------|
 | Cumulus://Cloud | Storage, licensing, agent runtime, data exchange | Partial for exchange (API + collectors) |
-| VEIL</> | Tor-first browser + sidebar | Partial — v0.5.0 anonymous/signed-in workspaces, Cumulus account + unread badge, Nexus app launcher, Tor + WebRTC hardening, New Identity, $VEIL rewards at the published policy with claim receipts, CID sign-in, Architect Ask | See apps/veil/NEXT.md + PACKAGING.md. VeilCollector ready. |
+| VEIL</> | Browser cyber proxy, optional Tor | Partial — v0.8.0 default mode is the CID-entitled VEIL exit (HTTPS/SOCKS5, DNS through the proxy, fail-closed). Optional Tor mode uses a local SOCKS client (9050 / 9150) with circuit isolation, New Identity, a Tor check, and remote DNS including .onion. Not a device-wide VPN and not Tor Browser fingerprinting protection. | See apps/veil/README.md. Tor is not bundled. VeilCollector ready. |
 | FABRIC | Encrypted calls/messaging | Scaffolded — AES-256-GCM AEAD + session. FabricCollector ready. |
 | >_ARGUS | AI sensor fusion & ISR | Core logic — `packages/argus`: multi-sensor fusion with chi-square gating, global-nearest-neighbour association, 2D constant-velocity Kalman filter, tentative/confirmed/coasting/dropped lifecycle and per-track sensor provenance (6 tests). Next: 3D + bearing-only sensors, sign each picture on Firmament, feed ODIN°. Excluded from public Data Exchange. |
 | ÆTHER™ | Distributed communications | Partial — M1 protocol core: signed packets, flooding + store-and-forward, receipts, simulator (100% delivery, 100 nodes, 20% churn). No encryption or device transports yet. AetherCollector ready. | See packages/aether/README.md |

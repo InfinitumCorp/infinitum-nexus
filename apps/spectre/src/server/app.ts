@@ -1,5 +1,7 @@
 import {serveNodeConjureBackend} from "@infinitum/conjure-backend";
 import type {ConjureService} from "@infinitum/conjure-backend";
+import { createVeilControl, serveNodeVeil } from "@infinitum/veil/server";
+import type { VeilServer } from "@infinitum/veil/server";
 import { serveNodeOrbitalBackend } from "@infinitum/orbital";
 import { serveNodeDroneBackend } from "@infinitum/drone-backend";
 import { serveNodeLabyrinth } from "@infinitum/lbrnth";
@@ -69,6 +71,15 @@ export interface AppDeps {
   twilioAuthToken?: string;
   /** Tests: scripted model for Conjure simulations. */
   conjureComplete?: Complete;
+  /**
+   * VEIL exit proxy is the default browser mode and requires this plan.
+   * Bridges are optional Tor client lines. Local Tor mode does not call this.
+   */
+  veil?: {
+    entitled?: (cid: string) => boolean;
+    servers?: readonly VeilServer[];
+    bridges?: readonly string[];
+  };
 }
 
 class HttpError extends Error {
@@ -1044,6 +1055,13 @@ export function createApp(deps: AppDeps) {
 
   /* ---------------- Request handling ---------------- */
 
+  const veilControl = createVeilControl({
+    cid,
+    entitled: deps.veil?.entitled,
+    servers: deps.veil?.servers,
+    bridges: deps.veil?.bridges,
+  });
+
   const MUTATING = new Set(["POST", "PATCH", "PUT", "DELETE"]);
 
   async function serveStatic(pathname: string, res: ServerResponse) {
@@ -1072,6 +1090,7 @@ export function createApp(deps: AppDeps) {
     res.setHeader("Content-Security-Policy", `default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors ${embeddable ? "*" : "'none'"}`);
     try {
       if (url.pathname === "/api/labyrinth") return await serveNodeLabyrinth(req, res, deps.suite?.labyrinth, parseCookies(req.headers.cookie)[COOKIE], deps.onChange);
+      if (url.pathname.startsWith("/api/veil/")) return await serveNodeVeil(req, res, veilControl, deps.origin);
       if (url.pathname.startsWith("/api/predict/")) return await serveNodeConjureBackend(req, res, deps.predictionService, deps.origin);
       if (url.pathname.startsWith("/api/orbital/")) return await serveNodeOrbitalBackend(req, res, deps.suite?.labyrinth, deps.origin);
       if (url.pathname.startsWith("/api/drones/")) return await serveNodeDroneBackend(req, res, deps.suite?.labyrinth, deps.origin);

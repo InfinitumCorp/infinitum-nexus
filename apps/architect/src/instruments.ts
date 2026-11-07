@@ -11,6 +11,9 @@ export const researchInstrument: Instrument = {
   async execute(input) {
     const query = String(input.query ?? "").trim();
     if (!query) return { output: { error: "empty query" }, evidence: [] };
+    if (process.env.ARCHITECT_RESEARCH_FIXTURE === "1") {
+      return { output: { summary: "fixture", titles: ["fixture"], query }, evidence: [`research:${query}`] };
+    }
     try {
       const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
       const res = await fetch(url, { headers: { "user-agent": "InfinitumArchitect/0.1" } });

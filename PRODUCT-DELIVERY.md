@@ -90,3 +90,13 @@ Cumulus ID-authenticated repository API and explicit save/load adapters are wire
 through the existing product libraries and host applications. No website edits or
 deployments. Five brands remain registry-only; library adapters are not claimed as
 new deployed apps. [Full inventory, identity mapping and rollout gaps](docs/LBRNTH-INTEGRATIONS.md).
+
+### Drone inventory and historical telemetry backend
+
+`packages/drone-backend` and the existing +SPCTR CID host now provide backend-only
+private inventory, bounded selected MAVLink observation archival, historical reads
+and product-filtered lineage for DAEMON, SLUG, ORBIS, POLLEN and Flower.
+This is administrative/retrospective software, not flight control or mission
+planning, and does not integrate military editions or change existing autonomy.
+No hardware compatibility, deployment or operational readiness is claimed.
+[API, provenance and remaining gaps](packages/drone-backend/README.md).

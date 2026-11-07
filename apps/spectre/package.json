@@ -21,7 +21,8 @@
     "@infinitum/metatron": "workspace:*",
     "@infinitum/scalus": "workspace:*",
     "@infinitum/lbrnth": "workspace:*",
-    "@infinitum/lbrnth-client": "workspace:*"
+    "@infinitum/lbrnth-client": "workspace:*",
+    "@infinitum/drone-backend": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.9.0",

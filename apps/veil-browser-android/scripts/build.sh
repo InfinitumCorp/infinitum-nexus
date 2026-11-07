@@ -15,7 +15,7 @@ OUT=build
 
 if [ "${1:-}" = "test" ]; then
   rm -rf "$OUT/test" && mkdir -p "$OUT/test"
-  javac -d "$OUT/test" src/main/java/app/infinitum/veil/browser/Privacy.java src/test/java/app/infinitum/veil/browser/PrivacyTest.java
+  javac -d "$OUT/test" src/main/java/app/infinitum/veil/browser/Privacy.java src/main/java/app/infinitum/veil/browser/Blocklist.java src/test/java/app/infinitum/veil/browser/PrivacyTest.java
   java -cp "$OUT/test" app.infinitum.veil.browser.PrivacyTest ../veil/lib/privacy.js
   exit 0
 fi

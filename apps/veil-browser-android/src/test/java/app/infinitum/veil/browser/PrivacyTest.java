@@ -50,6 +50,27 @@ public final class PrivacyTest {
         while (m.find()) fromJs.add(m.group(1));
         eq("tracker list matches apps/veil/lib/privacy.js", fromJs, Privacy.TRACKERS);
 
+        eq("site keeps the last two labels", "example.com", Privacy.site("a.b.Example.com"));
+        eq("subdomain is first-party", false, Privacy.isThirdParty("cdn.example.com", "www.example.com"));
+        eq("other site is third-party", true, Privacy.isThirdParty("doubleclick.net", "news.example"));
+        eq("punycode host is a look-alike", true, Privacy.isLookalike("xn--pple-43d.com"));
+        eq("plain host is not a look-alike", false, Privacy.isLookalike("apple.com"));
+        eq("plain HTTP is insecure", true, Privacy.isInsecure("http://example.com/"));
+        eq("onion HTTP is fine", false, Privacy.isInsecure("http://abc.onion/"));
+        eq("HTTPS is fine", false, Privacy.isInsecure("https://example.com/"));
+        eq("blocklist matches subdomains", true, Blocklist.isBlocked("stats.g.doubleclick.net"));
+        eq("blocklist ignores look-alike suffixes", false, Blocklist.isBlocked("notdoubleclick.net"));
+        eq("blocklist leaves first parties", false, Blocklist.isBlocked("facebook.com"));
+
+        // Same blocklist as the extension.
+        Path bl = js.resolveSibling("blocklist.js");
+        Matcher list = Pattern.compile("BLOCKLIST = Object\\.freeze\\(\\{([\\s\\S]*?)\\}\\);").matcher(Files.readString(bl));
+        if (!list.find()) throw new IllegalStateException("BLOCKLIST not found in " + bl);
+        Set<String> blFromJs = new HashSet<>();
+        Matcher h = Pattern.compile("\"([^\"]+)\"").matcher(list.group(1));
+        while (h.find()) blFromJs.add(h.group(1));
+        eq("blocklist matches apps/veil/lib/blocklist.js", blFromJs, new HashSet<>(Blocklist.HOSTS));
+
         System.out.println(failures == 0 ? "\nall passed" : "\n" + failures + " failed");
         System.exit(failures == 0 ? 0 : 1);
     }

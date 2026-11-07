@@ -25,6 +25,7 @@ import android.webkit.CookieManager;
 import android.webkit.SslErrorHandler;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebStorage;
 import android.webkit.WebView;
@@ -35,6 +36,9 @@ import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
+import java.io.ByteArrayInputStream;
+import java.util.HashSet;
+import java.util.Set;
 
 /**
  * VEIL for Android: a private WebView browser.
@@ -57,12 +61,26 @@ public class MainActivity extends Activity {
     static final int FG = Color.parseColor("#f5f5f5");
     static final int MUTED = Color.parseColor("#8a8a8a");
     static final int GOOD = Color.parseColor("#4ade80");
+    static final int BAD = Color.parseColor("#f87171");
+
+    /** What VEIL can't see. Same statement as the extension and the web app. */
+    static final String PRIVACY_STATEMENT = "Every check runs on this phone. VEIL doesn't send your pages, searches, passwords, forms or downloads anywhere, keeps no browsing history, and can't see what you do in other apps.";
 
     WebView web;
     EditText address;
     ProgressBar progress;
     TextView shield;
     int stripped = 0;
+    /** Blocked on the current page. Written from WebView's network thread. */
+    volatile int blocked = 0;
+    volatile int blockedSession = 0;
+    volatile String pageHost = "";
+    /** Host of the page being opened, before it starts loading. */
+    String navHost = "";
+    volatile boolean blocking = true;
+    /** Hosts the person chose to keep on plain HTTP this session. */
+    final Set<String> allowedInsecure = new HashSet<>();
+    AlertDialog alert;
 
     @Override
     protected void onCreate(Bundle state) {
@@ -220,6 +238,7 @@ public class MainActivity extends Activity {
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 String url = request.getUrl().toString();
                 if (url.startsWith("file:///android_asset/")) return false;
+                if (request.isForMainFrame()) navHost = String.valueOf(request.getUrl().getHost());
                 if (!Privacy.isWeb(url)) {
                     Toast.makeText(MainActivity.this, "VEIL only opens web pages", Toast.LENGTH_SHORT).show();
                     return true;
@@ -234,20 +253,39 @@ public class MainActivity extends Activity {
             }
 
             @Override
+            public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+                // Ad networks, trackers and data brokers, as third-party subresources only.
+                if (!blocking || request.isForMainFrame()) return null;
+                String host = request.getUrl().getHost();
+                if (!Blocklist.isBlocked(host) || !Privacy.isThirdParty(host, pageHost)) return null;
+                blocked++;
+                blockedSession++;
+                return new WebResourceResponse("text/plain", "utf-8", new ByteArrayInputStream(new byte[0]));
+            }
+
+            @Override
             public void onPageStarted(WebView view, String url, Bitmap favicon) {
+                String host = Uri.parse(url).getHost();
+                pageHost = host == null ? "" : host;
+                blocked = 0;
                 showAddress(url);
+                showShield();
             }
 
             @Override
             public void onPageFinished(WebView view, String url) {
                 showAddress(url);
+                showShield();
                 progress.setVisibility(View.INVISIBLE);
+                checkConnection(url);
             }
 
             @Override
             public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {
                 handler.cancel(); // never proceed past a certificate error
-                Toast.makeText(MainActivity.this, "Blocked: the site's certificate is not valid", Toast.LENGTH_LONG).show();
+                // Alert for the page itself; a broken subresource just doesn't load.
+                String host = Uri.parse(error.getUrl()).getHost();
+                if (host != null && (host.equals(navHost) || host.equals(pageHost))) certificateAlert(error);
             }
         });
         web.setWebChromeClient(new WebChromeClient() {
@@ -259,6 +297,69 @@ public class MainActivity extends Activity {
         });
     }
 
+    void showShield() {
+        boolean insecure = Privacy.isInsecure(web.getUrl());
+        shield.setText(blocked > 0 ? "VEIL " + blocked : "VEIL");
+        shield.setTextColor(insecure ? BAD : GOOD);
+        shield.setContentDescription(insecure ? "VEIL: this page is not encrypted"
+            : "VEIL privacy status, " + blocked + " trackers blocked on this page");
+    }
+
+    // ---------------- Connection alerts ----------------
+
+    void showAlert(AlertDialog.Builder b) {
+        if (isFinishing()) return;
+        if (alert != null && alert.isShowing()) alert.dismiss();
+        alert = b.show();
+    }
+
+    void goBackOrHub() {
+        if (web.canGoBack()) web.goBack();
+        else web.loadUrl(HUB);
+    }
+
+    /** One-tap fixes for plain HTTP pages and look-alike addresses. */
+    void checkConnection(String url) {
+        if (url == null || url.startsWith("file:")) return;
+        Uri u = Uri.parse(url);
+        String host = u.getHost();
+        if (host == null || allowedInsecure.contains(host)) return;
+        if (Privacy.isInsecure(url)) {
+            String https = "https://" + url.substring(7);
+            showAlert(new AlertDialog.Builder(this)
+                .setTitle("This page isn't encrypted")
+                .setMessage(host + " loaded over plain HTTP, so anyone on the network can read or change it. Don't type passwords or personal details here.")
+                .setPositiveButton("Try HTTPS", (d, w) -> web.loadUrl(https))
+                .setNeutralButton("Go back", (d, w) -> goBackOrHub())
+                .setNegativeButton("Stay", (d, w) -> allowedInsecure.add(host)));
+        } else if (Privacy.isLookalike(host)) {
+            showAlert(new AlertDialog.Builder(this)
+                .setTitle("Look-alike address")
+                .setMessage(host + " uses international letters that can imitate a familiar name. Check the address before you sign in.")
+                .setPositiveButton("Go back", (d, w) -> goBackOrHub())
+                .setNegativeButton("It's fine", (d, w) -> allowedInsecure.add(host)));
+        }
+    }
+
+    void certificateAlert(SslError error) {
+        String why;
+        switch (error.getPrimaryError()) {
+            case SslError.SSL_EXPIRED: why = "Its certificate has expired."; break;
+            case SslError.SSL_IDMISMATCH: why = "Its certificate is for a different site."; break;
+            case SslError.SSL_UNTRUSTED: why = "Its certificate isn't from a trusted authority."; break;
+            case SslError.SSL_NOTYETVALID: why = "Its certificate isn't valid yet."; break;
+            case SslError.SSL_DATE_INVALID: why = "Its certificate date is invalid."; break;
+            default: why = "Its certificate isn't valid.";
+        }
+        String host = Uri.parse(error.getUrl()).getHost();
+        showAlert(new AlertDialog.Builder(this)
+            .setTitle("Connection blocked")
+            .setMessage("VEIL stopped loading " + (host == null ? "this site" : host) + ". " + why
+                + " Someone may be intercepting the connection, or the site is misconfigured.")
+            .setPositiveButton("Go back", (d, w) -> goBackOrHub())
+            .setNeutralButton("Check over Tor", (d, w) -> torCheck()));
+    }
+
     void showAddress(String url) {
         if (url == null || address.hasFocus()) return;
         address.setText(url.startsWith(HUB) ? "" : url);
@@ -266,6 +367,7 @@ public class MainActivity extends Activity {
 
     void open(String url) {
         String cleaned = Privacy.clean(url);
+        navHost = String.valueOf(Uri.parse(cleaned).getHost());
         if (!cleaned.equals(url) && !Privacy.stripTrackers(url).equals(url)) stripped++;
         web.loadUrl(cleaned);
     }
@@ -324,17 +426,31 @@ public class MainActivity extends Activity {
         web.clearHistory();
         web.clearFormData();
         stripped = 0;
+        blocked = 0;
+        blockedSession = 0;
+        allowedInsecure.clear();
     }
 
     void showPrivacy() {
-        String msg = "Anonymous session\n\n"
+        boolean insecure = Privacy.isInsecure(web.getUrl());
+        String title = insecure ? "Not encrypted" : blocking ? "Protected" : "Blocking is off";
+        String msg = (pageHost.isEmpty() ? "" : pageHost + "\n\n")
+            + "• Trackers and ads blocked: " + blocked + " on this page, " + blockedSession + " this session\n"
+            + "• Tracking parameters stripped: " + stripped + " this session\n"
             + "• HTTPS-first, certificate errors blocked\n"
             + "• Third-party cookies off\n"
-            + "• Tracking parameters stripped: " + stripped + " this session\n"
             + "• Nothing kept after you close VEIL\n"
             + "• Screenshots of pages blocked\n\n"
+            + PRIVACY_STATEMENT + "\n\n"
             + (orbotInstalled() ? "Orbot is installed. Turn on its VPN mode to route VEIL over Tor." : "Install Orbot to route VEIL over Tor.");
-        new AlertDialog.Builder(this).setTitle("VEIL privacy").setMessage(msg).setPositiveButton("OK", null).show();
+        new AlertDialog.Builder(this).setTitle(title).setMessage(msg)
+            .setPositiveButton("OK", null)
+            .setNeutralButton(blocking ? "Turn blocking off" : "Turn blocking on", (d, w) -> {
+                blocking = !blocking;
+                Toast.makeText(this, blocking ? "Blocking trackers, ads and data brokers" : "Blocking is off until you turn it on", Toast.LENGTH_SHORT).show();
+                web.reload();
+            })
+            .show();
     }
 
     // ---------------- Lifecycle ----------------

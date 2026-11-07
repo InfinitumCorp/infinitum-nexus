@@ -78,6 +78,37 @@ public final class Privacy {
         return SEARCH + URLEncoder.encode(s, StandardCharsets.UTF_8);
     }
 
+    /** Registrable-ish site: the last two labels, as the extension compares them. */
+    public static String site(String host) {
+        if (host == null) return "";
+        String[] parts = host.toLowerCase(Locale.ROOT).split("\\.");
+        int n = parts.length;
+        return n <= 2 ? host.toLowerCase(Locale.ROOT) : parts[n - 2] + "." + parts[n - 1];
+    }
+
+    /** A request to another site than the page it belongs to. */
+    public static boolean isThirdParty(String host, String pageHost) {
+        if (host == null || pageHost == null || pageHost.isEmpty()) return false;
+        return !site(host).equals(site(pageHost));
+    }
+
+    /** Punycode labels can imitate a familiar name with look-alike letters. */
+    public static boolean isLookalike(String host) {
+        if (host == null) return false;
+        for (String label : host.toLowerCase(Locale.ROOT).split("\\.")) if (label.startsWith("xn--")) return true;
+        return false;
+    }
+
+    /** A page that loaded over plain HTTP, other than onion services and this device. */
+    public static boolean isInsecure(String url) {
+        if (url == null || !url.regionMatches(true, 0, "http://", 0, 7)) return false;
+        try {
+            return !isLocalOrOnion(new URI(url).getHost());
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     /** Full clean-up applied to every navigation. */
     public static String clean(String url) {
         return httpsFirst(stripTrackers(url));

@@ -31,10 +31,13 @@ test("accepts a Cumulus ID token and a Keycloak azp audience", () => {
 test("rejects none, bad signatures, issuer, audience, and expiry", () => {
   const now = Math.floor(Date.now() / 1000);
   const good = token(claims());
-  const flipped = `${good.slice(0, -1)}${good.endsWith("a") ? "b" : "a"}`;
+  const [h, p, s] = good.split(".");
+  const sig = Buffer.from(s ?? "", "base64url");
+  sig[0] = (sig[0] ?? 0) ^ 0xff;
+  const flipped = `${h}.${p}.${sig.toString("base64url")}`;
   assert.throws(() => verifyFabricToken(token(claims(), { alg: "none", kid: "k1" }), { issuer, audience: "fabric", jwks: [jwk] }), (error: FabricAuthError) => error.code === "alg");
   assert.throws(() => verifyFabricToken(token(claims(), { alg: "HS256", kid: "k1" }), { issuer, audience: "fabric", jwks: [jwk] }), (error: FabricAuthError) => error.code === "alg");
-  assert.throws(() => verifyFabricToken(flipped, { issuer, audience: "fabric", jwks: [jwk] }), (error: FabricAuthError) => error.code === "signature" || error.code === "malformed");
+  assert.throws(() => verifyFabricToken(flipped, { issuer, audience: "fabric", jwks: [jwk] }), (error: FabricAuthError) => error.code === "signature");
   assert.throws(() => verifyFabricToken(token(claims({ iss: "https://evil.example" })), { issuer, audience: "fabric", jwks: [jwk] }), (error: FabricAuthError) => error.code === "issuer");
   assert.throws(() => verifyFabricToken(token(claims({ aud: "account", azp: "other" })), { issuer, audience: "fabric", jwks: [jwk] }), (error: FabricAuthError) => error.code === "audience");
   assert.throws(() => verifyFabricToken(token(claims({ exp: now - 120 })), { issuer, audience: "fabric", jwks: [jwk] }), (error: FabricAuthError) => error.code === "expired");

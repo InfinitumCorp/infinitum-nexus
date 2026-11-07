@@ -16,6 +16,12 @@
 - VEIL Nexus app launcher for the seven free-tier products
 - Account, badge and refresh are dropped on leaving the workspace, New Identity or an expired session
 
+## Done in v0.8.0
+
+- VEIL VPN is the default route again: CID session plus a VEIL plan, exit list, authenticated HTTPS/SOCKS, DNS through the proxy, fail-closed
+- Tor stays optional: local SOCKS5 (`9050` or Tor Browser `9150`), per-site isolation, New Identity, Tor check, `.onion` with remote DNS
+- Popup switch: VEIL VPN / Tor / Off. Both active modes limit WebRTC the same way
+
 ## Done in v0.7.0
 
 - Tor routing for this browser through a local SOCKS5 client (`127.0.0.1:9050`, or Tor Browser `9150`)

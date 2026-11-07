@@ -11,8 +11,8 @@ test("session fetch uses the CID cookie and ignores a stringly entitled flag", a
   const fetcher = async (url, opts) => {
     seen.push({ url, opts });
     return jsonResponse(200, {
-      cid: "cid_1", username: "alex", entitled: "true", browserOnly: true, deviceWide: false, routing: "local-tor",
-      bridges: ["bridge 192.0.2.10:443"],
+      cid: "cid_1", username: "alex", entitled: "true", browserOnly: true, deviceWide: false, defaultMode: "veil",
+      servers: [{ id: "iad-1", name: "Washington", region: "us-east", host: "veil-iad.example", port: 443, scheme: "https", password: "nope" }],
     });
   };
   const session = await fetchSession("http://localhost:3000/path", fetcher);
@@ -20,8 +20,9 @@ test("session fetch uses the CID cookie and ignores a stringly entitled flag", a
   assert.equal(seen[0].opts.credentials, "include");
   assert.equal(seen[0].opts.method, "GET");
   assert.equal(session.entitled, false);
-  assert.equal(session.routing, "local-tor");
-  assert.equal(JSON.stringify(session).includes("192.0.2.10"), false);
+  assert.equal(session.defaultMode, "veil");
+  assert.deepEqual(session.servers, []);
+  assert.equal(JSON.stringify(session).includes("password"), false);
 });
 
 test("bridges are a separate premium read and are not a route", async () => {

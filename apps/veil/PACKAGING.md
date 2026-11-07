@@ -1,8 +1,8 @@
 # VEIL Packaging
 
-Current version: 0.7.0
+Current version: 0.8.0
 
-VEIL is a Tor extension for this browser from Infinitum Corporation®. The package routes that browser through a local Tor SOCKS client. It is not a device-wide VPN, and it does not provide Tor Browser fingerprinting protection. The Tor binary is not included.
+VEIL is Infinitum Corporation®'s browser cyber proxy. The default mode is the entitled VEIL exit. Tor is optional and uses a local Tor client. It is not a device-wide VPN, and Tor mode does not provide Tor Browser fingerprinting protection. The Tor binary is not included.
 
 ## Unpacked Chrome
 

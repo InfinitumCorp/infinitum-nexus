@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "VEIL</>",
-  "version": "0.7.0",
-  "description": "Tor for this browser from Infinitum Corporation®. Not Tor Browser fingerprinting protection, and not a device-wide VPN.",
+  "version": "0.8.0",
+  "description": "VEIL VPN and optional Tor for this browser from Infinitum Corporation®. It is not a device-wide VPN.",
   "permissions": [
     "storage",
     "tabs",

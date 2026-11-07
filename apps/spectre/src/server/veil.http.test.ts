@@ -12,6 +12,7 @@ import { createApp } from "./app.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const ORIGIN = "http://localhost";
+const SERVERS = [{ id: "iad-1", name: "Washington", region: "us-east", host: "veil-iad.example", port: 443, scheme: "https" as const }];
 const BRIDGES = [
   "bridge obfs4 192.0.2.10:443 AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA cert=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa iat-mode=0",
 ];
@@ -33,7 +34,7 @@ describe("VEIL Tor bridges on the Cumulus ID host", () => {
       publicDir: join(here, "../../public"),
       secureCookies: false,
       origin: ORIGIN,
-      veil: { entitled: (account) => entitled.has(account), bridges: BRIDGES },
+      veil: { entitled: (account) => entitled.has(account), servers: SERVERS, bridges: BRIDGES },
     });
     server = app.server();
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -69,20 +70,29 @@ describe("VEIL Tor bridges on the Cumulus ID host", () => {
     const body = await session.json();
     assert.equal(body.cid, user.cid);
     assert.equal(body.entitled, false);
-    assert.equal(body.routing, "local-tor");
+    assert.equal(body.defaultMode, "veil");
+    assert.deepEqual(body.servers, []);
     assert.equal(body.deviceWide, false);
-    assert.equal(JSON.stringify(body).includes("192.0.2.10"), false);
+    const blockedProxy = await fetch(`${base}/api/veil/connect`, {
+      method: "POST", headers: { ...headers, "content-type": "application/json" }, body: JSON.stringify({ serverId: "iad-1" }),
+    });
+    assert.equal(blockedProxy.status, 403);
     const blocked = await fetch(`${base}/api/veil/bridges`, { headers });
     assert.equal(blocked.status, 403);
-    assert.equal((await blocked.json()).error, "veil_plan_required");
     entitled.add(user.cid);
+    const granted = await fetch(`${base}/api/veil/connect`, {
+      method: "POST", headers: { ...headers, "content-type": "application/json" }, body: JSON.stringify({ serverId: "iad-1" }),
+    });
+    assert.equal(granted.status, 200);
+    const credential = await granted.json();
+    assert.equal(credential.coverage, "browser");
+    assert.equal(credential.defaultMode, "veil");
+    assert.equal(credential.dns, "through-proxy");
+    assert.equal(credential.server.host, "veil-iad.example");
     const allowed = await fetch(`${base}/api/veil/bridges`, { headers });
     const plan = await allowed.json();
     assert.deepEqual(plan.bridges, BRIDGES);
     assert.equal(plan.optional, true);
-    assert.equal(plan.routing, "local-tor");
-    const retired = await fetch(`${base}/api/veil/connect`, { method: "POST", headers: { ...headers, "content-type": "application/json" }, body: "{}" });
-    assert.equal(retired.status, 404);
     await fetch(`${base}/api/auth/signout`, {
       method: "POST",
       headers: { ...headers, "x-spectre": "1", "content-type": "application/json" },

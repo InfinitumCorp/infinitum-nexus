@@ -7,7 +7,7 @@
 export const VEIL_GECKO_ID = "veil@infinitum.corporation";
 
 export function extensionDescription() {
-  return "Tor for this browser from Infinitum Corporation®. Not Tor Browser fingerprinting protection, and not a device-wide VPN.";
+  return "VEIL VPN and optional Tor for this browser from Infinitum Corporation®. It is not a device-wide VPN.";
 }
 
 const icons = {

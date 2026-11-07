@@ -13,45 +13,60 @@ function say(text) {
 }
 
 function render() {
-  const tor = state.tor ?? { status: "off", mode: "off", endpoint: { port: 9050 } };
+  const route = state.route ?? state.tor ?? { mode: "off", status: "off", defaultMode: "veil" };
+  const mode = route.mode === "tor" || route.mode === "veil" ? route.mode : "off";
+  for (const name of ["veil", "tor", "off"]) {
+    $("mode-" + name).classList.toggle("active", mode === name);
+  }
   const dot = $("dot");
   dot.className = "dot";
-  const copy = {
-    tor: "Tor — this browser is exiting through Tor",
-    checking: "Checking the Tor exit…",
-    unreachable: "Tor unreachable — traffic blocked",
+  const labels = {
+    veil: "VEIL VPN — this browser is using the entitled exit",
+    tor: route.status === "tor" ? "Tor — this browser is exiting through Tor" : "Tor — waiting for the local client",
+    checking: "Checking Tor…",
+    unreachable: "Route unreachable — traffic blocked",
     "not-tor": "Not a Tor exit — traffic stays blocked",
-    booting: "Starting — traffic blocked",
-    off: "Tor off",
+    off: "Off",
   };
-  $("status").textContent = copy[tor.status] ?? "Tor off";
-  if (tor.status === "tor") dot.classList.add("on");
-  else if (tor.status === "unreachable" || tor.status === "not-tor") dot.classList.add("block");
-  else if (tor.status === "checking" || tor.status === "booting") dot.classList.add("warn");
-  const on = state.torEnabled === true || tor.mode === "on";
-  $("toggle").textContent = on ? "Turn Tor off" : "Use Tor";
-  $("toggle").className = tor.status === "unreachable" ? "warn" : "";
-  $("endpoint").value = String(tor.endpoint?.port) === "9150" ? "9150" : "9050";
-  $("endpoint").disabled = on;
-  const lines = {
-    tor: `SOCKS5 127.0.0.1:${tor.endpoint?.port}. DNS and .onion names go through Tor. Circuits are isolated with SOCKS authentication.`,
-    checking: "The proxy is on. Confirming the exit with check.torproject.org.",
-    unreachable: "The local Tor client did not answer. Requests are not sent on the normal network.",
-    "not-tor": "Something answered, and it was not Tor. The browser stays pointed at the local Tor port.",
-    off: "Choose the local Tor you already run. VEIL does not download or start Tor.",
-  };
-  $("detail").textContent = lines[tor.status] ?? lines.off;
+  const key = route.status === "unreachable" || route.status === "not-tor" || route.status === "checking" ? route.status : mode;
+  $("status").textContent = labels[key] ?? "Off";
+  if (mode === "veil" || route.status === "tor") dot.classList.add("on");
+  else if (route.status === "unreachable" || route.status === "not-tor") dot.classList.add("block");
+  else if (route.status === "checking") dot.classList.add("warn");
+
+  const session = route.session;
+  const servers = session?.entitled ? session.servers ?? [] : [];
+  const select = $("server");
+  const previous = select.value || route.server?.id || "";
+  select.replaceChildren();
+  const empty = document.createElement("option");
+  empty.value = "";
+  empty.textContent = session?.entitled ? "No exits configured" : "Sign in with a VEIL plan";
+  if (!servers.length) select.append(empty);
+  for (const server of servers) {
+    const option = document.createElement("option");
+    option.value = server.id;
+    option.textContent = `${server.name} · ${server.region} · ${server.scheme === "socks5" ? "SOCKS5" : "HTTPS"}`;
+    select.append(option);
+  }
+  if (previous && [...select.options].some((option) => option.value === previous)) select.value = previous;
+  select.disabled = mode === "veil";
   const signedIn = state.workspace === "authenticated";
   const who = state.cidUser;
-  const entitled = tor.session?.entitled === true;
   $("who").textContent = !signedIn
-    ? "Anonymous workspace. Tor does not need Cumulus ID. Signed-in browsing is a separate choice and is not anonymous."
+    ? "VEIL VPN needs the signed-in workspace and a VEIL plan. Tor does not. Signed-in browsing is not anonymous."
     : who
-      ? `${who.username ?? who.cid}${entitled ? " · VEIL plan can load optional bridges" : " · no VEIL bridge plan"}`
-      : "Signed-in workspace, no Cumulus ID session yet.";
-  const bridges = entitled && Array.isArray(tor.bridges) ? tor.bridges : [];
-  $("bridges").hidden = bridges.length === 0;
-  $("bridges").textContent = bridges.join("\n");
+      ? `${who.username ?? who.cid}${session?.entitled ? " · VEIL plan active" : " · no VEIL entitlement"}`
+      : "No Cumulus ID session yet.";
+  $("endpoint").value = String(route.endpoint?.port) === "9150" ? "9150" : "9050";
+  $("endpoint").disabled = mode === "tor";
+  const detail = {
+    veil: `${route.server?.name ?? "Exit"} · DNS goes through the proxy. WebRTC non-proxied UDP is off.`,
+    tor: `SOCKS5 127.0.0.1:${route.endpoint?.port ?? 9050}. DNS and .onion names go through Tor. WebRTC non-proxied UDP is off.`,
+    unreachable: "The selected route did not answer. Requests are not sent on the ordinary network.",
+    off: "VEIL VPN is the default. Tor is optional and stays on this machine.",
+  };
+  $("detail").textContent = detail[route.status] ?? detail[mode] ?? detail.off;
   $("sidebar").hidden = !chrome.sidePanel?.open;
 }
 
@@ -60,7 +75,7 @@ async function refresh() {
   if (state.workspace === "authenticated") {
     try {
       const premium = await send("refreshVeil");
-      state.tor = { ...state.tor, ...premium.tor, session: premium.session, bridges: premium.bridges };
+      state.route = { ...state.route, ...premium.route, session: premium.session, bridges: premium.bridges };
     } catch (err) {
       say(err.message);
     }
@@ -68,17 +83,33 @@ async function refresh() {
   render();
 }
 
-$("endpoint").onchange = () => {};
-
-$("toggle").onclick = async () => {
+$("mode-off").onclick = async () => {
   say("");
   try {
-    const on = state?.torEnabled === true || state?.tor?.mode === "on";
-    await send("toggleTor", { enabled: !on, port: Number($("endpoint").value) });
-    if (!on) {
-      const check = await send("checkTor");
-      say(check.isTor ? "Tor check succeeded." : check.status === "unreachable" ? "Tor is not reachable. Traffic is blocked." : "The check did not confirm a Tor exit.");
-    }
+    await send("disconnectVeil");
+    await refresh();
+  } catch (err) {
+    say(err.message);
+  }
+};
+
+$("mode-veil").onclick = async () => {
+  say("");
+  try {
+    await send("connectVeil", { serverId: $("server").value });
+    await refresh();
+  } catch (err) {
+    say(err.message);
+    await refresh().catch(() => {});
+  }
+};
+
+$("mode-tor").onclick = async () => {
+  say("");
+  try {
+    await send("toggleTor", { enabled: true, port: Number($("endpoint").value) });
+    const check = await send("checkTor");
+    say(check.isTor ? "Tor check succeeded." : check.status === "unreachable" ? "Tor is not reachable. Traffic is blocked." : "The check did not confirm a Tor exit.");
     await refresh();
   } catch (err) {
     say(err.message);
@@ -90,7 +121,7 @@ $("check").onclick = async () => {
   say("");
   try {
     const check = await send("checkTor");
-    say(check.isTor ? "check.torproject.org says this browser is using Tor." : check.status === "off" ? "Turn Tor on first." : "Not confirmed as Tor. Traffic stays on the local Tor port.");
+    say(check.isTor ? "check.torproject.org says this browser is using Tor." : check.status === "off" ? "Choose Tor first." : "Not confirmed as Tor. Traffic stays blocked.");
     await refresh();
   } catch (err) {
     say(err.message);

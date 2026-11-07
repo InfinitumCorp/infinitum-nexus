@@ -117,6 +117,29 @@ test("a missing VEIL plan does not remove the Tor route", async () => {
   assert.equal((await fromPopup({ type: "getState" })).tor.mode, "on");
 });
 
+test("VEIL VPN connects only with an entitlement and keeps the password out of storage", async () => {
+  await fromPopup({ type: "switchWorkspace", to: "authenticated", confirmed: true });
+  const sets = env.calls.proxySet.length;
+  mockFetch([{ match: "/api/veil/connect", status: 403, body: { error: "veil_plan_required" } }]);
+  const denied = await fromPopup({ type: "connectVeil", serverId: "iad-1" });
+  assert.match(denied.error, /no VEIL entitlement/);
+  assert.equal(env.calls.proxySet.length, sets);
+  const grant = {
+    coverage: "browser", deviceWide: false, dns: "through-proxy", defaultMode: "veil",
+    server: { id: "iad-1", name: "Washington", region: "us-east", host: "veil-iad.example", port: 443, scheme: "https" },
+    auth: { username: "v_username_ok", password: "0123456789abcdefEXTRA", expiresAt: "2099-01-01T00:00:00Z" },
+  };
+  mockFetch([{ match: "/api/veil/connect", status: 200, body: grant }]);
+  const ok = await fromPopup({ type: "connectVeil", serverId: "iad-1" });
+  assert.equal(ok.error, undefined);
+  assert.equal(env.calls.proxySet.at(-1).value.rules.singleProxy.scheme, "https");
+  assert.equal(env.calls.proxySet.at(-1).value.rules.singleProxy.host, "veil-iad.example");
+  assert.equal(env.calls.webrtc.at(-1), "disable_non_proxied_udp");
+  assert.equal(JSON.stringify(env.store).includes(grant.auth.password), false);
+  assert.equal((await fromPopup({ type: "getState" })).route.mode, "veil");
+  await fromPopup({ type: "disconnectVeil" });
+});
+
 test("turning Tor off is the explicit return to a direct connection", async () => {
   const response = await fromPopup({ type: "toggleTor", enabled: false });
   assert.equal(response.enabled, false);

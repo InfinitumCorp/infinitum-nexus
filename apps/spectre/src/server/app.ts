@@ -1,6 +1,7 @@
 import {serveNodeConjureBackend} from "@infinitum/conjure-backend";
 import type {ConjureService} from "@infinitum/conjure-backend";
 import { createVeilControl, serveNodeVeil } from "@infinitum/veil/server";
+import type { VeilServer } from "@infinitum/veil/server";
 import { serveNodeOrbitalBackend } from "@infinitum/orbital";
 import { serveNodeDroneBackend } from "@infinitum/drone-backend";
 import { serveNodeLabyrinth } from "@infinitum/lbrnth";
@@ -71,11 +72,12 @@ export interface AppDeps {
   /** Tests: scripted model for Conjure simulations. */
   conjureComplete?: Complete;
   /**
-   * Optional Tor bridge lines for entitled Cumulus IDs.
-   * Absent means nobody is entitled. Browser Tor routing does not call this.
+   * VEIL exit proxy is the default browser mode and requires this plan.
+   * Bridges are optional Tor client lines. Local Tor mode does not call this.
    */
   veil?: {
     entitled?: (cid: string) => boolean;
+    servers?: readonly VeilServer[];
     bridges?: readonly string[];
   };
 }
@@ -1056,6 +1058,7 @@ export function createApp(deps: AppDeps) {
   const veilControl = createVeilControl({
     cid,
     entitled: deps.veil?.entitled,
+    servers: deps.veil?.servers,
     bridges: deps.veil?.bridges,
   });
 

@@ -10,13 +10,13 @@ import {
   ANONYMOUS, DEFAULT_WORKSPACE, can, normalize, planSwitch, SITE_DATA_TYPES,
 } from "./lib/workspace.js";
 import { APPS, badgeText, launcher, parseSummary, resolveOrigins } from "./lib/nexus.js";
-import { createTorProxy, detectPlatform } from "./lib/browser-proxy.js";
-import { CHECK_URL, normalizeTorEndpoint, parseTorCheck } from "./lib/proxy.js";
-import { fetchBridges, fetchSession, VeilApiError } from "./lib/veil-api.js";
+import { createRouteProxy, detectPlatform } from "./lib/browser-proxy.js";
+import { bypassHostsFor, CHECK_URL, normalizeTorEndpoint, parseTorCheck } from "./lib/proxy.js";
+import { fetchBridges, fetchSession, postConnect, postDisconnect, VeilApiError } from "./lib/veil-api.js";
 
 chrome.sidePanel?.setPanelBehavior?.({ openPanelOnActionClick: false })?.catch?.(() => {});
 
-const tor = createTorProxy(detectPlatform());
+const route = createRouteProxy(detectPlatform());
 
 let queue = Promise.resolve();
 function serial(fn) {
@@ -33,52 +33,92 @@ async function getWorkspace() {
   return normalize(workspace);
 }
 
-function torView(session, bridges) {
-  return { ...tor.publicState, session: session ?? null, bridges: bridges ?? null };
+function routeView(session, bridges) {
+  const state = route.publicState;
+  return {
+    ...state,
+    session: session ?? null,
+    bridges: bridges ?? null,
+    tor: {
+      ...state,
+      status: state.mode === "tor" ? state.status : "off",
+      endpoint: state.endpoint,
+      mode: state.mode === "tor" ? "on" : "off",
+    },
+  };
 }
 
 // ---------- Tor ----------
 
-async function rememberTor() {
+async function rememberRoute() {
   await set({
-    torEnabled: tor.mode === "on",
-    torPort: tor.publicState.endpoint.port,
-    torStatus: tor.status,
+    routeMode: route.mode === "veil" || route.mode === "tor" ? route.mode : "off",
+    torEnabled: route.mode === "tor",
+    torPort: route.publicState.endpoint.port,
+    torStatus: route.mode === "tor" ? route.status : "off",
+    veilServerId: route.publicState.server?.id ?? null,
   });
+}
+
+async function stopVeilServer() {
+  if (route.mode !== "veil") return;
+  const { veil: origin } = await origins();
+  await postDisconnect(origin).catch(() => {});
+}
+
+async function connectVeil(serverId) {
+  if (!can(await getWorkspace(), "signin")) throw new Error("Sign-in is off in the anonymous workspace");
+  if (route.mode === "tor") await route.disable();
+  const o = await origins();
+  const grant = await postConnect(o.veil, serverId);
+  await route.enableVeil(grant.server, grant.auth, bypassHostsFor(o));
+  await rememberRoute();
+  const view = routeView((await get(["veilSession"])).veilSession ?? null, null);
+  if (JSON.stringify(view).includes(grant.auth.password)) throw new Error("Refused to retain the proxy password");
+  return { veil: view, route: view };
+}
+
+async function routeOff() {
+  await stopVeilServer();
+  await route.disable();
+  await rememberRoute();
+  return { route: route.publicState };
 }
 
 async function setTor(enabled, port) {
   if (!enabled) {
-    await tor.disable();
-    await rememberTor();
-    return { enabled: false, tor: tor.publicState };
+    if (route.mode === "tor") await route.disable();
+    await rememberRoute();
+    return { enabled: false, tor: route.publicState };
   }
+  await stopVeilServer();
+  if (route.mode === "veil") await route.disable();
   const stored = port === undefined ? (await get(["torPort"])).torPort : port;
   const endpoint = normalizeTorEndpoint({ port: stored });
-  await tor.enable(endpoint);
-  await rememberTor();
-  return { enabled: true, tor: tor.publicState };
+  await route.enable(endpoint);
+  await rememberRoute();
+  return { enabled: true, tor: route.publicState };
 }
 
 async function newCircuit() {
-  const generation = tor.rotate();
-  if (tor.mode === "on") await tor.reapply();
-  return { generation, tor: tor.publicState };
+  const generation = route.rotate();
+  if (route.mode === "tor") await route.reapply();
+  return { generation, tor: route.publicState };
 }
 
 async function checkTor() {
-  if (tor.mode !== "on") return { isTor: false, status: "off", tor: tor.publicState };
-  tor.setStatus("checking");
+  if (route.mode !== "tor") return { isTor: false, status: "off", tor: route.publicState };
+  route.setStatus("checking");
   try {
     const response = await fetch(CHECK_URL, { cache: "no-store", credentials: "omit", redirect: "error" });
     const parsed = parseTorCheck(await response.json());
-    tor.setStatus(parsed.isTor ? "tor" : "not-tor");
-    await rememberTor();
-    return { ...parsed, status: tor.status, tor: tor.publicState };
+    route.setStatus(parsed.isTor ? "tor" : "not-tor");
+    await rememberRoute();
+    return { ...parsed, status: route.status, tor: route.publicState };
   } catch (err) {
-    tor.markUnreachable();
-    await rememberTor();
-    return { isTor: false, status: "unreachable", error: String(err?.message ?? err), tor: tor.publicState };
+    route.markUnreachable();
+    await rememberRoute();
+    return { isTor: false, status: "unreachable", error: String(err?.message ?? err), tor: route.publicState };
   }
 }
 
@@ -88,7 +128,7 @@ function registerProxyAuth() {
   if (!api?.onAuthRequired?.addListener) return;
   try {
     api.onAuthRequired.addListener((details, callback) => {
-      const result = tor.onAuthRequired(details);
+      const result = route.onAuthRequired(details);
       if (typeof callback === "function") callback(result.response);
       return result.response;
     }, { urls: ["<all_urls>"] }, firefox ? ["blocking"] : ["asyncBlocking"]);
@@ -99,31 +139,41 @@ function registerProxyAuth() {
 
 if (globalThis.browser?.proxy?.onRequest?.addListener) {
   globalThis.browser.proxy.onRequest.addListener(
-    (details) => tor.onRequest(details),
+    (details) => route.onRequest(details),
     { urls: ["<all_urls>"] },
   );
 }
 registerProxyAuth();
 chrome.proxy?.onProxyError?.addListener(() => {
   serial(async () => {
-    if (!tor.onProxyError()) return;
-    tor.markUnreachable();
-    await rememberTor();
+    if (!route.onProxyError()) return;
+    route.markUnreachable();
+    await rememberRoute();
   });
 });
 
-async function bootTor() {
-  const { torEnabled, torPort } = await get(["torEnabled", "torPort"]);
-  if (torEnabled) {
+async function bootRoute() {
+  const { routeMode, torEnabled, torPort, veilServerId } = await get(["routeMode", "torEnabled", "torPort", "veilServerId"]);
+  if (routeMode === "tor" || torEnabled) {
     try {
-      await tor.enable(normalizeTorEndpoint({ port: torPort }));
-      await rememberTor();
+      await route.enable(normalizeTorEndpoint({ port: torPort }));
+      await rememberRoute();
     } catch {
-      tor.markUnreachable();
+      await route.failClosed();
+      await rememberRoute();
     }
     return;
   }
-  tor.readyOff();
+  if (routeMode === "veil" && veilServerId) {
+    try {
+      await connectVeil(veilServerId);
+    } catch {
+      await route.failClosed();
+      await rememberRoute();
+    }
+    return;
+  }
+  route.readyOff();
 }
 
 // ---------- Site data ----------
@@ -206,9 +256,10 @@ async function refreshVeil() {
   try {
     const session = await fetchSession(origin);
     let bridges = null;
-    if (session.entitled) bridges = await fetchBridges(origin);
+    if (session.entitled) bridges = await fetchBridges(origin).catch(() => null);
     await set({ veilSession: session, veilBridges: bridges });
-    return { session, bridges, tor: tor.publicState };
+    if (route.mode === "veil" && !session.entitled) await route.failClosed();
+    return { session, bridges, route: routeView(session, bridges) };
   } catch (err) {
     if (err instanceof VeilApiError && (err.status === 401 || err.status === 403)) {
       await set({ veilBridges: null });
@@ -288,10 +339,10 @@ chrome.runtime.onInstalled.addListener(async () => {
 });
 
 chrome.runtime.onStartup?.addListener(() => {
-  serial(() => bootTor());
+  serial(() => bootRoute());
 });
 
-serial(() => bootTor());
+serial(() => bootRoute());
 
 const handlers = {
   labyrinth: async (m) => veilLabyrinth((await origins()).cid, await getWorkspace(), m.command),
@@ -302,17 +353,20 @@ const handlers = {
     const o = await origins();
     return {
       workspace,
-      torEnabled: tor.mode === "on",
+      torEnabled: route.mode === "tor",
       autoClean: !!s.autoClean,
       cidUser: signedIn ? s.cidUser ?? null : null,
       account: signedIn ? s.account ?? null : null,
       apps: signedIn ? launcher(o, s.account) : [],
       origins: o,
-      tor: torView(signedIn ? s.veilSession ?? null : null, signedIn ? s.veilBridges ?? null : null),
+      route: routeView(signedIn ? s.veilSession ?? null : null, signedIn ? s.veilBridges ?? null : null),
+      tor: routeView(signedIn ? s.veilSession ?? null : null, signedIn ? s.veilBridges ?? null : null).tor,
     };
   },
   refreshAccount: () => refreshAccount(),
   refreshVeil: () => refreshVeil(),
+  connectVeil: (m) => connectVeil(m.serverId),
+  disconnectVeil: () => routeOff(),
   openApp: (m) => openApp(m.id),
   toggleTor: (m) => setTor(m.enabled === true, m.port),
   checkTor: () => checkTor(),

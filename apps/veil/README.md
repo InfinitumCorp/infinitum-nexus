@@ -1,12 +1,12 @@
 # VEIL</>
 
-Infinitum Corporation® Tor extension for this browser, plus the signed-in sidebar used beside the rest of the ecosystem.
+Infinitum Corporation® cyber proxy for this browser. The default route is the VEIL exit (a Cumulus ID with a VEIL plan). Tor is an optional mode through a local Tor client. The signed-in sidebar still sits beside the rest of the ecosystem.
 
 ## Limits
 
-VEIL routes **traffic in this browser** through a Tor client you already run on this machine. It is not a device-wide VPN.
+Both modes cover **traffic in this browser**. This is not a device-wide VPN.
 
-A Tor extension in Chrome or Firefox does **not** give Tor Browser fingerprinting protection. Sites can still see this browser's fonts, screen size, APIs, and other traits that Tor Browser equalizes. VEIL does not modify those surfaces.
+Tor mode does **not** give Tor Browser fingerprinting protection. Sites can still see this browser's fonts, screen size, APIs, and other traits that Tor Browser equalizes. VEIL does not modify those surfaces.
 
 - Other applications, the operating system, and browsers without this extension are unchanged.
 - DNS for proxied requests, including `.onion` names, is resolved by Tor (SOCKS5, and `proxyDNS` on Firefox). The operating system's resolver is not reconfigured.
@@ -18,9 +18,15 @@ A Tor extension in Chrome or Firefox does **not** give Tor Browser fingerprintin
 - Circuit isolation uses a different SOCKS username and password per site and tab. That only builds separate circuits when the local client has `IsolateSOCKSAuth`. Tor Browser's port 9150 already does. A system Tor on 9050 needs a line such as `SocksPort 9050 IsolateSOCKSAuth`.
 - New circuit rotates that SOCKS identity. New Identity also clears site data and closes tabs. Neither signal reaches Tor's control port.
 
+## Modes
+
+The toolbar popup switches **VEIL VPN**, **Tor**, or **Off**. Only one route is on at a time. Both active routes disable non-proxied WebRTC UDP and send DNS through the proxy. If the selected route does not answer, browser traffic stays blocked.
+
+VEIL VPN is the default. It needs the signed-in workspace, a live Cumulus ID session, and a VEIL plan. The extension sends a server id. The control plane mints a short-lived proxy password. That password is not stored.
+
 ## Tor routing
 
-The toolbar popup and the sidebar Privacy tab share one switch.
+Tor does not call Infinitum servers. The toolbar and the sidebar Privacy tab can turn it on.
 
 | Client | SOCKS address |
 | --- | --- |

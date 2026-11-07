@@ -67,7 +67,7 @@ test("Chrome points at local SOCKS5 and a proxy error does not fall open", async
   assert.equal(proxy.onProxyError(), true);
   proxy.markUnreachable();
   assert.equal(proxy.status, "unreachable");
-  assert.equal(proxy.mode, "on");
+  assert.equal(proxy.mode, "tor");
   assert.equal(chrome.calls.clear, 0);
   await proxy.disable();
   assert.equal(chrome.calls.clear, 1);

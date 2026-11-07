@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { FREE_ENTITLEMENTS } from "@infinitum/cid";
 import { createVeilControl } from "./control.ts";
 import { veilFromEnv } from "./env.ts";
-import { veilFixture, VEIL_BRIDGES } from "./testing.ts";
+import { veilFixture, VEIL_BRIDGES, VEIL_SERVERS } from "./testing.ts";
 
 test("a live Cumulus ID session without a VEIL plan cannot read bridges", async () => {
   const fx = await veilFixture();
@@ -11,10 +11,12 @@ test("a live Cumulus ID session without a VEIL plan cannot read bridges", async 
   assert.equal("veil" in FREE_ENTITLEMENTS, false);
   const session = fx.control.session(user.token);
   assert.equal(session.entitled, false);
-  assert.equal(session.routing, "local-tor");
   assert.equal(session.deviceWide, false);
+  assert.equal(session.defaultMode, "veil");
+  assert.deepEqual(session.servers, []);
   assert.equal(JSON.stringify(session).includes("192.0.2.10"), false);
   assert.equal(JSON.stringify(session).includes("password"), false);
+  assert.throws(() => fx.control.connect(user.token, "iad-1"), /VEIL entitlement/);
   assert.throws(() => fx.control.bridges(user.token), /VEIL entitlement/);
 });
 
@@ -24,6 +26,15 @@ test("another product grant and a revoked session do not publish bridges", async
   await fx.cid.grant(user.account.cid, "spectre", ["crm:read"]);
   await fx.cid.grant(user.account.cid, "veil", ["proxy:connect"]);
   assert.equal(fx.control.session(user.token).entitled, false);
+  fx.entitled.add(user.account.cid);
+  assert.deepEqual(fx.control.session(user.token).servers, VEIL_SERVERS);
+  const grant = fx.control.connect(user.token, "iad-1");
+  assert.equal(grant.defaultMode, "veil");
+  assert.equal(grant.dns, "through-proxy");
+  assert.equal(grant.server.host, "veil-iad.example");
+  assert.equal(fx.control.authorizeProxy(grant.auth.username, grant.auth.password), true);
+  fx.entitled.delete(user.account.cid);
+  assert.equal(fx.control.authorizeProxy(grant.auth.username, grant.auth.password), false);
   fx.entitled.add(user.account.cid);
   assert.deepEqual(fx.control.bridges(user.token).bridges, VEIL_BRIDGES);
   await fx.cid.revokeSession(user.account.cid, user.session.id);
@@ -64,10 +75,13 @@ test("bridge config rejects proxy passwords, private keys, and remote routing in
   assert.equal(config.entitled("cid_anything"), false);
   const armed = veilFromEnv({
     VEIL_ENTITLED_CIDS: "cid_one, cid_two",
+    VEIL_SERVERS: JSON.stringify(VEIL_SERVERS),
     VEIL_BRIDGES: JSON.stringify(VEIL_BRIDGES),
   });
   assert.equal(armed.entitled("cid_one"), true);
   assert.equal(armed.entitled("cid_three"), false);
+  assert.equal(armed.servers[0]?.id, "iad-1");
+  assert.equal(JSON.stringify(armed.servers).includes("password"), false);
   assert.equal(armed.bridges.length, 1);
   assert.throws(() => veilFromEnv({ VEIL_ENTITLED_CIDS: "alex" }), /invalid/);
   assert.throws(() => veilFromEnv({ VEIL_BRIDGES: '{"password":"secret"}' }), /list|Bridge/);

@@ -130,6 +130,8 @@ test("env: OmniRoute defaults to its auto model; order override works", () => {
   const o = providersFromEnv({ OMNIROUTE_API_KEY: "k" });
   assert.deepEqual(o.map((p) => p.name), ["omniroute"]);
   assert.deepEqual(o[0]!.tierModels, { smart: "auto", fast: "auto" });
+  const local = providersFromEnv({ OMNIROUTE_BASE_URL: "http://localhost:20128/v1" });
+  assert.deepEqual(local.map((p) => [p.name, p.apiKey]), [["omniroute", undefined]]);
   const p = providersFromEnv({ GROQ_API_KEY: "a", TOGETHER_API_KEY: "b", AI_PROVIDER_ORDER: "together,groq" });
   assert.deepEqual(p.map((x) => x.name), ["together", "groq"]);
 });

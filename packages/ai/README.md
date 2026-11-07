@@ -21,7 +21,7 @@ Hosts are tried in this order. Set any subset of them; `AI_PROVIDER_ORDER=omniro
 | Variable | Host |
 |---|---|
 | `AI_BASE_URL` (+ `AI_API_KEY`, `AI_MODELS` or `AI_MODEL`) | Self-hosted vLLM / SGLang / llama.cpp |
-| `OMNIROUTE_API_KEY` (+ `OMNIROUTE_BASE_URL`, `OMNIROUTE_SMART_MODEL`, `OMNIROUTE_FAST_MODEL`) | [OmniRoute](http://localhost:20128). The default URL is `http://localhost:20128/v1` and the default model is `auto`. Name a combo to pin one. |
+| `OMNIROUTE_BASE_URL` and/or `OMNIROUTE_API_KEY` (+ `OMNIROUTE_SMART_MODEL`, `OMNIROUTE_FAST_MODEL`) | [OmniRoute](http://localhost:20128). Either variable turns it on; a local gateway needs no key. The default URL is `http://localhost:20128/v1` and the default model is `auto`. Name a combo to pin one. |
 | `GROQ_API_KEY`, `CEREBRAS_API_KEY`, `TOGETHER_API_KEY`, `FIREWORKS_API_KEY`, `DEEPINFRA_API_KEY`, `OPENROUTER_API_KEY` | Hosted open models |
 | `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_AI_TOKEN` | Cloudflare Workers AI |
 | `OLLAMA_BASE_URL` | Local Ollama, e.g. `http://localhost:11434/v1` |

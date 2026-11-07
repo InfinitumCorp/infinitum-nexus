@@ -4,7 +4,8 @@
  *
  * Hosts (any subset; tried in this order unless AI_PROVIDER_ORDER is set):
  *   AI_BASE_URL (+ AI_API_KEY, AI_MODELS)   self-hosted OpenAI-compatible server (vLLM, SGLang, llama.cpp)
- *   OMNIROUTE_API_KEY (+ OMNIROUTE_BASE_URL, OMNIROUTE_SMART_MODEL, OMNIROUTE_FAST_MODEL)
+ *   OMNIROUTE_BASE_URL and/or OMNIROUTE_API_KEY (+ OMNIROUTE_SMART_MODEL, OMNIROUTE_FAST_MODEL)
+ *                                            a local gateway needs no key; either variable enables it
  *                                            OmniRoute gateway, default http://localhost:20128/v1,
  *                                            model "auto" (OmniRoute picks) unless a combo is named
  *   GROQ_API_KEY, CEREBRAS_API_KEY, TOGETHER_API_KEY, FIREWORKS_API_KEY,
@@ -48,7 +49,7 @@ export function providersFromEnv(env: Env = process.env): Provider[] {
     list.push({ name: "self-hosted", baseUrl: env.AI_BASE_URL, apiKey: env.AI_API_KEY, models });
   }
 
-  if (env.OMNIROUTE_API_KEY) {
+  if (env.OMNIROUTE_API_KEY || env.OMNIROUTE_BASE_URL) {
     list.push({
       name: "omniroute",
       baseUrl: env.OMNIROUTE_BASE_URL ?? "http://localhost:20128/v1",

@@ -20,3 +20,5 @@ export { runScenario } from "./sim/scenario.ts";
 export type { ScenarioOptions, ScenarioResult } from "./sim/scenario.ts";
 
 export { createAetherLabyrinth } from "./labyrinth.ts";
+
+export {createAetherArchiveClient} from "./ingest.ts";

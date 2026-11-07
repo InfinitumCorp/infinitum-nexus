@@ -1,0 +1,49 @@
+Infinitum Corporation® — archival ingestion infrastructure
+
+This package is an independent TypeScript implementation of generic backend patterns.
+No upstream Go, Swift, C++, Java or Python implementation was vendored or mechanically
+translated. Public-source research informed the following architectural boundaries:
+
+Tesla, Inc. — fleet-telemetry (Apache License 2.0)
+https://github.com/teslamotors/fleet-telemetry
+Reviewed telemetry/producer.go and telemetry/serializer.go at
+bb7c8a931e46da3b3eb6d20a67541c8f755f1ee6.
+Applied dispatcher interfaces, sender-binding principle and explicit acknowledgement
+stages. Our wire format, CID authorization and Labyrinth outbox are different.
+
+The SwiftMetrics Project — Copyright 2018, 2019 The SwiftMetrics Project
+https://github.com/apple/swift-metrics (Apache License 2.0)
+Reviewed MetricsFactory/CounterHandler at 2c13e7385089ea705ee3009ea6cbe41db843930e.
+Applied replaceable metrics sink/counter/recorder separation; our labels are fixed.
+Unmodified upstream NOTICE is preserved in licenses/swift-metrics-NOTICE.txt for
+provenance, not as a claim that SwiftNIO locks/scripts are included here.
+
+Copyright 2018 Palantir Technologies, Inc.
+https://github.com/palantir/go-baseapp (Apache License 2.0)
+Reviewed baseapp/middleware.go and baseapp/metrics.go at
+a7849556cb6502cc67a7dd8e462959fb1c6ad35d.
+Applied bounded middleware, error isolation and response-class counters. We do not
+adopt its proxy-header trust behavior or log request credentials/URLs.
+
+Copyright (c) Meta Platforms, Inc. and affiliates.
+https://github.com/facebook/folly/blob/main/folly/TokenBucket.h
+Apache License 2.0. Reviewed on 2026-11-07.
+Applied generic refill/burst semantics in an independent single-process token bucket;
+no C++ atomic implementation copied.
+
+Copyright (c) 2022 DJI-SDK
+https://github.com/dji-sdk/DJI-Cloud-API-Demo (MIT License)
+Reviewed CommonTopicRequest, TopicOsdRequest and OsdDock at
+bef525cb92772b06786c1e033719a6fa1b94bcc5.
+Applied envelope/topic field compatibility for an offline diagnostic subset only.
+Unmodified MIT notice is in licenses/DJI-MIT.txt. No demo server or command code used.
+
+Planet Labs, Inc. / Planet Labs PBC.
+https://github.com/planetlabs/planet-client-python (Apache License 2.0)
+Reviewed models.py and SDK metadata boundaries at 9b5e50b4faeb6d2c5a87c568b702c7abe0eabcd9.
+No SDK code or wire/API implementation copied. Our generic catalog manifest is new,
+local-only provenance and not a Planet/STAC compatibility implementation.
+
+The Apache License 2.0 text is preserved in licenses/Apache-2.0.txt. These source
+attributions do not assert endorsement, product compatibility or access rights to
+commercial APIs, datasets, services or proprietary code.

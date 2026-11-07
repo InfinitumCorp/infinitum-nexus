@@ -5,3 +5,5 @@ export type { Series, Point } from "./analytics.ts";
 export { project } from "./forecast.ts";
 
 export { createMetatronLabyrinth } from "./labyrinth.ts";
+
+export {createMetatronArchiveClient} from "./ingest.ts";

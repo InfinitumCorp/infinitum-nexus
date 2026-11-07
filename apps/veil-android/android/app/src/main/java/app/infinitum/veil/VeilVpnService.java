@@ -86,7 +86,19 @@ public final class VeilVpnService extends VpnService {
     }
 
     public String status() {
-        return status;
+        return phase();
+    }
+
+    /**
+     * interface-up means the TUN exists. handshake-complete means the peer
+     * finished a WireGuard handshake. Neither means public internet access.
+     */
+    public synchronized String phase() {
+        if ("interface-up".equals(code) && Mobile.clientHandshakeUnix() > 0L) {
+            code = "handshake-complete";
+            status = "handshake-complete";
+        }
+        return code;
     }
 
     public String code() {
@@ -116,7 +128,7 @@ public final class VeilVpnService extends VpnService {
                     : "bad-endpoint";
             return code;
         }
-        if ("up".equals(status)) {
+        if ("interface-up".equals(status) || "handshake-complete".equals(status)) {
             code = "already-up";
             return code;
         }
@@ -166,8 +178,8 @@ public final class VeilVpnService extends VpnService {
             code = message.contains("protect") ? "protect-failed" : "failed";
             return code;
         }
-        status = "up";
-        code = "up";
+        status = "interface-up";
+        code = "interface-up";
         if (cfg.failIfNoHandshake) {
             int wait = Math.max(cfg.handshakeWaitMs, 1000);
             main.postDelayed(() -> {
@@ -215,7 +227,7 @@ public final class VeilVpnService extends VpnService {
         }
         Notification notification = new Notification.Builder(this, "veil")
                 .setContentTitle("VEIL")
-                .setContentText("Lab tunnel is up. Not a production kill switch.")
+                .setContentText("VEIL interface up. Handshake is separate. No kill switch.")
                 .setSmallIcon(android.R.drawable.ic_lock_lock)
                 .build();
         if (Build.VERSION.SDK_INT >= 34) {

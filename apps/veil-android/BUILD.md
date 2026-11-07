@@ -46,16 +46,19 @@ cd tunnel && go test -count=1 -race -timeout 180s ./...
 The packaged debug APK contains only `arm64-v8a` (`lib/arm64-v8a/libgojni.so`).
 Gradle’s debug keystore signs it. That is not a Play upload key.
 
-Agent build of this tree, copied to `/opt/cursor/artifacts/veil-arm64-v8a-debug.apk`:
+Agent build of this tree:
 
 ```
-b3481476962f97821273ccf27cfce6d2916e20bc94c8d0c42eaab19b5d6ace8b
+app:  /opt/cursor/artifacts/veil-arm64-v8a-debug.apk
+      3a39b48de5d35f33e6d2900717c4746331bdae521060684a03272e63ffdc5152
+test: /opt/cursor/artifacts/veil-arm64-v8a-debug-androidTest.apk
+      f6a63819374398aba9dd66a27220d1788bd7a8c7d5d1468fed08d1b642b23b1e
 ```
 
 ```
 applicationId: app.infinitum.veil
-versionName: 0.1.0-debug
-versionCode: 1
+versionName: 0.1.1-debug
+versionCode: 2
 minSdk: 26
 targetSdk: 35
 abi: arm64-v8a
@@ -87,9 +90,13 @@ displays the product name. The supported entry is `VeilVpnService.connect`:
 Install and open, after `adb` is available:
 
 ```sh
-adb install -r android/app/build/outputs/apk/debug/app-debug.apk
+adb install -r veil-arm64-v8a-debug.apk
+adb install -r veil-arm64-v8a-debug-androidTest.apk
 adb shell am start -n app.infinitum.veil/.MainActivity
+adb shell am instrument -w app.infinitum.veil.test/androidx.test.runner.AndroidJUnitRunner
 ```
+
+Connect asks for the system VPN consent screen. It does not start at launch. Operator mode takes an IPv4 peer and two 64-character hex keys; the private key is not saved. The debug-only "Start local test peer" button mints disposable keys in memory. Release builds omit that button. Interface up is not a completed handshake and is not internet access.
 
 The launcher does not connect. `infinitumveilvpn.app` is the product name and is
 rejected as a peer. A tunnel starts only when `VeilVpnService.connect` is given

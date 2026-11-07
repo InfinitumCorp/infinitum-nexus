@@ -10,8 +10,9 @@ android {
         applicationId = "app.infinitum.veil"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0-debug"
+        versionCode = 2
+        versionName = "0.1.1-debug"
+        testApplicationId = "app.infinitum.veil.test"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk {
             abiFilters += "arm64-v8a"

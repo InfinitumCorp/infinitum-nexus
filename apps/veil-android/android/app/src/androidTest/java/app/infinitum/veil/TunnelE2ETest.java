@@ -66,13 +66,18 @@ public class TunnelE2ETest {
 
     @Test
     public void encryptedRoundTripAndNegatives() throws Exception {
+        assertEquals(
+                "domain-is-not-an-endpoint",
+                service.connect(config("", "", "infinitumveilvpn.app:51820", false, 0, false)));
+        assertEquals("down", service.status());
+
         String deviceIp = underlyingV4();
         String[] client = Mobile.mintKey().split(" ");
         String[] peer = Mobile.mintKey().split(" ");
         byte[] payload = "VEIL-E2E-ROUNDTRIP".getBytes(StandardCharsets.US_ASCII);
 
         String up = service.connect(config(client[0], peer[1], "127.0.0.1:9", false, 0, false));
-        assertEquals("up", up);
+        assertEquals("interface-up", up);
         assertFalse(service.dnsInstalled());
         int peerPort = Mobile.peerStart(peer[0], client[1], "127.0.0.1:9", 0, fd -> service.protect((int) fd));
         Mobile.setClientPeer(deviceIp + ":" + peerPort);
@@ -82,6 +87,7 @@ public class TunnelE2ETest {
         assertTrue("decrypted payload did not arrive", waitForPayload(payload, 12_000));
         assertFalse("inner payload was on the UDP socket", Mobile.wireHasPlaintext(payload));
         assertTrue(Mobile.clientHandshakeUnix() > 0L);
+        assertEquals("handshake-complete", service.phase());
 
         service.disconnect();
         assertFalse(Mobile.clientUp());
@@ -90,7 +96,7 @@ public class TunnelE2ETest {
 
         String[] wrong = Mobile.mintKey().split(" ");
         up = service.connect(config(client[0], wrong[1], "127.0.0.1:9", false, 0, false));
-        assertEquals("up", up);
+        assertEquals("interface-up", up);
         peerPort = Mobile.peerStart(peer[0], client[1], "127.0.0.1:9", 0, fd -> service.protect((int) fd));
         Mobile.setClientPeer(deviceIp + ":" + peerPort);
         Mobile.setInprocessPeer(deviceIp + ":" + service.listenPort());
@@ -107,7 +113,7 @@ public class TunnelE2ETest {
         assertEquals("down", service.status());
 
         up = service.connect(config(client[0], peer[1], "127.0.0.1:9", true, 1500, false));
-        assertEquals("up", up);
+        assertEquals("interface-up", up);
         peerPort = Mobile.peerStart(peer[0], client[1], "127.0.0.1:9", 0, fd -> service.protect((int) fd));
         Mobile.setClientPeer(deviceIp + ":" + peerPort);
         service.onRevoke();
@@ -116,7 +122,7 @@ public class TunnelE2ETest {
         Mobile.stopPeer();
 
         up = service.connect(config(client[0], peer[1], "127.0.0.1:9", false, 0, false));
-        assertEquals("up", up);
+        assertEquals("interface-up", up);
         peerPort = Mobile.peerStart(peer[0], client[1], "127.0.0.1:9", 0, fd -> service.protect((int) fd));
         Mobile.setClientPeer(deviceIp + ":" + peerPort);
         Mobile.setInprocessPeer(deviceIp + ":" + service.listenPort());

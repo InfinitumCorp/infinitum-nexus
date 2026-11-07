@@ -68,6 +68,8 @@ export interface Deal {
   createdAt: string;
   updatedAt: string;
   lostReason?: string;
+  /** The open stage a deal was in when it was won or lost (lets METATRON learn stage win rates). */
+  closedFrom?: Stage;
 }
 
 export type ActivityKind = "email" | "call" | "meeting" | "note" | "task";

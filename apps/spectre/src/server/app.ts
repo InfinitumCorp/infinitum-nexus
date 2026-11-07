@@ -5,7 +5,8 @@ import { join, normalize, extname } from "node:path";
 import { CidService, CidError, cumulusCorsHeaders, type Account } from "@infinitum/cid";
 import type { CumulusSuite } from "@infinitum/cumulus";
 import { SpectreCRM, SpectreError } from "../core/crm.ts";
-import { scoreDealMetatron as scoreDeal } from "../core/intelligence-metatron.ts";
+import { scoreDealMetatron as scoreDeal, learnedContextFor } from "../core/intelligence-metatron.ts";
+import { backtestReport, industryLookup, learnedFor, DEFAULT_MODEL, LEARNED_MODEL } from "../core/metatron-learned.ts";
 import { nextBestAction, forecast, riskAlerts, type Score } from "../core/intelligence.ts";
 import { warmestPath, buyingCommittee, committeeGaps } from "../core/relationships.ts";
 import {
@@ -296,11 +297,32 @@ export function createApp(deps: AppDeps) {
 
   /* ---------------- Today / dashboard ---------------- */
 
+  const learnedCtx = (ws: string) => learnedContextFor(ws, crm.list("deals", ws), crm.list("activities", ws), crm.list("companies", ws));
   const scoresFor = (ws: string) => {
     const acts = crm.list("activities", ws);
     const now = crm.now();
-    return new Map<string, Score>(crm.list("deals", ws).map((d) => [d.id, scoreDeal(d, acts, now)]));
+    const learned = learnedCtx(ws);
+    return new Map<string, Score>(crm.list("deals", ws).map((d) => [d.id, scoreDeal(d, acts, now, learned)]));
   };
+
+  /* ---------------- METATRON ---------------- */
+
+  /** Which METATRON model scores this workspace, and how close it is to a learned one. */
+  const metatronStatus = (ws: string) => {
+    if (process.env.USE_METATRON !== "1") return { on: false, model: "baseline" };
+    const state = learnedFor(ws, crm.list("deals", ws), crm.list("activities", ws), industryLookup(crm.list("companies", ws)));
+    return state.ready
+      ? { on: true, model: LEARNED_MODEL, closedDeals: state.closedDeals, won: state.won, lost: state.lost }
+      : { on: true, model: DEFAULT_MODEL, closedDeals: state.closedDeals, won: state.won, lost: state.lost, learning: state.reason };
+  };
+
+  route("GET", "/api/metatron", (ctx) => metatronStatus(ctx.user!.workspace));
+
+  route("GET", "/api/metatron/backtest", (ctx) => {
+    const ws = ctx.user!.workspace;
+    const holdout = Number(ctx.query.get("holdout") || 0.3);
+    return backtestReport(crm.list("deals", ws), crm.list("activities", ws), industryLookup(crm.list("companies", ws)), holdout > 0 && holdout < 1 ? holdout : 0.3);
+  });
 
 
 
@@ -395,6 +417,7 @@ export function createApp(deps: AppDeps) {
       byKind,
       byIndustry,
       metatron: process.env.USE_METATRON === "1",
+      metatronModel: metatronStatus(ws).model,
     };
   });
 
@@ -535,7 +558,7 @@ export function createApp(deps: AppDeps) {
     const ws = ctx.user!.workspace;
     const deal = crm.deal(ws, ctx.params.id);
     const acts = crm.list("activities", ws);
-    const score = scoreDeal(deal, acts, crm.now());
+    const score = scoreDeal(deal, acts, crm.now(), learnedCtx(ws));
     return {
       deal,
       company: crm.company(ws, deal.companyId),

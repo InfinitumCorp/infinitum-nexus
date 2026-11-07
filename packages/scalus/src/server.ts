@@ -1,0 +1,50 @@
+/**
+ * SCALVS.ai runtime.
+ *
+ *   PORT            listen port, default 3020. 0 lets the operating system choose.
+ *   SCALVS_ORIGIN   public origin, default https://scalvs.app
+ *   ANTHROPIC_API_KEY   enables POST /v1/llm/run. The request body cannot set it.
+ *   ANTHROPIC_MODEL     model for /v1/llm/run, default claude-sonnet-4-5
+ *
+ *   pnpm --filter @infinitum/scalus start
+ *   pnpm --filter @infinitum/scalus build && node packages/scalus/dist/server.js
+ */
+import { loadConfig } from "./config.ts";
+import { createScalvsServer } from "./http.ts";
+
+function readConfig() {
+  try {
+    return loadConfig();
+  } catch (err) {
+    console.error(err instanceof Error ? err.message : "invalid configuration");
+    process.exit(1);
+  }
+}
+
+const config = readConfig();
+const server = createScalvsServer({
+  origin: config.origin,
+  apiKey: process.env.ANTHROPIC_API_KEY,
+  model: process.env.ANTHROPIC_MODEL,
+});
+server.requestTimeout = 30_000;
+server.headersTimeout = 10_000;
+
+server.on("error", (err: unknown) => {
+  console.error(err instanceof Error ? err.message : "server error");
+  process.exit(1);
+});
+
+server.listen(config.port, "0.0.0.0", () => {
+  const address = server.address();
+  const port = typeof address === "object" && address ? address.port : config.port;
+  console.log(JSON.stringify({ event: "listening", service: "scalvs", origin: config.origin, port }));
+});
+
+function shutdown() {
+  server.closeIdleConnections();
+  server.close(() => process.exit(0));
+}
+
+process.on("SIGTERM", shutdown);
+process.on("SIGINT", shutdown);

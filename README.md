@@ -99,3 +99,9 @@ Labyrinth now has real Cumulus ID session authentication and a browser/Worker-sa
 `@infinitum/lbrnth-client` transport. All website product brands are registered;
 implemented products have explicit artifact adapters, while five unimplemented
 brands remain registry-only. See [product/auth integration matrix](docs/LBRNTH-INTEGRATIONS.md).
+
+The Labyrinth repository workspace now runs at `/labyrinth` in +SPCTR and Cumulus
+Mail: private repositories, text/binary artifacts, commits, branches/tags, member
+roles and paged history/audit. Offline maintenance supports verify, backup and key
+rotation. See [build/run guide](docs/LBRNTH-BUILD.md). Production activation remains
+operator-controlled.

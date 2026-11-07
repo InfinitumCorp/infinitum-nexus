@@ -1,3 +1,4 @@
+import { serveNodeLabyrinthUI } from "@infinitum/lbrnth";
 import { serveNodeLabyrinth } from "@infinitum/lbrnth";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { readFile } from "node:fs/promises";
@@ -1093,6 +1094,7 @@ export function createApp(deps: AppDeps) {
       return;
     }
     try {
+      if (url.pathname === "/labyrinth" || url.pathname.startsWith("/labyrinth/")) return await serveNodeLabyrinthUI(req, res);
       if (url.pathname === "/api/labyrinth") return await serveNodeLabyrinth(req, res, deps.suite?.labyrinth, parseCookies(req.headers.cookie)[COOKIE], deps.onChange);
       if (url.pathname.startsWith("/api/veil/")) return await serveNodeVeil(req, res, veilControl, deps.origin);
       if (!url.pathname.startsWith("/api/")) {

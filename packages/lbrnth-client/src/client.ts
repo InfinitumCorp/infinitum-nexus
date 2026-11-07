@@ -1,12 +1,26 @@
 /** Browser/Worker-safe client. Never accepts CID/org claims as authentication. */
 export interface RepositoryInfo { id: string; name: string; visibility: "private"; branches: Record<string, string | null>; tags: Record<string, string> }
 export interface ArtifactCommit { id: string; parent: string | null; tree: Record<string, string>; author: string; message: string; at: string }
+export interface EncodedArtifact { content: string; encoding: "utf-8" | "base64" }
+export type ArtifactChanges = Record<string, string | EncodedArtifact | null>;
+export type RepositoryRole = "owner" | "admin" | "writer" | "reader";
+export interface RepositoryMember { cid: string; role: RepositoryRole }
+export interface RepositoryAuditEntry { sequence: number; actor: string; action: string; repoId?: string; at: string; previous: string | null; hash: string }
+export interface RepositorySession { cid: string; organization: { id: string; name: string; admin: boolean }; scopes: string[]; delegated: boolean }
 export type LabyrinthCommand =
+  | { action: "commit"; repo: string; changes: ArtifactChanges; expectedHead: string | null; message: string; branch?: string }
+  | { action: "session" }
+  | { action: "branch"; repo: string; name: string; from: string | null }
+  | { action: "tag"; repo: string; name: string; commit: string }
+  | { action: "members" }
+  | { action: "set-member"; member: string; memberRole: RepositoryRole | null }
+  | { action: "audit"; after?: number; limit?: number }
+  | { action: "remove"; repo: string; path: string; expectedHead: string; message?: string; branch?: string }
   | { action: "list" }
   | { action: "create"; name: string }
-  | { action: "save"; repo: string; path: string; content: string; expectedHead: string | null; message?: string; branch?: string }
-  | { action: "load"; repo: string; commit: string; path: string }
-  | { action: "history"; repo: string; branch?: string; limit?: number }
+  | { action: "save"; repo: string; path: string; content: string; encoding?: "utf-8" | "base64"; expectedHead: string | null; message?: string; branch?: string }
+  | { action: "load"; repo: string; commit: string; path: string; encoding?: "utf-8" | "base64" }
+  | { action: "history"; repo: string; branch?: string; limit?: number; before?: string }
   | { action: "diff"; repo: string; from: string | null; to: string }
   | { action: "provision" }
   | { action: "token" }
@@ -37,11 +51,21 @@ export function createLabyrinthClient(product: string, options: LabyrinthClientO
   };
   return {
     product,
+    commit: (repo: string, changes: ArtifactChanges, expectedHead: string | null, message: string, branch?: string) => send<ArtifactCommit>({ action: "commit", repo, changes, expectedHead, message, branch }),
+    saveArtifact: (repo: string, path: string, artifact: EncodedArtifact, expectedHead: string | null, message?: string, branch?: string) => send<ArtifactCommit>({ action: "save", repo, path, ...artifact, expectedHead, message, branch }),
+    loadArtifact: (repo: string, commit: string, path: string) => send<EncodedArtifact>({ action: "load", repo, commit, path, encoding: "base64" }),
+    session: () => send<RepositorySession>({ action: "session" }),
+    createBranch: (repo: string, name: string, from: string | null) => send<void>({ action: "branch", repo, name, from }),
+    createTag: (repo: string, name: string, commit: string) => send<void>({ action: "tag", repo, name, commit }),
+    members: () => send<RepositoryMember[]>({ action: "members" }),
+    setMember: (member: string, memberRole: RepositoryRole | null) => send<void>({ action: "set-member", member, memberRole }),
+    audit: (after?: number, limit?: number) => send<RepositoryAuditEntry[]>({ action: "audit", after, limit }),
+    remove: (repo: string, path: string, expectedHead: string, message?: string, branch?: string) => send<ArtifactCommit>({ action: "remove", repo, path, expectedHead, message, branch }),
     repositories: () => send<RepositoryInfo[]>({ action: "list" }),
     createRepository: (name: string) => send<RepositoryInfo>({ action: "create", name }),
     save: (repo: string, path: string, content: string, expectedHead: string | null, message?: string, branch?: string) => send<ArtifactCommit>({ action: "save", repo, path, content, expectedHead, message, branch }),
     load: async (repo: string, commit: string, path: string) => (await send<{ content: string }>({ action: "load", repo, commit, path })).content,
-    history: (repo: string, branch?: string, limit?: number) => send<ArtifactCommit[]>({ action: "history", repo, branch, limit }),
+    history: (repo: string, branch?: string, limit?: number, before?: string) => send<ArtifactCommit[]>({ action: "history", repo, branch, limit, before }),
     diff: (repo: string, from: string | null, to: string) => send<{ path: string; before: string | null; after: string | null; kind: string }[]>({ action: "diff", repo, from, to }),
     /** User-invoked consent only; requires direct CID login, not a repository token. */
     consent: (scopes: ("repo:read" | "repo:write" | "repo:admin")[]) => send<unknown>({ action: "consent", scopes }),

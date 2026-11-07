@@ -238,3 +238,18 @@ describe("SCALVS Clean agent", () => {
     assert.equal((await kim.call("POST", "/api/schedule/cancel", { id: r.data.id })).status, 404);
   });
 });
+
+it("mounts the shared Labyrinth UI while keeping an unconfigured repository API unavailable", async () => {
+  const b = new Browser();
+  const ui = await b.call("GET", "/labyrinth");
+  assert.equal(ui.status, 200);
+  assert.match(ui.data, /Labyrinth/);
+  assert.match(ui.data, /data-product="cumulus-mail"/);
+  assert.equal(ui.headers.get("cache-control"), "no-store");
+  assert.match(ui.headers.get("x-robots-tag") ?? "", /noindex/);
+  const js = await b.call("GET", "/labyrinth/assets/app.js");
+  assert.equal(js.status, 200);
+  assert.match(js.headers.get("content-type") ?? "", /javascript/);
+  const unavailable = await b.call("POST", "/api/labyrinth", { product: "cumulus-mail", action: "list" }, { "x-labyrinth": "1" });
+  assert.equal(unavailable.status, 503);
+});

@@ -21,7 +21,7 @@ export async function serveNodeLabyrinth(req: IncomingMessage, res: ServerRespon
     const command = JSON.parse(Buffer.concat(chunks).toString("utf8"));
     const result = await labyrinthCommand(auth, token, command);
     if (command.action === "consent") onChange?.();
-    respond(200, result);
+    respond(200, result ?? null);
   } catch (error) {
     const status = labyrinthErrorStatus(error);
     respond(status, { error: status >= 500 ? "Labyrinth unavailable" : "Labyrinth request denied" });

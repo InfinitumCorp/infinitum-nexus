@@ -218,13 +218,20 @@ export class Labyrinth {
       repo.tags[name] = commitId;
     }, repoId);
   }
-  history(cid: string, orgId: string, repoId: string, branch = "main", limit = 100): Commit[] {
+  history(cid: string, orgId: string, repoId: string, branch = "main", limit = 100, before?: string): Commit[] {
     return this.#run(cid, orgId, "repo:read", "history.read", org => {
       if (!Number.isInteger(limit) || limit < 1 || limit > 1000) fail("invalid", "History limit is 1–1000");
       const repo = this.#repo(org, repoId);
       if (!own(repo.branches, branch)) fail("not_found", "Branch not found");
+      const byId = new Map(repo.commits.map(commit => [commit.id, commit]));
       const commits: Commit[] = []; let id = repo.branches[branch];
-      while (id && commits.length < limit) { const c = this.#commit(repo, id); commits.push(c); id = c.parent; }
+      if (before !== undefined) {
+        if (typeof before !== "string" || !before) fail("invalid", "Invalid history cursor");
+        while (id && id !== before) id = byId.get(id)!.parent;
+        if (!id) return fail("not_found", "History cursor is not on this branch");
+        id = byId.get(id)!.parent;
+      }
+      while (id && commits.length < limit) { const c = byId.get(id)!; commits.push(c); id = c.parent; }
       return commits;
     }, repoId);
   }
@@ -253,8 +260,13 @@ export class Labyrinth {
   recordCredentialIssue(cid: string, orgId: string) {
     this.#run(cid, orgId, "repo:read", "credential.issue", () => undefined);
   }
-  audit(cid: string, orgId: string) {
-    return this.#run(cid, orgId, "repo:admin", "audit.read", org => [...org.audit]);
+  audit(cid: string, orgId: string, after?: number, limit?: number) {
+    return this.#run(cid, orgId, "repo:admin", "audit.read", org => {
+      if (after === undefined && limit === undefined) return [...org.audit];
+      const cursor = after ?? 0; const size = limit ?? 100;
+      if (!Number.isSafeInteger(cursor) || cursor < 0 || !Number.isSafeInteger(size) || size < 1 || size > 1000) fail("invalid", "Invalid audit page");
+      return org.audit.slice(cursor, cursor + size);
+    });
   }
   /** @deprecated Trusted server-internal API only; use CidLabyrinth.forSession for real CID authentication.
    * Bind only an authenticated CID. Host products can share this SDK without trusting client claims. */
@@ -264,7 +276,7 @@ export class Labyrinth {
       createRepository: (name: string) => this.createRepository(cid, orgId, name),
       commit: (repo: string, input: CommitInput) => this.commit(cid, orgId, repo, input),
       readFile: (repo: string, commit: string, path: string) => this.readFile(cid, orgId, repo, commit, path),
-      history: (repo: string, branch?: string, limit?: number) => this.history(cid, orgId, repo, branch, limit),
+      history: (repo: string, branch?: string, limit?: number, before?: string) => this.history(cid, orgId, repo, branch, limit, before),
       diff: (repo: string, from: string | null, to: string) => this.diff(cid, orgId, repo, from, to),
       createBranch: (repo: string, name: string, from: string | null) => this.createBranch(cid, orgId, repo, name, from),
       createTag: (repo: string, name: string, commit: string) => this.createTag(cid, orgId, repo, name, commit),

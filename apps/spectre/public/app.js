@@ -216,7 +216,7 @@ function renderShell(page) {
             <a href="#/conjure" data-p="conjure">${icon.conjure}<span>Conjure<sup class="tm">™</sup></span></a>
           </nav>
           <div class="spacer"></div>
-          <nav class="nav"><a href="#/settings" data-p="settings">${icon.settings}Settings</a></nav>
+          <nav class="nav"><a href="/labyrinth">Labyrinth *LBRNTH<sup class="tm">™</sup></a><a href="#/settings" data-p="settings">${icon.settings}Settings</a></nav>
           <div class="me">
             <div class="avatar">${esc(initials(state.me.username))}</div>
             <div class="who"><div>${esc(state.me.username)}</div>${state.me.cumulus

@@ -1,3 +1,4 @@
+import { serveNodeLabyrinthUI } from "@infinitum/lbrnth";
 import { serveNodeLabyrinth } from "@infinitum/lbrnth";
 /**
  * Cumulus://Mail HTTP app. Sign-in is Cumulus://ID; every request is scoped to the signed-in CID,
@@ -462,6 +463,7 @@ export function createMailApp(deps: MailAppDeps) {
     }
     const url = new URL(req.url ?? "/", "http://localhost");
     try {
+      if (url.pathname === "/labyrinth" || url.pathname.startsWith("/labyrinth/")) return await serveNodeLabyrinthUI(req, res, "cumulus-mail");
       if (url.pathname === "/api/labyrinth") return await serveNodeLabyrinth(req, res, deps.suite?.labyrinth, parseCookies(req.headers.cookie)[COOKIE], deps.onChange);
       if (url.pathname === "/cumulus-config.js") {
         const body = `globalThis.CUMULUS=${JSON.stringify({ mailDomain: MAIL_DOMAIN })};`;

@@ -8,6 +8,9 @@ It is not an internal Infinitum source store, a public repository service, a Git
 remote, or a standalone deployed web application. Client organizations own their
 separate repository namespaces; no public visibility or anonymous reads exist.
 
+A shared browser workspace is available at `/labyrinth` in +SPCTR and Cumulus Mail.
+See [workspace build and operator guide](../../docs/LBRNTH-BUILD.md).
+
 ## Integrate
 
 ```ts
@@ -179,7 +182,7 @@ backend can decrypt. Never execute repository content as part of a read or commi
 ## Follow-on product decisions (not silently assumed)
 
 - Plan pricing/quotas and the live billing/directory authority in each product.
-- Client repository UI, authenticated HTTP routes, deployment and Git wire protocol.
+- Production deployment and Git wire protocol. The shared repository UI and authenticated HTTP routes are implemented; see the workspace guide.
 - Production database/object-store adapter, multi-instance writes, backups and KMS
   key rotation; repo ACLs/invites beyond org-wide roles.
 - Line-level patches, merges, protected branches, large-artifact streaming,

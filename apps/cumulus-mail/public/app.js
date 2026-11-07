@@ -217,6 +217,7 @@ function sidebar(data) {
       id === "inbox" && data.unread ? el("span", { class: "count" }, [String(data.unread)]) : null)),
     el("hr"),
     ...views.map(([id, label]) => navButton(state.view === id, label, () => go(id))),
+    el("button", { onClick: () => { location.href = "/labyrinth"; } }, ["Labyrinth *LBRNTH", el("sup", { class: "tm" }, ["™"])]),
     el("button", { class: "mobile-only", "aria-current": state.view === "account", onClick: () => go("account") }, ["Account"]),
     el("button", { class: "me", onClick: () => go("account") }, [
       el("div", { class: "meter" }, [el("span", { style: `width:${Math.max(1, data.quota.pct)}%` })]),

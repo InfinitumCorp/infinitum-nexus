@@ -1,0 +1,8 @@
+{
+  "description": "Every vendored copy of app-shell.css in this repo. The sync script rewrites them; the test fails if one drifts.",
+  "copies": [
+    "apps/architect/src/app-shell-css.ts",
+    "apps/cumulus-mail/public/app-shell.css",
+    "apps/fabric/public/app-shell.css"
+  ]
+}

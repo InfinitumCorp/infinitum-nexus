@@ -167,6 +167,7 @@ try {
   me = await api("/api/me");
   signedOut.hidden = true;
   app.hidden = false;
+  document.querySelector("#logout").hidden = false;
   title.textContent = `Signed in as ${me.username}`;
   await refreshSessions();
   setInterval(() => {
@@ -175,4 +176,5 @@ try {
 } catch {
   signedOut.hidden = false;
   app.hidden = true;
+  document.querySelector("#logout").hidden = true;
 }

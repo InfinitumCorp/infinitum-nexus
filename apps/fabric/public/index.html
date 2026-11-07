@@ -3,48 +3,55 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>FABRIC++</title>
+  <title>FABRIC</title>
+  <link rel="stylesheet" href="/app-shell.css">
   <link rel="stylesheet" href="/app.css">
 </head>
 <body>
-  <header>
-    <div>
-      <p class="mark">FABRIC++</p>
-      <h1>Encrypted messages</h1>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="app-bar">
+    <a class="app-wordmark" href="/">FABRIC<sup class="tm">™</sup></a>
+    <nav class="app-nav" aria-label="Main">
+      <a href="/" aria-current="page">Messages</a>
+    </nav>
+    <div class="app-actions">
+      <span id="domain" class="app-meta"></span>
+      <button id="logout" class="btn small" type="button" hidden>Sign out</button>
     </div>
-    <p id="domain" class="domain"></p>
   </header>
-  <p id="error" class="error" role="alert" hidden></p>
-  <section id="signed-out">
-    <p>Sign in with your Cumulus ID. Message bodies are sealed before they are stored.</p>
-    <a id="sign-in" class="button" href="/api/auth/login">Sign in with Cumulus ID</a>
-  </section>
-  <section id="app" hidden>
-    <div class="layout">
-      <aside>
-        <form id="start-form">
-          <label for="peer">Start a conversation</label>
-          <div class="row">
-            <input id="peer" name="username" autocomplete="off" maxlength="64" placeholder="username" required>
-            <button id="start" type="submit">Open</button>
+  <main id="main" class="app-main">
+    <p id="error" class="notice" role="alert" hidden></p>
+    <section id="signed-out" class="empty">
+      <h1>Encrypted messages</h1>
+      <p>Sign in with your Cumulus ID. Message bodies are sealed before they are stored.</p>
+      <a id="sign-in" class="btn primary" href="/api/auth/login">Sign in with Cumulus ID</a>
+    </section>
+    <section id="app" hidden>
+      <div class="layout">
+        <aside>
+          <form id="start-form">
+            <label class="field" for="peer"><span>Start a conversation</span></label>
+            <div class="row">
+              <input id="peer" class="input" name="username" autocomplete="off" maxlength="64" placeholder="username" required>
+              <button id="start" class="btn" type="submit">Open</button>
+            </div>
+          </form>
+          <ul id="sessions" class="rows"></ul>
+        </aside>
+        <section class="thread">
+          <div class="thread-head">
+            <h2 id="thread-title">Choose a conversation</h2>
           </div>
-        </form>
-        <ul id="sessions"></ul>
-      </aside>
-      <section class="thread">
-        <div class="thread-head">
-          <h2 id="thread-title">Choose a conversation</h2>
-          <button id="logout" type="button">Sign out</button>
-        </div>
-        <ol id="messages"></ol>
-        <form id="send-form">
-          <label for="text" class="sr">Message</label>
-          <textarea id="text" name="text" rows="3" maxlength="4000" placeholder="Write a message" required></textarea>
-          <button id="send" type="submit">Send</button>
-        </form>
-      </section>
-    </div>
-  </section>
+          <ol id="messages"></ol>
+          <form id="send-form">
+            <label for="text" class="sr">Message</label>
+            <textarea id="text" class="input" name="text" rows="3" maxlength="4000" placeholder="Write a message" required></textarea>
+            <button id="send" class="btn primary" type="submit">Send</button>
+          </form>
+        </section>
+      </div>
+    </section>
+  </main>
   <script type="module" src="/app.js"></script>
 </body>
 </html>

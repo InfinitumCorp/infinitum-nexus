@@ -7,7 +7,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { Ledger, MemoryStore } from "@infinitum/firmament";
 import { perform } from "./executor.ts";
 import { recordEvidence } from "./firmament.ts";
-import { podiumHtml } from "./podium.ts";
+import { appShellCss, podiumHtml } from "./podium.ts";
 import { registerDefaultInstruments } from "./instruments.ts";
 import type { Score, Autonomy } from "./score.ts";
 import { config, log } from "./config.ts";
@@ -64,6 +64,10 @@ const server = createServer(async (req, res) => {
     if (url.pathname === "/" ) {
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
       return res.end(podiumHtml);
+    }
+    if (url.pathname === "/app-shell.css") {
+      res.writeHead(200, { "content-type": "text/css; charset=utf-8" });
+      return res.end(appShellCss);
     }
     if (url.pathname === "/api/perform" && req.method === "POST") {
       const body = await readBody(req);

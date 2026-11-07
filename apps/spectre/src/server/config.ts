@@ -1,12 +1,15 @@
 /**
  * Spectre production configuration.
  */
+import { CNDCTR_ORIGIN } from "@infinitum/architect";
+
 export const config = {
   port: Number(process.env.PORT ?? 3000),
   workspace: process.env.SPECTRE_WORKSPACE ?? "demo",
   actor: process.env.SPECTRE_ACTOR ?? "cid:demo-user",
   logLevel: process.env.LOG_LEVEL ?? "info",
-  architectUrl: process.env.ARCHITECT_URL ?? "http://localhost:3001",
+  /** CNDCTR public host (https://cndctr.app on Cloudflare). ARCHITECT_URL overrides it. */
+  architectUrl: process.env.ARCHITECT_URL ?? CNDCTR_ORIGIN,
 };
 
 export function log(level: string, msg: string, extra?: Record<string, unknown>) {

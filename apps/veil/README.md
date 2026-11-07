@@ -78,4 +78,4 @@ node scripts/make-icons.js
 | `cid` | `http://localhost:3000` | Cumulus://ID sign-in and `/api/me` |
 | `veil` | `http://localhost:3000` | Optional bridge list on that CID host |
 | `mail` | `http://localhost:3010` | Cumulus://Mail |
-| `architect` | `http://localhost:3001` | :\ARCHITECT\ endpoint for Ask |
+| `architect` | `https://cndctr.app` | :\ARCHITECT\ (CNDCTR) endpoint for Ask. Hosted on Cloudflare. |

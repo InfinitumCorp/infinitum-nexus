@@ -12,6 +12,10 @@ const spectreMe = {
   },
 };
 
+test("Ask uses the CNDCTR public host by default", () => {
+  assert.equal(DEFAULT_ORIGINS.architect, "https://cndctr.app");
+});
+
 test("lists the seven free-tier products from the product page", () => {
   assert.deepEqual(APPS.map((a) => a.id), ["cid", "mail", "cloud", "scalvs", "architect", "metatron", "wallet"]);
 });

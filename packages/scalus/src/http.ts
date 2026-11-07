@@ -2,7 +2,13 @@
  * HTTP surface for the SCALVS.ai runtime.
  *
  *   GET  /health
- *   GET  /
+ *   GET  /            the SCALVS app (HTML). JSON index still requires a token.
+ *   GET  /app.js
+ *   GET  /app.css
+ *   GET  /v1/agents
+ *   POST /v1/agents
+ *   GET  /v1/teams
+ *   POST /v1/teams
  *   GET  /v1/tools
  *   POST /v1/agents/run
  *   POST /v1/team/run
@@ -13,7 +19,10 @@
  *   POST /v1/evidence
  *   POST /v1/llm/run
  */
+import { readFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { runAgent, type Agent, type Tool } from "./agent.ts";
 import { runAndRecord } from "./architect.ts";
 import { createCumulusAuth, isKeysUnavailable, type CumulusAuth } from "./cumulus-auth.ts";
@@ -27,6 +36,23 @@ const TEXT_LIMIT = 16_000;
 const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}$/;
 
 const toolsByName = new Map(defaultTools.map((tool) => [tool.name, tool]));
+const publicDir = join(dirname(fileURLToPath(import.meta.url)), "..", "public");
+const indexHtml = readFileSync(join(publicDir, "index.html"), "utf8");
+const appJs = readFileSync(join(publicDir, "app.js"), "utf8");
+const appCss = readFileSync(join(publicDir, "app.css"), "utf8");
+
+interface SavedAgent {
+  id: string;
+  name: string;
+  role: string;
+  tools: string[];
+}
+
+interface SavedTeam {
+  id: string;
+  name: string;
+  agentIds: string[];
+}
 
 export interface ScalvsServerOptions {
   origin: string;
@@ -57,9 +83,11 @@ export function createScalvsServer(options: ScalvsServerOptions) {
   const apiKey = options.apiKey?.trim() || undefined;
   const model = options.model?.trim() || "claude-sonnet-4-5";
   const auth = createCumulusAuth({ audience: options.audience, fetchImpl: options.fetchImpl, now: options.now });
+  const agents = new Map<string, SavedAgent>();
+  const teams = new Map<string, SavedTeam>();
 
   return createServer((req, res) => {
-    void handle(req, res, { origin, vault, apiKey, model, auth }).catch((err: unknown) => {
+    void handle(req, res, { origin, vault, apiKey, model, auth, agents, teams }).catch((err: unknown) => {
       if (!res.headersSent) send(res, 500, { error: "internal error" }, origin);
       console.error(JSON.stringify({ event: "error", message: err instanceof Error ? err.message : "error" }));
     });
@@ -69,12 +97,25 @@ export function createScalvsServer(options: ScalvsServerOptions) {
 async function handle(
   req: IncomingMessage,
   res: ServerResponse,
-  deps: { origin: string; vault: FirmamentVault; apiKey?: string; model: string; auth: CumulusAuth },
+  deps: {
+    origin: string;
+    vault: FirmamentVault;
+    apiKey?: string;
+    model: string;
+    auth: CumulusAuth;
+    agents: Map<string, SavedAgent>;
+    teams: Map<string, SavedTeam>;
+  },
 ) {
   const { origin, vault } = deps;
   try {
     const url = new URL(req.url ?? "/", "http://127.0.0.1");
-    if (!(req.method === "GET" && url.pathname === "/health")) {
+    const publicApp = req.method === "GET" && (
+      url.pathname === "/app.js"
+      || url.pathname === "/app.css"
+      || (url.pathname === "/" && wantsHtml(req))
+    );
+    if (!(req.method === "GET" && url.pathname === "/health") && !publicApp) {
       const authorization = Array.isArray(req.headers.authorization) ? undefined : req.headers.authorization;
       try {
         await deps.auth.authenticate(authorization);
@@ -101,8 +142,42 @@ async function handle(
 
     if (url.pathname === "/") {
       if (req.method !== "GET") throw new HttpError(405, "method not allowed", { allow: "GET" });
-      if (wantsHtml(req)) send(res, 200, page(origin), origin, "text/html; charset=utf-8");
+      if (wantsHtml(req)) send(res, 200, indexHtml, origin, "text/html; charset=utf-8");
       else send(res, 200, home(origin), origin);
+      return;
+    }
+
+    if (url.pathname === "/app.js" && req.method === "GET") {
+      send(res, 200, appJs, origin, "text/javascript; charset=utf-8");
+      return;
+    }
+    if (url.pathname === "/app.css" && req.method === "GET") {
+      send(res, 200, appCss, origin, "text/css; charset=utf-8");
+      return;
+    }
+
+    if (url.pathname === "/v1/agents" && req.method === "GET") {
+      send(res, 200, [...deps.agents.values()], origin);
+      return;
+    }
+    if (url.pathname === "/v1/agents" && req.method === "POST") {
+      const body = asRecord(await readJson(req));
+      const agent = describeAgent(body);
+      if (deps.agents.has(agent.id)) throw new HttpError(409, "agent already exists");
+      deps.agents.set(agent.id, agent);
+      send(res, 201, agent, origin);
+      return;
+    }
+    if (url.pathname === "/v1/teams" && req.method === "GET") {
+      send(res, 200, [...deps.teams.values()], origin);
+      return;
+    }
+    if (url.pathname === "/v1/teams" && req.method === "POST") {
+      const body = asRecord(await readJson(req));
+      const team = describeTeam(body, deps.agents);
+      if (deps.teams.has(team.id)) throw new HttpError(409, "team already exists");
+      deps.teams.set(team.id, team);
+      send(res, 201, team, origin);
       return;
     }
 
@@ -208,30 +283,28 @@ function home(origin: string) {
   };
 }
 
-function page(origin: string): string {
-  const safe = escapeHtml(origin);
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>SCALVS.ai</title>
-<style>
-  body { margin: 0; font: 16px/1.5 system-ui, sans-serif; background: #f4f1ea; color: #1c1915; }
-  main { max-width: 38rem; margin: 0 auto; padding: 4rem 1.5rem; }
-  h1 { font-size: 2rem; letter-spacing: -0.03em; margin: 0 0 0.5rem; }
-  code, a { color: #0f3d34; }
-</style>
-</head>
-<body>
-<main>
-  <h1>SCALVS.ai</h1>
-  <p>Agents that research, write, and operate. This runtime serves the SCALVS workforce: tools, a context vault, team runs, and Architect evidence.</p>
-  <p>Public origin <code>${safe}</code>. <a href="/health">Health</a>.</p>
-</main>
-</body>
-</html>
-`;
+function describeAgent(body: Record<string, unknown>): SavedAgent {
+  const id = requireId(body.id, "id");
+  const tools = selectedTools(body.tools);
+  if (tools.length === 0) throw new HttpError(400, "choose at least one tool");
+  return {
+    id,
+    name: body.name === undefined ? id : requireText(body.name, "name"),
+    role: body.role === undefined ? "agent" : requireText(body.role, "role"),
+    tools: tools.map((tool) => tool.name),
+  };
+}
+
+function describeTeam(body: Record<string, unknown>, agents: Map<string, SavedAgent>): SavedTeam {
+  const id = requireId(body.id, "id");
+  if (!Array.isArray(body.agentIds) || body.agentIds.length === 0 || body.agentIds.length > 16) {
+    throw new HttpError(400, "agentIds must list 1 to 16 agents");
+  }
+  const agentIds = body.agentIds.map((agentId) => requireId(agentId, "agentId"));
+  for (const agentId of agentIds) {
+    if (!agents.has(agentId)) throw new HttpError(400, `unknown agent: ${agentId}`);
+  }
+  return { id, name: body.name === undefined ? id : requireText(body.name, "name"), agentIds };
 }
 
 function wantsHtml(req: IncomingMessage): boolean {
@@ -377,16 +450,4 @@ function send(
     ...extra,
   });
   res.end(payload);
-}
-
-function escapeHtml(value: string): string {
-  return value.replace(/[&<>"']/g, (char) => {
-    switch (char) {
-      case "&": return "&amp;";
-      case "<": return "&lt;";
-      case ">": return "&gt;";
-      case "\"": return "&quot;";
-      default: return "&#39;";
-    }
-  });
 }

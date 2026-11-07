@@ -140,14 +140,23 @@ describe("SCALVS runtime over HTTP", { concurrency: false }, () => {
     assert.equal(new URL(started.base).port, String(started.port));
   });
 
-  it("requires a Cumulus ID token on every route except GET /health", async () => {
+  it("serves the web app without a token and still locks the API", async () => {
+    const page = await call(started.base, "GET", "/", undefined, { accept: "text/html" });
+    assert.equal(page.status, 200);
+    assert.match(page.headers.get("content-type") ?? "", /text\/html/);
+    assert.match(page.text, /Infinitum Corporation®/);
+    assert.match(page.text, /id="sign-in"/);
+    const script = await call(started.base, "GET", "/app.js");
+    assert.equal(script.status, 200);
+    assert.match(script.text, /\/v1\/agents/);
+    const css = await call(started.base, "GET", "/app.css");
+    assert.equal(css.status, 200);
+
     for (const [method, path] of [["GET", "/"], ["GET", "/v1/tools"], ["POST", "/v1/agents/run"], ["OPTIONS", "/v1/agents/run"]] as const) {
       const res = await call(started.base, method, path, method === "POST" ? {} : undefined);
       assert.equal(res.status, 401, `${method} ${path}`);
       assert.equal(res.body.error, "unauthorized");
     }
-    const health = await call(started.base, "GET", "/health");
-    assert.equal(health.status, 200);
   });
 });
 
@@ -208,6 +217,11 @@ describe("SCALVS production build", () => {
       assert.equal(health.body.ok, true);
       assert.equal(health.body.service, "scalvs");
       assert.equal(health.body.origin, "https://scalvs.app");
+
+      const page = await call(started.base, "GET", "/", undefined, { accept: "text/html" });
+      assert.equal(page.status, 200);
+      assert.match(page.text, /Infinitum Corporation®/);
+      assert.match(page.text, /src="\/app\.js"/);
 
       const run = await call(started.base, "POST", "/v1/agents/run", {
         id: "researcher",

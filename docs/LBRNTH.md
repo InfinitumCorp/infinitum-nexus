@@ -18,7 +18,7 @@ CAS branch heads, immutable tags, historical byte reads and file-level diffs giv
 products a stable integration surface without assuming a Git server or UI.
 
 The encrypted snapshot adapter provides per-org AES-256-GCM at-rest protection,
-atomic single-process persistence and fail-closed restore. In-memory transactions
+atomic snapshot persistence with exclusive writer locking/revision CAS and fail-closed restore. In-memory transactions
 publish only after storage succeeds. Hash-chained audit records successful access
 and changes. No private source or raw artifact bytes enter audit entries.
 
@@ -39,3 +39,11 @@ actual CID grants/revocation with independent paid entitlement, version integrit
 binary content, file diffs, branches/tags, lost-update rejection, hostile paths,
 failed persistence rollback, encrypted restart and tampered snapshot rejection.
 The PR is for review only; no deployment or merge is authorized by this change.
+
+## Security review hardening
+
+Strict literal-true authorization checks deny accidental async/truthy authority results.
+Encrypted file locking plus revision comparison rejects stale service snapshots,
+including stale writes on another org, before replacement. Payload preflight,
+retained-state ceilings and separate per-org operation budgets bound resource abuse;
+production still requires edge limits and a scalable storage/retention strategy.

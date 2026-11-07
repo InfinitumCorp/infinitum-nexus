@@ -1,3 +1,4 @@
+import type { LabyrinthLimits } from "./limits.ts";
 /** Labyrinth — Infinitum Corporation®. No client repository is public. */
 export const LBRNTH = Object.freeze({ id: "LBRNTH", name: "Labyrinth", wordmark: "Labyrinth *LBRNTH", publisher: "Infinitum Corporation®" } as const);
 export type Role = "owner" | "admin" | "writer" | "reader";
@@ -26,7 +27,7 @@ export class MemoryStorage implements LabyrinthStorage {
   save(orgs: Organization[]) { this.#state = structuredClone(orgs); }
 }
 export class LabyrinthError extends Error {
-  readonly code: "forbidden" | "not_found" | "invalid" | "conflict" | "integrity";
+  readonly code: "forbidden" | "not_found" | "invalid" | "conflict" | "integrity" | "capacity";
   constructor(code: LabyrinthError["code"], message: string) { super(message); this.code = code; }
 }
 export interface LabyrinthOptions {
@@ -38,6 +39,8 @@ export interface LabyrinthOptions {
   canProvision(cid: string, orgId: string): boolean;
   storage?: LabyrinthStorage;
   clock?: () => Date;
+  /** Optional lower per-client quotas. Values cannot exceed the package hard ceilings. */
+  limits?: Partial<LabyrinthLimits>;
 }
 export interface CommitInput {
   branch: string;

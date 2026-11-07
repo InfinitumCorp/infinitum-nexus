@@ -93,7 +93,7 @@ prototype keys and file/directory collisions. Returned values are defensive copi
 Hashes use bytes for objects and a stable sorted-tree representation for commits.
 Audit entries record accepted reads, mutations and membership targets, not source
 content. Failed requests throw `LabyrinthError` (`forbidden`, `not_found`,
-`invalid`, `conflict`, `integrity`). Denied requests should also be logged by the
+`invalid`, `conflict`, `integrity`, `capacity`). Denied requests should also be logged by the
 host's security logger; they do not mutate another client's audit history.
 
 ## Persistence and security boundaries
@@ -111,11 +111,43 @@ renames it. The service publishes memory only after a successful save. Content,
 commit, reference and audit integrity are checked on restore. The backing directory
 must be private and writable only by the host service; avoid shared writable paths.
 
-The file adapter supports **one process/writer**, not distributed transactions.
-Run one service instance for a snapshot. It rewrites the snapshot synchronously;
+The file adapter is designed for **one active service/writer**, not distributed transactions.
+An exclusive lock plus whole-file revision compare-and-swap rejects concurrent/stale
+writers instead of silently overwriting them. After a stale-writer conflict, recreate
+the service from storage before retrying the authenticated request. A crashed writer
+can leave a `.lock` file: verify that no writer is running before an operator removes
+it; there is deliberately no automatic stale-lock bypass. Cleanup failure after a
+committed rename does not report a false rollback; a retained lock blocks later saves.
+It rewrites the snapshot synchronously;
 large-scale production needs a database/object-store adapter with transactional
 compare-and-swap and concurrency control. The storage interface's save contract
-is atomic whole-snapshot replacement. No network endpoints are exposed by default.
+is atomic whole-snapshot replacement; custom shared adapters also need stale-writer
+protection. No network endpoints are exposed by default.
+
+## Capacity and abusive requests
+
+Content bytes are measured **before** allocating buffers or cloning the client's
+snapshot. Malformed change maps, invalid member identifiers and overlarge payloads
+fail without writes. Hard ceilings bound retained resource growth: 256 organizations,
+100 repositories and 1000 members per org, 10000 commits per repository, 1000 total
+branch/tag refs per repository, 10000 paths per tree and 50000 audit entries per org.
+Unencrypted org snapshots are limited to 32 MiB each and 128 MiB total; the encrypted
+file is capped at 192 MiB before reading/parsing. Capacity violations reject the whole
+transaction, including its audit entry. Existing oversized snapshots fail closed on
+startup, not silently truncated. Configure `limits` only to **lower** these ceilings.
+
+Each org has a 240-operation/minute budget before snapshot cloning, shared across
+its members but separate from other clients. It resets after one minute and on
+service restart; this is a local guard, not a distributed billing/rate-limit service.
+Audit/storage capacity requires operator archival/migration policy before it fills;
+this package never silently drops audit history. Hosts still need HTTP body limits,
+edge rate limiting and pagination/streaming for scale. No hostile tenant should be
+co-hosted in the same synchronous process without those deployment controls.
+
+Authorization/provision callbacks are synchronous and must return literal `true`.
+A Promise, object or other truthy non-boolean value is denied (including accidentally
+passing an async billing adapter). Resolve/certify authorization in the trusted host
+before invoking the SDK; never convert an unresolved Promise to a Boolean.
 
 Audit is hash chained, encrypted and append-only through the API, **not** an
 externally anchored immutable ledger. A host with storage keys can replace or roll

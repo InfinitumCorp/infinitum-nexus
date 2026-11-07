@@ -1,3 +1,5 @@
+import { DEFAULT_LIMITS } from "./limits.ts";
+import type { LabyrinthLimits } from "./limits.ts";
 import { randomUUID } from "node:crypto";
 import { LabyrinthError, MemoryStorage } from "./model.ts";
 import type { Commit, CommitInput, LabyrinthOptions, Organization, Repository, Role, Scope } from "./model.ts";
@@ -5,16 +7,29 @@ import { auditHash, commitHash, hashBytes, validName, validPath, verifyAudit } f
 const fail = (code: LabyrinthError["code"], message: string): never => { throw new LabyrinthError(code, message); };
 const roles: Role[] = ["owner", "admin", "writer", "reader"];
 const own = (record: object, key: string) => Object.hasOwn(record, key);
+const approved = (value: unknown): boolean => {
+  // Never authorize from an unresolved async authority; also avoid an unhandled rejection.
+  if (value instanceof Promise) void value.catch(() => {});
+  return value === true;
+};
 
 /** Trusted server-side SDK. Never expose this object, its callbacks or storage to a browser. */
 export class Labyrinth {
   readonly #opts: LabyrinthOptions;
   readonly #storage;
   #orgs: Organization[];
+  readonly #limits: LabyrinthLimits;
+  readonly #rates = new Map<string, { at: number; count: number }>();
   constructor(options: LabyrinthOptions) {
     this.#opts = options;
+    this.#limits = { ...DEFAULT_LIMITS, ...options.limits };
+    for (const key of Object.keys(DEFAULT_LIMITS) as (keyof LabyrinthLimits)[]) {
+      const value = this.#limits[key];
+      if (!Number.isSafeInteger(value) || value < 1 || value > DEFAULT_LIMITS[key]) fail("invalid", "Invalid Labyrinth capacity limit");
+    }
     this.#storage = options.storage ?? new MemoryStorage();
     this.#orgs = this.#storage.load();
+    this.#checkCapacity(this.#orgs);
     for (const org of this.#orgs) {
       if (!verifyAudit(org.audit)) fail("integrity", "Invalid audit chain");
       for (const repo of org.repositories) {
@@ -32,7 +47,7 @@ export class Labyrinth {
   }
   #at() { return (this.#opts.clock?.() ?? new Date()).toISOString(); }
   #gate(cid: string, orgId: string, scope: Scope) {
-    if (!this.#opts.entitled(orgId, "LBRNTH") || !this.#opts.can(cid, "LBRNTH", scope)) fail("forbidden", "Labyrinth access denied");
+    if (!approved(this.#opts.entitled(orgId, "LBRNTH")) || !approved(this.#opts.can(cid, "LBRNTH", scope))) fail("forbidden", "Labyrinth access denied");
   }
   #authorize(cid: string, orgId: string, scope: Scope): Organization {
     this.#gate(cid, orgId, scope);
@@ -42,7 +57,26 @@ export class Labyrinth {
     if (!org || !member) return fail("forbidden", "Labyrinth access denied");
     if (scope === "repo:admin" && !["owner", "admin"].includes(member.role)) fail("forbidden", "Administrator required");
     if (scope === "repo:write" && member.role === "reader") fail("forbidden", "Writer required");
+    const now = (this.#opts.clock?.() ?? new Date()).getTime();
+    const rate = this.#rates.get(orgId);
+    if (!rate || now - rate.at >= 60000) this.#rates.set(orgId, { at: now, count: 1 });
+    else {
+      if (rate.count >= this.#limits.operationsPerMinute) fail("capacity", "Organization request budget exhausted; retry after one minute");
+      rate.count++;
+    }
     return org;
+  }
+  #checkCapacity(orgs: Organization[]) {
+    if (orgs.length > this.#limits.organizations) fail("capacity", "Organization capacity exceeded");
+    let total = 0;
+    for (const org of orgs) {
+      if (org.repositories.length > this.#limits.repositoriesPerOrg || org.members.length > this.#limits.membersPerOrg || org.audit.length > this.#limits.auditEntriesPerOrg) fail("capacity", "Client organization capacity exceeded");
+      for (const repo of org.repositories) {
+        if (repo.commits.length > this.#limits.commitsPerRepository || Object.keys(repo.branches).length + Object.keys(repo.tags).length > this.#limits.refsPerRepository || repo.commits.some(c => Object.keys(c.tree).length > this.#limits.pathsPerCommit)) fail("capacity", "Repository capacity exceeded");
+      }
+      const size = Buffer.byteLength(JSON.stringify(org)); total += size;
+      if (size > this.#limits.orgBytes || total > this.#limits.totalBytes) fail("capacity", "Labyrinth snapshot byte budget exceeded");
+    }
   }
   #audit(org: Organization, actor: string, action: string, repoId?: string) {
     const e = { sequence: org.audit.length + 1, actor, action, repoId, at: this.#at(), previous: org.audit.at(-1)?.hash ?? null };
@@ -50,11 +84,14 @@ export class Labyrinth {
   }
   #save(org: Organization) {
     const next = this.#orgs.filter(o => o.id !== org.id).concat(org);
+    this.#checkCapacity(next);
     this.#storage.save(next); // no in-memory publication if persistence fails
     this.#orgs = next;
   }
-  #run<T>(cid: string, orgId: string, scope: Scope, action: string, fn: (org: Organization) => T, repoId?: string): T {
-    const org = structuredClone(this.#authorize(cid, orgId, scope));
+  #run<T>(cid: string, orgId: string, scope: Scope, action: string, fn: (org: Organization) => T, repoId?: string, preflight?: () => void): T {
+    const authorized = this.#authorize(cid, orgId, scope);
+    preflight?.();
+    const org = structuredClone(authorized);
     const result = fn(org);
     this.#audit(org, cid, action, repoId);
     this.#save(org);
@@ -67,9 +104,9 @@ export class Labyrinth {
   }
   createOrganization(cid: string, orgId: string, name: string) {
     this.#gate(cid, orgId, "repo:admin");
-    if (!this.#opts.canProvision(cid, orgId)) fail("forbidden", "Organization provision denied");
+    if (!approved(this.#opts.canProvision(cid, orgId))) fail("forbidden", "Organization provision denied");
     validName(orgId);
-    if (!name.trim() || name.length > 120) fail("invalid", "Organization name required");
+    if (typeof name !== "string" || !name.trim() || name.length > 120) fail("invalid", "Organization name required");
     if (this.#orgs.some(o => o.id === orgId)) fail("conflict", "Organization already provisioned");
     const org: Organization = { id: orgId, name, members: [{ cid, role: "owner" }], repositories: [], audit: [] };
     this.#audit(org, cid, "organization.create"); this.#save(org);
@@ -80,7 +117,7 @@ export class Labyrinth {
   }
   setMember(cid: string, orgId: string, memberCid: string, role: Role | null) {
     return this.#run(cid, orgId, "repo:admin", `member.${role === null ? "remove" : "set"}:${memberCid}:${role ?? "none"}`, org => {
-      if (!memberCid || memberCid.length > 200 || (role !== null && !roles.includes(role))) fail("invalid", "Invalid membership");
+      if (typeof memberCid !== "string" || !memberCid || memberCid.length > 200 || (role !== null && !roles.includes(role))) fail("invalid", "Invalid membership");
       const actor = org.members.find(m => m.cid === cid)!;
       const current = org.members.find(m => m.cid === memberCid);
       if ((role === "owner" || current?.role === "owner") && actor.role !== "owner") fail("forbidden", "Owner required");
@@ -100,6 +137,21 @@ export class Labyrinth {
   }
   repositories(cid: string, orgId: string) {
     return this.#run(cid, orgId, "repo:read", "repositories.read", org => org.repositories.map(r => this.#summary(r)));
+  }
+  #preflightCommit(input: CommitInput): void {
+    // Called after authorization, before snapshot cloning or allocating content buffers.
+    if (!input || typeof input !== "object" || !input.changes || typeof input.changes !== "object" || Array.isArray(input.changes)) fail("invalid", "Commit changes must be a path map");
+    let count = 0; let bytes = 0;
+    for (const path in input.changes) {
+      if (!own(input.changes, path)) continue;
+      if (++count > 1000) fail("invalid", "Commit needs 1–1000 path changes");
+      validPath(path);
+      const value = input.changes[path];
+      if (value === null) continue;
+      if (typeof value !== "string" && !(value instanceof Uint8Array)) fail("invalid", "Content must be text or bytes");
+      bytes += typeof value === "string" ? Buffer.byteLength(value) : value.byteLength;
+      if (bytes > 10 * 1024 * 1024) fail("invalid", "Commit exceeds 10 MiB");
+    }
   }
   commit(cid: string, orgId: string, repoId: string, input: CommitInput): Commit {
     return this.#run(cid, orgId, "repo:write", "commit.create", org => {
@@ -131,7 +183,7 @@ export class Labyrinth {
       if (!repo.commits.some(c => c.id === commit.id)) repo.commits.push(commit);
       repo.branches[input.branch] = commit.id;
       return commit;
-    }, repoId);
+    }, repoId, () => this.#preflightCommit(input));
   }
   createBranch(cid: string, orgId: string, repoId: string, name: string, commitId: string | null) {
     return this.#run(cid, orgId, "repo:write", `branch.create:${name}`, org => {

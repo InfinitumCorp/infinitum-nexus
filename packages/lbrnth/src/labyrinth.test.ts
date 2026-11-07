@@ -218,3 +218,86 @@ test("ordinary filenames matching Object prototype methods remain safe in diffs"
   const b = s.sdk.commit(s.repo.id, { branch: "main", expectedHead: a.id, message: "Delete", changes: { toString: null } });
   assert.equal(s.sdk.diff(s.repo.id, a.id, b.id)[0].kind, "deleted");
 });
+
+test("authorization callbacks fail closed for promises and non-boolean truthy values", () => {
+  const s = setup();
+  for (const field of ["can", "entitled", "canProvision"] as const) {
+    for (const value of [Promise.resolve(false), {}, "true", 1]) {
+      const lab = new Labyrinth({ ...s.opts, [field]: (() => value) as never });
+      error(() => lab.createOrganization("alice", "client-a", "Denied"), "forbidden");
+    }
+  }
+});
+
+test("stale file snapshots and concurrent writers cannot overwrite another instance", () => {
+  const dir = mkdtempSync(join(tmpdir(), "lbrnth-race-"));
+  try {
+    const key = randomBytes(32); const path = join(dir, "state.json");
+    const a = new EncryptedFileStorage(path, () => key);
+    const b = new EncryptedFileStorage(path, () => key);
+    const s = setup(); a.save(s.storage.load());
+    const baseline = b.load();
+    const next = a.load(); next[0].name = "Winner"; a.save(next);
+    assert.throws(() => b.save(baseline), /changed|stale|conflict/i);
+    assert.equal(new EncryptedFileStorage(path, () => key).load()[0].name, "Winner");
+    b.load(); writeFileSync(`${path}.lock`, "busy", { flag: "wx" });
+    assert.throws(() => b.save(baseline));
+    assert.equal(new EncryptedFileStorage(path, () => key).load()[0].name, "Winner");
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("repository, ref, member, commit and byte quotas reject changes atomically", () => {
+  for (const [limits, action] of [
+    [{ repositoriesPerOrg: 1 }, (s: ReturnType<typeof setup>, lab: Labyrinth) => lab.createRepository("alice", "client-a", "overflow")],
+    [{ membersPerOrg: 1 }, (s: ReturnType<typeof setup>, lab: Labyrinth) => lab.setMember("alice", "client-a", "other", "writer")],
+    [{ refsPerRepository: 1 }, (s: ReturnType<typeof setup>, lab: Labyrinth) => lab.createBranch("alice", "client-a", s.repo.id, "overflow", null)],
+  ] as const) {
+    const s = setup(); const before = s.storage.load();
+    const lab = new Labyrinth({ ...s.opts, limits });
+    error(() => action(s, lab), "capacity"); assert.deepEqual(s.storage.load(), before);
+  }
+  const s = setup(); const a = first(s); const before = s.storage.load();
+  const lab = new Labyrinth({ ...s.opts, limits: { commitsPerRepository: 1 } });
+  error(() => lab.commit("alice", "client-a", s.repo.id, { branch: "main", expectedHead: a.id, message: "Overflow", changes: { more: "no" } }), "capacity");
+  assert.deepEqual(s.storage.load(), before);
+  const cap = Math.max(...before.map(org => Buffer.byteLength(JSON.stringify(org)))) + 100;
+  const small = new Labyrinth({ ...s.opts, limits: { orgBytes: cap } });
+  error(() => small.commit("alice", "client-a", s.repo.id, { branch: "main", expectedHead: a.id, message: "Big", changes: { extra: "x".repeat(2000) } }), "capacity");
+  assert.deepEqual(s.storage.load(), before);
+});
+
+test("per-org rate limits reset without blocking another client", () => {
+  const s = setup(); let now = 0;
+  const lab = new Labyrinth({ ...s.opts, limits: { operationsPerMinute: 2 }, clock: () => new Date(now) });
+  lab.repositories("alice", "client-a"); lab.repositories("alice", "client-a");
+  error(() => lab.repositories("alice", "client-a"), "capacity");
+  assert.deepEqual(lab.repositories("bob", "client-b"), []);
+  now += 60000;
+  assert.equal(lab.repositories("alice", "client-a").length, 1);
+});
+
+test("malformed payloads and oversized text are rejected before storage writes", () => {
+  const s = setup(); const before = s.storage.load();
+  for (const changes of [null, [], 123, { x: undefined }]) {
+    error(() => s.sdk.commit(s.repo.id, { branch: "main", expectedHead: null, message: "Bad", changes: changes as never }), "invalid");
+  }
+  error(() => s.sdk.commit(s.repo.id, { branch: "main", expectedHead: null, message: "Huge", changes: { text: "a".repeat(10 * 1024 * 1024 + 1) } }), "invalid");
+  error(() => s.lab.setMember("alice", "client-a", 123 as never, "reader"), "invalid");
+  assert.deepEqual(s.storage.load(), before);
+});
+
+
+test("unauthorized commits are denied before inspecting or scanning any payload", () => {
+  const s = setup();
+  const input = { get changes() { throw new Error("Payload must not be inspected"); } };
+  error(() => s.lab.commit("bob", "client-a", s.repo.id, input as never), "forbidden");
+});
+
+test("rejected async authorities are denied without unhandled rejections", async () => {
+  const s = setup();
+  for (const field of ["can", "entitled", "canProvision"] as const) {
+    const lab = new Labyrinth({ ...s.opts, [field]: (() => Promise.reject(new Error("Authority unavailable"))) as never });
+    error(() => lab.createOrganization("alice", "client-a", "Denied"), "forbidden");
+  }
+  await new Promise(resolve => setImmediate(resolve));
+});

@@ -2,11 +2,12 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { DEFAULT_ORIGIN, loadConfig } from "./config.ts";
 
-test("PORT and origin default to 3020 and https://scalvs.app", () => {
+test("PORT, origin, and audience default to 3020, https://scalvs.app, and scalvs", () => {
   const config = loadConfig({});
   assert.equal(config.port, 3020);
   assert.equal(config.origin, DEFAULT_ORIGIN);
   assert.equal(config.origin, "https://scalvs.app");
+  assert.equal(config.audience, "scalvs");
 });
 
 test("blank PORT and SCALVS_ORIGIN keep the defaults", () => {
@@ -35,4 +36,11 @@ test("SCALVS_ORIGIN must be an http(s) URL without credentials", () => {
   assert.throws(() => loadConfig({ SCALVS_ORIGIN: "*" }), /SCALVS_ORIGIN/);
   assert.throws(() => loadConfig({ SCALVS_ORIGIN: "ftp://scalvs.app" }), /SCALVS_ORIGIN/);
   assert.throws(() => loadConfig({ SCALVS_ORIGIN: "https://user:secret@scalvs.app" }), /credentials/);
+});
+
+test("SCALVS_AUDIENCE is configurable and rejects a wildcard", () => {
+  assert.equal(loadConfig({ SCALVS_AUDIENCE: "" }).audience, "scalvs");
+  assert.equal(loadConfig({ SCALVS_AUDIENCE: "scalvs-preview" }).audience, "scalvs-preview");
+  assert.throws(() => loadConfig({ SCALVS_AUDIENCE: "*" }), /SCALVS_AUDIENCE/);
+  assert.throws(() => loadConfig({ SCALVS_AUDIENCE: "has space" }), /SCALVS_AUDIENCE/);
 });

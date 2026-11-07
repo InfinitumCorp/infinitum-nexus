@@ -16,6 +16,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { runAgent, type Agent, type Tool } from "./agent.ts";
 import { runAndRecord } from "./architect.ts";
+import { createCumulusAuth, isKeysUnavailable, type CumulusAuth } from "./cumulus-auth.ts";
 import { LlmError, runLlmAgent, type LlmTool } from "./llm.ts";
 import { FirmamentVault } from "./memory-firmament.ts";
 import { Team } from "./team.ts";
@@ -33,6 +34,11 @@ export interface ScalvsServerOptions {
   /** Enables POST /v1/llm/run. Never accepted from the request body. */
   apiKey?: string;
   model?: string;
+  /** Cumulus ID token audience. Default scalvs. */
+  audience?: string;
+  /** Discovery and JWKS fetch. Tests pass a fake so the issuer is never called. */
+  fetchImpl?: typeof fetch;
+  now?: () => Date;
 }
 
 class HttpError extends Error {
@@ -50,9 +56,10 @@ export function createScalvsServer(options: ScalvsServerOptions) {
   const origin = options.origin;
   const apiKey = options.apiKey?.trim() || undefined;
   const model = options.model?.trim() || "claude-sonnet-4-5";
+  const auth = createCumulusAuth({ audience: options.audience, fetchImpl: options.fetchImpl, now: options.now });
 
   return createServer((req, res) => {
-    void handle(req, res, { origin, vault, apiKey, model }).catch((err: unknown) => {
+    void handle(req, res, { origin, vault, apiKey, model, auth }).catch((err: unknown) => {
       if (!res.headersSent) send(res, 500, { error: "internal error" }, origin);
       console.error(JSON.stringify({ event: "error", message: err instanceof Error ? err.message : "error" }));
     });
@@ -62,15 +69,25 @@ export function createScalvsServer(options: ScalvsServerOptions) {
 async function handle(
   req: IncomingMessage,
   res: ServerResponse,
-  deps: { origin: string; vault: FirmamentVault; apiKey?: string; model: string },
+  deps: { origin: string; vault: FirmamentVault; apiKey?: string; model: string; auth: CumulusAuth },
 ) {
   const { origin, vault } = deps;
   try {
     const url = new URL(req.url ?? "/", "http://127.0.0.1");
+    if (!(req.method === "GET" && url.pathname === "/health")) {
+      const authorization = Array.isArray(req.headers.authorization) ? undefined : req.headers.authorization;
+      try {
+        await deps.auth.authenticate(authorization);
+      } catch (err) {
+        if (isKeysUnavailable(err)) console.error(JSON.stringify({ event: "auth", message: "signing keys unavailable" }));
+        throw new HttpError(401, "unauthorized", { "www-authenticate": `Bearer realm="${deps.auth.audience}"` });
+      }
+    }
+
     if (req.method === "OPTIONS") {
       send(res, 204, "", origin, "text/plain; charset=utf-8", {
         "access-control-allow-methods": "GET, POST, OPTIONS",
-        "access-control-allow-headers": "content-type",
+        "access-control-allow-headers": "content-type, authorization",
         "access-control-max-age": "600",
       });
       return;

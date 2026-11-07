@@ -7,6 +7,7 @@ WORKDIR /app
 RUN corepack enable
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
 COPY packages ./packages
+COPY apps ./apps
 RUN pnpm install --filter @infinitum/scalus... --frozen-lockfile || pnpm install --filter @infinitum/scalus...
 RUN pnpm --filter @infinitum/scalus build
 WORKDIR /app/packages/scalus

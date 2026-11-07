@@ -47,6 +47,27 @@ jobs:
           pnpm --filter @infinitum/scalus test
           pnpm --filter @infinitum/scalus typecheck
           pnpm --filter @infinitum/scalus build
+      - name: Build the SCALVS image and smoke-test /health
+        run: |
+          set -euo pipefail
+          docker build -f packages/scalus/Dockerfile -t scalvs-runtime:ci .
+          docker rm -f scalvs-smoke >/dev/null 2>&1 || true
+          docker run -d --name scalvs-smoke -p 127.0.0.1:3020:3020 scalvs-runtime:ci
+          trap 'docker rm -f scalvs-smoke >/dev/null 2>&1 || true' EXIT
+          ok=0
+          for _ in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:3020/health | tee /tmp/scalvs-health.json | grep -q '"ok":true'; then
+              ok=1
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ok" != 1 ]; then
+            docker logs scalvs-smoke || true
+            exit 1
+          fi
+          grep -q '"service":"scalvs"' /tmp/scalvs-health.json
+          grep -q 'https://scalvs.app' /tmp/scalvs-health.json
 
   desktop:
     runs-on: ubuntu-latest

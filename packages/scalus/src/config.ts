@@ -1,9 +1,11 @@
 /**
  * SCALVS.ai runtime configuration.
  *
- * PORT           listen port. Default 3020. 0 lets the operating system choose.
- * SCALVS_ORIGIN  public origin. Default https://scalvs.app.
+ * PORT             listen port. Default 3020. 0 lets the operating system choose.
+ * SCALVS_ORIGIN    public origin. Default https://scalvs.app.
+ * SCALVS_AUDIENCE  Cumulus ID token audience. Default scalvs.
  */
+import { readAudience } from "./cumulus-auth.ts";
 
 export const DEFAULT_ORIGIN = "https://scalvs.app";
 export const DEFAULT_PORT = 3020;
@@ -11,12 +13,14 @@ export const DEFAULT_PORT = 3020;
 export interface ScalvsConfig {
   port: number;
   origin: string;
+  audience: string;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ScalvsConfig {
   return {
     port: readPort(env.PORT),
     origin: readOrigin(env.SCALVS_ORIGIN),
+    audience: readAudience(env.SCALVS_AUDIENCE),
   };
 }
 

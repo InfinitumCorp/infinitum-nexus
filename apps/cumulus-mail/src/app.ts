@@ -12,7 +12,7 @@ import { scalvsCleanAgent, type CleanAgent, type CleanSuggestion } from "./clean
 import { bulkSenders, classify, inboxMix, THREAD_ACTIONS, type ThreadAction, type ThreadSnapshot } from "@infinitum/mail";
 import { readFile } from "node:fs/promises";
 import { extname, join, normalize, sep } from "node:path";
-import { CidError, type Account } from "@infinitum/cid";
+import { CidError, MAIL_DOMAIN, type Account } from "@infinitum/cid";
 import { QuotaError } from "@infinitum/cloud";
 import { WalletError } from "@infinitum/firm";
 import { MailError, isE2E, threadOf, transcript, type MailMessage } from "@infinitum/mail";
@@ -29,6 +29,8 @@ export interface MailAppDeps {
   publicDir: string;
   origin: string;
   secureCookies: boolean;
+  /** Parent domain, for example .cumuluscloud.app. Omit on localhost. */
+  cookieDomain?: string;
   onChange?: () => void;
   /** SCALVS briefs; defaults to xAI when XAI_API_KEY is set. */
   /** SCALVS Clean suggestions; defaults to the SCALVS agent on Claude when ANTHROPIC_API_KEY is set, else the rules. */
@@ -99,8 +101,8 @@ async function readBody(req: IncomingMessage): Promise<Record<string, any>> {
 }
 
 const str = (v: unknown, max = 100_000) => String(v ?? "").slice(0, max);
-/** Your Cumulus://ID is your mail address: "alex@cumulusmail.cloud" and "alex" name the same account. */
-const idName = (v: unknown) => str(v, 80).trim().toLowerCase().replace(/@cumulusmail\.cloud$/, "").slice(0, 40);
+/** Your Cumulus://ID is your mail address: "alex@cumuluscloud.app" and "alex" name the same account. */
+const idName = (v: unknown) => str(v, 80).trim().toLowerCase().replace(new RegExp(`@${MAIL_DOMAIN.replaceAll(".", "\\.")}$`), "").slice(0, 40);
 /** Drive file references on a message: names and sizes only, at most 10, each under 25 MB. */
 const files = (v: unknown) => (Array.isArray(v) ? v : []).slice(0, 10)
   .map((f) => ({ name: str(f?.name, 200).trim(), size: Math.floor(Number(f?.size)) }))
@@ -147,8 +149,9 @@ export function createMailApp(deps: MailAppDeps) {
   };
   const briefs = new Map<string, string>(); // `${cid}|${messageIds}` -> brief, kept in memory only
 
+  const domainAttr = deps.cookieDomain ? `; Domain=${deps.cookieDomain}` : "";
   const sessionCookie = (token: string, maxAge = 30 * 86400) =>
-    `${COOKIE}=${token}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${maxAge}${deps.secureCookies ? "; Secure" : ""}`;
+    `${COOKIE}=${token}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${maxAge}${domainAttr}${deps.secureCookies ? "; Secure" : ""}`;
   const device = (ctx: Ctx) => String(ctx.req.headers["user-agent"] ?? "Browser").slice(0, 120);
   const need = (ctx: Ctx, ...fields: string[]) => {
     for (const f of fields) if (ctx.body[f] === undefined || ctx.body[f] === "") throw new HttpError(400, `Missing ${f}`);
@@ -212,7 +215,7 @@ export function createMailApp(deps: MailAppDeps) {
 
   const oauthCookie = (provider: string, value: string, maxAge: number) => {
     const sameSite = provider === "apple" && deps.secureCookies ? "None" : "Lax";
-    return `${OAUTH_COOKIE}=${value}; HttpOnly; Path=/api/auth/oauth; SameSite=${sameSite}; Max-Age=${maxAge}${deps.secureCookies ? "; Secure" : ""}`;
+    return `${OAUTH_COOKIE}=${value}; HttpOnly; Path=/api/auth/oauth; SameSite=${sameSite}; Max-Age=${maxAge}${domainAttr}${deps.secureCookies ? "; Secure" : ""}`;
   };
   route("GET", "/api/auth/oauth/:provider/start", async (ctx) => {
     const { url, state: st } = await cid.startSocialSignIn(ctx.params.provider, `${deps.origin}/api/auth/oauth/${ctx.params.provider}/callback`);

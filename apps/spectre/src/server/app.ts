@@ -43,6 +43,8 @@ export interface AppDeps {
   ai: AiConfig;
   publicDir: string;
   secureCookies: boolean;
+  /** Parent domain, for example .cumuluscloud.app. Omit on localhost. */
+  cookieDomain?: string;
   /** Public origin, e.g. https://spectre.infinitum.example; used for sign-in callback URLs. */
   origin: string;
   /** Called after any request that changed data (persistence hook). */
@@ -151,8 +153,9 @@ export function createApp(deps: AppDeps) {
     routes.push({ method, pattern, keys, auth, handler, csrf: opts.csrf ?? true, optionalAuth: opts.optionalAuth ?? false });
   };
 
+  const domainAttr = deps.cookieDomain ? `; Domain=${deps.cookieDomain}` : "";
   const sessionCookie = (token: string, maxAgeDays = 30) =>
-    `${COOKIE}=${token}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${maxAgeDays * 86400}${deps.secureCookies ? "; Secure" : ""}`;
+    `${COOKIE}=${token}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${maxAgeDays * 86400}${domainAttr}${deps.secureCookies ? "; Secure" : ""}`;
   const setSession = (res: ServerResponse, token: string) => {
     res.setHeader("Set-Cookie", sessionCookie(token));
   };
@@ -223,7 +226,7 @@ export function createApp(deps: AppDeps) {
   const oauthCookie = (provider: string, value: string, maxAge: number) => {
     // Apple returns with a cross-site form POST, which only carries SameSite=None cookies.
     const sameSite = provider === "apple" && deps.secureCookies ? "None" : "Lax";
-    return `${OAUTH_COOKIE}=${value}; HttpOnly; Path=/api/auth/oauth; SameSite=${sameSite}; Max-Age=${maxAge}${deps.secureCookies ? "; Secure" : ""}`;
+    return `${OAUTH_COOKIE}=${value}; HttpOnly; Path=/api/auth/oauth; SameSite=${sameSite}; Max-Age=${maxAge}${domainAttr}${deps.secureCookies ? "; Secure" : ""}`;
   };
 
   route("GET", "/api/auth/providers", () => cid.socialProvidersEnabled(), false);

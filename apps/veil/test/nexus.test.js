@@ -1,9 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { APPS, DEFAULT_ORIGINS, badgeText, launcher, parseSummary, resolveOrigins, safeOrigin } from "../lib/nexus.js";
+import { APPS, DEFAULT_ORIGINS, PRODUCTION_ORIGINS, badgeText, launcher, parseSummary, resolveOrigins, safeOrigin } from "../lib/nexus.js";
 
 const spectreMe = {
-  cid: "cid_1", username: "alex", mailAddress: "alex@cumulusmail.cloud", handle: "@alex.veil", workspace: "cid_1",
+  cid: "cid_1", username: "alex", mailAddress: "alex@cumuluscloud.app", handle: "@alex.veil", workspace: "cid_1",
   cumulus: {
     cid: "cid_1", plan: "Free", entitlements: ["x"],
     mail: { unread: 3, url: "https://mail.example" },
@@ -14,6 +14,10 @@ const spectreMe = {
 
 test("lists the seven free-tier products from the product page", () => {
   assert.deepEqual(APPS.map((a) => a.id), ["cid", "mail", "cloud", "scalvs", "architect", "metatron", "wallet"]);
+  assert.equal(PRODUCTION_ORIGINS.cid, "https://id.cumuluscloud.app");
+  assert.equal(PRODUCTION_ORIGINS.cloud, "https://cloud.cumuluscloud.app");
+  assert.equal(PRODUCTION_ORIGINS.mail, "https://mail.cumuluscloud.app");
+  assert.equal(DEFAULT_ORIGINS.mail, "http://localhost:3010");
 });
 
 test("only plain http(s) origins are accepted", () => {
@@ -41,7 +45,7 @@ test("parses the +SPCTR /api/me shape and drops junk", () => {
 });
 
 test("parses the Cumulus::Mail /api/me shape (summary at top level)", () => {
-  const s = parseSummary({ ...spectreMe.cumulus, username: "alex", mailAddress: "alex@cumulusmail.cloud" });
+  const s = parseSummary({ ...spectreMe.cumulus, username: "alex", mailAddress: "alex@cumuluscloud.app" });
   assert.equal(s.username, "alex");
   assert.equal(s.mail.unread, 3);
 });
@@ -60,7 +64,7 @@ test("launcher uses the account's mail origin, unread badge and storage", () => 
   const by = Object.fromEntries(apps.map((a) => [a.id, a]));
   assert.equal(by.mail.url, "https://mail.example");
   assert.equal(by.mail.badge, 3);
-  assert.equal(by.mail.blurb, "alex@cumulusmail.cloud");
+  assert.equal(by.mail.blurb, "alex@cumuluscloud.app");
   assert.match(by.cloud.blurb, /1\.2 MB of 15 GB/);
   assert.equal(by.cloud.url, null);
   assert.equal(by.wallet.panel, "wallet");

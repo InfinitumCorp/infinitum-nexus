@@ -31,7 +31,7 @@ Maps every product advertised on https://infinitum-corporation.vercel.app/#produ
 | **FIRM + FIRM Wallet** | Ecosystem token, wallet, DEX. | Partial | EVM client + wallet signing + DEX + router calldata + contracts + deploy scripts + compile.sh + deploy-helper.md | See DEPLOY.md and packages/firm/scripts/deploy-helper.md. Compile and deploy. FirmCollector ready. |
 | **Project-specific tokens** | $HRVST, $ARCT, $SPCTR, $SCLV. | Scaffolded | tokens.ts + ProjectToken.sol + deploy.ts | Compile and deploy. TokensCollector ready. |
 | **Cumulus://Cloud** | Storage, licensing, agent runtime, **Data Exchange** | Partial (exchange) | packages/cloud + packages/data-exchange + apps/data-exchange | Wire CumulusCollector; object store production; CDAT settlement. |
-| **Cumulus://Mail** | Free email on every CID, alex@cumulusmail.cloud, encrypted at rest, end-to-end between Cumulus accounts, SCALVS briefs, Architect tasks, Drive files, snooze, rules, signature. | Core logic + inside-network delivery | `packages/mail` + `apps/cumulus-mail` | SMTP handoff for the outbox. SCALVS when `XAI_API_KEY` is set. |
+| **Cumulus://Mail** | Free email on every CID, alex@cumuluscloud.app, encrypted at rest, end-to-end between Cumulus accounts, SCALVS briefs, Architect tasks, Drive files, snooze, rules, signature. | Core logic + inside-network delivery | `packages/mail` + `apps/cumulus-mail` | SMTP handoff for the outbox. SCALVS when `XAI_API_KEY` is set. |
 
 ## Supporting / infrastructure concepts
 

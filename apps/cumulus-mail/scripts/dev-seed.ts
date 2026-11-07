@@ -42,10 +42,10 @@ const alex = await account("devalex");
 const leah = await account("devleah");
 if (suite.wallets.balances(alex).USDC === "0") {
   await suite.credit(alex, "USDC", "250", "Test settlement (dev seed)");
-  await suite.mail.send(leah, { to: "devalex@cumulusmail.cloud", subject: "ODIN briefing notes", body: "Alex,\n\nThe notes are in Cumulus://Cloud, shared only with you.\n\nLeah" });
-  await suite.mail.send(alex, { to: "devleah@cumulusmail.cloud", subject: "Dinner — my half", body: "Thanks for organizing.", payment: { asset: "USDC", amount: "38.40" } });
+  await suite.mail.send(leah, { to: "devalex@cumuluscloud.app", subject: "ODIN briefing notes", body: "Alex,\n\nThe notes are in Cumulus://Cloud, shared only with you.\n\nLeah" });
+  await suite.mail.send(alex, { to: "devleah@cumuluscloud.app", subject: "Dinner — my half", body: "Thanks for organizing.", payment: { asset: "USDC", amount: "38.40" } });
   suite.cloud.put("odin-briefing.pdf", leah, 2_400_000);
-  await suite.shareFile(leah, "odin-briefing.pdf", "devalex@cumulusmail.cloud");
+  await suite.shareFile(leah, "odin-briefing.pdf", "devalex@cumuluscloud.app");
 }
 const { token } = await suite.cid["issueSession"](alex, "dev-seed", "passkey");
 saveCumulusStores(dataDir, stores, { tunnel: suite.tunnel });

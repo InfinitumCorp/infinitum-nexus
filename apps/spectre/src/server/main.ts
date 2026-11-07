@@ -2,7 +2,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, chmodSync } from "n
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Ledger, FileStore, generateSigner, signerFromPrivateKey } from "@infinitum/firmament";
-import { socialFromEnv } from "@infinitum/cid";
+import { cookieDomainForHost, readCumulusDomain, socialFromEnv } from "@infinitum/cid";
 import { createCumulus, emptyCumulusStores, loadCumulusStores, loadOrCreateMasterKey, saveCumulusStores } from "@infinitum/cumulus";
 import { SpectreCRM, emptyStore } from "../core/crm.ts";
 import { createApp } from "./app.ts";
@@ -37,6 +37,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const port = Number(process.env.PORT ?? 3000);
 const origin = process.env.SPECTRE_ORIGIN ?? `http://localhost:${port}`;
 const rpId = new URL(origin).hostname;
+const cumulus = readCumulusDomain();
 const dataDir = process.env.SPECTRE_DATA_DIR ?? join(here, "../../data");
 mkdirSync(dataDir, { recursive: true });
 
@@ -67,7 +68,7 @@ const social = socialFromEnv();
 // Every CID that signs up through +SPCTR gets the full Cumulus account: Mail, Cloud and a FIRM Wallet.
 const suite = createCumulus({
   ledger, signer, rpId, origins: [origin], stores: cumulusStores, social: { providers: social },
-  mailOrigin: process.env.CUMULUS_MAIL_ORIGIN,
+  mailOrigin: process.env.CUMULUS_MAIL_ORIGIN ?? cumulus.mailOrigin,
   masterKey: loadOrCreateMasterKey(dataDir),
 });
 suite.provisionAll();
@@ -82,6 +83,7 @@ const app = createApp({
   ai,
   publicDir: join(here, "../../public"),
   secureCookies: origin.startsWith("https://"),
+  cookieDomain: cookieDomainForHost(new URL(origin).hostname, cumulus.cookieDomain),
   origin,
   providers: providersFromEnv(),
   cronSecret: process.env.CRON_SECRET,

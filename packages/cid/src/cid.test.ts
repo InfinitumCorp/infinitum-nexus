@@ -5,8 +5,8 @@ import { Ledger, generateSigner } from "@infinitum/firmament";
 import { CidService, CidError, hotp, verifyTotp, base32Decode, base32Encode } from "./index.ts";
 import { VirtualAuthenticator } from "./testing/virtual-authenticator.ts";
 
-const RP_ID = "infinitum.id";
-const ORIGIN = "https://infinitum.id";
+const RP_ID = "cumuluscloud.app";
+const ORIGIN = "https://id.cumuluscloud.app";
 
 function setup(start = new Date("2026-11-04T12:00:00Z")) {
   let now = start;
@@ -38,7 +38,7 @@ describe("CID accounts", () => {
     const { cid, ledger } = setup();
     const a = await cid.createAccount({ username: "Alex" });
     assert.equal(a.username, "alex");
-    assert.equal(a.mailAddress, "alex@cumulusmail.cloud");
+    assert.equal(a.mailAddress, "alex@cumuluscloud.app");
     assert.equal(a.handle, "@alex.veil");
     assert.equal(a.entitlements.storageGb, 15);
     assert.equal(a.entitlements.scalvs, "free");

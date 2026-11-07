@@ -9,15 +9,15 @@ const hours = (n: number) => new Date(NOW.getTime() + n * 3_600_000).toISOString
 function setup() {
   let now = NOW;
   const po = new PostOffice({ clock: () => now });
-  po.provision({ cid: "a", address: "alex@cumulusmail.cloud" });
-  po.provision({ cid: "b", address: "bea@cumulusmail.cloud" });
+  po.provision({ cid: "a", address: "alex@cumuluscloud.app" });
+  po.provision({ cid: "b", address: "bea@cumuluscloud.app" });
   return { po, at: (iso: string) => { now = new Date(iso); } };
 }
 
 describe("Schedule send", () => {
   it("waits in Scheduled, then goes out on its own when due", async () => {
     const { po, at } = setup();
-    const { id, sendAt } = po.schedule("a", { to: "bea@cumulusmail.cloud", subject: "Tomorrow", body: "See you." }, hours(20));
+    const { id, sendAt } = po.schedule("a", { to: "bea@cumuluscloud.app", subject: "Tomorrow", body: "See you." }, hours(20));
     assert.equal(sendAt, hours(20));
     const draft = po.message("a", id)!;
     assert.equal(inBox(draft, "scheduled"), true);
@@ -35,7 +35,7 @@ describe("Schedule send", () => {
 
   it("can be canceled back into Drafts", () => {
     const { po } = setup();
-    const { id } = po.schedule("a", { to: "bea@cumulusmail.cloud", subject: "Later", body: "x" }, hours(2));
+    const { id } = po.schedule("a", { to: "bea@cumuluscloud.app", subject: "Later", body: "x" }, hours(2));
     assert.equal(po.unschedule("a", id), true);
     const draft = po.message("a", id)!;
     assert.equal(draft.sendAt, undefined);
@@ -45,7 +45,7 @@ describe("Schedule send", () => {
 
   it("refuses times in the past, far future, payments and bad addresses", () => {
     const { po } = setup();
-    const ok = { to: "bea@cumulusmail.cloud", subject: "x", body: "x" };
+    const ok = { to: "bea@cumuluscloud.app", subject: "x", body: "x" };
     assert.throws(() => po.schedule("a", ok, hours(-1)), /future/);
     assert.throws(() => po.schedule("a", ok, hours(24 * 400)), /year/);
     assert.throws(() => po.schedule("a", ok, "soon"), /future/);
@@ -55,7 +55,7 @@ describe("Schedule send", () => {
 
   it("puts a message that can't go out back in Drafts with a notice", async () => {
     const { po, at } = setup();
-    const { id } = po.schedule("a", { to: "bea@cumulusmail.cloud", subject: "Oops", body: "x" }, hours(1));
+    const { id } = po.schedule("a", { to: "bea@cumuluscloud.app", subject: "Oops", body: "x" }, hours(1));
     po.message("a", id)!.to = []; // the recipient list went bad after scheduling
     at(hours(2));
     assert.equal(await po.sendDue("a"), 0);

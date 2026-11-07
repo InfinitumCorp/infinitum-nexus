@@ -2,6 +2,8 @@
 
 Cumulus://Cloud is the Infinitum Corporation® file store: Cumulus Exchange and Cumulus Drive are this one product. This package keeps the bytes on the local filesystem and the catalog in PostgreSQL. Sign-in is a Cumulus://ID session from `packages/cid`.
 
+The public host is `https://cloud.cumuluscloud.app`. Cumulus://ID is `https://id.cumuluscloud.app` and Cumulus://Mail is `https://mail.cumuluscloud.app`. Mailboxes are `name@cumuluscloud.app`. The domain is on Cloudflare for DNS and HTTPS. Share links use `https://cloud.cumuluscloud.app/v1/s/<token>`. Browsers on the ID, Cloud, and Mail origins are allowed by CORS. Nothing in this package changes Cloudflare DNS.
+
 The in-memory `CloudStore` is still the metadata map the Cumulus suite uses for quota notices. The Drive HTTP API below is the byte store.
 
 ## What runs today

@@ -410,7 +410,7 @@ function suggestFor(input) {
 
 function reader(message) {
   const thread = state.data.messages.filter((item) => item.threadId === message.threadId && item.folder !== "drafts" && (item.folder !== "trash" || message.folder === "trash")).sort((a, b) => (a.at < b.at ? -1 : 1));
-  const e2e = [message.from, ...message.to, ...message.cc].every((person) => person.email.endsWith("@cumulusmail.cloud"));
+  const e2e = [message.from, ...message.to, ...message.cc].every((person) => person.email.endsWith("@cumuluscloud.app"));
   const key = thread.map((item) => item.id).join(":");
   const brief = state.data.briefs?.[key];
   const inTrash = message.folder === "trash";
@@ -727,7 +727,7 @@ function walletView() {
       if (!confirm(`Send ${form.amount} ${form.asset} to ${form.to}?`)) return;
       act(async () => { await api("/api/wallet/pay", form); state.wallet = await api("/api/wallet"); });
     } }, [
-      input("To", "to", { placeholder: "name@cumulusmail.cloud or 0x…" }),
+      input("To", "to", { placeholder: "name@cumuluscloud.app or 0x…" }),
       el("label", { class: "field" }, [el("span", {}, ["Amount"]), el("input", { "aria-label": "Amount", inputmode: "decimal", placeholder: "0.00", onInput: (event) => { form.amount = event.target.value.trim(); } }), asset]),
       input("Note", "memo", { placeholder: "Optional" }),
       el("div", { class: "actions" }, [el("button", { class: "primary", type: "submit" }, ["Send"]), state.error ? el("span", { class: "error", role: "alert" }, [state.error]) : none()]),
@@ -768,7 +768,7 @@ function aux(data) {
     el("button", { class: "outline", onClick: () => act(async () => {
       const words = ["north", "quiet", "glass", "harbor", "lumen"];
       const pick = () => words[Math.floor(Math.random() * words.length)];
-      await api("/api/alias", { alias: `${pick()}.${pick()}.${1000 + Math.floor(Math.random() * 9000)}@cumulusmail.cloud` });
+      await api("/api/alias", { alias: `${pick()}.${pick()}.${1000 + Math.floor(Math.random() * 9000)}@cumuluscloud.app` });
     }) }, ["New disposable alias"]),
     el("h3", {}, [`${a.plan} plan · included with your Cumulus://ID`]),
     el("ul", { class: "plan" }, [
@@ -837,7 +837,7 @@ function renderAuth(message = "") {
   const root = document.querySelector("#app");
   const err = el("p", { class: "error", role: "alert" }, [message]);
   const fail = (e) => { err.textContent = e.name === "NotAllowedError" ? "Passkey request was cancelled." : e.message; };
-  const username = el("input", { placeholder: "name@cumulusmail.cloud", "aria-label": "Your new Cumulus://ID", autocomplete: "username webauthn", autocapitalize: "none", spellcheck: "false" });
+  const username = el("input", { placeholder: "name@cumuluscloud.app", "aria-label": "Your new Cumulus://ID", autocomplete: "username webauthn", autocapitalize: "none", spellcheck: "false" });
   const social = el("div", { class: "social" });
   api("/api/auth/providers")
     .then((providers) => social.replaceChildren(...providers.map((p) => el("a", { class: "outline", href: `/api/auth/oauth/${encodeURIComponent(p.id)}/start` }, [`Continue with ${p.label}`]))))
@@ -866,7 +866,7 @@ function renderAuth(message = "") {
       } catch (e) { fail(e); }
     } }, ["Create my Cumulus://ID"]),
     err,
-    el("p", { class: "muted small" }, ["Your @cumulusmail.cloud address is your Cumulus://ID. It comes with 15 GB shared with Cumulus://Cloud and a FIRM Wallet. Free."]),
+    el("p", { class: "muted small" }, ["Your @cumuluscloud.app address is your Cumulus://ID. It comes with 15 GB shared with Cumulus://Cloud and a FIRM Wallet. Free."]),
   ])]));
 }
 

@@ -6,6 +6,22 @@ export {
   FREE_ENTITLEMENTS,
   MAIL_DOMAIN,
 } from "./service.ts";
+export {
+  CUMULUS_DOMAIN,
+  CUMULUS_ID_HOST,
+  CUMULUS_CLOUD_HOST,
+  CUMULUS_MAIL_HOST,
+  CUMULUS_ID_ORIGIN,
+  CUMULUS_CLOUD_ORIGIN,
+  CUMULUS_MAIL_ORIGIN,
+  CUMULUS_RP_ID,
+  CUMULUS_ISSUER,
+  CUMULUS_COOKIE_DOMAIN,
+  CUMULUS_ORIGINS,
+  readCumulusDomain,
+  cookieDomainForHost,
+} from "./domain.ts";
+export type { CumulusDomain } from "./domain.ts";
 export type { CidEvent, CidEventName } from "./service.ts";
 export type { Account, Authenticator, Session, SessionMethod, LinkedIdentity, Grant, Organization, AppId, CidConfig } from "./service.ts";
 export { PROVIDERS, SocialClient, appleClientSecret, socialFromEnv } from "./social.ts";

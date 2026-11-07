@@ -79,7 +79,7 @@ describe("+SPCTR app over HTTP", () => {
   it("signs up with a passkey, signs in, and grants Spectre access on the CID (recorded on Firmament)", async () => {
     const { cookie, cid: id } = await signUp("alex");
     const me = await call("GET", "/api/me", undefined, cookie);
-    assert.equal(me.body.mailAddress, "alex@cumulusmail.cloud");
+    assert.equal(me.body.mailAddress, "alex@cumuluscloud.app");
     assert.ok(cid.can(id, "spectre", "crm:write"));
     const grants = await ledger.query({ type: "grant", subject: id });
     assert.equal(grants.length, 1);

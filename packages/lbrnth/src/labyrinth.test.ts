@@ -195,7 +195,7 @@ test("real CID grants cannot substitute for the client organization's paid entit
   const { CidService } = await import("@infinitum/cid");
   const { Ledger, generateSigner } = await import("@infinitum/firmament");
   const signer = generateSigner();
-  const cid = new CidService({ ledger: new Ledger(undefined, { authorizedSigners: [signer.publicKey] }), signer, rpId: "infinitum.id", origins: ["https://infinitum.id"] });
+  const cid = new CidService({ ledger: new Ledger(undefined, { authorizedSigners: [signer.publicKey] }), signer, rpId: "cumuluscloud.app", origins: ["https://id.cumuluscloud.app"] });
   const account = await cid.createAccount({ username: "labyrinth-client" });
   let entitled = false;
   const lab = new Labyrinth({ can: cid.can.bind(cid), entitled: () => entitled, canProvision: (actor, org) => actor === account.cid && org === "real-client" });

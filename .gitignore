@@ -2,6 +2,7 @@ node_modules
 dist
 .env
 .env.*
+!.env.example
 packages/contracts/artifacts
 packages/contracts/cache
 packages/contracts/typechain-types

@@ -9,7 +9,7 @@ const daysAgo = (n: number) => new Date(NOW.getTime() - n * 86_400_000).toISOStr
 
 function msg(over: Partial<MailMessage> & { id: string }): MailMessage {
   return {
-    threadId: over.id, folder: "inbox", from: { name: "Leah", email: "leah@cumulusmail.cloud" }, to: [], cc: [],
+    threadId: over.id, folder: "inbox", from: { name: "Leah", email: "leah@cumuluscloud.app" }, to: [], cc: [],
     subject: "Hi", body: "Hello", at: daysAgo(1), unread: false, starred: false, labels: [], ...over,
   };
 }
@@ -47,9 +47,9 @@ describe("SCALVS Clean", () => {
   it("cleans a real mailbox, mutes senders, routes their new mail and undoes", async () => {
     let now = NOW;
     const po = new PostOffice({ clock: () => now });
-    po.provision({ cid: "a", address: "alex@cumulusmail.cloud" });
-    po.provision({ cid: "b", address: "deals@cumulusmail.cloud" });
-    await po.send("b", { to: "alex@cumulusmail.cloud", subject: "50% off", body: "Unsubscribe any time." });
+    po.provision({ cid: "a", address: "alex@cumuluscloud.app" });
+    po.provision({ cid: "b", address: "deals@cumuluscloud.app" });
+    await po.send("b", { to: "alex@cumuluscloud.app", subject: "50% off", body: "Unsubscribe any time." });
     const promo = po.view("a").messages[0]!;
     po.markThreadRead("a", promo.threadId);
     assert.equal(po.previewClean("a").length, 0, "too new to clean");
@@ -61,17 +61,17 @@ describe("SCALVS Clean", () => {
     assert.equal(po.undoClean("a", done[0]!.id), 1);
     assert.equal(po.message("a", promo.id)?.folder, "inbox");
 
-    po.muteSender("a", "deals@cumulusmail.cloud");
+    po.muteSender("a", "deals@cumuluscloud.app");
     assert.equal(po.message("a", promo.id)?.folder, "archive");
-    await po.send("b", { to: "alex@cumulusmail.cloud", subject: "Last chance", body: "Hurry" });
+    await po.send("b", { to: "alex@cumuluscloud.app", subject: "Last chance", body: "Hurry" });
     assert.equal(po.view("a").messages.find((m) => m.subject === "Last chance")?.folder, "archive");
-    assert.throws(() => po.muteSender("a", "security@cumulusmail.cloud"), /can't be muted/);
+    assert.throws(() => po.muteSender("a", "security@cumuluscloud.app"), /can't be muted/);
   });
 
   it("runs on its own at most once an hour and only when switched on", async () => {
     let now = NOW;
     const po = new PostOffice({ clock: () => now });
-    po.provision({ cid: "a", address: "alex@cumulusmail.cloud" });
+    po.provision({ cid: "a", address: "alex@cumuluscloud.app" });
     po.notify("a", "postmaster", { subject: "Not delivered", body: "x" });
     now = new Date(NOW.getTime() + 31 * 86_400_000);
     assert.equal(po.autoClean("a").length, 1);

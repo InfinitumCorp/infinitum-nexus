@@ -9,7 +9,7 @@
 import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { CidService } from "@infinitum/cid";
+import { CidService, readCumulusDomain } from "@infinitum/cid";
 import { Ledger, MemoryStore, generateSigner } from "@infinitum/firmament";
 import { cidAuth } from "./drive/auth.ts";
 import { readDriveConfig } from "./drive/config.ts";
@@ -46,11 +46,14 @@ const cid = new CidService({
   origins: [`http://${config.host}:${config.port}`],
 });
 
+const cumulus = readCumulusDomain();
 const app = createDriveApp({
   service,
   auth: cidAuth(cid),
   rateLimit: config.rateLimit,
   rateWindowMs: config.rateWindowMs,
+  publicOrigin: cumulus.cloudOrigin,
+  allowedOrigins: cumulus.origins,
 });
 
 const timer = setInterval(() => {
@@ -61,5 +64,5 @@ const timer = setInterval(() => {
 timer.unref();
 
 app.server().listen(config.port, config.host, () => {
-  console.log(`Cumulus://Cloud Drive listening on http://${config.host}:${config.port} (local filesystem, encryption ${master ? "on" : "off"})`);
+  console.log(`Cumulus://Cloud Drive listening on http://${config.host}:${config.port} (public ${cumulus.cloudOrigin}, local filesystem, encryption ${master ? "on" : "off"})`);
 });

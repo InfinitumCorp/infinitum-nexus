@@ -17,6 +17,7 @@ import {
   type SocialProfile,
   type SocialProviderId,
 } from "./social.ts";
+import { MAIL_DOMAIN } from "./domain.ts";
 
 /* ------------------------------------------------------------------ *
  * Product registry: every app a CID can sign in to and grant access to.
@@ -46,7 +47,7 @@ export const FREE_ENTITLEMENTS = {
   metatronDashboard: true,
 } as const;
 
-export const MAIL_DOMAIN = "cumulusmail.cloud";
+export { MAIL_DOMAIN };
 
 /* ------------------------------------------------------------------ *
  * Data model
@@ -55,7 +56,7 @@ export const MAIL_DOMAIN = "cumulusmail.cloud";
 export interface Account {
   cid: string;
   username: string;
-  /** e.g. alex@cumulusmail.cloud */
+  /** e.g. alex@cumuluscloud.app */
   mailAddress: string;
   /** Ecosystem handle, e.g. @alex.veil */
   handle: string;
@@ -157,7 +158,7 @@ export class CidStore {
 export interface CidConfig {
   ledger: Ledger;
   signer: Signer;
-  /** WebAuthn relying party ID, e.g. "infinitum.id". */
+  /** WebAuthn relying party ID. Production uses cumuluscloud.app so one passkey covers every product host. */
   rpId: string;
   /** Origins allowed to run passkey ceremonies (web, VEIL, #THRONE shells). */
   origins: string[];

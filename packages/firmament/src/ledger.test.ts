@@ -136,7 +136,7 @@ describe("Firmament ledger", () => {
   });
 
   it("records private data as a commitment, not the data itself", () => {
-    const secret = { email: "alex@cumulusmail.cloud", phone: "+1 202 555 0100" };
+    const secret = { email: "alex@cumuluscloud.app", phone: "+1 202 555 0100" };
     const { digest, salt } = commit(secret);
     assert.ok(!(digest).includes("alex"));
     assert.equal(verifyCommitment(secret, salt, digest), true);

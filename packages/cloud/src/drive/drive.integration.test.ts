@@ -19,8 +19,8 @@ import { DriveService } from "./service.ts";
 
 const dbUrl = process.env.CUMULUS_CLOUD_DATABASE_URL;
 const required = process.env.CUMULUS_CLOUD_REQUIRE_INTEGRATION === "1";
-const ORIGIN = "https://infinitum.id";
-const RP = "infinitum.id";
+const ORIGIN = "https://id.cumuluscloud.app";
+const RP = "cumuluscloud.app";
 
 describe("Cumulus://Cloud Drive against local PostgreSQL", {
   concurrency: 1,
@@ -245,6 +245,11 @@ describe("Cumulus://Cloud Drive against local PostgreSQL", {
       json: { expiresAt: new Date(now.getTime() + 60_000).toISOString() },
     })).share;
     assert.equal(typeof share.token, "string");
+    assert.equal(share.url, `https://cloud.cumuluscloud.app/v1/s/${share.token}`);
+    const fromMail = await call(plain.port, "GET", "/v1/health", { headers: { origin: "https://mail.cumuluscloud.app" } });
+    assert.equal(fromMail.headers["access-control-allow-origin"], "https://mail.cumuluscloud.app");
+    const strangerOrigin = await call(plain.port, "GET", "/v1/health", { headers: { origin: "https://evil.example" } });
+    assert.equal(strangerOrigin.headers["access-control-allow-origin"], undefined);
     const open = await call(plain.port, "GET", `/v1/s/${share.token}/content`);
     assert.equal(open.status, 200);
     assert.equal(open.body.toString(), "share-body");

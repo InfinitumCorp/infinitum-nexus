@@ -66,6 +66,8 @@ Coming next: AI account research the Spectre agent team, then `$FIRM` and produc
 
 `packages/cloud` stores Drive bytes on the local filesystem and file metadata in PostgreSQL. The S3-compatible driver is a stub and is off by default. Setup, environment variables, the license table, and launch gaps are in [packages/cloud/README.md](packages/cloud/README.md).
 
+Cumulus://ID, Cumulus://Cloud, and Cumulus://Mail use `cumuluscloud.app` (DNS and HTTPS on Cloudflare): `id.cumuluscloud.app`, `cloud.cumuluscloud.app`, and `mail.cumuluscloud.app`. Mailboxes are `name@cumuluscloud.app`. See `.env.example`.
+
 ## Requirements
 
 Node.js 22.18 or newer (runs TypeScript directly; no build step).

@@ -5,9 +5,9 @@ import { ME, SEED_MESSAGES, type MailMessage } from "./model.ts";
 
 test("Cumulus recipients stay inside and everyone else is outbound", () => {
   const hops = planDelivery([
-    { name: "Leah", email: "leah@cumulusmail.cloud" },
+    { name: "Leah", email: "leah@cumuluscloud.app" },
     { name: "Priya", email: "priya.shah@vyral.example" },
-    { name: "Leah again", email: "Leah@cumulusmail.cloud" },
+    { name: "Leah again", email: "Leah@cumuluscloud.app" },
   ]);
   assert.equal(hops.length, 2);
   assert.equal(hops[0]?.status, "inside");
@@ -25,7 +25,7 @@ test("from: finds a sender and has:file finds an attachment", () => {
   assert.equal(listThreads(messages, "inbox", "from:leah", false).length > 0, true);
   assert.equal(listThreads(messages, "inbox", "from:nobody-zzz", false).length, 0);
   assert.equal(listThreads(messages, "inbox", "has:file", false)[0]?.id, "file-1");
-  assert.equal(ME.email.endsWith("@cumulusmail.cloud"), true);
+  assert.equal(ME.email.endsWith("@cumuluscloud.app"), true);
 });
 
 test("a search term can match a different message in the same thread", () => {
@@ -33,7 +33,7 @@ test("a search term can match a different message in the same thread", () => {
     ...SEED_MESSAGES[0]!,
     id: "t-1",
     threadId: "th-split",
-    from: { name: "Leah Okonkwo", email: "leah@cumulusmail.cloud" },
+    from: { name: "Leah Okonkwo", email: "leah@cumuluscloud.app" },
     subject: "Hello",
     body: "See you Thursday.",
     attachments: undefined,

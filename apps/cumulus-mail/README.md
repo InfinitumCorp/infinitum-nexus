@@ -1,7 +1,7 @@
 # Cumulus://Mail
 
 The mailbox that comes with every Cumulus://ID, the way Gmail comes with a Google account.
-Sign up in any Infinitum product and you get `username@cumulusmail.cloud`, Cumulus://Cloud storage
+Sign up in any Infinitum product and you get `username@cumuluscloud.app`, Cumulus://Cloud storage
 and a FIRM Wallet, all on the free tier. The account suite is in `@infinitum/cumulus`; mailbox rules
 are in `@infinitum/mail`. This app serves them.
 
@@ -34,7 +34,7 @@ Open http://localhost:3010 and sign in with a passkey.
   replies. Unknown Cumulus addresses bounce. Outside addresses are queued for the outbound relay
   (`PostOffice.outboundQueue()`); the SMTP bridge itself is not built yet.
 - **Login security mail.** Sign-ins from a new device, new or removed keys, MFA changes, linked
-  providers and "signed out everywhere" each send a notice from `security@cumulusmail.cloud`.
+  providers and "signed out everywhere" each send a notice from `security@cumuluscloud.app`.
   Product sender names (`security`, `wallet`, `cloud`, `welcome`, `postmaster`, …) are reserved and
   can't be registered.
 - **Shared 15 GB.** Mail and Cloud draw from one quota. A full account can't send; a full recipient bounces.
@@ -43,7 +43,7 @@ Open http://localhost:3010 and sign in with a passkey.
   never shows a payment that failed. Each payment is a Firmament `payment` entry (amounts and wallet
   IDs only, no mail content). The server never holds wallet private keys.
 
-- **Your address is your Cumulus://ID.** `name@cumulusmail.cloud` and `name` sign in to the same account,
+- **Your address is your Cumulus://ID.** `name@cumuluscloud.app` and `name` sign in to the same account,
   in Mail and in every other Infinitum product.
 - **Cumulus Tunnel.** Mail between Cumulus accounts is sealed to the recipient (X25519 + AES-256-GCM) and
   signed by the sender (Ed25519). The recipient's copy comes only out of that envelope, and the reader shows

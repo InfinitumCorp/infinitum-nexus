@@ -313,6 +313,10 @@ importers:
         version: 5.9.3
 
   packages/mail:
+    dependencies:
+      '@infinitum/cid':
+        specifier: workspace:*
+        version: link:../cid
     devDependencies:
       '@types/node':
         specifier: ^22.0.0

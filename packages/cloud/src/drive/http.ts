@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { CUMULUS_CLOUD_ORIGIN, CUMULUS_ORIGINS } from "@infinitum/cid";
 import type { DriveAuth, DrivePrincipal } from "./auth.ts";
 import { cleanId, cleanName, cleanSha256, declaredType, optionalId } from "./names.ts";
 import { RateLimiter } from "./rate-limit.ts";
@@ -29,10 +30,16 @@ export function createDriveApp(opts: {
   auth: DriveAuth;
   rateLimit?: number;
   rateWindowMs?: number;
+  /** Absolute origin used in share links. Default https://cloud.cumuluscloud.app. */
+  publicOrigin?: string;
+  /** Browser origins allowed to call this API. Default ID, Cloud, and Mail. */
+  allowedOrigins?: readonly string[];
 }): { handle: (req: IncomingMessage, res: ServerResponse) => Promise<void>; server: () => Server } {
   const service = opts.service;
   const auth = opts.auth;
   const limiter = new RateLimiter(opts.rateLimit ?? 120, opts.rateWindowMs ?? 60_000);
+  const publicOrigin = (opts.publicOrigin ?? CUMULUS_CLOUD_ORIGIN).replace(/\/$/, "");
+  const allowedOrigins = new Set(opts.allowedOrigins ?? CUMULUS_ORIGINS);
   const routes: { method: string; re: RegExp; keys: string[]; auth: AuthMode; handler: Handler }[] = [];
 
   const route = (method: string, path: string, mode: AuthMode, handler: Handler) => {
@@ -222,7 +229,8 @@ export function createDriveApp(opts: {
     if (!principal) return;
     const body = await readJson(req);
     rejectForeignOwner(body, principal.cid);
-    send(res, 201, { share: await service.createShare(principal.cid, cleanId(params.id ?? "", "File"), body.expiresAt) });
+    const share = await service.createShare(principal.cid, cleanId(params.id ?? "", "File"), body.expiresAt);
+    send(res, 201, { share: { ...share, url: share.token ? `${publicOrigin}/v1/s/${share.token}` : undefined } });
   });
 
   route("GET", "/v1/files/:id/shares", "read", async ({ res, params, principal }) => {
@@ -244,7 +252,25 @@ export function createDriveApp(opts: {
     await sendDownload(res, await service.openShare(params.token ?? "", rangeOf(req)));
   });
 
+  function applyCors(req: IncomingMessage, res: ServerResponse): boolean {
+    const origin = req.headers.origin;
+    if (typeof origin !== "string" || !allowedOrigins.has(origin)) return false;
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Vary", "Origin");
+    res.setHeader("Access-Control-Allow-Credentials", "true");
+    res.setHeader("Access-Control-Allow-Headers", "Authorization, Content-Type, Range, X-Cumulus-Name, X-Cumulus-Folder, X-Cumulus-Sha256");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
+    res.setHeader("Access-Control-Expose-Headers", "Accept-Ranges, Content-Disposition, Content-Range, ETag");
+    return true;
+  }
+
   async function handle(req: IncomingMessage, res: ServerResponse) {
+    const cors = applyCors(req, res);
+    if (req.method === "OPTIONS") {
+      res.writeHead(!req.headers.origin || cors ? 204 : 403);
+      res.end();
+      return;
+    }
     const url = new URL(req.url ?? "/", "http://127.0.0.1");
     const ipHit = limiter.allow(`ip:${req.socket.remoteAddress ?? "unknown"}`);
     if (!ipHit.ok) {

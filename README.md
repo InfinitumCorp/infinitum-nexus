@@ -18,9 +18,9 @@ Shared foundation for every Infinitum product, by Infinitum Corporation®.
 | `packages/hardware` | Tasking, telemetry and evidence interface for physical products, with a profile per platform including DAEMON™ (autonomous aircraft) and SLUG™ (autonomous land drone). |
 | `packages/autonomy` | Mission safety for DAEMON™, SLUG™, ORBIS™ and POLLEN™ with Flower™ docking: fence and no-go checks, altitude limits, energy reserve, a runtime interlock (hold, return, land), swarm coverage planning and pad scheduling (7 tests). Every mission still needs a person's approval. |
 
-Run Cumulus://Mail: `node --experimental-strip-types apps/cumulus-mail/src/server.ts`, then open http://localhost:3010. Set `XAI_API_KEY` to turn on SCALVS briefs. Mail is intentionally not listed on the public site.
+Run Cumulus://Mail: `node --experimental-strip-types apps/cumulus-mail/src/server.ts`, then open http://localhost:3010. Set `OMNIROUTE_API_KEY` to turn on SCALVS briefs. Mail is intentionally not listed on the public site.
 
-Run +SPCTR locally: `node apps/spectre/src/server/main.ts`, then open http://localhost:3000 and create a CID with a passkey. Set `ANTHROPIC_API_KEY` to turn on Ask Spectre.
+Run +SPCTR locally: `node apps/spectre/src/server/main.ts`, then open http://localhost:3000 and create a CID with a passkey. Set `OMNIROUTE_API_KEY` to turn on Ask Spectre.
 
 ### Cumulus domain
 

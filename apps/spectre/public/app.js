@@ -840,7 +840,7 @@ async function renderSettings() {
           <div class="item"><div class="main"><div class="title">Research</div><div class="sub">Public web search for account facts</div></div></div>
           <div class="item"><div class="main"><div class="title">Agents</div><div class="sub">Researcher, Prospector, Deal Coach, Query</div></div></div>
         </div>
-        <p class="faint small mt10">Set ANTHROPIC_API_KEY for Ask +SPCTR<sup class="tm">™</sup>. Research uses public search. Filters available on Pipeline and Accounts.</p>
+        <p class="faint small mt10">Connect OmniRoute (OMNIROUTE_API_KEY) for Ask +SPCTR<sup class="tm">™</sup>. Research uses public search. Filters available on Pipeline and Accounts.</p>
       </div>
     </div>`;
   $("#export-data")?.addEventListener("click", async () => {
@@ -942,7 +942,7 @@ async function renderAgents() {
   main().innerHTML = `
     <div class="page">
       <div class="page-head"><h1>Agents</h1><span class="faint small">Powered by SCALVS.ai<sup class="tm">™</sup></span></div>
-      ${info.aiConnected ? "" : `<div class="notice">AI isn't connected yet, so agents can't run. Add ANTHROPIC_API_KEY to the server environment.</div>`}
+      ${info.aiConnected ? "" : `<div class="notice">AI isn't connected yet, so agents can't run. Set OMNIROUTE_API_KEY on the server.</div>`}
       ${pending.length ? `<div class="section"><h2>Waiting for your approval</h2><div class="list" id="pending">${pending.map(proposalHtml).join("")}</div></div>` : ""}
       <div class="agent-grid">${info.agents.map((a) => `<button class="agent-card${a.id === sel.id ? " active" : ""}" data-agent="${esc(a.id)}">
         <div class="title">${esc(a.name)}</div><div class="sub">${esc(a.role)}</div></button>`).join("")}</div>
@@ -1016,7 +1016,7 @@ async function renderConjure() {
     <div class="page narrow">
       <div class="page-head"><h1>Conjure<sup class="tm">™</sup></h1><span class="faint small">Swarm forecasting</span></div>
       <p class="muted">Give Conjure a question and some background. It builds the people involved as AI agents, lets them react to each other over several rounds, and writes a forecast. You can inject “what if” events, compare futures and interview any agent.</p>
-      ${data.aiConnected ? "" : `<div class="notice">AI isn't connected yet, so simulations can't run. Add ANTHROPIC_API_KEY to the server environment.</div>`}
+      ${data.aiConnected ? "" : `<div class="notice">AI isn't connected yet, so simulations can't run. Set OMNIROUTE_API_KEY on the server.</div>`}
       <form id="new-sim" class="section">
         <label class="field">Question<input class="input" name="question" required maxlength="500" placeholder="Will the city approve the new transit budget this quarter?"></label>
         <label class="field">Background<textarea class="input" name="seed" rows="5" required maxlength="30000" placeholder="Paste news, a report or your notes. The more specific, the better."></textarea></label>

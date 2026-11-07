@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
 import {
-  createSimulation, conjureStep, conjureInject, conjureFork, conjureReport, conjureInterview, conjureEstimate, claudeComplete, ConjureError,
+  createSimulation, conjureStep, conjureInject, conjureFork, conjureReport, conjureInterview, conjureEstimate, routerComplete, ConjureError,
   type Complete, type Simulation,
 } from "@infinitum/conjure";
 import type { SpectreCRM } from "../core/crm.ts";
-import type { AiConfig } from "./ai.ts";
+import { aiConnected, AI_SETUP_HINT, type AiConfig } from "./ai.ts";
 
 type StoredSim = Simulation & { workspace: string; dealId?: string; createdBy: string };
 
@@ -37,12 +37,12 @@ export function registerConjureRoutes(api: {
 
   const model = (): Complete => {
     if (api.complete) return api.complete;
-    if (!ai.apiKey) throw httpError(503, "AI isn't connected. Add ANTHROPIC_API_KEY to run Conjure simulations.");
-    return claudeComplete({ apiKey: ai.apiKey, model: ai.model, fetchImpl: ai.fetchImpl });
+    if (!aiConnected(ai)) throw httpError(503, `AI isn't connected. ${AI_SETUP_HINT}`);
+    return routerComplete(ai.router);
   };
   const llm = () => {
-    if (!ai.apiKey && !api.complete) throw httpError(503, "AI isn't connected. Add ANTHROPIC_API_KEY to run Conjure simulations.");
-    return { apiKey: ai.apiKey ?? "test", model: ai.model, fetchImpl: ai.fetchImpl };
+    if (!aiConnected(ai) && !api.complete) throw httpError(503, `AI isn't connected. ${AI_SETUP_HINT}`);
+    return { router: ai.router };
   };
   const get = (ctx: any): StoredSim => {
     const s = crm.store.simulations.get(ctx.params.id);
@@ -69,7 +69,7 @@ export function registerConjureRoutes(api: {
   });
 
   route("GET", "/api/conjure", (ctx) => ({
-    aiConnected: Boolean(ai.apiKey || api.complete),
+    aiConnected: aiConnected(ai) || Boolean(api.complete),
     simulations: crm.list("simulations", ctx.user.workspace).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map(summary),
   }));
 

@@ -19,6 +19,7 @@
     "@types/node": "^22.0.0"
   },
   "dependencies": {
+    "@infinitum/ai": "workspace:*",
     "@infinitum/lbrnth-client": "workspace:*"
   }
 }

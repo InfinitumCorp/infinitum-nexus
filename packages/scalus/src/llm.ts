@@ -1,12 +1,14 @@
 /**
- * SCALVS.ai agent engine: Claude plans, calls tools, reads the results and continues
- * until it can answer (the Anthropic Messages API tool-use loop).
+ * SCALVS.ai agent engine: the model plans, calls tools, reads the results and continues
+ * until it can answer. Runs on open-weight models through @infinitum/ai, which
+ * switches model or host automatically mid-run if one fails or stalls.
  *
  * Human approval: tools marked `effect: "propose"` never run during the agent's turn.
  * The call becomes a Proposal the host product shows to a person, who approves or
  * dismisses it. "Agents draft and recommend; your team approves anything that reaches
  * a customer."
  */
+import { AiError, sharedRouter, type AiRouter, type ChatMessage, type Tier } from "@infinitum/ai";
 
 export interface JsonSchema {
   type: "object";
@@ -51,24 +53,15 @@ export interface LlmAgentResult {
 }
 
 export interface LlmConfig {
-  apiKey: string;
-  model: string;
-  fetchImpl?: typeof fetch;
+  /** The open-model router. Defaults to the process-wide router built from the environment. */
+  router?: AiRouter;
+  /** "smart" (default) for planning agents, "fast" for light work. */
+  tier?: Tier;
   /** Max model calls per run (each may request several tools). Default 8. */
   maxSteps?: number;
   maxTokens?: number;
   /** Id generator for proposals (injected in tests). */
   newId?: () => string;
-}
-
-type Block =
-  | { type: "text"; text: string }
-  | { type: "tool_use"; id: string; name: string; input: Record<string, unknown> }
-  | { type: "tool_result"; tool_use_id: string; content: string; is_error?: boolean };
-
-interface Message {
-  role: "user" | "assistant";
-  content: string | Block[];
 }
 
 export class LlmError extends Error {
@@ -90,75 +83,57 @@ export async function runLlmAgent(
   agent: { system: string; tools: LlmTool[] },
   prompt: string,
 ): Promise<LlmAgentResult> {
-  const fetchImpl = cfg.fetchImpl ?? fetch;
+  const router = cfg.router ?? sharedRouter();
   const maxSteps = cfg.maxSteps ?? 8;
   const newId = cfg.newId ?? (() => `prop_${crypto.randomUUID()}`);
   const byName = new Map(agent.tools.map((t) => [t.name, t]));
-  const messages: Message[] = [{ role: "user", content: prompt }];
+  const tools = agent.tools.map(({ name, description, input_schema }) => ({ name, description, parameters: input_schema as unknown as Record<string, unknown> }));
+  const messages: ChatMessage[] = [{ role: "user", content: prompt }];
   const steps: Step[] = [];
   const proposals: Proposal[] = [];
   const usage = { inputTokens: 0, outputTokens: 0, calls: 0 };
 
   for (let i = 0; i < maxSteps; i++) {
-    const res = await fetchImpl("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-api-key": cfg.apiKey, "anthropic-version": "2023-06-01" },
-      body: JSON.stringify({
-        model: cfg.model,
-        max_tokens: cfg.maxTokens ?? 2000,
-        system: agent.system,
-        tools: agent.tools.map(({ name, description, input_schema }) => ({ name, description, input_schema })),
-        messages,
-      }),
-    });
-    if (!res.ok) {
-      const detail = await res.text().catch(() => "");
-      throw new LlmError(`Claude API error ${res.status}${detail ? `: ${detail.slice(0, 300)}` : ""}`, res.status);
+    let reply;
+    try {
+      reply = await router.chat({ system: agent.system, messages, tools: tools.length ? tools : undefined, maxTokens: cfg.maxTokens ?? 2000, tier: cfg.tier });
+    } catch (err) {
+      const status = err instanceof AiError ? (err.attempts.filter((a) => a.status).at(-1)?.status ?? err.status) : undefined;
+      throw new LlmError((err as Error).message, status);
     }
-    const body = (await res.json()) as { content?: Block[]; stop_reason?: string; usage?: { input_tokens?: number; output_tokens?: number } };
     usage.calls++;
-    usage.inputTokens += body.usage?.input_tokens ?? 0;
-    usage.outputTokens += body.usage?.output_tokens ?? 0;
-    const content = body.content ?? [];
-    messages.push({ role: "assistant", content });
+    usage.inputTokens += reply.usage.inputTokens;
+    usage.outputTokens += reply.usage.outputTokens;
+    messages.push({ role: "assistant", content: reply.text, toolCalls: reply.toolCalls.length ? reply.toolCalls : undefined });
 
-    const calls = content.filter((b): b is Extract<Block, { type: "tool_use" }> => b.type === "tool_use");
-    if (body.stop_reason !== "tool_use" || calls.length === 0) {
-      const output = content.filter((b): b is Extract<Block, { type: "text" }> => b.type === "text").map((b) => b.text).join("\n").trim();
-      return { output, steps, proposals, usage, stopReason: "done" };
-    }
+    if (reply.toolCalls.length === 0) return { output: reply.text, steps, proposals, usage, stopReason: "done" };
 
-    const results: Block[] = [];
-    for (const call of calls) {
+    for (const call of reply.toolCalls) {
       const tool = byName.get(call.name);
-      const input = call.input ?? {};
+      const input = call.arguments ?? {};
+      const answer = (content: string) => messages.push({ role: "tool", toolCallId: call.id, content });
       if (!tool) {
         steps.push({ tool: call.name, input, result: null, error: "unknown tool" });
-        results.push({ type: "tool_result", tool_use_id: call.id, content: `No tool named ${call.name}.`, is_error: true });
+        answer(`Error: no tool named ${call.name}.`);
         continue;
       }
       if (tool.effect === "propose") {
         const proposal: Proposal = { id: newId(), tool: tool.name, input, summary: tool.describe?.(input) ?? `${tool.name}` };
         proposals.push(proposal);
         steps.push({ tool: tool.name, input, result: { queuedForApproval: proposal.id }, proposed: true });
-        results.push({
-          type: "tool_result",
-          tool_use_id: call.id,
-          content: `Queued for human approval as ${proposal.id}. It has NOT happened yet; say so in your answer.`,
-        });
+        answer(`Queued for human approval as ${proposal.id}. It has NOT happened yet; say so in your answer.`);
         continue;
       }
       try {
         const result = await tool.run!(input);
         steps.push({ tool: tool.name, input, result });
-        results.push({ type: "tool_result", tool_use_id: call.id, content: serialize(result) });
+        answer(serialize(result));
       } catch (err) {
         const message = (err as Error).message;
         steps.push({ tool: tool.name, input, result: null, error: message });
-        results.push({ type: "tool_result", tool_use_id: call.id, content: `Error: ${message}`, is_error: true });
+        answer(`Error: ${message}`);
       }
     }
-    messages.push({ role: "user", content: results });
   }
 
   return {

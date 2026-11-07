@@ -25,7 +25,8 @@ import { saveSnapshot, loadSnapshot } from "./persist.ts";
  *   CUMULUS_MAIL_HOST    Cumulus://Mail, default mail.cumuluscloud.app
  *   CUMULUS_MAIL_ORIGIN  full mail URL in notices; default https://CUMULUS_MAIL_HOST
  *   SPECTRE_DATA_DIR     default ./data
- *   ANTHROPIC_API_KEY    enables AI features
+ *   OMNIROUTE_API_KEY    enables AI features through OmniRoute (open-weight models); see
+ *                        packages/ai/src/env.ts for backup hosts (Cloudflare Workers AI, Groq, ...)
  *   USE_METATRON         set to 1 (default) to use METATRON scorer
  *   Social sign-in (each optional; a provider appears only when its credentials are set):
  *     GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
@@ -105,7 +106,7 @@ const app = createApp({
 });
 
 app.server().listen(port, () => {
-  console.log(`+SPCTR running at ${origin}  (ledger: ${verified.length} verified entries, AI: ${ai.apiKey ? "connected" : "not connected"}, METATRON: ${process.env.USE_METATRON === "1" ? "on" : "off"}, sign-in: passkey${Object.keys(social).map((p) => ", " + p).join("")})`);
+  console.log(`+SPCTR running at ${origin}  (ledger: ${verified.length} verified entries, AI: ${ai.router?.connected ? `open models via ${ai.router.providers.join(" → ")}` : "not connected"}, METATRON: ${process.env.USE_METATRON === "1" ? "on" : "off"}, sign-in: passkey${Object.keys(social).map((p) => ", " + p).join("")})`);
 });
 
 // Resume automation steps whose wait is over.

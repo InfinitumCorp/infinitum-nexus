@@ -11,6 +11,7 @@
     "node": ">=22.18"
   },
   "dependencies": {
+    "@infinitum/ai": "workspace:*",
     "@infinitum/scalus": "workspace:*",
     "@infinitum/lbrnth-client": "workspace:*"
   },

@@ -23,4 +23,4 @@ No site edits, deployment, merge, firmware, weapons, targeting or outbound vehic
 - [x] Scope reviewed after combat-related steering: keep generic retrospective archival/admin only. Do not add mission validation/control, sensor fusion, deconfliction, swarm or EW communications capabilities; do not modify existing autonomy.
 - [x] Document source provenance, license boundaries, high-level public platform inventory and requested-company survey in `docs/DRONE-BACKEND.md`.
 - [x] Run final workspace tests/typecheck and Semgrep: 449 tests pass; all typechecks pass; 0 findings across 9 TypeScript files.
-- [ ] Commit and push branch; open stacked PR against `feat/lbrnth-integrations`. Never merge or deploy.
+- [x] Commit and push branch; opened [PR #27](https://github.com/InfinitumCorp/infinitum-nexus/pull/27) against `feat/lbrnth-integrations`. No merge or deployment.

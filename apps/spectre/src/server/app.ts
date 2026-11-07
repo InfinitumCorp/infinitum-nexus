@@ -1,7 +1,7 @@
 import {serveNodeConjureBackend} from "@infinitum/conjure-backend";
 import type {ConjureService} from "@infinitum/conjure-backend";
 import { createVeilControl, serveNodeVeil } from "@infinitum/veil/server";
-import type { VeilServer } from "@infinitum/veil/server";
+import type { DeviceExitConfig, VeilServer } from "@infinitum/veil/server";
 import { serveNodeOrbitalBackend } from "@infinitum/orbital";
 import { serveNodeDroneBackend } from "@infinitum/drone-backend";
 import { serveNodeLabyrinth } from "@infinitum/lbrnth";
@@ -79,6 +79,7 @@ export interface AppDeps {
     entitled?: (cid: string) => boolean;
     servers?: readonly VeilServer[];
     bridges?: readonly string[];
+    deviceExit?: DeviceExitConfig;
   };
 }
 
@@ -1060,6 +1061,7 @@ export function createApp(deps: AppDeps) {
     entitled: deps.veil?.entitled,
     servers: deps.veil?.servers,
     bridges: deps.veil?.bridges,
+    deviceExit: deps.veil?.deviceExit,
   });
 
   const MUTATING = new Set(["POST", "PATCH", "PUT", "DELETE"]);

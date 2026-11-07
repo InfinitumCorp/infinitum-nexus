@@ -1,0 +1,53 @@
+name: VEIL Desktop
+
+on:
+  pull_request:
+    paths:
+      - "apps/veil-desktop/**"
+      - "apps/veil/server/**"
+      - ".github/workflows/veil-desktop.yml"
+  push:
+    paths:
+      - "apps/veil-desktop/**"
+      - "apps/veil/server/**"
+      - ".github/workflows/veil-desktop.yml"
+
+jobs:
+  linux-tunnel:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.6"
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.28.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install route and firewall tools
+        run: sudo apt-get update && sudo apt-get install -y iproute2 nftables msitools wixl wixl-data unzip
+      - name: Install JavaScript workspace
+        run: pnpm install --frozen-lockfile
+      - name: Control plane tests
+        run: pnpm --filter @infinitum/veil test && pnpm --filter @infinitum/veil typecheck
+      - name: Desktop tests and unsigned builds
+        run: bash apps/veil-desktop/scripts/build-all.sh
+      - name: Control-plane tunnel
+        run: bash apps/veil-desktop/scripts/integration-test.sh
+      - name: Root tunnel and namespace kill switch
+        run: |
+          cd apps/veil-desktop
+          go test -c -o /tmp/veil-tunnel.test ./internal/tunnel
+          go test -c -o /tmp/veil-policy.test ./internal/policy
+          sudo /tmp/veil-tunnel.test -test.count=1 -test.run 'TestSystemTUNWireGuardPing' -test.v
+          sudo /tmp/veil-policy.test -test.count=1 -test.run 'TestNetNSKillSwitchDrops' -test.v
+      - uses: actions/upload-artifact@v4
+        with:
+          name: veil-desktop-unsigned
+          path: |
+            apps/veil-desktop/artifacts/**
+            apps/veil-desktop/build-logs/**
+          if-no-files-found: error

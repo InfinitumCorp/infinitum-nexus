@@ -1,0 +1,12 @@
+?   	github.com/InfinitumCorp/infinitum-nexus/apps/veil-desktop/cmd/veil-desktop	[no test files]
+?   	github.com/InfinitumCorp/infinitum-nexus/apps/veil-desktop/cmd/veil-exit	[no test files]
+ok  	github.com/InfinitumCorp/infinitum-nexus/apps/veil-desktop/internal/app	0.001s
+ok  	github.com/InfinitumCorp/infinitum-nexus/apps/veil-desktop/internal/controlclient	0.003s
+ok  	github.com/InfinitumCorp/infinitum-nexus/apps/veil-desktop/internal/localapi	0.002s
+ok  	github.com/InfinitumCorp/infinitum-nexus/apps/veil-desktop/internal/policy	0.004s
+ok  	github.com/InfinitumCorp/infinitum-nexus/apps/veil-desktop/internal/routeplan	0.003s
+ok  	github.com/InfinitumCorp/infinitum-nexus/apps/veil-desktop/internal/system	0.001s
+ok  	github.com/InfinitumCorp/infinitum-nexus/apps/veil-desktop/internal/tor	0.002s
+ok  	github.com/InfinitumCorp/infinitum-nexus/apps/veil-desktop/internal/tray	0.002s
+ok  	github.com/InfinitumCorp/infinitum-nexus/apps/veil-desktop/internal/tunnel	2.512s
+ok  	github.com/InfinitumCorp/infinitum-nexus/apps/veil-desktop/internal/wgconfig	0.002s

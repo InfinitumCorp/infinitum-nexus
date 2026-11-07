@@ -43,7 +43,7 @@
 - Per-app permissions dashboard (needs grant/revoke HTTP routes on the CID server; `packages/cid` has `grant`/`revoke`)
 - Clients for Cumulus://Cloud and METATRON¹⁰⁰. SCALVS.ai opens `https://scalvs.app`; the extension does not run `packages/scalus`. Ask calls CNDCTR at `origins.architect` and stays in rehearsal.
 - A shared CID session across products (today Mail and +SPCTR each keep their own cookie)
-- Device-wide VPN, OS DNS, and non-browser traffic are out of scope
+- Device-wide VPN is `apps/veil-desktop`. This extension stays browser-only: OS DNS and non-browser traffic are out of scope here
 - Tor Browser fingerprinting resistance (fonts, screen, APIs) is out of scope for a regular-browser extension
 - The Tor executable is not bundled. The user runs Tor, with `IsolateSOCKSAuth` if they want separate circuits
 - Chrome may cache one SOCKS login for the local port; Firefox attaches a new username and password on every request

@@ -1,6 +1,8 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import type { CidService } from "@infinitum/cid";
+import { createDeviceBroker } from "./device.ts";
 import { parseBridges, parseCatalog, serverId, veilFail, type VeilServer } from "./model.ts";
+import type { DeviceExitConfig, DeviceGrant } from "./wireguard.ts";
 
 const CREDENTIAL_TTL_MS = 15 * 60 * 1000;
 const USER = /^[A-Za-z0-9_-]{16,128}$/;
@@ -11,6 +13,8 @@ export interface VeilControlOptions {
   entitled?: (cid: string) => boolean;
   servers?: readonly unknown[];
   bridges?: readonly unknown[];
+  /** Operator WireGuard exit. Unset means device grants fail closed. */
+  deviceExit?: DeviceExitConfig;
   clock?: () => Date;
   credentialTtlMs?: number;
 }
@@ -57,6 +61,13 @@ export function createVeilControl(options: VeilControlOptions) {
       return false;
     }
   };
+  const devices = createDeviceBroker({
+    exit: options.deviceExit,
+    clock,
+    ttl,
+    hasPlan,
+    sessionActive: (accountId, sessionId) => cid.isSessionActive(accountId, sessionId),
+  });
 
   const hashPassword = (password: string) => createHash("sha256").update(password, "utf8").digest();
 
@@ -124,6 +135,44 @@ export function createVeilControl(options: VeilControlOptions) {
       const identity = identify(token);
       revokeCid(identity.cid);
       return { ok: true as const, deviceWide: false as const, browserOnly: true as const };
+    },
+    deviceSession(token: string) {
+      const identity = identify(token);
+      const allowed = hasPlan(identity.cid);
+      return {
+        cid: identity.cid,
+        username: identity.username,
+        entitled: allowed,
+        coverage: "device" as const,
+        deviceWide: true as const,
+        browserOnly: false as const,
+        configured: allowed && devices.configured(),
+        defaultMode: "veil" as const,
+        dns: "through-tunnel" as const,
+        killSwitch: "fail-closed" as const,
+        protection: "client-must-bring-up-tunnel" as const,
+        servers: allowed ? publicServers() : [],
+      };
+    },
+    connectDevice(token: string, requested: unknown): DeviceGrant {
+      const identity = identify(token);
+      if (!hasPlan(identity.cid)) veilFail("veil_plan_required", "This Cumulus ID has no VEIL entitlement", 403);
+      const id = serverId(requested);
+      const server = servers.find((row) => row.id === id);
+      if (!server) veilFail("unknown_server", "Unknown server", 404);
+      if (!devices.configured()) veilFail("device_exit_unconfigured", "VEIL device exit is not configured", 503);
+      return devices.connect(identity, server);
+    },
+    disconnectDevice(token: string) {
+      const identity = identify(token);
+      devices.disconnect(identity.cid);
+      return { ok: true as const, coverage: "device" as const, deviceWide: true as const, released: true as const };
+    },
+    devicePeers(exitToken: string) {
+      return { peers: devices.peersForExit(exitToken) };
+    },
+    deviceAudit() {
+      return devices.audit();
     },
     bridges(token: string) {
       const identity = identify(token);

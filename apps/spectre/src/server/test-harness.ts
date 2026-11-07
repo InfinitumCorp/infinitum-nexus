@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
 import { Ledger, generateSigner } from "@infinitum/firmament";
+import type { CumulusConfig } from "@infinitum/cumulus";
 import { createCumulus } from "@infinitum/cumulus";
 import { VirtualAuthenticator } from "../../../../packages/cid/src/testing/virtual-authenticator.ts";
 import { SpectreCRM } from "../core/crm.ts";
@@ -14,10 +15,10 @@ const here = dirname(fileURLToPath(import.meta.url));
 const ORIGIN = "http://localhost";
 
 /** Shared harness for the growth-feature HTTP tests. */
-export async function harness(opts: { providers?: Providers; cronSecret?: string; twilioAuthToken?: string } = {}) {
+export async function harness(opts: { providers?: Providers; cronSecret?: string; twilioAuthToken?: string; labyrinth?: CumulusConfig["labyrinth"] } = {}) {
   const signer = generateSigner();
   const ledger = new Ledger(undefined, { authorizedSigners: [signer.publicKey] });
-  const suite = createCumulus({ ledger, signer, rpId: "localhost", origins: [ORIGIN] });
+  const suite = createCumulus({ ledger, signer, rpId: "localhost", origins: [ORIGIN], labyrinth: opts.labyrinth });
   const cid = suite.cid;
   let now = new Date("2026-11-05T09:00:00Z");
   const crm = new SpectreCRM({ ledger, signer, clock: () => now });

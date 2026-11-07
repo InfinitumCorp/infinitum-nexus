@@ -1,3 +1,4 @@
+import { serveNodeLabyrinth } from "@infinitum/lbrnth";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { readFile } from "node:fs/promises";
 import { join, normalize, extname } from "node:path";
@@ -1064,6 +1065,7 @@ export function createApp(deps: AppDeps) {
     if (!embeddable) res.setHeader("X-Frame-Options", "DENY");
     res.setHeader("Content-Security-Policy", `default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors ${embeddable ? "*" : "'none'"}`);
     try {
+      if (url.pathname === "/api/labyrinth") return await serveNodeLabyrinth(req, res, deps.suite?.labyrinth, parseCookies(req.headers.cookie)[COOKIE], deps.onChange);
       if (!url.pathname.startsWith("/api/")) {
         if (req.method !== "GET" && req.method !== "HEAD") throw new HttpError(405, "Method not allowed");
         return await serveStatic(url.pathname, res);

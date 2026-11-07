@@ -83,3 +83,10 @@ See **DEPLOY.md**, **apps/spectre/src/server/RESTORE-APP.md**, **packages/firm/s
 ## Labyrinth *LBRNTH
 
 Infinitum Corporation® client repository capability: `packages/lbrnth`. Backend SDK with org isolation, roles, versioned code/artifacts, branches/tags, file-level diff, CID consent plus plan gating, hash-chained audit and encrypted single-writer persistence. Not deployed; UI/Git hosting and distributed storage are follow-ons. [Integration contract](packages/lbrnth/README.md).
+
+### Labyrinth product connections
+
+Cumulus ID-authenticated repository API and explicit save/load adapters are wired
+through the existing product libraries and host applications. No website edits or
+deployments. Five brands remain registry-only; library adapters are not claimed as
+new deployed apps. [Full inventory, identity mapping and rollout gaps](docs/LBRNTH-INTEGRATIONS.md).

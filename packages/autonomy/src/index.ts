@@ -8,3 +8,5 @@ export { evaluate } from "./interlock.ts";
 export type { InterlockAction, InterlockConfig, InterlockDecision, Tick } from "./interlock.ts";
 export { planCoverage, scheduleDocking } from "./swarm.ts";
 export type { CoveragePlan, DockSlot, SurveyArea } from "./swarm.ts";
+
+export { createDaemonLabyrinth, createSlugLabyrinth, createFlowerLabyrinth, createOrbisLabyrinth, createPollenLabyrinth } from "./labyrinth.ts";

@@ -19,7 +19,8 @@
     "@infinitum/firm": "workspace:*",
     "@infinitum/firmament": "workspace:*",
     "@infinitum/mail": "workspace:*",
-    "@infinitum/scalus": "workspace:*"
+    "@infinitum/scalus": "workspace:*",
+    "@infinitum/lbrnth": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.9.0",

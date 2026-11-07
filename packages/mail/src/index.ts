@@ -68,3 +68,5 @@ export type { SealedEnvelope, StoredTunnelKeys, OpenedEnvelope } from "./tunnel.
 export { sealMailStore, openMailStore } from "./at-rest.ts";
 export { THREAD_ACTIONS } from "./postoffice.ts";
 export type { ThreadAction, ThreadSnapshot } from "./postoffice.ts";
+
+export { createCumulusMailLabyrinth } from "./labyrinth.ts";

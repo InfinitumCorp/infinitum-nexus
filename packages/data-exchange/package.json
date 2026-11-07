@@ -15,7 +15,8 @@
   },
   "dependencies": {
     "@infinitum/cid": "workspace:*",
-    "@infinitum/firmament": "workspace:*"
+    "@infinitum/firmament": "workspace:*",
+    "@infinitum/lbrnth-client": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.9.0",

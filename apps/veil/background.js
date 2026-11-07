@@ -1,3 +1,4 @@
+import { veilLabyrinth } from "./lib/labyrinth.js";
 /**
  * VEIL background service worker.
  * Owns the workspace, the Tor proxy, New Identity and the $VEIL ledger.
@@ -214,6 +215,7 @@ chrome.runtime.onInstalled.addListener(async () => {
 });
 
 const handlers = {
+  labyrinth: async (m) => veilLabyrinth((await origins()).cid, await getWorkspace(), m.command),
   getState: async () => {
     const s = await get(["torEnabled", "autoClean", "cidUser", "account"]);
     const workspace = await getWorkspace();

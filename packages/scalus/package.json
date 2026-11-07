@@ -1,7 +1,7 @@
 {
   "name": "@infinitum/scalus",
   "version": "0.1.0",
-  "description": "SCALVS.ai: AI workforce platform — agents that research, write, code and operate.",
+  "description": "SCALVS.ai: AI workforce platform \u2014 agents that research, write, code and operate.",
   "type": "module",
   "exports": {
     ".": "./src/index.ts"
@@ -17,5 +17,8 @@
   "devDependencies": {
     "typescript": "^5.9.0",
     "@types/node": "^22.0.0"
+  },
+  "dependencies": {
+    "@infinitum/lbrnth-client": "workspace:*"
   }
 }

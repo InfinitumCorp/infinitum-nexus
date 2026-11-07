@@ -9,3 +9,5 @@ export type { ArchitectEvidence } from "./architect.ts";
 export { FirmamentVault } from "./memory-firmament.ts";
 export { runLlmAgent, LlmError } from "./llm.ts";
 export type { LlmTool, LlmConfig, LlmAgentResult, Proposal, Step, JsonSchema } from "./llm.ts";
+
+export { createScalvsLabyrinth } from "./labyrinth.ts";

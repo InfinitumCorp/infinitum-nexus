@@ -13,6 +13,12 @@ importers:
       '@infinitum/firmament':
         specifier: workspace:*
         version: link:../../packages/firmament
+      '@infinitum/lbrnth':
+        specifier: workspace:*
+        version: link:../../packages/lbrnth
+      '@infinitum/lbrnth-client':
+        specifier: workspace:*
+        version: link:../../packages/lbrnth-client
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -38,6 +44,9 @@ importers:
       '@infinitum/firmament':
         specifier: workspace:*
         version: link:../../packages/firmament
+      '@infinitum/lbrnth':
+        specifier: workspace:*
+        version: link:../../packages/lbrnth
       '@infinitum/mail':
         specifier: workspace:*
         version: link:../../packages/mail
@@ -60,6 +69,9 @@ importers:
       '@infinitum/firmament':
         specifier: workspace:*
         version: link:../../packages/firmament
+      '@infinitum/lbrnth-client':
+        specifier: workspace:*
+        version: link:../../packages/lbrnth-client
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -73,6 +85,9 @@ importers:
       '@infinitum/firmament':
         specifier: workspace:*
         version: link:../../packages/firmament
+      '@infinitum/lbrnth-client':
+        specifier: workspace:*
+        version: link:../../packages/lbrnth-client
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -98,6 +113,12 @@ importers:
       '@infinitum/firmament':
         specifier: workspace:*
         version: link:../../packages/firmament
+      '@infinitum/lbrnth':
+        specifier: workspace:*
+        version: link:../../packages/lbrnth
+      '@infinitum/lbrnth-client':
+        specifier: workspace:*
+        version: link:../../packages/lbrnth-client
       '@infinitum/metatron':
         specifier: workspace:*
         version: link:../../packages/metatron
@@ -115,6 +136,10 @@ importers:
   apps/veil: {}
 
   packages/aether:
+    dependencies:
+      '@infinitum/lbrnth-client':
+        specifier: workspace:*
+        version: link:../lbrnth-client
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -124,6 +149,10 @@ importers:
         version: 5.9.3
 
   packages/argus:
+    dependencies:
+      '@infinitum/lbrnth-client':
+        specifier: workspace:*
+        version: link:../lbrnth-client
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -137,6 +166,9 @@ importers:
       '@infinitum/hardware':
         specifier: workspace:*
         version: link:../hardware
+      '@infinitum/lbrnth-client':
+        specifier: workspace:*
+        version: link:../lbrnth-client
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -159,6 +191,10 @@ importers:
         version: 5.9.3
 
   packages/cloud:
+    dependencies:
+      '@infinitum/lbrnth-client':
+        specifier: workspace:*
+        version: link:../lbrnth-client
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -169,6 +205,9 @@ importers:
 
   packages/conjure:
     dependencies:
+      '@infinitum/lbrnth-client':
+        specifier: workspace:*
+        version: link:../lbrnth-client
       '@infinitum/scalus':
         specifier: workspace:*
         version: link:../scalus
@@ -194,6 +233,9 @@ importers:
       '@infinitum/firmament':
         specifier: workspace:*
         version: link:../firmament
+      '@infinitum/lbrnth':
+        specifier: workspace:*
+        version: link:../lbrnth
       '@infinitum/mail':
         specifier: workspace:*
         version: link:../mail
@@ -213,6 +255,9 @@ importers:
       '@infinitum/firmament':
         specifier: workspace:*
         version: link:../firmament
+      '@infinitum/lbrnth-client':
+        specifier: workspace:*
+        version: link:../lbrnth-client
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -222,6 +267,10 @@ importers:
         version: 5.9.3
 
   packages/eidetic:
+    dependencies:
+      '@infinitum/lbrnth-client':
+        specifier: workspace:*
+        version: link:../lbrnth-client
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -231,6 +280,10 @@ importers:
         version: 5.9.3
 
   packages/eon:
+    dependencies:
+      '@infinitum/lbrnth-client':
+        specifier: workspace:*
+        version: link:../lbrnth-client
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -240,6 +293,10 @@ importers:
         version: 5.9.3
 
   packages/fabric:
+    dependencies:
+      '@infinitum/lbrnth-client':
+        specifier: workspace:*
+        version: link:../lbrnth-client
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -249,6 +306,10 @@ importers:
         version: 5.9.3
 
   packages/firm:
+    dependencies:
+      '@infinitum/lbrnth-client':
+        specifier: workspace:*
+        version: link:../lbrnth-client
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -258,6 +319,10 @@ importers:
         version: 5.9.3
 
   packages/firmament:
+    dependencies:
+      '@infinitum/lbrnth-client':
+        specifier: workspace:*
+        version: link:../lbrnth-client
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -267,6 +332,10 @@ importers:
         version: 5.9.3
 
   packages/hardware:
+    dependencies:
+      '@infinitum/lbrnth-client':
+        specifier: workspace:*
+        version: link:../lbrnth-client
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -276,6 +345,10 @@ importers:
         version: 5.9.3
 
   packages/hrvst:
+    dependencies:
+      '@infinitum/lbrnth-client':
+        specifier: workspace:*
+        version: link:../lbrnth-client
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -285,10 +358,14 @@ importers:
         version: 5.9.3
 
   packages/lbrnth:
-    devDependencies:
+    dependencies:
       '@infinitum/cid':
         specifier: workspace:*
         version: link:../cid
+      '@infinitum/lbrnth-client':
+        specifier: workspace:*
+        version: link:../lbrnth-client
+    devDependencies:
       '@infinitum/firmament':
         specifier: workspace:*
         version: link:../firmament
@@ -299,7 +376,20 @@ importers:
         specifier: ^5.9.0
         version: 5.9.3
 
+  packages/lbrnth-client:
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.20.5
+      typescript:
+        specifier: ^5.9.0
+        version: 5.9.3
+
   packages/mail:
+    dependencies:
+      '@infinitum/lbrnth-client':
+        specifier: workspace:*
+        version: link:../lbrnth-client
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -309,6 +399,10 @@ importers:
         version: 5.9.3
 
   packages/metatron:
+    dependencies:
+      '@infinitum/lbrnth-client':
+        specifier: workspace:*
+        version: link:../lbrnth-client
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -318,6 +412,10 @@ importers:
         version: 5.9.3
 
   packages/scalus:
+    dependencies:
+      '@infinitum/lbrnth-client':
+        specifier: workspace:*
+        version: link:../lbrnth-client
     devDependencies:
       '@types/node':
         specifier: ^22.0.0

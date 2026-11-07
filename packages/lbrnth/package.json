@@ -5,7 +5,8 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./client": "./src/client.ts"
   },
   "engines": {
     "node": ">=22.18"
@@ -17,7 +18,10 @@
   "devDependencies": {
     "typescript": "^5.9.0",
     "@types/node": "^22.0.0",
-    "@infinitum/cid": "workspace:*",
     "@infinitum/firmament": "workspace:*"
+  },
+  "dependencies": {
+    "@infinitum/cid": "workspace:*",
+    "@infinitum/lbrnth-client": "workspace:*"
   }
 }

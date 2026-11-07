@@ -1,7 +1,7 @@
 {
   "name": "@infinitum/conjure",
   "version": "0.1.0",
-  "description": "Conjure™: swarm prediction built into every Infinitum product. A swarm of AI agents plays out a question so you can read the likely outcome.",
+  "description": "Conjure\u2122: swarm prediction built into every Infinitum product. A swarm of AI agents plays out a question so you can read the likely outcome.",
   "type": "module",
   "exports": {
     ".": "./src/index.ts"
@@ -11,7 +11,8 @@
     "node": ">=22.18"
   },
   "dependencies": {
-    "@infinitum/scalus": "workspace:*"
+    "@infinitum/scalus": "workspace:*",
+    "@infinitum/lbrnth-client": "workspace:*"
   },
   "scripts": {
     "typecheck": "tsc -p . --noEmit",

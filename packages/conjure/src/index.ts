@@ -4,3 +4,5 @@ export {
   interview as conjureInterview, estimateCalls as conjureEstimate, claudeComplete, parseJson, ConjureError,
 } from "./conjure.ts";
 export type { Simulation, Persona, Post, Report as ConjureReport, RoundStats, Complete, Entity, Relation } from "./conjure.ts";
+
+export { createConjureLabyrinth } from "./labyrinth.ts";

@@ -1,7 +1,7 @@
 {
   "name": "@infinitum/eidetic",
   "version": "0.1.0",
-  "description": "ei·det·ic: authorized identity-intelligence interface (no biometric implementation).",
+  "description": "ei\u00b7det\u00b7ic: authorized identity-intelligence interface (no biometric implementation).",
   "type": "module",
   "exports": {
     ".": "./src/index.ts"
@@ -17,5 +17,8 @@
   "devDependencies": {
     "typescript": "^5.9.0",
     "@types/node": "^22.0.0"
+  },
+  "dependencies": {
+    "@infinitum/lbrnth-client": "workspace:*"
   }
 }

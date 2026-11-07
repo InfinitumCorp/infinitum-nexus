@@ -11,33 +11,26 @@ separate repository namespaces; no public visibility or anonymous reads exist.
 ## Integrate
 
 ```ts
-import { Labyrinth, EncryptedFileStorage } from "@infinitum/lbrnth";
+import { CidLabyrinth, EncryptedFileStorage } from "@infinitum/lbrnth";
 
-const labyrinth = new Labyrinth({
-  can: cidService.can.bind(cidService),
-  // These two authorities MUST be implemented by the trusted host, not the user.
+const repositories = new CidLabyrinth(cidService, {
   entitled: (org, product) => billing.hasProduct(org, product),
-  canProvision: (actor, org) => directory.isOrganizationOwner(actor, org),
   storage: new EncryptedFileStorage("/private-data/lbrnth.json", org => keys.forOrg(org)),
 });
-
-// Provision once, from an authenticated organization's owner/admin workflow.
-// CID requires explicit repo:read, repo:write, repo:admin consent for LBRNTH.
-labyrinth.createOrganization(session.cid, session.orgId, "Client company");
-const client = labyrinth.forClient(session.cid, session.orgId);
+// A verified, opaque CID session from existing passkey/MFA/social/SSO sign-in.
+// The SDK authenticates it again on every call; CID/org strings are not credentials.
+await repositories.consent(sessionToken, ["repo:read", "repo:write", "repo:admin"]);
+repositories.provision(sessionToken); // existing CID org admin only; still needs a paid plan
+const client = repositories.forProduct(sessionToken, "veil");
 const repo = client.createRepository("application");
-const commit = client.commit(repo.id, {
-  branch: "main", expectedHead: null, message: "Initial version",
-  changes: { "src/main.ts": "export const hello = 'world';" },
-});
-client.createBranch(repo.id, "feature/api", commit.id);
-client.createTag(repo.id, "v1", commit.id);
-const bytes = client.readFile(repo.id, commit.id, "src/main.ts");
-const history = client.history(repo.id);
-const changedFiles = client.diff(repo.id, null, commit.id);
+const commit = client.save(repo.id, "src/main.ts", "export const hello = 'world';", null);
+const bytes = client.load(repo.id, commit.id, "src/main.ts");
 ```
 
-`session`, `billing`, `directory` and `keys` above are host dependencies, not
+See [all-product integration/auth guide](../../docs/LBRNTH-INTEGRATIONS.md) for
+HTTP clients, short-lived repository-only credentials and the full product matrix.
+
+`sessionToken`, `billing` and `keys` above are host dependencies, not
 implementations shipped by this package. Never accept CID identity, provisioning
 permission, billing flags, or encryption keys from a request body. Derive identity
 from the host's verified session and protect mutations against CSRF. Browser
@@ -61,6 +54,8 @@ Roles apply to all repositories **within one client org**:
 | owner | Yes | Yes | Yes |
 
 Only owners can appoint/demote owners; the last owner cannot be removed or demoted.
+The CID-authenticated adapter also requires current CID directory-admin status for
+member management/audit and for administrative role assignments.
 Removing membership immediately denies access even to an already bound SDK.
 There are no cross-org shares or per-repo ACL exceptions in this first version.
 Repository lookup, commit lookup and object reads always stay within the authorized
@@ -85,8 +80,13 @@ org and repo. Objects are never exposed through a global hash-only endpoint.
   modifications and deletions with before/after hashes (not a line-level patch).
 - `audit(cid, orgId)` — admin-only audit entries, excluding the audit read itself
   until the next call; `verifyAudit(entries)` validates the hash chain.
-- `forClient(cid, orgId)` — identity-bound repo API above; still reauthorizes each
+- `forClient(cid, orgId)` — **deprecated server-internal** identity-bound repo API;
+  external callers must use `CidLabyrinth.forSession(token)` or `forProduct(token, product)`. It still reauthorizes each
   call. Member/admin methods stay on the trusted server service.
+- `CidLabyrinth.consent(token, scopes)` records explicit CID consent, not payment.
+- `CidLabyrinth.issueToken(token)` creates a 15-minute repository-only bearer,
+  hash-stored and linked to the live parent CID session. It cannot authenticate
+  to CID itself, grant consent, renew credentials or outlive parent revocation.
 
 Path names reject traversal, absolute paths, backslashes, control characters,
 prototype keys and file/directory collisions. Returned values are defensive copies.

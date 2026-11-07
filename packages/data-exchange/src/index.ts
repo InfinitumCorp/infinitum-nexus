@@ -198,3 +198,5 @@ export class DataExchange {
     await this.pending;
   }
 }
+
+export { createCumulusExchangeLabyrinth } from "./labyrinth.ts";

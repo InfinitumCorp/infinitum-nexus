@@ -6,3 +6,5 @@ export { parseIntent } from "./intents.ts";
 export type { EonIntent } from "./intents.ts";
 export { UsageMeter, MIN_SESSIONS_FOR_EXPORT } from "./usage.ts";
 export type { EonUsageAggregate } from "./usage.ts";
+
+export { createEonLabyrinth } from "./labyrinth.ts";

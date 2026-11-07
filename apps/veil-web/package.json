@@ -1,0 +1,11 @@
+{
+  "name": "@infinitum/veil-web",
+  "version": "0.6.0",
+  "description": "VEIL</> web app (PWA) and download page.",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "node scripts/build.js",
+    "test": "node --test test/"
+  }
+}

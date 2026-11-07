@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/InfinitumCorp/infinitum-nexus/apps/veil-desktop/internal/controlclient"
 	"github.com/InfinitumCorp/infinitum-nexus/apps/veil-desktop/internal/tunnel"
 	"github.com/InfinitumCorp/infinitum-nexus/apps/veil-desktop/internal/wgconfig"
 )
@@ -21,7 +22,7 @@ import (
 func main() {
 	keyFile := flag.String("private-key-file", os.Getenv("VEIL_WG_SERVER_PRIVATE_KEY_FILE"), "exit private key file")
 	listen := flag.Int("listen", 51820, "UDP listen port")
-	control := flag.String("control", os.Getenv("VEIL_CONTROL_URL"), "VEIL control plane base URL")
+	control := flag.String("control", controlclient.DefaultControlURL(), "VEIL control plane base URL")
 	token := flag.String("token", os.Getenv("VEIL_EXIT_TOKEN"), "exit peer-list token")
 	flag.Parse()
 	raw, err := os.ReadFile(*keyFile)

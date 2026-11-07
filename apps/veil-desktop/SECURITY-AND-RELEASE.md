@@ -8,7 +8,7 @@ Windows, unsigned:
 
 1. The MSI is `artifacts/VEILDesktop-unsigned.msi` when `wixl` produced it. It copies `veil-desktop.exe` and `wintun.dll` to Program Files.
 2. SmartScreen will warn. The binary is not Authenticode signed.
-3. Run an elevated `veil-desktop.exe run --control https://<cid-host> --token-file <session>`.
+3. Run an elevated `veil-desktop.exe run --control https://infinitumveil.app --token-file <session>`. The host is on Cloudflare. `VEIL_CONTROL_URL` overrides it. `http` is accepted only for localhost and 127.0.0.1.
 4. The notification-area menu is VEIL VPN, Tor, or Off. That menu was compiled into the Windows binary and was not clicked on a Windows machine in the build that produced this document.
 
 macOS, unsigned utun build:
@@ -29,7 +29,7 @@ macOS, Network Extension (not built here):
 Linux, for the tests and for an operator exit:
 
 ```sh
-sudo ./veil-desktop run --control https://<cid-host> --token-file <session>
+sudo ./veil-desktop run --control https://infinitumveil.app --token-file <session>
 sudo ./veil-exit --private-key-file /path/to/exit.key --listen 51820
 ```
 

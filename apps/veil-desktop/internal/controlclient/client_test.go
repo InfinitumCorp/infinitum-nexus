@@ -45,6 +45,17 @@ func TestConnectParsesDeviceGrantAndRefusesBrowserShapedErrors(t *testing.T) {
 	cfg.Wipe()
 }
 
+func TestDefaultControlURLIsTheProductHost(t *testing.T) {
+	t.Setenv("VEIL_CONTROL_URL", "")
+	if DefaultControlURL() != ProductOrigin {
+		t.Fatal(DefaultControlURL())
+	}
+	t.Setenv("VEIL_CONTROL_URL", "http://127.0.0.1:3000")
+	if DefaultControlURL() != "http://127.0.0.1:3000" {
+		t.Fatal(DefaultControlURL())
+	}
+}
+
 func TestPublicHTTPControlURLIsRefused(t *testing.T) {
 	client := Client{BaseURL: "http://veil.example", Token: "cid-session"}
 	if _, err := client.Connect(context.Background(), "iad-1"); err == nil {

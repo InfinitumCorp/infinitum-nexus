@@ -11,11 +11,23 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/InfinitumCorp/infinitum-nexus/apps/veil-desktop/internal/wgconfig"
 )
+
+// ProductOrigin is the public VEIL browser host. It is hosted on Cloudflare.
+// VEIL_CONTROL_URL overrides it. http is accepted only for localhost and 127.0.0.1.
+const ProductOrigin = "https://infinitumveil.app"
+
+func DefaultControlURL() string {
+	if v := strings.TrimSpace(os.Getenv("VEIL_CONTROL_URL")); v != "" {
+		return v
+	}
+	return ProductOrigin
+}
 
 type Client struct {
 	BaseURL string

@@ -50,8 +50,8 @@ func usage() {
 	fmt.Fprintf(os.Stderr, `Infinitum Corporation® VEIL Desktop
 
   veil-desktop selftest
-  veil-desktop run --control https://cid.example --token-file session
-  veil-desktop daemon --control https://cid.example --token-file session
+  veil-desktop run --control https://infinitumveil.app --token-file session
+  veil-desktop daemon --control https://infinitumveil.app --token-file session
   veil-desktop status
   veil-desktop mode veil|tor|off
 
@@ -72,7 +72,7 @@ func parseOptions(args []string) options {
 	fs := flag.NewFlagSet("veil-desktop", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	opt := options{}
-	fs.StringVar(&opt.control, "control", os.Getenv("VEIL_CONTROL_URL"), "VEIL control plane base URL")
+	fs.StringVar(&opt.control, "control", controlclient.DefaultControlURL(), "VEIL control plane base URL")
 	fs.StringVar(&opt.token, "token", "", "Cumulus ID session token")
 	fs.StringVar(&opt.tokenFile, "token-file", os.Getenv("VEIL_CID_TOKEN_FILE"), "file containing the Cumulus ID session token")
 	fs.StringVar(&opt.server, "server", "iad-1", "VEIL exit id")

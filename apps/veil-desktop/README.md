@@ -41,7 +41,7 @@ The exit private key stays in `VEIL_WG_SERVER_PRIVATE_KEY_FILE` on the exit host
 
 ```sh
 veil-desktop selftest
-veil-desktop run --control https://cid.example --token-file /path/to/cid-session
+veil-desktop run --control https://infinitumveil.app --token-file /path/to/cid-session
 veil-desktop status
 veil-desktop mode veil
 veil-desktop mode tor

@@ -60,6 +60,13 @@ public class MainActivity extends Activity {
     static final int LINE = Color.parseColor("#d6dce1");
     static final int FG = Color.parseColor("#111820");
     static final int MUTED = Color.parseColor("#52606b");
+    // Phase I browser frame (veil-prototype/static/shell.css).
+    static final int QUIET = Color.parseColor("#5f6670");
+    static final int RULE = Color.parseColor("#e3e4e8");
+    static final int OMNI = Color.parseColor("#eef0f3");
+    static final int HOVER = Color.parseColor("#f3f3f5");
+    static final int FOCUS = Color.parseColor("#1f5fd6");
+    static final int ACCENT = Color.parseColor("#5b3fd1");
     static final int GOOD = Color.parseColor("#1a7f37");
     static final int BAD = Color.parseColor("#c62828");
 
@@ -113,21 +120,41 @@ public class MainActivity extends Activity {
         return g;
     }
 
+    /** Round button, as in the Phase I browser frame: quiet grey glyph, grey circle when pressed. */
     Button toolButton(String label, String description, View.OnClickListener onClick) {
+        boolean word = label.length() > 1;
         Button b = new Button(this);
         b.setText(label);
         b.setContentDescription(description);
         b.setAllCaps(false);
-        b.setTextColor(FG);
-        b.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
-        b.setBackground(rounded(BG, 0, 0));
+        b.setTextColor(word ? FG : QUIET);
+        b.setTextSize(TypedValue.COMPLEX_UNIT_SP, word ? 13 : 22);
+        b.setTypeface(Typeface.SANS_SERIF);
+        GradientDrawable pressed = new GradientDrawable();
+        pressed.setColor(HOVER);
+        if (word) pressed.setCornerRadius(dp(20)); else pressed.setShape(GradientDrawable.OVAL);
+        android.graphics.drawable.StateListDrawable bg = new android.graphics.drawable.StateListDrawable();
+        bg.addState(new int[]{android.R.attr.state_pressed}, pressed);
+        bg.addState(new int[]{}, rounded(BG, 0, 0));
+        b.setBackground(bg);
+        b.setStateListAnimator(null);
         b.setPadding(0, 0, 0, 0);
         b.setMinWidth(0);
         b.setMinimumWidth(0);
+        b.setMinHeight(0);
+        b.setMinimumHeight(0);
         b.setOnClickListener(onClick);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(48), 1f);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(44), word ? 1.3f : 1f);
+        lp.leftMargin = lp.rightMargin = dp(2);
         b.setLayoutParams(lp);
         return b;
+    }
+
+    View rule() {
+        View v = new View(this);
+        v.setBackgroundColor(RULE);
+        v.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 1));
+        return v;
     }
 
     View buildUi() {
@@ -136,38 +163,51 @@ public class MainActivity extends Activity {
         root.setBackgroundColor(BG);
         root.setFitsSystemWindows(true);
 
-        // Top bar: shield + address field.
+        // Top bar: one grey pill (the omnibox) holding the white "Anonymous" chip and the address field.
         LinearLayout top = new LinearLayout(this);
         top.setOrientation(LinearLayout.HORIZONTAL);
         top.setGravity(Gravity.CENTER_VERTICAL);
-        top.setPadding(dp(10), dp(8), dp(10), dp(6));
+        top.setPadding(dp(10), dp(6), dp(10), dp(6));
+
+        LinearLayout omni = new LinearLayout(this);
+        omni.setOrientation(LinearLayout.HORIZONTAL);
+        omni.setGravity(Gravity.CENTER_VERTICAL);
+        omni.setBackground(rounded(OMNI, 0, 20));
+        omni.setPadding(dp(5), 0, dp(6), 0);
+        omni.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(40)));
 
         shield = new TextView(this);
-        shield.setText("VEIL");
         shield.setContentDescription("VEIL privacy status");
         shield.setTextColor(FG);
-        shield.setTypeface(Typeface.DEFAULT_BOLD);
-        shield.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
-        shield.setPadding(dp(10), dp(6), dp(10), dp(6));
-        shield.setBackground(rounded(CARD, LINE, 0));
+        shield.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        shield.setGravity(Gravity.CENTER_VERTICAL);
+        shield.setSingleLine(true);
+        shield.setPadding(dp(10), 0, dp(11), 0);
+        shield.setBackground(rounded(CARD, 0, 15));
+        GradientDrawable dot = new GradientDrawable();
+        dot.setShape(GradientDrawable.OVAL);
+        dot.setColor(ACCENT);
+        dot.setSize(dp(7), dp(7));
+        shield.setCompoundDrawablesWithIntrinsicBounds(dot, null, null, null);
+        shield.setCompoundDrawablePadding(dp(6));
+        shield.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(30)));
         shield.setOnClickListener(v -> showPrivacy());
-        top.addView(shield);
+        shield.setText("Anonymous");
+        omni.addView(shield);
 
         address = new EditText(this);
         address.setSingleLine(true);
         address.setHint("Search privately or enter address");
         address.setContentDescription("Address bar");
-        address.setHintTextColor(MUTED);
+        address.setHintTextColor(QUIET);
         address.setTextColor(FG);
         address.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
         address.setSelectAllOnFocus(true);
         address.setImeOptions(EditorInfo.IME_ACTION_GO);
         address.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_URI);
-        address.setBackground(rounded(CARD, LINE, 0));
-        address.setPadding(dp(16), dp(10), dp(16), dp(10));
-        LinearLayout.LayoutParams alp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-        alp.leftMargin = dp(8);
-        address.setLayoutParams(alp);
+        address.setBackground(null);
+        address.setPadding(dp(10), 0, dp(8), 0);
+        address.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f));
         address.setOnEditorActionListener((v, actionId, event) -> {
             boolean enter = event != null && event.getKeyCode() == KeyEvent.KEYCODE_ENTER && event.getAction() == KeyEvent.ACTION_DOWN;
             if (actionId == EditorInfo.IME_ACTION_GO || enter) {
@@ -178,13 +218,15 @@ public class MainActivity extends Activity {
             }
             return false;
         });
-        top.addView(address);
+        omni.addView(address);
+        top.addView(omni);
         root.addView(top);
 
         progress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
         progress.setMax(100);
-        progress.setProgressTintList(android.content.res.ColorStateList.valueOf(FG));
-        progress.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(3)));
+        progress.setProgressTintList(android.content.res.ColorStateList.valueOf(FOCUS));
+        progress.setProgressBackgroundTintList(android.content.res.ColorStateList.valueOf(RULE));
+        progress.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(2)));
         root.addView(progress);
 
         web = new WebView(this);
@@ -192,17 +234,19 @@ public class MainActivity extends Activity {
         web.setBackgroundColor(BG);
         root.addView(web);
 
-        // Bottom toolbar.
+        // Bottom toolbar: round buttons under a hairline rule.
+        root.addView(rule());
         LinearLayout bar = new LinearLayout(this);
         bar.setOrientation(LinearLayout.HORIZONTAL);
-        bar.setPadding(dp(6), dp(4), dp(6), dp(4));
+        bar.setGravity(Gravity.CENTER_VERTICAL);
+        bar.setPadding(dp(6), dp(2), dp(6), dp(2));
         bar.setBackgroundColor(BG);
         bar.addView(toolButton("‹", "Back", v -> { if (web.canGoBack()) web.goBack(); }));
         bar.addView(toolButton("›", "Forward", v -> { if (web.canGoForward()) web.goForward(); }));
         bar.addView(toolButton("↻", "Reload", v -> web.reload()));
         bar.addView(toolButton("Tor", "Check Tor", v -> torCheck()));
         bar.addView(toolButton("Identity", "New Identity", v -> confirmNewIdentity()));
-        bar.addView(toolButton("Hub", "VEIL hub", v -> web.loadUrl(HUB)));
+        bar.addView(toolButton("Home", "VEIL home", v -> web.loadUrl(HUB)));
         root.addView(bar);
         return root;
     }
@@ -301,7 +345,7 @@ public class MainActivity extends Activity {
 
     void showShield() {
         boolean insecure = Privacy.isInsecure(web.getUrl());
-        shield.setText(blocked > 0 ? "VEIL " + blocked : "VEIL");
+        shield.setText(insecure ? "Not secure" : blocked > 0 ? "Anonymous · " + blocked : "Anonymous");
         shield.setTextColor(insecure ? BAD : FG);
         shield.setContentDescription(insecure ? "VEIL: this page is not encrypted"
             : "VEIL privacy status, " + blocked + " trackers blocked on this page");

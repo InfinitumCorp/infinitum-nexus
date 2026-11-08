@@ -11,193 +11,161 @@
   <link rel="icon" href="icons/icon-192.png" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <style>
+    /* Standard Infinitum White, as on VEIL Phase I's start page (veil-chrome/src/shared/veil.css):
+       white, quiet, Helvetica Neue at a regular weight, one coloured dot beside "Anonymous". */
     :root {
-      /* //RULES// brand, same tokens as +SPCTR, Cumulus://Mail, FABRIC and the VEIL sidebar. */
-      --brand-accent: #2454dd; --bg: #ffffff; --side: #ffffff; --text: #111820; --muted: #52606b; --faint: #52606b;
-      --line: #d6dce1; --hover: rgba(17,24,32,.04); --chip: rgba(17,24,32,.04); --accent: #111820; --on-accent: #ffffff;
-      --good: #1a7f37; --radius: 0; --shadow: none;
+      --bg: #ffffff; --ink: #111820; --ink-quiet: #6b6b74; --slate: #49545e; --rule: #e8e8ec;
+      --hover: #f3f3f5; --focus: #1f5fd6; --accent: #5b3fd1;
+      --font: "Helvetica Neue", Helvetica, Arial, sans-serif;
       color-scheme: light;
     }
+    @media (prefers-contrast: more) { :root { --ink-quiet: var(--ink); --rule: #9a9aa3; } }
     * { box-sizing: border-box; }
-    html, body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 'Helvetica Neue', Helvetica, Arial, sans-serif; -webkit-font-smoothing: antialiased; }
+    html, body { margin: 0; background: var(--bg); }
+    body { color: var(--ink); font: 15px/1.5 var(--font); min-height: 100vh; min-height: 100dvh; display: flex; flex-direction: column; -webkit-font-smoothing: antialiased; }
+    :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+    button { font: inherit; color: inherit; cursor: pointer; }
     a { color: inherit; }
-    button, input { font: inherit; color: inherit; }
-    button { cursor: pointer; }
-    :focus-visible { outline: 2px solid var(--brand-accent); outline-offset: 2px; }
     [hidden] { display: none !important; }
-    sup.tm { font-size: .38em; vertical-align: super; line-height: 0; margin-left: .06em; font-weight: 400; letter-spacing: 0; }
-    .small sup.tm, .mark sup.tm { font-size: .6em; }
 
-    /* Top bar, like a browser's new tab page */
-    header { display: flex; align-items: center; justify-content: space-between; gap: 12px; height: 60px; padding: max(0px, env(safe-area-inset-top)) 20px 0; }
-    .mark { font-size: 17px; letter-spacing: -.01em; text-decoration: none; white-space: nowrap; }
-    .mark span { color: var(--faint); }
-    .top-links { display: flex; align-items: center; gap: 6px; }
-    .top-links a { text-decoration: none; font-size: 14px; color: var(--muted); padding: 8px 12px; border-radius: 0; white-space: nowrap; }
-    .top-links a:hover { background: var(--hover); color: var(--text); }
-    .chip { font-size: 13px; padding: 5px 10px; border-radius: 0; border: 1px solid var(--line); color: var(--text); white-space: nowrap; }
+    /* Top bar: brand left; Mail, Apps, Sign In right */
+    .topbar { display: flex; align-items: center; gap: 0 12px; min-height: 52px; padding: env(safe-area-inset-top, 0px) 14px 0; border-bottom: 1px solid var(--rule); }
+    .brand { display: inline-flex; align-items: center; height: 52px; font-size: 19px; letter-spacing: -0.04em; text-decoration: none; white-space: nowrap; }
+    .brand sup { font-size: .5em; letter-spacing: 0; margin-left: 1px; align-self: flex-start; margin-top: 15px; }
+    .spacer { flex: 1; }
+    .top-links { display: flex; align-items: center; gap: 22px; }
+    .nav-link, .signin { position: relative; padding: 8px 0; font-size: 13px; color: var(--ink); text-decoration: none; white-space: nowrap; background: none; border: 0; }
+    .nav-link::after, .signin::after, .app-link::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: var(--ink); transform: scaleX(0); transition: transform .15s ease; }
+    .nav-link:hover::after, .nav-link:focus-visible::after, .nav-link[aria-expanded="true"]::after,
+    .signin:hover::after, .signin:focus-visible::after { transform: scaleX(1); }
+    .apps-menu { position: relative; }
+    .apps-panel { position: absolute; top: 40px; right: -12px; z-index: 10; width: 300px; display: flex; flex-direction: column; padding: 8px; background: #fff; border: 1px solid var(--rule); border-radius: 4px; box-shadow: 0 8px 28px rgba(17, 24, 32, .12); }
+    .menu-app { display: flex; flex-direction: column; gap: 1px; padding: 9px 12px; border-radius: 3px; text-decoration: none; }
+    .menu-app:hover, .menu-app:focus-visible { background: var(--hover); }
+    .menu-app-name { font-size: 14px; }
+    .menu-app-summary { font-size: 12px; color: var(--ink-quiet); }
 
-    /* Centre: wordmark, search, shortcuts */
-    .home { min-height: calc(100dvh - 60px); display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0 16px 12vh; text-align: center; }
-    .word { font-size: clamp(56px, 14vw, 92px); font-weight: 400; letter-spacing: -.04em; line-height: 1; margin: 0; }
-    .word span { color: var(--faint); }
-    .word sup.tm { font-size: .24em; color: var(--muted); }
-    .tag { color: var(--muted); margin: 14px 0 28px; }
-    .omni { width: 100%; max-width: 584px; display: flex; align-items: center; gap: 12px; height: 52px; padding: 0 20px; border-radius: 0; border: 1px solid var(--line); background: var(--bg); transition: border-color .15s; }
-    .omni:hover { border-color: var(--muted); }
-    .omni:focus-within { border-color: var(--brand-accent); }
-    .omni svg { flex-shrink: 0; color: var(--muted); }
-    .omni input { flex: 1; min-width: 0; height: 100%; border: 0; outline: none; background: none; font-size: 16px; }
-    .omni input::placeholder { color: var(--muted); }
-    .hint { color: var(--faint); font-size: 13px; margin: 12px 0 0; }
-    .shortcuts { display: grid; grid-template-columns: repeat(6, 96px); gap: 4px; margin-top: 34px; justify-content: center; }
-    .shortcuts a { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 14px 4px 10px; border-radius: var(--radius); text-decoration: none; font-size: 13px; color: var(--text); }
-    .shortcuts a:hover { background: var(--hover); }
-    .tile { width: 48px; height: 48px; border-radius: 0; border: 1px solid var(--line); background: var(--bg); display: grid; place-items: center; }
-    .shortcuts a:hover .tile { border-color: var(--text); }
-    .tile svg { width: 22px; height: 22px; }
-    @media (max-width: 640px) { .shortcuts { grid-template-columns: repeat(3, 96px); } }
+    /* Centre: search, workspace, status, bookmarks */
+    main { flex: 1; width: min(620px, 100% - 32px); margin: 0 auto; display: flex; flex-direction: column; justify-content: center; padding: 48px 0 80px; }
+    .search input { width: 100%; font: inherit; font-size: 16px; padding: 14px 16px; border: 1px solid var(--rule); border-radius: 2px; background: #fff; color: var(--ink); -webkit-appearance: none; appearance: none; }
+    .search input::placeholder { color: var(--ink-quiet); }
+    .search input:focus { outline: none; border-color: var(--ink); }
+    .workspace-strip { display: flex; justify-content: center; margin-top: 16px; }
+    .workspace { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; white-space: nowrap; }
+    .workspace::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); flex: none; }
+    .status { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 6px 14px; margin-top: 8px; font-size: 12px; color: var(--ink-quiet); }
+    .status-line { display: inline-flex; align-items: center; gap: 7px; }
+    .dot { width: 7px; height: 7px; border-radius: 50%; background: #b5b5bd; }
+    .text-button { border: 0; background: none; padding: 6px 10px; border-radius: 2px; font-size: 12px; color: var(--ink-quiet); white-space: nowrap; text-decoration: none; }
+    .text-button:hover { background: var(--hover); color: var(--ink); }
+    .bookmarks { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin-top: 32px; }
+    .bookmark { font-size: 12px; padding: 6px 12px; border-radius: 2px; border: 1px solid var(--rule); background: #fff; color: var(--ink); text-decoration: none; white-space: nowrap; }
+    .bookmark:hover { background: var(--hover); }
 
-    /* Below the fold */
-    main { max-width: 720px; margin: 0 auto; padding: 0 16px 48px; }
-    section { border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; margin: 0 0 14px; background: var(--bg); }
-    h2 { font-size: 20px; font-weight: 400; letter-spacing: -.02em; margin: 0 0 8px; }
-    p { margin: 0 0 10px; }
-    .muted { color: var(--muted); }
-    .small { font-size: 13px; }
-    .row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
-    .btn { display: inline-flex; align-items: center; justify-content: center; height: 40px; padding: 0 20px; border-radius: 0; background: var(--accent); color: var(--on-accent); border: 0; text-decoration: none; white-space: nowrap; }
-    .btn:hover { background: var(--brand-accent); }
-    .btn.outline { background: var(--bg); color: var(--text); border: 1px solid var(--line); }
-    .btn.outline:hover { background: var(--hover); color: var(--text); }
-    .field { width: 100%; height: 44px; padding: 0 16px; border-radius: 0; border: 1px solid var(--line); background: var(--bg); outline: none; }
-    .field:focus { border-color: var(--brand-accent); }
-    .out { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px; word-break: break-all; margin-top: 12px; padding: 12px 14px; border-radius: 0; border: 1px solid var(--line); min-height: 44px; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
-    .stat { border: 1px solid var(--line); padding: 14px; }
-    .stat b { display: block; font-size: 24px; font-weight: 400; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
-    table { width: 100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; margin-top: 14px; }
-    td, th { text-align: left; padding: 9px 4px; border-bottom: 1px solid var(--line); }
-    th { color: var(--muted); font-weight: 400; }
-    tr:last-child th { color: var(--text); border-bottom: 0; }
-    td:last-child, th:last-child { text-align: right; }
-    ul.apps { list-style: none; padding: 0; margin: 0; }
-    ul.apps li { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
-    ul.apps li:last-child { border-bottom: 0; }
-    ul.apps span { color: var(--muted); font-size: 14px; text-align: right; }
-    footer { color: var(--faint); font-size: 13px; text-align: center; padding: 8px 16px 32px; }
-    footer p { margin: 0 0 4px; }
+    /* Panels that open under the bookmarks */
+    .panel { margin-top: 20px; padding: 16px; border: 1px solid var(--rule); border-radius: 2px; font-size: 13px; }
+    .panel h2 { font-size: 14px; font-weight: 400; margin: 0 0 6px; }
+    .panel p { margin: 0 0 10px; color: var(--ink-quiet); }
+    .panel p:last-child { margin-bottom: 0; }
+    .clean-row { display: flex; gap: 6px; }
+    .clean-row input { flex: 1; min-width: 0; font: inherit; font-size: 14px; padding: 9px 12px; border: 1px solid var(--rule); border-radius: 2px; }
+    .clean-row input:focus { outline: none; border-color: var(--ink); }
+    .outline-button { border: 1px solid var(--ink); background: #fff; padding: 7px 14px; border-radius: 2px; font-size: 12px; color: var(--ink); white-space: nowrap; }
+    .outline-button:hover { background: var(--ink); color: #fff; }
+    .out { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; word-break: break-all; margin-top: 10px; color: var(--ink); min-height: 18px; }
+
+    /* App names along the bottom, then the footer */
+    .apps { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 4px 22px; padding: 0 14px 14px; }
+    .app-link { position: relative; padding: 8px 0; font-size: 13px; color: var(--slate); text-decoration: none; white-space: nowrap; }
+    .app-link:hover, .app-link:focus-visible { color: var(--ink); }
+    .app-link:hover::after, .app-link:focus-visible::after { transform: scaleX(1); }
+    footer { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 6px 16px; margin: 0 14px; padding: 14px 0 max(14px, env(safe-area-inset-bottom, 0px)); border-top: 1px solid var(--rule); font-size: 12px; }
+    .quiet { color: var(--ink-quiet); }
+    .footer-right { display: inline-flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+    .footer-link { color: var(--ink); text-decoration: none; background: none; border: 0; padding: 0; font-size: 12px; }
+    .footer-link:hover, .footer-link:focus-visible { text-decoration: underline; text-underline-offset: 3px; }
+
+    @media (max-width: 560px) {
+      .topbar { padding-left: 12px; padding-right: 12px; gap: 6px; }
+      .top-links { gap: 16px; }
+      .apps-panel { width: min(300px, 100vw - 16px); }
+      .apps { gap: 2px 18px; }
+      footer { justify-content: flex-start; }
+    }
   </style>
 </head>
 <body>
-  <header>
-    <a class="mark" href="./">VEIL<span>&lt;/&gt;</span><sup class="tm">™</sup></a>
-    <nav class="top-links" aria-label="Sections">
-      <a href="#get">Get VEIL</a>
-      <a href="#privacy">Privacy</a>
-      <span class="chip" id="mode-chip">Free forever</span>
+  <header class="topbar">
+    <a class="brand" href="./">VEIL&lt;/&gt;<sup>™</sup></a>
+    <span class="spacer"></span>
+    <nav class="top-links" aria-label="Infinitum">
+      <a class="nav-link" id="mail" href="https://infinitumcorporation.ai/products/cumulus-exchange#mail" rel="noreferrer">Mail</a>
+      <div class="apps-menu">
+        <button type="button" class="nav-link" id="apps-button" aria-haspopup="true" aria-expanded="false" aria-controls="apps-panel">Apps</button>
+        <div class="apps-panel" id="apps-panel" role="menu" aria-label="Infinitum apps" hidden>
+          <a class="menu-app" role="menuitem" href="https://infinitumcorporation.ai/products/architect" rel="noreferrer"><span class="menu-app-name">:\ARCHITCT\™</span><span class="menu-app-summary">Turn an idea into finished work</span></a>
+          <a class="menu-app" role="menuitem" href="https://infinitumcorporation.ai/products/cumulus-exchange" rel="noreferrer"><span class="menu-app-name">Cumulus://Cloud™</span><span class="menu-app-summary">AI cloud, storage and data exchange</span></a>
+          <a class="menu-app" role="menuitem" href="https://infinitumcorporation.ai/products/cumulus-exchange#mail" rel="noreferrer"><span class="menu-app-name">Cumulus://Mail™</span><span class="menu-app-summary">Email that comes with your cloud</span></a>
+          <a class="menu-app" role="menuitem" href="https://infinitumcorporation.ai/products/fabric" rel="noreferrer"><span class="menu-app-name">FABRIC™</span><span class="menu-app-summary">Secure communications</span></a>
+          <a class="menu-app" role="menuitem" href="https://infinitumcorporation.ai/products/firm#wallet" rel="noreferrer"><span class="menu-app-name">FIRM Wallet™</span><span class="menu-app-summary">Token, wallet and exchange</span></a>
+          <a class="menu-app" role="menuitem" href="https://infinitumcorporation.ai/products/metatron" rel="noreferrer"><span class="menu-app-name">METATRON¹⁰⁰™</span><span class="menu-app-summary">Consumer command suite</span></a>
+          <a class="menu-app" role="menuitem" href="https://infinitumcorporation.ai/products/scalus" rel="noreferrer"><span class="menu-app-name">SCALVS.ai™</span><span class="menu-app-summary">AI workforce platform</span></a>
+        </div>
+      </div>
+      <a class="signin" id="signin" href="https://infinitumcorporation.ai/products/cumulus-id" rel="noreferrer">Sign In</a>
     </nav>
   </header>
 
-  <div class="home">
-    <h1 class="word">VEIL<span>&lt;/&gt;</span><sup class="tm">™</sup></h1>
-    <p class="tag">See the web without being seen.</p>
-    <label class="omni">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-      <input id="omni" type="text" inputmode="search" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Search privately or enter address" aria-label="Search privately or enter address" />
-    </label>
-    <p class="hint">Searches go to DuckDuckGo. Links open with tracking parameters removed.</p>
+  <main id="main">
+    <form class="search" role="search" id="search-form">
+      <input id="omni" type="search" placeholder="Search privately or enter address" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Search privately or enter address" />
+    </form>
 
-    <nav class="shortcuts" aria-label="Shortcuts">
-      <a href="https://duckduckgo.com/" rel="noopener">
-        <span class="tile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></span>Search</a>
-      <a href="https://check.torproject.org/" rel="noopener">
-        <span class="tile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 5 6v5c0 4.5 3 8.4 7 10 4-1.6 7-5.5 7-10V6z"/><path d="m9 12 2 2 4-4"/></svg></span>Tor check</a>
-      <a href="https://orbot.app/download/" rel="noopener">
-        <span class="tile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5.5"/><circle cx="12" cy="12" r="2"/></svg></span>Orbot</a>
-      <a href="downloads/veil-browser.apk" download>
-        <span class="tile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="6" y="2.5" width="12" height="19" rx="2.5"/><path d="M11 18.5h2"/></svg></span>Android</a>
-      <a href="downloads/veil-extension.zip" download>
-        <span class="tile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M3 9h18M15 9v11"/></svg></span>Extension</a>
-      <a href="#cleaner">
-        <span class="tile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg></span>Clean link</a>
+    <div class="workspace-strip"><span class="workspace" id="mode-chip" title="No account, no history, nothing kept">Free forever</span></div>
+
+    <div class="status" id="tor-status" aria-live="polite">
+      <span class="status-line"><span class="dot" aria-hidden="true"></span><span id="tor-status-text">Tor not checked</span></span>
+      <a class="text-button" href="https://check.torproject.org/" rel="noopener">Check Tor</a>
+      <a class="text-button" href="https://orbot.app/download/" rel="noopener">Get Orbot</a>
+    </div>
+
+    <nav class="bookmarks" id="bookmarks" aria-label="Bookmarks">
+      <a class="bookmark" href="https://duckduckgo.com/" rel="noopener">DuckDuckGo</a>
+      <a class="bookmark web-only" id="apk-link" href="downloads/veil-browser.apk" download>VEIL for Android</a>
+      <a class="bookmark web-only" href="downloads/veil-extension.zip" download>VEIL for Chrome</a>
+      <button type="button" class="bookmark" id="cleaner-toggle" aria-expanded="false" aria-controls="cleaner">Clean a link</button>
     </nav>
-  </div>
 
-  <main>
-    <section id="in-app" hidden>
-      <h2>You're in VEIL for Android</h2>
-      <p class="muted">This session is anonymous: HTTPS-first, third-party cookies off, trackers stripped, and everything cleared when you close the app. Use <b>Identity</b> to wipe it now, or <b>Tor</b> to check your exit.</p>
-    </section>
-
-    <section id="get">
-      <h2>Get VEIL</h2>
-      <div class="grid">
-        <div class="stat"><b>Android</b><span class="muted small">Private browser, Android 8+</span>
-          <div class="row"><a class="btn" id="apk-link" href="downloads/veil-browser.apk" download>Download APK</a></div></div>
-        <div class="stat"><b>Chrome</b><span class="muted small">Sidebar extension with Tor and VEIL VPN modes</span>
-          <div class="row"><a class="btn outline" href="downloads/veil-extension.zip" download>Download extension</a></div></div>
-      </div>
-      <p class="muted small" style="margin:14px 0 0">Preview builds. The Android APK is signed with a development key: allow installs from your browser when Android asks.</p>
-    </section>
-
-    <section id="cleaner">
-      <h2>Link cleaner</h2>
-      <p class="muted">Paste a link to remove tracking parameters (utm_*, fbclid, gclid and 20 more). It runs on this device; nothing is sent anywhere.</p>
-      <input class="field" type="url" id="link-in" placeholder="https://example.com/page?utm_source=newsletter&id=7" aria-label="Link to clean" />
-      <div class="row">
-        <button class="btn" id="clean-btn">Clean link</button>
-        <button class="btn outline" id="copy-btn" hidden>Copy</button>
+    <section class="panel" id="cleaner" hidden>
+      <h2>Clean a link</h2>
+      <p>Removes utm_*, fbclid, gclid and 20 more tracking parameters. It runs on this device; nothing is sent anywhere.</p>
+      <div class="clean-row">
+        <input type="url" id="link-in" placeholder="https://example.com/page?utm_source=newsletter&id=7" aria-label="Link to clean" />
+        <button type="button" class="outline-button" id="clean-btn">Clean</button>
+        <button type="button" class="outline-button" id="copy-btn" hidden>Copy</button>
       </div>
       <div class="out" id="link-out" aria-live="polite"></div>
     </section>
 
-    <section>
-      <h2>$VEIL rewards</h2>
-      <p class="muted">Signed-in browsing earns $VEIL for real, human-directed activity. Rewards never need the sites you visit.</p>
-      <div class="grid" id="policy">
-        <div class="stat"><b id="p-rate">0.1</b><span class="muted small">$VEIL per active minute</span></div>
-        <div class="stat"><b id="p-min">240</b><span class="muted small">rewarded minutes a day</span></div>
-        <div class="stat"><b id="p-max">24</b><span class="muted small">$VEIL daily maximum</span></div>
-      </div>
-      <table>
-        <thead><tr><th>Allocation</th><th>Share</th><th>Tokens</th></tr></thead>
-        <tbody>
-          <tr><td>Browsing rewards</td><td>50%</td><td>500,000,000</td></tr>
-          <tr><td>Ecosystem development</td><td>20%</td><td>200,000,000</td></tr>
-          <tr><td>Community treasury</td><td>15%</td><td>150,000,000</td></tr>
-          <tr><td>Liquidity reserve</td><td>10%</td><td>100,000,000</td></tr>
-          <tr><td>Team and contributors</td><td>5%</td><td>50,000,000</td></tr>
-          <tr><th>Total</th><th>100%</th><th>1,000,000,000</th></tr>
-        </tbody>
-      </table>
-      <p class="muted small" style="margin:12px 0 0">$VEIL rewards are not income, an investment return or payment for visiting particular sites. $VEIL is not a share in Infinitum Corporation.</p>
-    </section>
-
-    <section>
-      <h2>One sign-in, every free Infinitum product</h2>
-      <ul class="apps">
-        <li>Cumulus://ID <span>Your account and permissions</span></li>
-        <li>Cumulus://Mail <span>Free email at you@cumulusmail.cloud</span></li>
-        <li>Cumulus://Cloud <span>15 GB of Drive storage</span></li>
-        <li>SCALVS.ai <span>Free AI agents beside every page</span></li>
-        <li>:\ARCHITCT\ <span>Turn an idea into finished work</span></li>
-        <li>METATRON¹⁰⁰ <span>Dashboard for everything you follow</span></li>
-        <li>FIRM Wallet <span>Hold, send and swap Infinitum tokens</span></li>
-      </ul>
-      <p class="muted small" style="margin:12px 0 0">Anonymous browsing never connects to them. Signing in is a separate, labeled workspace.</p>
-    </section>
-
-    <section id="privacy">
+    <section class="panel" id="privacy" hidden>
       <h2>What VEIL can't see</h2>
       <p>Every check runs on your device. VEIL doesn't send your pages, searches, passwords, forms or downloads anywhere, keeps no browsing history, and can't see what you do in other apps or browsers.</p>
-      <p class="muted" style="margin:0">The extension and the Android app block ad networks, trackers and data brokers by default, warn about unencrypted or look-alike sites, hold risky downloads and personal-data forms for a tap to confirm, and warn when a protected password is typed on the wrong site.</p>
+      <p>The extension and the Android app block ad networks, trackers and data brokers by default, warn about unencrypted or look-alike sites, hold risky downloads and personal-data forms for a tap to confirm, and warn when a protected password is typed on the wrong site.</p>
+      <p>$VEIL rewards are not income, an investment return or payment for visiting particular sites. $VEIL is not a share in Infinitum Corporation.</p>
     </section>
   </main>
 
+  <nav class="apps" aria-label="Infinitum apps">
+    <a class="app-link" href="https://infinitumcorporation.ai/products/architect" rel="noreferrer">:\ARCHITCT\™</a>
+    <a class="app-link" href="https://infinitumcorporation.ai/products/scalus" rel="noreferrer">SCALVS.ai™</a>
+  </nav>
   <footer>
-    <p>VEIL&lt;/&gt;™ · Infinitum Corporation · <span id="build"></span></p>
-    <p>The Android preview routes through Tor with Orbot's VPN mode. A built-in Tor engine is on the roadmap.</p>
+    <span>AI-powered. Blockchain-governed™.</span>
+    <span class="footer-right">
+      <a class="footer-link" href="https://infinitumcorporation.ai/products/fabric" rel="noreferrer">FABRIC™</a>
+      <button type="button" class="footer-link" id="privacy-toggle" aria-expanded="false" aria-controls="privacy">Privacy</button>
+      <span class="quiet">© 2026 Infinitum Corporation · <span id="build"></span></span>
+    </span>
   </footer>
   <script src="lib/trackers.js"></script>
   <script src="app.js"></script>

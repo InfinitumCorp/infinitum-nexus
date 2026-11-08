@@ -18,10 +18,30 @@
   // Inside VEIL for Android (bundled hub) or the Android WebView.
   var inApp = location.protocol === "file:" || /; wv\)/.test(navigator.userAgent);
   if (inApp) {
-    $("in-app").hidden = false;
-    $("get").hidden = true;
-    $("mode-chip").textContent = "Anonymous session";
+    $("mode-chip").textContent = "Anonymous";
+    $("mode-chip").title = "Anonymous session: nothing is kept when you close it";
+    $("tor-status-text").textContent = "Use the Tor button to route through Orbot";
+    Array.prototype.forEach.call(document.querySelectorAll(".web-only"), function (el) { el.hidden = true; });
   }
+
+  // Apps menu, the link cleaner and the privacy note open in place.
+  function toggle(buttonId, panelId, onOpen) {
+    var button = $(buttonId), panel = $(panelId);
+    button.addEventListener("click", function (e) {
+      e.stopPropagation();
+      var open = panel.hidden;
+      panel.hidden = !open;
+      button.setAttribute("aria-expanded", String(open));
+      if (open && onOpen) onOpen();
+    });
+  }
+  toggle("apps-button", "apps-panel");
+  toggle("cleaner-toggle", "cleaner", function () { $("link-in").focus(); });
+  toggle("privacy-toggle", "privacy", function () { $("privacy").scrollIntoView({ block: "nearest" }); });
+  function closeApps() { $("apps-panel").hidden = true; $("apps-button").setAttribute("aria-expanded", "false"); }
+  document.addEventListener("click", function (e) { if (!$("apps-panel").contains(e.target)) closeApps(); });
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape") closeApps(); });
+  $("search-form").addEventListener("submit", function (e) { e.preventDefault(); });
 
   // Search box: an address opens with trackers removed; anything else searches DuckDuckGo.
   // Navigates from script because the CSP sets form-action 'none'.

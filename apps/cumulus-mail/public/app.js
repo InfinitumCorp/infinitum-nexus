@@ -169,7 +169,7 @@ function render() {
   const initial = (data.me.name || data.me.email).trim().charAt(0).toUpperCase();
   root.append(
     el("header", {}, [
-      el("div", { class: "brand" }, [el("div", { class: "mark" }, ["Cumulus", el("span", {}, ["://"]), "Mail"])]),
+      el("div", { class: "brand" }, [el("div", { class: "mark" }, ["Cumulus://Mail", el("sup", { class: "tm" }, ["™"])])]),
       el("label", { class: "search" }, [el("span", { class: "glass", "aria-hidden": "true" }, ["⌕"]), search]),
       el("button", { class: "avatar", title: `${data.me.name} · ${data.me.email}`, "aria-label": "Your Cumulus://ID", onClick: () => go("account") }, [initial]),
     ]),
@@ -717,12 +717,7 @@ function walletView() {
   const input = (label, key, attrs = {}) => el("label", { class: "field" }, [el("span", {}, [label]), el("input", { "aria-label": label, ...attrs, onInput: (event) => { form[key] = event.target.value.trim(); } })]);
   const asset = el("select", { "aria-label": "Asset", onChange: (event) => { form.asset = event.target.value; } }, ["USDC", "FIRM"].map((a) => el("option", { value: a }, [a])));
   return el("section", { class: "pane" }, [el("div", { class: "sheet" }, [
-    el("p", { class: "sub" }, ["FIRM Wallet · included with your Cumulus://ID"]),
-    el("div", { class: "stat-row" }, [
-      el("div", { class: "stat" }, [el("b", { class: "big" }, [w.balances.USDC]), el("span", {}, ["USDC"])]),
-      el("div", { class: "stat" }, [el("b", { class: "big" }, [w.balances.FIRM]), el("span", {}, ["FIRM"])]),
-    ]),
-    el("p", { class: "mono muted" }, [w.address]),
+    el("firm-suite", { product: "cumulus-mail", wallet: JSON.stringify({ address: w.address, balances: w.balances }) }),
     el("form", { class: "wallet-form", onSubmit: (event) => {
       event.preventDefault();
       if (!form.to || !form.amount) { state.error = "Add who to pay and how much."; render(); return; }
@@ -845,7 +840,7 @@ function renderAuth(message = "") {
     .then((providers) => social.replaceChildren(...providers.map((p) => el("a", { class: "outline", href: `/api/auth/oauth/${encodeURIComponent(p.id)}/start` }, [`Continue with ${p.label}`]))))
     .catch(() => {});
   root.replaceChildren(el("div", { class: "auth" }, [el("div", { class: "auth-card" }, [
-    el("div", { class: "mark" }, ["Cumulus", el("span", {}, ["://"]), "Mail"]),
+    el("div", { class: "mark" }, ["Cumulus://Mail", el("sup", { class: "tm" }, ["™"])]),
     el("p", { class: "muted" }, ["Sign in with your Cumulus://ID"]),
     el("button", { class: "primary", onClick: async () => {
       err.textContent = "";
@@ -951,6 +946,9 @@ async function boot() {
   }
   try {
     state.data = await api("/api/state");
+    const params = new URLSearchParams(location.search);
+    if (params.get("compose") === "1") state.composer = blankComposer({ to: params.get("to") || "" });
+    if (params.has("compose") || params.has("source")) history.replaceState(null, "", "/");
     render();
   } catch {
     // Not signed in: renderAuth() has already been shown.
@@ -958,3 +956,8 @@ async function boot() {
 }
 
 boot();
+
+/* Installable app: register the service worker, and open the composer from the "Compose" shortcut. */
+if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")) {
+  navigator.serviceWorker.register("/sw.js").catch(() => {});
+}

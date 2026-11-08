@@ -31,6 +31,10 @@ export interface MailAppDeps {
   origin: string;
   secureCookies: boolean;
   onChange?: () => void;
+  /** Hosted mode: wraps each API request (sync, run, save). See src/vercel.ts. */
+  transaction?: <T>(fn: () => Promise<T>) => Promise<T>;
+  /** Serverless hosts can't keep a timer running; they call sendDue from a cron route instead. */
+  noTimers?: boolean;
   /** SCALVS briefs; defaults to xAI when XAI_API_KEY is set. */
   /** SCALVS Clean suggestions; defaults to the SCALVS agent on Claude when ANTHROPIC_API_KEY is set, else the rules. */
   cleanAgent?: CleanAgent;
@@ -66,6 +70,8 @@ const MIME: Record<string, string> = {
   ".css": "text/css; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
   ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".webmanifest": "application/manifest+json",
   ".txt": "text/plain; charset=utf-8",
 };
 
@@ -484,6 +490,7 @@ export function createMailApp(deps: MailAppDeps) {
       if (r.csrf && MUTATING.has(req.method!) && req.headers["x-cumulus"] !== "1") throw new HttpError(403, "Missing request header");
       const m = url.pathname.match(r.pattern)!;
       const ctx: Ctx = { req, res, params: Object.fromEntries(r.keys.map((k, i) => [k, decodeURIComponent(m[i + 1]!)])), body: await readBody(req), query: url.searchParams };
+      const run = async () => {
       if (r.auth || r.optionalAuth) {
         const token = parseCookies(req.headers.cookie)[COOKIE];
         const session = token ? cid.authenticate(token) : null;
@@ -494,7 +501,10 @@ export function createMailApp(deps: MailAppDeps) {
           ctx.user = { account: session.account, sessionId: session.session.id };
         }
       }
-      const result = await r.handler(ctx);
+        return r.handler(ctx);
+      };
+      // Hosted (serverless): load the latest state, run, and save atomically in one transaction.
+      const result = deps.transaction ? await deps.transaction(run) : await run();
       if (MUTATING.has(req.method!) || result instanceof Redirect) deps.onChange?.();
       if (result instanceof Redirect) {
         res.writeHead(302, { Location: result.location, "Cache-Control": "no-store" });
@@ -524,7 +534,7 @@ export function createMailApp(deps: MailAppDeps) {
     if (sent) deps.onChange?.();
     return sent;
   };
-  setInterval(() => void sendDue(), 20_000).unref();
+  if (!deps.noTimers) setInterval(() => void sendDue(), 20_000).unref();
 
   return { handle, sendDue, server: () => createServer((req, res) => void handle(req, res)) };
 }

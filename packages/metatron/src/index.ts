@@ -1,3 +1,6 @@
+/** METATRON¹⁰⁰'s canonical public site. */
+export const METATRON_URL = "https://mttrn.app";
+
 export { predict } from "./predict.ts";
 export type { Prediction, PredictionInput } from "./predict.ts";
 export { sum, avg, window } from "./analytics.ts";

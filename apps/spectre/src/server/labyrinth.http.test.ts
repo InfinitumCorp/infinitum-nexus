@@ -55,7 +55,8 @@ test("Spectre deployment config stores an encrypted snapshot a restarted service
     const saved = await command({ action: "save", product: "spectre", repo: created.body.id, path: "deal.json", content: "snapshot-secret", expectedHead: null });
     assert.equal(saved.status, 200);
     const raw = readFileSync(path, "utf8");
-    assert.equal(statSync(path).mode & 0o777, 0o600);
+    // Windows has no POSIX permission bits (it reports 0o666), so check them only elsewhere.
+    if (process.platform !== "win32") assert.equal(statSync(path).mode & 0o777, 0o600);
     assert.equal(raw.includes("snapshot-secret"), false);
     assert.equal(raw.includes(env.LBRNTH_MASTER_KEY), false);
     const token = identity.cookie.slice("spctr_session=".length);

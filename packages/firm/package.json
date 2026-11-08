@@ -4,7 +4,9 @@
   "description": "FIRM ecosystem token, wallet, and DEX.",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./suite": "./suite/firm-suite.js",
+    "./suite/firm-suite.css": "./suite/firm-suite.css"
   },
   "private": true,
   "engines": {
@@ -12,7 +14,7 @@
   },
   "scripts": {
     "typecheck": "tsc -p . --noEmit",
-    "test": "node --test --experimental-strip-types $(find src -name \"*.test.ts\" 2>/dev/null || true)",
+    "test": "node --test --experimental-strip-types $(find src suite -name \"*.test.ts\" 2>/dev/null || true)",
     "compile": "bash scripts/compile.sh",
     "deploy": "node scripts/deploy.ts",
     "anchor": "node scripts/deploy-anchor.ts"

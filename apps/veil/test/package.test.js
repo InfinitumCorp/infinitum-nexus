@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromeManifest, firefoxManifest } from "../scripts/manifests.js";
-import { EXTENSION_FILES, packageExtension } from "../scripts/package.js";
+import { EXTENSION_FILES, WINDOWS_TAR, hasCommand, packageExtension } from "../scripts/package.js";
 
 const version = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version;
 const committed = JSON.parse(readFileSync(new URL("../manifest.json", import.meta.url), "utf8"));
@@ -32,13 +32,18 @@ test("the unpacked manifest is the Chrome build and Firefox gets its own proxy p
   assert.equal(chromeManifest(version).optional_host_permissions, undefined);
 });
 
+// Info-ZIP where installed; otherwise Windows' built-in bsdtar.
+const useTar = !hasCommand("unzip") && WINDOWS_TAR;
+const zipList = (zip) => (useTar ? spawnSync(WINDOWS_TAR, ["-t", "-f", zip], { encoding: "utf8" }) : spawnSync("unzip", ["-Z1", zip], { encoding: "utf8" }));
+const zipRead = (zip, name) => (useTar ? spawnSync(WINDOWS_TAR, ["-x", "-O", "-f", zip, name], { encoding: "utf8" }) : spawnSync("unzip", ["-p", zip, name], { encoding: "utf8" })).stdout;
+
 test("packaging writes Chrome and Firefox zips without the control server or tests", () => {
   const out = mkdtempSync(join(tmpdir(), "veil-pkg-"));
   try {
     const zips = packageExtension(fileURLToPath(new URL("../", import.meta.url)), out);
     assert.equal(zips.length, 2);
     for (const zip of zips) {
-      const list = spawnSync("unzip", ["-Z1", zip], { encoding: "utf8" });
+      const list = zipList(zip);
       assert.equal(list.status, 0, list.stderr);
       const names = list.stdout.split("\n").filter(Boolean);
       assert.ok(names.includes("manifest.json"));
@@ -46,17 +51,17 @@ test("packaging writes Chrome and Firefox zips without the control server or tes
       for (const file of EXTENSION_FILES) assert.ok(names.includes(file), file);
       assert.equal(names.some((name) => name.startsWith("server/") || name.startsWith("test/") || name.includes("node_modules")), false);
     }
-    const firefoxManifestText = spawnSync("unzip", ["-p", join(out, "veil-firefox.zip"), "manifest.json"], { encoding: "utf8" }).stdout;
+    const firefoxManifestText = zipRead(join(out, "veil-firefox.zip"), "manifest.json");
     assert.match(firefoxManifestText, /webRequestBlocking/);
-    const chromeManifestText = spawnSync("unzip", ["-p", join(out, "veil-chrome.zip"), "manifest.json"], { encoding: "utf8" }).stdout;
+    const chromeManifestText = zipRead(join(out, "veil-chrome.zip"), "manifest.json");
     assert.match(chromeManifestText, /webRequestAuthProvider/);
     assert.doesNotMatch(chromeManifestText, /webRequestBlocking/);
-    const buildFlag = spawnSync("unzip", ["-p", join(out, "veil-chrome.zip"), "lib/build.js"], { encoding: "utf8" }).stdout;
+    const buildFlag = zipRead(join(out, "veil-chrome.zip"), "lib/build.js");
     assert.match(buildFlag, /VEIL_DEV = false/);
     const devOut = mkdtempSync(join(tmpdir(), "veil-dev-"));
     try {
       packageExtension(fileURLToPath(new URL("../", import.meta.url)), devOut, { dev: true });
-      const devFlag = spawnSync("unzip", ["-p", join(devOut, "veil-chrome.zip"), "lib/build.js"], { encoding: "utf8" }).stdout;
+      const devFlag = zipRead(join(devOut, "veil-chrome.zip"), "lib/build.js");
       assert.match(devFlag, /VEIL_DEV = true/);
     } finally {
       rmSync(devOut, { recursive: true, force: true });

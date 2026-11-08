@@ -1,0 +1,38 @@
+{
+  "name": "@infinitum/firm-wallet",
+  "version": "0.1.0",
+  "description": "$FIRM Wallet™: self-custody wallet for Ethereum, Base and Solana with a built-in Infinitum Nexus™ swap, rewards inbox and VEIL Nexus connections.",
+  "type": "module",
+  "private": true,
+  "license": "UNLICENSED",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -p . --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -p . --noEmit",
+    "test": "vitest run",
+    "deploy:check": "vite build && wrangler deploy --dry-run",
+    "deploy": "vite build && wrangler deploy"
+  },
+  "devDependencies": {
+    "@preact/preset-vite": "^2.10.6",
+    "@types/node": "^22.20.5",
+    "fake-indexeddb": "^6.2.7",
+    "typescript": "^5.9.3",
+    "vite": "^8.3.6",
+    "vitest": "^5.1.0",
+    "wrangler": "^4.158.0"
+  },
+  "dependencies": {
+    "@infinitum/conjure": "workspace:*",
+    "@infinitum/metatron": "workspace:*",
+    "@noble/curves": "^2.4.0",
+    "@noble/hashes": "^2.4.0",
+    "@scure/base": "^2.4.0",
+    "@scure/bip32": "^2.4.0",
+    "@scure/bip39": "^2.4.0",
+    "preact": "^11.2.0",
+    "qrcode-generator": "^2.0.4",
+    "viem": "^2.57.16"
+  }
+}

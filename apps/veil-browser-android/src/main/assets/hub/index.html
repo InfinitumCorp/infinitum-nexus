@@ -50,8 +50,6 @@
     .search input { width: 100%; font: inherit; font-size: 16px; padding: 14px 16px; border: 1px solid var(--rule); border-radius: 2px; background: #fff; color: var(--ink); -webkit-appearance: none; appearance: none; }
     .search input::placeholder { color: var(--ink-quiet); }
     .search input:focus { outline: none; border-color: var(--ink); }
-    .clean-strip { display: flex; justify-content: center; margin-top: 14px; }
-    .clean-strip + .panel { margin-top: 12px; }
     .workspace-strip { display: flex; justify-content: center; margin-top: 16px; }
     .workspace { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; white-space: nowrap; }
     .workspace::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); flex: none; }
@@ -69,12 +67,6 @@
     .panel h2 { font-size: 14px; font-weight: 400; margin: 0 0 6px; }
     .panel p { margin: 0 0 10px; color: var(--ink-quiet); }
     .panel p:last-child { margin-bottom: 0; }
-    .clean-row { display: flex; gap: 6px; }
-    .clean-row input { flex: 1; min-width: 0; font: inherit; font-size: 14px; padding: 9px 12px; border: 1px solid var(--rule); border-radius: 2px; }
-    .clean-row input:focus { outline: none; border-color: var(--ink); }
-    .outline-button { border: 1px solid var(--ink); background: #fff; padding: 7px 14px; border-radius: 2px; font-size: 12px; color: var(--ink); white-space: nowrap; }
-    .outline-button:hover { background: var(--ink); color: #fff; }
-    .out { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; word-break: break-all; margin-top: 10px; color: var(--ink); min-height: 18px; }
 
     /* App names along the bottom, then the footer */
     .apps { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 4px 22px; padding: 0 14px 14px; }
@@ -122,21 +114,6 @@
     <form class="search" role="search" id="search-form">
       <input id="omni" type="search" placeholder="Search privately or enter address" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Search privately or enter address" />
     </form>
-
-    <div class="clean-strip">
-      <button type="button" class="bookmark" id="cleaner-toggle" aria-expanded="false" aria-controls="cleaner">Clean a link</button>
-    </div>
-
-    <section class="panel" id="cleaner" hidden>
-      <h2>Clean a link</h2>
-      <p>Removes utm_*, fbclid, gclid and 20 more tracking parameters. It runs on this device; nothing is sent anywhere.</p>
-      <div class="clean-row">
-        <input type="url" id="link-in" placeholder="https://example.com/page?utm_source=newsletter&id=7" aria-label="Link to clean" />
-        <button type="button" class="outline-button" id="clean-btn">Clean</button>
-        <button type="button" class="outline-button" id="copy-btn" hidden>Copy</button>
-      </div>
-      <div class="out" id="link-out" aria-live="polite"></div>
-    </section>
 
     <div class="workspace-strip"><span class="workspace" id="mode-chip" title="No account, no history, nothing kept">Free forever</span></div>
 

@@ -24,7 +24,7 @@
     Array.prototype.forEach.call(document.querySelectorAll(".web-only"), function (el) { el.hidden = true; });
   }
 
-  // Apps menu, the link cleaner and the privacy note open in place.
+  // Apps menu and the privacy note open in place.
   function toggle(buttonId, panelId, onOpen) {
     var button = $(buttonId), panel = $(panelId);
     button.addEventListener("click", function (e) {
@@ -36,7 +36,6 @@
     });
   }
   toggle("apps-button", "apps-panel");
-  toggle("cleaner-toggle", "cleaner", function () { $("link-in").focus(); });
   toggle("privacy-toggle", "privacy", function () { $("privacy").scrollIntoView({ block: "nearest" }); });
   function closeApps() { $("apps-panel").hidden = true; $("apps-button").setAttribute("aria-expanded", "false"); }
   document.addEventListener("click", function (e) { if (!$("apps-panel").contains(e.target)) closeApps(); });
@@ -63,29 +62,6 @@
       } catch (err) { /* not a URL: search it */ }
     }
     location.href = "https://duckduckgo.com/?q=" + encodeURIComponent(q);
-  });
-
-  $("clean-btn").addEventListener("click", function () {
-    var raw = $("link-in").value.trim();
-    var out = $("link-out");
-    if (!raw) { out.textContent = ""; return; }
-    var withScheme = /^[a-z]+:\/\//i.test(raw) ? raw : "https://" + raw;
-    var cleaned = stripTrackers(withScheme);
-    if (cleaned === null) {
-      try { new URL(withScheme); out.textContent = "No tracking parameters found."; }
-      catch (e) { out.textContent = "That doesn't look like a link."; }
-      $("copy-btn").hidden = true;
-      return;
-    }
-    out.textContent = cleaned;
-    $("copy-btn").hidden = !navigator.clipboard;
-  });
-  $("link-in").addEventListener("keydown", function (e) { if (e.key === "Enter") $("clean-btn").click(); });
-  $("copy-btn").addEventListener("click", function () {
-    navigator.clipboard.writeText($("link-out").textContent).then(function () {
-      $("copy-btn").textContent = "Copied";
-      setTimeout(function () { $("copy-btn").textContent = "Copy"; }, 1500);
-    });
   });
 
   if (window.VEIL_BUILD) $("build").textContent = window.VEIL_BUILD;

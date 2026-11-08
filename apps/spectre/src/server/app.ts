@@ -20,11 +20,12 @@ import {
 import { OPEN_STAGES, STAGES } from "../core/model.ts";
 import { askClaude, AiNotConnected, type AiConfig } from "./ai.ts";
 import { registerGrowthRoutes, type GrowthEvent } from "./growth-routes.ts";
-import { registerConjureRoutes } from "./conjure-routes.ts";
+import { registerConjureRoutes, dealSeed } from "./conjure-routes.ts";
 import { registerEngageRoutes, RawResponse } from "./engage-routes.ts";
 import { dispatch, runDue, type AutomationEngine } from "../core/automations.ts";
 import type { Providers } from "../core/messaging.ts";
-import type { Complete } from "@infinitum/conjure";
+import type { Complete, ConjureLiveClient } from "@infinitum/conjure";
+import { parseConjureMention, handleConjureMention, conjureLiveFromEnv, formatForecast, ConjureApiError } from "@infinitum/conjure";
 import { createVeilControl, serveNodeVeil } from "@infinitum/veil/server";
 import type { DeviceExitConfig, VeilServer } from "@infinitum/veil/server";
 import { runLlmAgent, LlmError } from "@infinitum/scalus";
@@ -66,6 +67,8 @@ export interface AppDeps {
   twilioAuthToken?: string;
   /** Tests: scripted model for Conjure simulations. */
   conjureComplete?: Complete;
+  /** Hosted Conjure for "@conjure" in Ask. Defaults to CONJURE_URL + CONJURE_PRODUCT_KEY; null turns it off. */
+  conjureLive?: ConjureLiveClient | null;
   /**
    * VEIL browser proxy. A plan is required for the exit and for bridges.
    * Local Tor in the extension does not call this.
@@ -638,9 +641,26 @@ export function createApp(deps: AppDeps) {
 
   /* ---------------- Ask in plain language ---------------- */
 
+  // "@conjure <question>" in Ask starts a live Conjure forecast instead of a plain answer.
+  const conjureLive = deps.conjureLive === undefined ? conjureLiveFromEnv() : deps.conjureLive;
+  const livePredictions = new Map<string, string>(); // prediction id -> workspace that asked
+
   route("POST", "/api/ask", async (ctx) => {
     need(ctx, "question");
     const ws = ctx.user!.workspace;
+    if (parseConjureMention(String(ctx.body.question))) {
+      if (!conjureLive) throw new HttpError(503, "Conjure isn't connected. Set CONJURE_URL and CONJURE_PRODUCT_KEY to use @conjure.");
+      // On a deal, the forecast is seeded with everything +SPCTR knows about it.
+      const deal = typeof ctx.body.dealId === "string" ? dealSeed(crm, ws, ctx.body.dealId).seed : "";
+      try {
+        const out = await handleConjureMention(conjureLive, String(ctx.body.question).slice(0, 2000), { context: deal, user: ctx.user!.account.cid, source: deal ? "deal" : "ask", wait: false });
+        if (out!.prediction) livePredictions.set(out!.prediction.id, ws);
+        return { answer: out!.text, conjure: out!.prediction };
+      } catch (err) {
+        if (err instanceof ConjureApiError) throw new HttpError(err.status === 429 ? 429 : 502, err.message);
+        throw err;
+      }
+    }
     const scores = scoresFor(ws);
     const companies = crm.list("companies", ws);
     const names = new Map(companies.map((c) => [c.id, c.name]));
@@ -659,6 +679,13 @@ export function createApp(deps: AppDeps) {
     }
   });
 
+
+  /** Follow a live @conjure forecast started from Ask (only from the workspace that asked). */
+  route("GET", "/api/conjure/live/:id", async (ctx) => {
+    if (!conjureLive || livePredictions.get(ctx.params.id) !== ctx.user!.workspace) throw new HttpError(404, "No such forecast");
+    const prediction = await conjureLive.get(ctx.params.id);
+    return { prediction, text: formatForecast(prediction) };
+  });
 
   /* ---------------- Research & Agents ---------------- */
 

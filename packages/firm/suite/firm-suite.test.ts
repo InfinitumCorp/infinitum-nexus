@@ -73,3 +73,11 @@ test("synced copies match the canonical files", () => {
     for (const dir of copies) assert.equal(readFileSync(join(root, dir, file), "utf8"), canonical, `${dir}/${file} drifted; run node packages/firm/suite/sync.mjs`);
   }
 });
+
+test("several products show each token once, links tagged with the first", () => {
+  const html = render({ product: "spectre metatron spectre" });
+  assert.equal(html.match(/\$SPCTR/g)?.length, 1);
+  assert.match(html, /\$MTRN/);
+  assert.match(html, /METATRON¹⁰⁰<sup class="tm">™<\/sup>/);
+  assert.match(html, /\?ref=spectre"/);
+});

@@ -812,11 +812,11 @@ async function renderSettings() {
             <a class="btn small" href="${esc(state.me.cumulus.mail.url)}" target="_blank" rel="noopener noreferrer">Open</a></div>
           <div class="item"><div class="main"><div class="title">Cumulus://Cloud<sup class="tm">™</sup> storage</div><div class="sub">${esc(state.me.cumulus.storage.label)} · shared by Mail and Cloud</div></div></div>
         </div>
-        <firm-suite class="mt10" product="spectre" wallet="${esc(JSON.stringify({ address: state.me.cumulus.wallet.address, balances: state.me.cumulus.wallet.balances }))}"></firm-suite>
+        <firm-suite class="mt10" product="spectre metatron" wallet="${esc(JSON.stringify({ address: state.me.cumulus.wallet.address, balances: state.me.cumulus.wallet.balances }))}"></firm-suite>
         <p class="faint small mt10">${esc(state.me.cumulus.plan)} plan. Sign-in alerts and wallet receipts go to your Cumulus://Mail inbox.</p>
       </div>` : `<div class="section">
         <h2>FIRM Wallet<sup class="tm">™</sup></h2>
-        <firm-suite product="spectre"></firm-suite>
+        <firm-suite product="spectre metatron"></firm-suite>
       </div>`}
       <div class="section">
         <h2>Ways to sign in</h2>

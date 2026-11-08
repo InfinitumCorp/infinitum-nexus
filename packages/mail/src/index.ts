@@ -51,14 +51,19 @@ export {
   SYSTEM_SENDERS,
   messageBytes,
   isReservedMailName,
+  MAX_INBOUND_BODY,
+  OUTBOUND_MAX_ATTEMPTS,
 } from "./postoffice.ts";
 export type {
   StoredMailbox,
   OutboundMail,
+  OutboundSend,
+  OutboundResult,
   MailQuota,
   MailPayments,
   PostOfficeOptions,
   PostOfficeSendInput,
+  InboundMail,
   SystemSender,
 } from "./postoffice.ts";
 export { classify, isProtected, planSweep, normalizeRules, inboxMix, bulkSenders, DEFAULT_CLEAN_RULES } from "./clean.ts";

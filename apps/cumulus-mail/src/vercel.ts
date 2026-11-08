@@ -3,7 +3,9 @@ import { Ledger, signerFromPrivateKey } from "@infinitum/firmament";
 import { socialFromEnv } from "@infinitum/cid";
 import { createCumulus, emptyCumulusStores } from "@infinitum/cumulus";
 import { RemoteState, HttpGateway } from "../../spectre/src/server/remote.ts";
+import type { InboundMail } from "@infinitum/mail";
 import { createMailApp } from "./app.ts";
+import { deliverOutbound, type Sender } from "./outbound.ts";
 
 /**
  * Cumulus://Mail on Vercel (serverless). Same state as every hosted Infinitum product: it lives in
@@ -85,15 +87,37 @@ function build() {
     await verifyOnce();
     return state.transaction(() => suite.mail.sendAllDue());
   };
-  return Object.assign(app, { sendDueNow: sendDue });
+  // For Email Routing: deliver mail that arrived from outside Cumulus.
+  const receive = async (mail: InboundMail) => {
+    await verifyOnce();
+    return state.transaction(async () => suite.mail.receive(mail));
+  };
+  // For the cron trigger: send queued mail to outside addresses.
+  const sendOutbound = async (send: Sender) => {
+    await verifyOnce();
+    return deliverOutbound((fn) => state.transaction(fn), suite.mail, send);
+  };
+  return Object.assign(app, { sendDueNow: sendDue, receive, sendOutbound });
 }
 
 let app: ReturnType<typeof build> | undefined;
+
+/** Delivers mail from outside Cumulus. Called by the Workers email() handler (Email Routing). */
+export async function receiveMail(mail: InboundMail) {
+  app ??= build();
+  return app.receive(mail);
+}
 
 /** Sends scheduled mail that is due. Called by the Workers cron trigger. */
 export async function sendScheduledMail(): Promise<number> {
   app ??= build();
   return app.sendDueNow();
+}
+
+/** Sends queued mail to addresses outside Cumulus. Called by the Workers cron trigger. */
+export async function deliverOutboundMail(send: Sender): Promise<number> {
+  app ??= build();
+  return app.sendOutbound(send);
 }
 
 export default async function handler(req: IncomingMessage, res: ServerResponse) {

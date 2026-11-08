@@ -9,7 +9,7 @@ Self-custody wallet for Ethereum, Base, Arbitrum and Solana, with the Infinitum 
 ```bash
 pnpm install                       # from the monorepo root
 pnpm --filter @infinitum/firm-wallet dev        # http://localhost:5178
-pnpm --filter @infinitum/firm-wallet test       # 44 tests (keys, vault, Solana tx, Hyperliquid signing, Nexus origins, prediction markets…)
+pnpm --filter @infinitum/firm-wallet test       # 53 tests (keys, vault, Solana tx, Hyperliquid signing, Nexus origins, prediction markets, mini app…)
 pnpm --filter @infinitum/firm-wallet build      # typecheck + production build into dist/
 pnpm --filter @infinitum/firm-wallet deploy:check  # Worker bundle dry run (no deploy)
 ```
@@ -28,13 +28,24 @@ Conjure Markets lives in `packages/conjure/src/markets.ts` (9 tests: `node --tes
 | Tokenized stocks | xStocks (Solana Token-2022), discovered from Jupiter's verified token list at runtime, swapped through Jupiter. | `src/core/stocks.ts` |
 | Perps | Hyperliquid: MessagePack + keccak action hash + EIP-712 signature with the wallet's own key. Market/limit, leverage (wallet cap 10×), liquidation estimate, close, cancel. Funding: USDC on Arbitrum to Hyperliquid's bridge. | `src/core/perps.ts` |
 | Options | Derive option chains (v3 public API: bid/ask, IV, delta) next to Conjure's chance of finishing in the money vs the market's. Derive blocks direct browser calls, so the Worker forwards its two public read methods (`get_all_live_instruments`, `get_ticker`) and nothing else. Trades open on Derive. | `src/core/options.ts`, `worker/api.ts` |
+| $FIRM Mini™ (Telegram) | `/mini`: a one-thumb DEX for Telegram or any phone browser. Trade Hyperliquid perps (Long/Short, $ amount and leverage chips) and spot (USDC pairs), swap on Uniswap / Jupiter, see positions, spot balances and open orders, close or cancel in one tap, move USDC between perps and spot, receive with QR. Same keys and review sheet as the full wallet (same origin). Inside Telegram it uses Telegram's own bottom button, back button, haptics and theme through a small bridge written from Telegram's published protocol (no outside script). Market lists refresh every 5 minutes, prices every 10 seconds. | `src/mini/`, `src/core/dex.ts` |
 | Predict | Polymarket and Kalshi side by side: browse by category, search, sort by 24h volume or ending soon. Each market shows outcomes with 24h moves, a price chart (1d to all), the live order book, a ticket with shares, payout and Kalshi's taker fee, the same question on the other venue, the rules, and Conjure's chance for crypto price questions (end-of-period and "hit"/"dip" touch questions). Watchlist, price alerts (checked every minute while open, with an optional browser notification) and your Polymarket positions. Market data is public and needs no account; Kalshi blocks direct browser calls, so the Worker forwards its read-only market paths. Trades open on the venue. | `src/core/predictions.ts`, `ui/screens/Predict.tsx` |
 | Conjure™ Markets | On-device METATRON logistic model + damped Holt trend, walk-forward backtest with a purge gap. Only says buy/sell when it beat the base rate on unseen days; otherwise "no edge". Option ITM probabilities and a perps leverage ceiling. Optional server-side @conjure swarm (off by default; paid model calls). | `packages/conjure/src/markets.ts` |
 | Rewards inbox | Product-token transfers to your addresses, grouped by product (ERC-20 logs; Solana balance changes). | `src/core/rewards.ts` |
 | VEIL Nexus | Products open `#/connect` or `#/pay`; only Infinitum origins are answered; Sign-In with Ethereum (EIP-4361); replies by `postMessage` to the exact origin. | `src/core/connect.ts` |
-| Worker | Serves the app with strict security headers (CSP, no framing), read-only Derive and Kalshi data relays (allow-listed paths only, Kalshi lists cached at the edge for a minute), and an optional Conjure swarm proxy. No region or country checks. | `worker/` |
+| Worker | Serves the app with strict security headers (CSP; no framing, except Telegram Web may frame `/mini`), read-only Derive and Kalshi data relays (allow-listed paths only, Kalshi lists cached at the edge for a minute), and an optional Conjure swarm proxy. No region or country checks. | `worker/` |
 
 Every transaction, swap, approval and order goes through one review screen that shows what you're approving before anything is signed.
+
+## $FIRM Mini in Telegram
+
+No bot server is needed: the mini app talks to Telegram in the browser, and keys never leave the device.
+
+1. In Telegram, open @BotFather, send `/newbot` and follow the steps.
+2. Send `/newapp` (or `/setmenubutton`) to that bot and give it `https://<wallet domain>/mini`.
+3. Open the bot and tap the button. On first open, create or import a wallet; it's stored encrypted on that device.
+
+Phones and Telegram Desktop open it in a webview; Telegram Web frames it, which the Worker allows for `/mini` from `https://web.telegram.org` only.
 
 ## Configuration (all optional, `VITE_*` at build time)
 

@@ -85,11 +85,11 @@ export function wire(n: number, decimals: number): string {
   return s.includes(".") ? s.replace(/\.?0+$/, "") : s;
 }
 
-/** Prices: at most 5 significant figures and at most (6 − szDecimals) decimals. */
-export function roundPrice(px: number, szDecimals: number): string {
+/** Prices: at most 5 significant figures and at most (6 − szDecimals) decimals (8 − szDecimals for spot). */
+export function roundPrice(px: number, szDecimals: number, maxDecimals = 6): string {
   if (Number.isInteger(px)) return String(px);
   const sig = Number(px.toPrecision(5));
-  return wire(sig, Math.max(0, 6 - szDecimals));
+  return wire(sig, Math.max(0, maxDecimals - szDecimals));
 }
 
 /* ---------------- API ---------------- */
@@ -120,9 +120,24 @@ export interface PerpAccount {
   openOrders: { coin: string; oid: number; side: "B" | "A"; limitPx: string; sz: string }[];
 }
 
-async function post<T>(mode: NetworkMode, path: "info" | "exchange", body: unknown): Promise<T> {
-  const res = await fetch(`${HYPERLIQUID_API[mode]}/${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-  const json = await res.json();
+export async function post<T>(mode: NetworkMode, path: "info" | "exchange", body: unknown): Promise<T> {
+  // Reads give up after 60 s (the spot list is ~360 KB, slow on a weak phone signal) so a stuck
+  // request can't freeze a screen. Orders never time out on our side: aborting one wouldn't tell us
+  // whether Hyperliquid accepted it.
+  const reading = path === "info";
+  const failed = (e: unknown): never => {
+    const name = (e as Error)?.name;
+    throw new Error(name === "TimeoutError" || name === "AbortError" ? "Hyperliquid is slow to answer. Try again in a moment." : "Can't reach Hyperliquid right now.");
+  };
+  const res = await fetch(`${HYPERLIQUID_API[mode]}/${path}`, {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+    signal: reading ? AbortSignal.timeout(60_000) : undefined,
+  }).catch(failed);
+  const json = await res.json().catch((e: unknown) => {
+    // The order reached Hyperliquid but the answer was lost: it may have filled.
+    if (!reading) throw new Error("Hyperliquid's answer didn't arrive. Check your positions before trying again.");
+    return failed(e);
+  });
   if (!res.ok) throw new Error(typeof json === "string" ? json : `Hyperliquid ${res.status}`);
   return json as T;
 }

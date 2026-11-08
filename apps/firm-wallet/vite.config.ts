@@ -28,7 +28,12 @@ function devApi(): Plugin {
 
 export default defineConfig({
   plugins: [preact(), devApi()],
-  build: { target: "es2022", sourcemap: false },
+  build: {
+    target: "es2022",
+    sourcemap: false,
+    // Two pages: the full wallet and $FIRM Mini (the Telegram-sized DEX). They share chunks.
+    rolldownOptions: { input: { main: "index.html", mini: "mini.html" } },
+  },
   server: { port: 5178 },
   test: { environment: "node" },
 } as Parameters<typeof defineConfig>[0]);

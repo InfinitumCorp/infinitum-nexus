@@ -69,7 +69,7 @@ function Perps() {
   );
 }
 
-function Deposit({ onDone }: { onDone: () => void }) {
+export function Deposit({ onDone }: { onDone: () => void }) {
   const { session, prefs } = useStore();
   const [amount, setAmount] = useState("");
   const [busy, setBusy] = useState(false);

@@ -1,8 +1,8 @@
 // $FIRM Wallet service worker: keeps the app shell available offline. It never caches API or
 // RPC responses, so balances and prices are always live.
-const CACHE = "firm-wallet-v1";
+const CACHE = "firm-wallet-v2";
 self.addEventListener("install", (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(["/", "/manifest.webmanifest", "/icon.svg"])));
+  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(["/", "/mini", "/manifest.webmanifest", "/icon.svg"])));
   self.skipWaiting();
 });
 self.addEventListener("activate", (e) => {
@@ -15,12 +15,12 @@ self.addEventListener("fetch", (e) => {
   e.respondWith(
     fetch(e.request)
       .then((res) => {
-        if (res.ok && (url.pathname === "/" || url.pathname.startsWith("/assets/"))) {
+        if (res.ok && (url.pathname === "/" || url.pathname === "/mini" || url.pathname.startsWith("/assets/"))) {
           const copy = res.clone();
           caches.open(CACHE).then((c) => c.put(e.request, copy));
         }
         return res;
       })
-      .catch(() => caches.match(e.request).then((r) => r || caches.match("/"))),
+      .catch(() => caches.match(e.request).then((r) => r || caches.match(url.pathname.startsWith("/mini") ? "/mini" : "/"))),
   );
 });

@@ -128,3 +128,26 @@ table.book td { padding: 5px 0; font-variant-numeric: tabular-nums; }
 table.book td:first-child { background-repeat: no-repeat; background-position: left; }
 .book-bid td:first-child { color: var(--up); background-image: linear-gradient(color-mix(in srgb, var(--up) 14%, transparent), color-mix(in srgb, var(--up) 14%, transparent)); }
 .book-ask td:first-child { color: var(--down); background-image: linear-gradient(color-mix(in srgb, var(--down) 14%, transparent), color-mix(in srgb, var(--down) 14%, transparent)); }
+
+/* ---------------- $FIRM Mini (Telegram-sized DEX) ---------------- */
+.mini { max-width: 560px; margin: 0 auto; min-height: 100vh; padding-bottom: calc(72px + env(safe-area-inset-bottom)); }
+.mini-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 12px var(--gut); border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--paper); z-index: 5; }
+.mini-top .wordmark { font-size: 16px; }
+.mini-body { padding: 16px var(--gut); }
+.mini-body .center { min-height: 60vh; }
+.mini-nav { position: fixed; left: 0; right: 0; bottom: 0; display: grid; grid-template-columns: repeat(4, 1fr); background: var(--paper); border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom); z-index: 6; max-width: 560px; margin: 0 auto; }
+.mini-nav button { border: 0; background: transparent; color: var(--ink-3); padding: 14px 4px; font: inherit; font-size: 13px; cursor: pointer; }
+.mini-nav button.on { color: var(--ink); font-weight: 700; box-shadow: inset 0 2px 0 var(--ink); }
+.mini-market { display: flex; justify-content: space-between; align-items: center; width: 100%; padding: 14px; border: 1px solid var(--line); background: var(--wash); color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.mini-market b { font-size: 18px; }
+.mini-sides { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.mini-sides .btn.danger { background: var(--down); color: #fff; }
+.mini-list { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
+.mini-list button { display: flex; justify-content: space-between; width: 100%; padding: 12px 4px; border: 0; border-bottom: 1px solid var(--line); background: transparent; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.mini .r { text-align: right; }
+.mini-pos { border-top: 1px solid var(--line); padding-top: 10px; display: grid; gap: 6px; }
+.mini .seg { display: flex; }
+.mini .seg button { flex: 1; }
+.mini .grid.two { grid-template-columns: 1fr; }
+/* Inside Telegram the native bottom button sits under the page. */
+.tg .mini { padding-bottom: calc(72px + env(safe-area-inset-bottom)); }

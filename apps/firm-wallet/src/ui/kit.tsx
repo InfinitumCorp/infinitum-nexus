@@ -120,10 +120,10 @@ export async function approveAndSend(steps: (PreparedEvmTx | PreparedSolTx)[]): 
   return hashes;
 }
 
-export async function approveAndSubmitPerp(mode: NetworkMode, order: PreparedPerpOrder): Promise<void> {
+export async function approveAndSubmitPerp(mode: NetworkMode, order: PreparedPerpOrder, warning: string | undefined = "Perpetual futures are leveraged. Prices can move against you fast."): Promise<void> {
   const st = getState();
   if (!st.session) throw new Error("Unlock the wallet first.");
-  const ok = await requestApproval({ title: order.title, details: order.details, confirmLabel: "Approve and sign", warning: "Perpetual futures are leveraged. Prices can move against you fast." });
+  const ok = await requestApproval({ title: order.title, details: order.details, confirmLabel: "Approve and sign", warning: warning || undefined });
   if (!ok) throw new Error("Cancelled.");
   await submit(mode, st.session.evm, order);
 }

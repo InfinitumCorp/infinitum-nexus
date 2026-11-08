@@ -151,3 +151,17 @@ export const SECURITY_HEADERS: Record<string, string> = {
   "cross-origin-opener-policy": "same-origin-allow-popups",
   "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
 };
+
+/** Telegram Web shows Mini Apps in a frame; Telegram's phone and desktop apps use a webview (no frame). */
+export const TELEGRAM_FRAME_ORIGINS = ["https://web.telegram.org"];
+const MINI_PATHS = new Set(["/mini", "/mini/", "/mini.html"]);
+
+/** The mini page may be framed by Telegram Web only; every other page can't be framed at all. */
+export function securityHeadersFor(pathname: string): Record<string, string> {
+  if (!MINI_PATHS.has(pathname)) return SECURITY_HEADERS;
+  const { "x-frame-options": _xfo, ...rest } = SECURITY_HEADERS;
+  return {
+    ...rest,
+    "content-security-policy": SECURITY_HEADERS["content-security-policy"]!.replace("frame-ancestors 'none'", `frame-ancestors 'self' ${TELEGRAM_FRAME_ORIGINS.join(" ")}`),
+  };
+}

@@ -80,5 +80,5 @@ Production packages pin `veil`, `architect`, and `scalvs`. A stored value for th
 | `cid` | `http://localhost:3000` | Cumulus://ID sign-in and `/api/me` |
 | `veil` | `https://infinitumveil.app` | VEIL browser control plane. Hosted on Cloudflare. |
 | `mail` | `http://localhost:3010` | Cumulus://Mail |
-| `architect` | `https://cndctr.app` | :\ARCHITECT\ (CNDCTR) endpoint for Ask. Hosted on Cloudflare. |
+| `architect` | `https://rchtch.app` | :\ARCHITECT\ (CNDCTR) endpoint for Ask. Hosted on Cloudflare. |
 | `scalvs` | `https://scalvs.app` | SCALVS.ai. Hosted on Cloudflare. |

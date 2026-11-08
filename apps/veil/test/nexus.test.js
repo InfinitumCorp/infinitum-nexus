@@ -13,7 +13,7 @@ const spectreMe = {
 };
 
 test("Ask uses the CNDCTR public host by default", () => {
-  assert.equal(DEFAULT_ORIGINS.architect, "https://cndctr.app");
+  assert.equal(DEFAULT_ORIGINS.architect, "https://rchtch.app");
 });
 
 test("SCALVS.ai uses the purchased public host by default", () => {
@@ -42,7 +42,7 @@ test("production pins VEIL, CNDCTR, and SCALVS and ignores stored hosts", () => 
   };
   const o = resolveOrigins(stored);
   assert.equal(o.veil, "https://infinitumveil.app");
-  assert.equal(o.architect, "https://cndctr.app");
+  assert.equal(o.architect, "https://rchtch.app");
   assert.equal(o.scalvs, "https://scalvs.app");
   assert.equal(o.mail, "https://mail.example");
 });
@@ -57,7 +57,7 @@ test("dev builds accept only localhost and 127.0.0.1 for pinned products", () =>
   assert.equal(o.architect, "https://127.0.0.1:3001");
   assert.equal(o.scalvs, "https://scalvs.app");
   const v6 = resolveOrigins({ architect: "http://[::1]:3001" }, { dev: true });
-  assert.equal(v6.architect, "https://cndctr.app");
+  assert.equal(v6.architect, "https://rchtch.app");
 });
 
 test("stored origins override defaults only when valid", () => {

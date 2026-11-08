@@ -9,7 +9,7 @@ import { VEIL_DEV } from "./build.js";
 /** Production hosts. Stored overrides cannot replace these. */
 export const PINNED_ORIGINS = Object.freeze({
   scalvs: "https://scalvs.app",
-  architect: "https://cndctr.app",
+  architect: "https://rchtch.app",
   veil: "https://infinitumveil.app",
 });
 

@@ -97,7 +97,7 @@ test("VEIL Ask posts a rehearsal to the CNDCTR server and omits credentials", as
         return { ok: true, json: async () => ({}) };
       },
     });
-    assert.equal(pinned, "https://cndctr.app/api/perform");
+    assert.equal(pinned, "https://rchtch.app/api/perform");
   } finally {
     child.kill();
   }

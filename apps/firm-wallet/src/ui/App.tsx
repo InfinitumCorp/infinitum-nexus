@@ -7,13 +7,14 @@ import { SwapScreen } from "./screens/Swap.tsx";
 import { MarketsScreen } from "./screens/Markets.tsx";
 import { PerpsScreen } from "./screens/Perps.tsx";
 import { OptionsScreen } from "./screens/Options.tsx";
+import { PredictScreen } from "./screens/Predict.tsx";
 import { RewardsScreen } from "./screens/Rewards.tsx";
 import { NexusRequestCard, NexusScreen, useNexusRequest } from "./screens/Nexus.tsx";
 import { SettingsScreen } from "./screens/Settings.tsx";
 
 const TABS = [
   ["wallet", "Wallet"], ["swap", "Swap"], ["markets", "Markets"], ["perps", "Perps"], ["options", "Options"],
-  ["rewards", "Rewards"], ["nexus", "Connections"], ["settings", "Settings"],
+  ["predict", "Predict"], ["rewards", "Rewards"], ["nexus", "Connections"], ["settings", "Settings"],
 ] as const;
 type Tab = (typeof TABS)[number][0];
 
@@ -64,7 +65,7 @@ export function App() {
   else if (!st.session) body = <Unlock />;
   else if (nexusReq) body = <div class="center"><NexusRequestCard req={nexusReq} onDone={clearNexus} /></div>;
   else body = {
-    wallet: <WalletScreen />, swap: <SwapScreen />, markets: <MarketsScreen />, perps: <PerpsScreen />, options: <OptionsScreen />,
+    wallet: <WalletScreen />, swap: <SwapScreen />, markets: <MarketsScreen />, perps: <PerpsScreen />, options: <OptionsScreen />, predict: <PredictScreen />,
     rewards: <RewardsScreen />, nexus: <NexusScreen />, settings: <SettingsScreen />,
   }[tab];
 

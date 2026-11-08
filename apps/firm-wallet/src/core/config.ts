@@ -253,7 +253,17 @@ export const VENUE_TERMS = [
   { name: "xStocks (Backed Finance)", url: "https://xstocks.com" },
   { name: "Hyperliquid", url: "https://hyperliquid.xyz" },
   { name: "Derive", url: "https://www.derive.xyz" },
+  { name: "Polymarket", url: "https://polymarket.com/tos" },
+  { name: "Kalshi", url: "https://kalshi.com/docs/kalshi-member-agreement.pdf" },
 ];
+
+/** Prediction markets: free public data. Polymarket allows browser calls; Kalshi is read through the Worker. */
+export const POLYMARKET_GAMMA = env("VITE_POLYMARKET_GAMMA") ?? "https://gamma-api.polymarket.com";
+export const POLYMARKET_CLOB = env("VITE_POLYMARKET_CLOB") ?? "https://clob.polymarket.com";
+export const POLYMARKET_DATA = env("VITE_POLYMARKET_DATA") ?? "https://data-api.polymarket.com/v2";
+export const POLYMARKET_APP = "https://polymarket.com";
+export const KALSHI_API = env("VITE_KALSHI_API") ?? "/api/kalshi";
+export const KALSHI_APP = "https://kalshi.com";
 
 export const PRICE_API = env("VITE_PRICE_API") ?? "https://api.coingecko.com/api/v3";
 /** Jupiter's free swap API for Solana routes. */

@@ -1,6 +1,7 @@
 /**
  * The wallet's small server side. It never sees keys, phrases or balances: it serves the app and,
- * forwards Derive's public option data (Derive blocks direct browser calls), and, only if
+ * forwards Derive's public option data and Kalshi's public market data (both block direct
+ * browser calls; only read-only, allow-listed paths are forwarded), and, only if
  * configured, forwards questions to the Conjure swarm.
  * It does no region or country checks.
  * Shared by the Cloudflare Worker and the Vite dev server.
@@ -37,9 +38,73 @@ async function deriveProxy(request: Request, mode: keyof typeof DERIVE_UPSTREAM,
   });
 }
 
+/** Kalshi's public market data (no account needed). Browsers can't call it directly (no CORS). */
+const KALSHI_UPSTREAM = "https://api.elections.kalshi.com/trade-api/v2";
+const KALSHI_ID = "[A-Za-z0-9._-]{1,80}";
+const KALSHI_PATHS = [
+  /^events$/,
+  /^markets$/,
+  new RegExp(`^events/${KALSHI_ID}$`),
+  new RegExp(`^markets/${KALSHI_ID}/orderbook$`),
+  new RegExp(`^series/${KALSHI_ID}/markets/${KALSHI_ID}/candlesticks$`),
+];
+/** Kalshi asks API clients to identify themselves. */
+const CLIENT_NAME = "InfinitumFirmWallet/1.0 (+https://infinitumcorporation.ai)";
+
+const KALSHI_MARKET_FIELDS = ["ticker", "title", "yes_sub_title", "status", "close_time", "yes_bid_dollars", "yes_ask_dollars", "last_price_dollars", "previous_price_dollars", "volume_24h_fp", "volume_fp"];
+
+/** Event lists only need prices and titles: drops rule text and other bulk (about 5× smaller). */
+export function trimKalshiEvents(body: string): string {
+  try {
+    const d = JSON.parse(body) as { events?: { markets?: Record<string, unknown>[]; settlement_sources?: unknown }[] };
+    for (const e of d.events ?? []) {
+      delete e.settlement_sources;
+      e.markets = (e.markets ?? []).map((m) => Object.fromEntries(KALSHI_MARKET_FIELDS.filter((k) => k in m).map((k) => [k, m[k]])));
+    }
+    return JSON.stringify(d);
+  } catch {
+    return body;
+  }
+}
+
+/** Market lists: prices, titles, the event they belong to and the first line of the rules (to name games). */
+export function trimKalshiMarkets(body: string): string {
+  try {
+    const d = JSON.parse(body) as { markets?: Record<string, unknown>[] };
+    d.markets = (d.markets ?? []).map((m) => {
+      const out: Record<string, unknown> = Object.fromEntries([...KALSHI_MARKET_FIELDS, "event_ticker"].filter((k) => k in m).map((k) => [k, m[k]]));
+      if (typeof m.rules_primary === "string") out.rules_primary = m.rules_primary.slice(0, 200);
+      return out;
+    });
+    return JSON.stringify(d);
+  } catch {
+    return body;
+  }
+}
+
+async function kalshiProxy(request: Request, path: string, search: string): Promise<Response> {
+  if (request.method !== "GET") return json({ error: "GET only" }, 405);
+  if (!KALSHI_PATHS.some((p) => p.test(path)) || search.length > 400) return json({ error: "not found" }, 404);
+  // Kalshi's event lists are slow (often 15 s+) and large, so Cloudflare's edge cache shares one
+  // fetch a minute between visitors (free; ignored outside Workers).
+  const upstream = await fetch(`${KALSHI_UPSTREAM}/${path}${search}`, {
+    headers: { accept: "application/json", "user-agent": CLIENT_NAME },
+    cf: { cacheTtl: path === "events" || path === "markets" ? 60 : 10, cacheEverything: true },
+  } as RequestInit);
+  let body = await upstream.text();
+  if (path === "events" && upstream.ok) body = trimKalshiEvents(body);
+  if (path === "markets" && upstream.ok) body = trimKalshiMarkets(body);
+  return new Response(body, {
+    status: upstream.status,
+    headers: { "content-type": "application/json; charset=utf-8", "cache-control": path === "events" || path === "markets" ? "public, max-age=30" : "public, max-age=10" },
+  });
+}
+
 export async function handleApi(request: Request, env: ApiEnv): Promise<Response | null> {
   const url = new URL(request.url);
   if (!url.pathname.startsWith("/api/")) return null;
+
+  if (url.pathname.startsWith("/api/kalshi/")) return kalshiProxy(request, url.pathname.slice("/api/kalshi/".length), url.search);
 
   const derive = /^\/api\/derive\/(mainnet|testnet)\/([a-z_]{1,40})$/.exec(url.pathname);
   if (derive) return deriveProxy(request, derive[1] as keyof typeof DERIVE_UPSTREAM, derive[2]!);

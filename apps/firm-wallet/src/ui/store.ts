@@ -8,6 +8,7 @@ import { DEFAULT_MODE, type NetworkMode, type TokenInfo } from "../core/config.t
 import { evmAccount, solanaKeypair, type SolanaKeypair } from "../core/keys.ts";
 import { kvGet, kvSet, loadVault, type SealedVault } from "../core/vault.ts";
 import type { Connection } from "../core/connect.ts";
+import type { PriceAlert, WatchedEvent } from "../core/predictions.ts";
 
 export interface Prefs {
   mode: NetworkMode;
@@ -17,9 +18,16 @@ export interface Prefs {
   customTokens: TokenInfo[];
   autoLockMinutes: number;
   slippageBps: number;
+  /** Prediction-market events starred on this device. */
+  predictionWatch: WatchedEvent[];
+  /** Price alerts on prediction-market outcomes, checked while the Predict screen is open. */
+  predictionAlerts: PriceAlert[];
 }
 
-const DEFAULT_PREFS: Prefs = { mode: DEFAULT_MODE, marketsAcknowledged: false, connections: [], customTokens: [], autoLockMinutes: 10, slippageBps: 50 };
+const DEFAULT_PREFS: Prefs = {
+  mode: DEFAULT_MODE, marketsAcknowledged: false, connections: [], customTokens: [], autoLockMinutes: 10, slippageBps: 50,
+  predictionWatch: [], predictionAlerts: [],
+};
 
 export interface Session {
   evm: HDAccount;

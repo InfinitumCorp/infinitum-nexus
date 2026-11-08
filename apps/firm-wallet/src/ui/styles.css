@@ -109,3 +109,22 @@ table.list td.r, table.list th.r { text-align: right; }
 .center { min-height: 70vh; display: grid; place-items: center; }
 .narrow { max-width: 480px; width: 100%; }
 .footer { border-top: 1px solid var(--line); padding: 20px 0; font-size: 12px; color: var(--ink-3); }
+
+/* Predict: prediction markets */
+.pm-grid { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
+.pm-card { cursor: pointer; transition: border-color .15s; }
+.pm-card:hover, .pm-card:focus-visible { border-color: var(--ink); outline: none; }
+.pm-card h3 { font-size: 16px; line-height: 1.3; }
+.badge { display: inline-block; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-2); }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { border: 1px solid var(--line); background: transparent; padding: 6px 12px; font-size: 13px; cursor: pointer; color: var(--ink-2); }
+.chip.on { border-color: var(--ink); background: var(--ink); color: var(--paper); }
+.btn.star { min-height: 32px; padding: 0 10px; font-size: 16px; }
+.spark { width: 100%; height: 160px; display: block; color: var(--ink); border: 1px solid var(--line); background: var(--wash); }
+div.spark { display: flex; align-items: center; justify-content: center; }
+.spark .grid-line { stroke: var(--line); stroke-dasharray: 3 4; vector-effect: non-scaling-stroke; }
+.spark-label { font-size: 13px; fill: var(--ink); }
+table.book td { padding: 5px 0; font-variant-numeric: tabular-nums; }
+table.book td:first-child { background-repeat: no-repeat; background-position: left; }
+.book-bid td:first-child { color: var(--up); background-image: linear-gradient(color-mix(in srgb, var(--up) 14%, transparent), color-mix(in srgb, var(--up) 14%, transparent)); }
+.book-ask td:first-child { color: var(--down); background-image: linear-gradient(color-mix(in srgb, var(--down) 14%, transparent), color-mix(in srgb, var(--down) 14%, transparent)); }

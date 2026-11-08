@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 const SIZES = [16, 32, 48, 128];
 const BG = [10, 10, 10];
 const FG = [255, 255, 255];
-const DOT = [74, 222, 128];
+const DOT = [255, 255, 255]; // white: icons are black and white only
 // Same geometry as icon.svg, in a 48x48 viewBox.
 const CHEVRON = [[12, 28], [24, 12], [36, 28], [30, 28], [24, 20], [18, 28]];
 

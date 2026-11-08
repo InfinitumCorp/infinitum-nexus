@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Build VEIL for Android straight from the Android SDK: no Gradle, no downloads.
+# Build VEIL for Android straight from the Android SDK: no Gradle.
+# Downloads only Tor and androidx.webkit, pinned by SHA-256 (scripts/fetch-deps.sh).
 #   scripts/build.sh test     JVM tests for the URL rules
 #   scripts/build.sh          debug-signed APK at build/veil-browser.apk
 # Needs: JDK 17+, ANDROID_HOME with platforms/android-36 and build-tools/36.0.0.
@@ -11,6 +12,7 @@ BT="$SDK/build-tools/${BUILD_TOOLS:-36.0.0}"
 JAR="$SDK/platforms/${PLATFORM:-android-36}/android.jar"
 EXT=""; case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) EXT=".exe";; esac
 BAT=""; [ -n "$EXT" ] && BAT=".bat"
+SEP=":"; [ -n "$EXT" ] && SEP=";"   # javac.exe wants ; between classpath entries
 OUT=build
 
 if [ "${1:-}" = "test" ]; then
@@ -22,8 +24,10 @@ fi
 
 rm -rf "$OUT" && mkdir -p "$OUT/res" "$OUT/classes" "$OUT/dex"
 
-# 1. Bundle the VEIL hub (the web app) into assets.
+# 1. Bundle the VEIL hub (the web app) into assets, and fetch Tor and androidx.webkit.
 node scripts/sync-hub.js
+bash scripts/fetch-deps.sh
+DEPS=.deps
 
 # 2. Resources.
 "$BT/aapt2$EXT" compile --dir src/main/res -o "$OUT/res.zip"
@@ -32,13 +36,17 @@ node scripts/sync-hub.js
   --java "$OUT/gen" "$OUT/res.zip" --auto-add-overlay
 
 # 3. Code.
-javac --release 17 -nowarn -cp "$JAR" -d "$OUT/classes" \
+javac --release 17 -nowarn -cp "$JAR$SEP$DEPS/webkit.jar$SEP$DEPS/core.jar" -d "$OUT/classes" \
   $(find src/main/java "$OUT/gen" -name '*.java')
-"$BT/d8$BAT" --release --min-api 26 --lib "$JAR" --output "$OUT/dex" $(find "$OUT/classes" -name '*.class')
+"$BT/d8$BAT" --release --min-api 26 --lib "$JAR" --output "$OUT/dex" \
+  $(find "$OUT/classes" -name '*.class') "$DEPS/webkit.jar" "$DEPS/core.jar"
 # Dex and assets go in with zipfile, not aapt2 -A: aapt2 on Windows writes
 # backslashes into asset paths, which Android cannot open.
 python scripts/add-to-apk.py "$OUT/unsigned.apk" "$OUT/dex/classes.dex"
 python scripts/add-to-apk.py "$OUT/unsigned.apk" assets src/main/assets
+# Tor runs as its own process from the app's native library folder (lib/<abi>/libTor.so).
+python scripts/add-to-apk.py "$OUT/unsigned.apk" lib "$DEPS/lib"
+python scripts/add-to-apk.py "$OUT/unsigned.apk" assets/tor "$DEPS/assets"
 
 # 4. Align and sign (debug key; release signing is a separate step).
 "$BT/zipalign$EXT" -f -p 4 "$OUT/unsigned.apk" "$OUT/aligned.apk"

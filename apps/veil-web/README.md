@@ -3,7 +3,7 @@
 A static PWA (no framework) for infinitumveil.app. It is hosted as a Cloudflare Worker with static assets (`cloudflare.config.ts`, `wrangler.config.ts`, assets in `public/`).
 
 - Downloads: the Android APK and the Chrome extension zip (`public/downloads/`).
-- Tor connection check (links to the Tor Project's own check page) and Orbot.
+- Tor connection check (links to the Tor Project's own check page). VEIL for Android has Tor built in.
 - Link cleaner using the extension's tracker list.
 - The $VEIL rewards summary and the ecosystem apps.
 - The page also ships inside the Android app as its offline Hub. It detects when it runs there and switches to in-app mode.

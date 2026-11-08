@@ -4,7 +4,6 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
-import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.Typeface;
@@ -40,6 +39,10 @@ import android.widget.Toast;
 import java.io.ByteArrayInputStream;
 import java.util.HashSet;
 import java.util.Set;
+import androidx.webkit.ProxyConfig;
+import androidx.webkit.ProxyController;
+import androidx.webkit.WebViewCompat;
+import androidx.webkit.WebViewFeature;
 
 /**
  * VEIL for Android: a private WebView browser.
@@ -48,13 +51,18 @@ import java.util.Set;
  * parameters stripped, nothing saved after the app closes, and New Identity
  * wipes cookies, storage, cache and history on demand.
  *
- * Tor: Android WebView cannot be pointed at a SOCKS proxy without AndroidX,
- * so VEIL routes through Orbot's VPN mode, and "Tor" checks the exit.
+ * Tor is built in (see Tor.java). Every WebView in the app is pointed at Tor's
+ * SOCKS port with androidx.webkit's ProxyController, and VEIL fails closed: no
+ * web page loads until that proxy is in place and Tor has connected. If Tor
+ * stops, pages stop loading instead of going out directly.
  */
 public class MainActivity extends Activity {
     static final String HUB = "file:///android_asset/hub/index.html";
     static final String TOR_CHECK = "https://check.torproject.org/";
-    static final String ORBOT = "org.torproject.android";
+    /** WebRTC can reach the network over UDP outside the proxy and reveal the real IP, so pages don't get it. */
+    static final String NO_WEBRTC = "(function(){['RTCPeerConnection','webkitRTCPeerConnection','RTCDataChannel',"
+        + "'RTCIceCandidate','RTCSessionDescription','RTCRtpSender','RTCRtpReceiver','RTCRtpTransceiver'].forEach(function(k){"
+        + "try{Object.defineProperty(window,k,{value:undefined,writable:false,configurable:false});}catch(e){}});})();";
 
     static final int BG = Color.parseColor("#ffffff");
     static final int CARD = Color.parseColor("#ffffff");
@@ -90,6 +98,17 @@ public class MainActivity extends Activity {
     final Set<String> allowedInsecure = new HashSet<>();
     AlertDialog alert;
 
+    // Tor state. Web pages load only when proxyReady && tor.ready().
+    final Tor tor = Tor.get();
+    TextView torBox;
+    volatile boolean proxyReady = false;
+    /** Set when this phone's WebView can't be pointed at Tor; VEIL then refuses to browse. */
+    String proxyProblem;
+    /** Where to go once Tor connects (main view), or the panel to open (url, title). */
+    String pendingUrl;
+    String[] pendingPanel;
+    boolean torWasReady = false;
+
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
@@ -103,8 +122,100 @@ public class MainActivity extends Activity {
         configureWebView();
 
         Uri data = getIntent() != null ? getIntent().getData() : null;
-        if (data != null && Privacy.isWeb(data.toString())) open(data.toString());
-        else web.loadUrl(HUB);
+        if (data != null && Privacy.isWeb(data.toString())) pendingUrl = data.toString();
+
+        // Point every WebView at Tor before anything loads, then start Tor.
+        startProxy();
+        tor.setListener(this::onTorState);
+        tor.start(this);
+    }
+
+    // ---------------- Tor ----------------
+
+    void startProxy() {
+        if (!WebViewFeature.isFeatureSupported(WebViewFeature.PROXY_OVERRIDE)) {
+            proxyProblem = "This phone's Android System WebView is too old to send VEIL's traffic over Tor. Update \"Android System WebView\" from the Play Store, then reopen VEIL.";
+            updateTorBox();
+            web.loadUrl(HUB); // local page; nothing remote loads (proxyReady stays false)
+            return;
+        }
+        ProxyConfig config = new ProxyConfig.Builder()
+            .addProxyRule("socks5://127.0.0.1:" + tor.socksPort) // SOCKS5: host names resolve inside Tor, not on the phone
+            .build();
+        try {
+            ProxyController.getInstance().setProxyOverride(config, getMainExecutor(), () -> {
+                proxyReady = true;
+                web.loadUrl(HUB);
+                onTorState(tor.progress, tor.summary, tor.error);
+            });
+        } catch (RuntimeException e) {
+            proxyProblem = "VEIL couldn't point this phone's WebView at Tor (" + e.getMessage() + "), so it won't load pages.";
+            updateTorBox();
+            web.loadUrl(HUB);
+        }
+    }
+
+    boolean torReady() {
+        return proxyReady && tor.ready();
+    }
+
+    void onTorState(int progress, String summary, String error) {
+        updateTorBox();
+        if (!torReady()) { torWasReady = false; return; }
+        if (!torWasReady) {
+            torWasReady = true;
+            if (pendingUrl != null) { String u = pendingUrl; pendingUrl = null; open(u); }
+            if (pendingPanel != null) { String[] p = pendingPanel; pendingPanel = null; openPanel(p[0], p[1]); }
+        }
+    }
+
+    /** Box right of the address bar: "Tor 45%" while connecting, "● Tor" when connected. */
+    void updateTorBox() {
+        if (torBox == null) return;
+        String text;
+        int color;
+        if (proxyProblem != null || tor.error != null) {
+            text = "Tor ✕";
+            color = BAD;
+            torBox.setContentDescription("Tor isn't connected. Tap for details");
+        } else if (torReady()) {
+            android.text.SpannableString s = new android.text.SpannableString("● Tor");
+            s.setSpan(new android.text.style.ForegroundColorSpan(GOOD), 0, 1, 0);
+            torBox.setText(s);
+            torBox.setTextColor(FG);
+            torBox.setContentDescription("Connected to Tor. Tap to check");
+            return;
+        } else {
+            text = "Tor " + tor.progress + "%";
+            color = QUIET;
+            torBox.setContentDescription("Connecting to Tor, " + tor.progress + " percent");
+        }
+        torBox.setText(text);
+        torBox.setTextColor(color);
+    }
+
+    void torTapped() {
+        if (proxyProblem != null) {
+            new AlertDialog.Builder(this).setTitle("Tor is unavailable").setMessage(proxyProblem)
+                .setPositiveButton("OK", null).show();
+        } else if (tor.error != null) {
+            new AlertDialog.Builder(this).setTitle("Tor isn't connected")
+                .setMessage(tor.error + "\n\nVEIL won't load pages until Tor is back.")
+                .setPositiveButton("Reconnect", (d, w) -> tor.start(this))
+                .setNegativeButton("Cancel", null).show();
+        } else if (torReady()) {
+            open(TOR_CHECK);
+        } else {
+            Toast.makeText(this, "Connecting to Tor" + (tor.bridges ? " over bridges" : "") + ": " + tor.progress + "% (" + tor.summary + ")", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    /** True when the URL may load now. Otherwise it's held until Tor connects (fails closed). */
+    boolean torGate(String url) {
+        if (torReady()) return true;
+        if (proxyProblem != null || tor.error != null) torTapped();
+        else Toast.makeText(this, "Connecting to Tor… " + tor.progress + "%. VEIL will open it when Tor is ready.", Toast.LENGTH_SHORT).show();
+        return false;
     }
 
     // ---------------- UI ----------------
@@ -248,6 +359,7 @@ public class MainActivity extends Activity {
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 String url = request.getUrl().toString();
                 if (!Privacy.isWeb(url)) return true;
+                if (!torReady()) { torGate(url); return true; }
                 if (request.isForMainFrame()) panelHost = String.valueOf(request.getUrl().getHost());
                 String cleaned = Privacy.clean(url);
                 if (!cleaned.equals(url)) { view.loadUrl(cleaned); return true; }
@@ -256,6 +368,7 @@ public class MainActivity extends Activity {
 
             @Override
             public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+                if (!torReady() && isNetwork(request)) return new WebResourceResponse("text/plain", "utf-8", new java.io.ByteArrayInputStream(new byte[0]));
                 String host = request.getUrl().getHost();
                 if (blocking && host != null && Blocklist.isBlocked(host) && Privacy.isThirdParty(host, panelHost)) {
                     return new WebResourceResponse("text/plain", "utf-8", new java.io.ByteArrayInputStream(new byte[0]));
@@ -281,7 +394,10 @@ public class MainActivity extends Activity {
         Uri u = Uri.parse(url);
         String target = u.getQueryParameter("u");
         String title = u.getQueryParameter("t");
-        if (target != null && target.startsWith("https://")) openPanel(target, title != null ? title : target);
+        if (target == null || !target.startsWith("https://")) return true;
+        String t = title != null ? title : target;
+        if (torReady()) openPanel(target, t);
+        else { pendingPanel = new String[]{target, t}; torGate(target); }
         return true;
     }
 
@@ -394,10 +510,11 @@ public class MainActivity extends Activity {
         });
         omni.addView(address);
         top.addView(omni);
-        // "Tor" box right of the address bar: runs the Tor connection check.
+        // Tor box right of the address bar: connection progress, then "● Tor"; tap to check.
         TextView tor = new TextView(this);
-        tor.setText("Tor");
-        tor.setContentDescription("Check Tor");
+        torBox = tor;
+        tor.setText("Tor 0%");
+        tor.setContentDescription("Connecting to Tor");
         tor.setTextColor(FG);
         tor.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
         tor.setGravity(Gravity.CENTER);
@@ -407,7 +524,7 @@ public class MainActivity extends Activity {
         torBg.addState(new int[]{}, rounded(BG, RULE, 4));
         tor.setBackground(torBg);
         tor.setClickable(true);
-        tor.setOnClickListener(v -> torCheck());
+        tor.setOnClickListener(v -> torTapped());
         LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(30));
         tlp.leftMargin = dp(4);
         tor.setLayoutParams(tlp);
@@ -442,7 +559,21 @@ public class MainActivity extends Activity {
 
     // ---------------- WebView ----------------
 
+    static boolean isNetwork(WebResourceRequest r) {
+        String scheme = r.getUrl().getScheme();
+        return scheme != null && !scheme.equals("file") && !scheme.equals("data") && !scheme.equals("blob") && !scheme.equals("about");
+    }
+
+    /** No WebRTC in any frame of either view (see NO_WEBRTC). */
+    static void blockWebRtc(WebView v) {
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
+            WebViewCompat.addDocumentStartJavaScript(v, NO_WEBRTC, java.util.Collections.singleton("*"));
+        }
+    }
+
     void configureWebView() {
+        blockWebRtc(web);
+        blockWebRtc(panelWeb);
         WebSettings s = web.getSettings();
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);           // wiped on exit and on New Identity
@@ -473,6 +604,10 @@ public class MainActivity extends Activity {
                     Toast.makeText(MainActivity.this, "VEIL only opens web pages", Toast.LENGTH_SHORT).show();
                     return true;
                 }
+                if (!torReady()) {
+                    if (request.isForMainFrame()) { pendingUrl = url; torGate(url); }
+                    return true;
+                }
                 String cleaned = Privacy.clean(url);
                 if (!cleaned.equals(url)) {
                     if (!Privacy.stripTrackers(url).equals(url)) stripped++;
@@ -484,6 +619,8 @@ public class MainActivity extends Activity {
 
             @Override
             public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+                // Fail closed: before Tor is up (or if it stops), nothing reaches the network.
+                if (!torReady() && isNetwork(request)) return new WebResourceResponse("text/plain", "utf-8", new java.io.ByteArrayInputStream(new byte[0]));
                 // Ad networks, trackers and data brokers, as third-party subresources only.
                 if (!blocking || request.isForMainFrame()) return null;
                 String host = request.getUrl().getHost();
@@ -587,7 +724,7 @@ public class MainActivity extends Activity {
             .setMessage("VEIL stopped loading " + (host == null ? "this site" : host) + ". " + why
                 + " Someone may be intercepting the connection, or the site is misconfigured.")
             .setPositiveButton("Go back", (d, w) -> goBackOrHub())
-            .setNeutralButton("Check over Tor", (d, w) -> torCheck()));
+            .setNeutralButton("Check Tor", (d, w) -> open(TOR_CHECK)));
     }
 
     void showAddress(String url) {
@@ -596,6 +733,7 @@ public class MainActivity extends Activity {
     }
 
     void open(String url) {
+        if (!torGate(url)) { pendingUrl = url; return; }
         String cleaned = Privacy.clean(url);
         navHost = String.valueOf(Uri.parse(cleaned).getHost());
         if (!cleaned.equals(url) && !Privacy.stripTrackers(url).equals(url)) stripped++;
@@ -604,45 +742,15 @@ public class MainActivity extends Activity {
 
     // ---------------- Privacy actions ----------------
 
-    boolean orbotInstalled() {
-        try {
-            getPackageManager().getPackageInfo(ORBOT, 0);
-            return true;
-        } catch (PackageManager.NameNotFoundException e) {
-            return false;
-        }
-    }
-
-    void torCheck() {
-        if (!orbotInstalled()) {
-            new AlertDialog.Builder(this)
-                .setTitle("Route VEIL through Tor")
-                .setMessage("VEIL uses Orbot (Tor for Android) in VPN mode to send traffic over Tor. Orbot isn't installed. You can still check whether this connection is on Tor.")
-                .setPositiveButton("Check connection", (d, w) -> open(TOR_CHECK))
-                .setNeutralButton("Get Orbot", (d, w) -> openExternal("https://orbot.app/download/"))
-                .setNegativeButton("Cancel", null)
-                .show();
-            return;
-        }
-        open(TOR_CHECK);
-    }
-
-    void openExternal(String url) {
-        try {
-            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
-        } catch (ActivityNotFoundException e) {
-            open(url);
-        }
-    }
-
     void confirmNewIdentity() {
         new AlertDialog.Builder(this)
             .setTitle("New Identity")
-            .setMessage("Clear cookies, site storage, cache and history, and start fresh?")
+            .setMessage("Clear cookies, site storage, cache and history, and switch to new Tor circuits?")
             .setPositiveButton("Clear", (d, w) -> {
                 wipe();
+                tor.newIdentity();
                 web.loadUrl(HUB);
-                Toast.makeText(this, "New Identity: everything cleared", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, "New Identity: everything cleared, new Tor circuits", Toast.LENGTH_SHORT).show();
             })
             .setNegativeButton("Cancel", null)
             .show();
@@ -669,11 +777,11 @@ public class MainActivity extends Activity {
             + "• Trackers and ads blocked: " + blocked + " on this page, " + blockedSession + " this session\n"
             + "• Tracking parameters stripped: " + stripped + " this session\n"
             + "• HTTPS-first, certificate errors blocked\n"
+            + "• " + (torReady() ? "Every page goes over Tor (built in)" : "Tor: " + (tor.error != null || proxyProblem != null ? "not connected, pages blocked" : "connecting, " + tor.progress + "%")) + "\n"
             + "• Third-party cookies off\n"
             + "• Nothing kept after you close VEIL\n"
             + "• Screenshots of pages blocked\n\n"
-            + PRIVACY_STATEMENT + "\n\n"
-            + (orbotInstalled() ? "Orbot is installed. Turn on its VPN mode to route VEIL over Tor." : "Install Orbot to route VEIL over Tor.");
+            + PRIVACY_STATEMENT;
         new AlertDialog.Builder(this).setTitle(title).setMessage(msg)
             .setPositiveButton("OK", null)
             .setNeutralButton(blocking ? "Turn blocking off" : "Turn blocking on", (d, w) -> {
@@ -705,7 +813,11 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
-        if (isFinishing()) wipe(); // anonymous by default: nothing survives the session
+        if (isFinishing()) {
+            wipe(); // anonymous by default: nothing survives the session
+            tor.setListener(null);
+            tor.stop();
+        }
         web.destroy();
         super.onDestroy();
     }

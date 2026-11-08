@@ -84,7 +84,9 @@
       .top-links { gap: 16px; }
       .apps-panel { position: fixed; top: calc(52px + env(safe-area-inset-top, 0px)); left: 8px; right: 8px; width: auto; }
       .apps { gap: 2px 18px; }
-      footer { justify-content: flex-start; }
+      /* Phones: the footer stacks, centered under the app names */
+      footer { flex-direction: column; align-items: center; text-align: center; gap: 8px; }
+      .footer-right { justify-content: center; gap: 8px 18px; }
     }
   </style>
 </head>

@@ -43,11 +43,21 @@
       if (open && onOpen) onOpen();
     });
   }
-  toggle("apps-button", "apps-panel");
+  // Apps and Sign In are drop-down menus; opening one closes the other.
+  var menus = [["apps-button", "apps-panel"], ["signin", "signin-panel"]];
+  function closeMenus(except) {
+    menus.forEach(function (m) {
+      if (m[1] === except) return;
+      $(m[1]).hidden = true; $(m[0]).setAttribute("aria-expanded", "false");
+    });
+  }
+  menus.forEach(function (m) { toggle(m[0], m[1], function () { closeMenus(m[1]); }); });
   toggle("privacy-toggle", "privacy", function () { $("privacy").scrollIntoView({ block: "nearest" }); });
-  function closeApps() { $("apps-panel").hidden = true; $("apps-button").setAttribute("aria-expanded", "false"); }
-  document.addEventListener("click", function (e) { if (!$("apps-panel").contains(e.target)) closeApps(); });
-  document.addEventListener("keydown", function (e) { if (e.key === "Escape") closeApps(); });
+  document.addEventListener("click", function (e) {
+    var inside = menus.filter(function (m) { return $(m[1]).contains(e.target); })[0];
+    closeMenus(inside ? inside[1] : null);
+  });
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape") closeMenus(); });
   $("search-form").addEventListener("submit", function (e) { e.preventDefault(); });
 
   // Search box: an address opens with trackers removed; anything else searches DuckDuckGo.

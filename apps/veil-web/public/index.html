@@ -40,6 +40,7 @@
     .signin:hover::after, .signin:focus-visible::after { transform: scaleX(1); }
     .apps-menu { position: relative; }
     .apps-panel { position: absolute; top: 40px; left: -12px; z-index: 10; width: 300px; display: flex; flex-direction: column; padding: 8px; background: #fff; border: 1px solid var(--rule); border-radius: 4px; box-shadow: 0 8px 28px rgba(17, 24, 32, .12); }
+    .signin-panel { left: auto; right: -12px; width: 260px; }
     .menu-app { display: flex; flex-direction: column; gap: 1px; padding: 9px 12px; border-radius: 3px; text-decoration: none; }
     .menu-app:hover, .menu-app:focus-visible { background: var(--hover); }
     .menu-app-name { font-size: 14px; }
@@ -107,7 +108,13 @@
           <a class="menu-app" role="menuitem" href="https://infinitumcorporation.ai/products/scalus" rel="noreferrer"><span class="menu-app-name">SCALVS.ai™</span><span class="menu-app-summary">AI workforce platform</span></a>
         </div>
       </div>
-      <a class="signin" id="signin" href="https://infinitumcorporation.ai/products/cumulus-id" rel="noreferrer">Sign In</a>
+      <div class="apps-menu">
+        <button type="button" class="signin" id="signin" aria-haspopup="true" aria-expanded="false" aria-controls="signin-panel">Sign In</button>
+        <div class="apps-panel signin-panel" id="signin-panel" role="menu" aria-label="Sign in" hidden>
+          <a class="menu-app" role="menuitem" href="https://infinitumcorporation.ai/products/cumulus-id" rel="noreferrer"><span class="menu-app-name">Cumulus://ID™</span><span class="menu-app-summary">Your Infinitum account</span></a>
+          <a class="menu-app" role="menuitem" href="https://mail.cumuluscloud.app/" rel="noreferrer"><span class="menu-app-name">Cumulus://Mail™</span><span class="menu-app-summary">Sign in to your email</span></a>
+        </div>
+      </div>
     </nav>
   </header>
 

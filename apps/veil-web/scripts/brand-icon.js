@@ -1,39 +1,42 @@
 /**
- * VEIL brand icon (VEIL Phase I, veil-browser/branding/src/veil-icon.svg),
- * rasterized to PNG without dependencies: a white V with a slate </> above it
- * on an ink rounded square. Below 96px it uses veil-icon-small.svg (thicker V,
- * no </>), as Phase I does, so the mark stays legible on launchers.
+ * VEIL icon: "</>" in the brand typeface (Helvetica Neue, Arial fallback) on
+ * white, set like the VEIL</> wordmark (letter-spacing -0.04em). Rasterized to
+ * PNG without dependencies. The glyph outlines are Arial's <, / and >, which
+ * are straight-edged, embedded below in font units (2048 per em, y up).
  * Used for the web app icons and the Android launcher icons.
  */
 import { deflateSync } from "node:zlib";
 
 const INK = [17, 24, 32];      // #111820
 const WHITE = [255, 255, 255];
-const SLATE = [143, 163, 184]; // #8fa3b8
 
-// Geometry in the SVGs' 256x256 viewBox: [polyline points, stroke width].
-const LARGE = {
-  v: [[[60, 64], [128, 196], [196, 64]], 26],
-  code: [
-    [[[100, 52], [84, 68], [100, 84]], 7],
-    [[[156, 52], [172, 68], [156, 84]], 7],
-    [[[136, 46], [120, 90]], 7],
-  ],
-};
-const SMALL = { v: [[[58, 58], [128, 202], [198, 58]], 34], code: [] };
+const EM = 2048;
+const TRACK = -0.04 * EM;
+const GLYPHS = [
+  { advance: 1196, contour: [[112, 641], [112, 809], [1083, 1219], [1083, 1040], [313, 724], [1083, 405], [1083, 226]] }, // <
+  { advance: 569, contour: [[0, -25], [425, 1491], [569, 1491], [145, -25]] },                                              // /
+  { advance: 1196, contour: [[1083, 641], [112, 226], [112, 405], [881, 724], [112, 1040], [112, 1219], [1083, 809]] },     // >
+];
 
-function segDist2(x, y, [ax, ay], [bx, by]) {
-  const dx = bx - ax, dy = by - ay;
-  const t = Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / (dx * dx + dy * dy)));
-  const ex = ax + t * dx - x, ey = ay + t * dy - y;
-  return ex * ex + ey * ey;
-}
+// Lay the three glyphs out, then fit them to 72% of the icon width, centred on
+// the middle of < and > (y = 724), in the 256x256 icon space with y down.
+const POLYS = (() => {
+  const placed = []; let x = 0;
+  for (const g of GLYPHS) { placed.push(g.contour.map(([gx, gy]) => [gx + x, gy])); x += g.advance + TRACK; }
+  const xs = placed.flat().map((p) => p[0]);
+  const minX = Math.min(...xs), maxX = Math.max(...xs);
+  const scale = (256 * 0.72) / (maxX - minX);
+  const cx = (minX + maxX) / 2;
+  return placed.map((poly) => poly.map(([gx, gy]) => [128 + (gx - cx) * scale, 128 - (gy - 724) * scale]));
+})();
 
-/** Round-capped, round-joined polyline: inside when within width/2 of any segment. */
-function onStroke(x, y, [pts, width]) {
-  const r2 = (width / 2) ** 2;
-  for (let i = 1; i < pts.length; i++) if (segDist2(x, y, pts[i - 1], pts[i]) <= r2) return true;
-  return false;
+function inPolygon(x, y, pts) {
+  let inside = false;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const [xi, yi] = pts[i], [xj, yj] = pts[j];
+    if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
 }
 
 function inRoundedRect(x, y, size, r) {
@@ -42,15 +45,13 @@ function inRoundedRect(x, y, size, r) {
   return (x - cx) ** 2 + (y - cy) ** 2 <= r * r;
 }
 
-function sample(x, y, art) {
+function sample(x, y) {
   if (!inRoundedRect(x, y, 256, 56)) return null;
-  if (onStroke(x, y, art.v)) return WHITE;
-  for (const s of art.code) if (onStroke(x, y, s)) return SLATE;
-  return INK;
+  for (const poly of POLYS) if (inPolygon(x, y, poly)) return INK;
+  return WHITE;
 }
 
 export function render(size) {
-  const art = size < 96 ? SMALL : LARGE;
   const SS = 4;
   const px = Buffer.alloc(size * size * 4);
   for (let py = 0; py < size; py++) {
@@ -58,7 +59,7 @@ export function render(size) {
       let r = 0, g = 0, b = 0, a = 0;
       for (let sy = 0; sy < SS; sy++) {
         for (let sx = 0; sx < SS; sx++) {
-          const c = sample(((pxl + (sx + 0.5) / SS) * 256) / size, ((py + (sy + 0.5) / SS) * 256) / size, art);
+          const c = sample(((pxl + (sx + 0.5) / SS) * 256) / size, ((py + (sy + 0.5) / SS) * 256) / size);
           if (c) { r += c[0]; g += c[1]; b += c[2]; a++; }
         }
       }

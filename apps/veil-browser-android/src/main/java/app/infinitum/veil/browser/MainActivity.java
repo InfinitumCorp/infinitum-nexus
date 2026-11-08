@@ -162,13 +162,11 @@ public class MainActivity extends Activity {
     void showMenu(View anchor) {
         android.widget.PopupMenu m = new android.widget.PopupMenu(this, anchor);
         m.getMenu().add(0, 1, 0, "Home");
-        m.getMenu().add(0, 2, 1, "Check Tor");
         m.getMenu().add(0, 3, 2, "New identity");
         m.getMenu().add(0, 4, 3, "Privacy");
         m.setOnMenuItemClickListener(item -> {
             switch (item.getItemId()) {
                 case 1: web.loadUrl(HUB); return true;
-                case 2: torCheck(); return true;
                 case 3: confirmNewIdentity(); return true;
                 case 4: showPrivacy(); return true;
             }
@@ -254,6 +252,24 @@ public class MainActivity extends Activity {
         });
         omni.addView(address);
         top.addView(omni);
+        // "Tor" box right of the address bar: runs the Tor connection check.
+        TextView tor = new TextView(this);
+        tor.setText("Tor");
+        tor.setContentDescription("Check Tor");
+        tor.setTextColor(FG);
+        tor.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        tor.setGravity(Gravity.CENTER);
+        tor.setPadding(dp(9), 0, dp(9), 0);
+        android.graphics.drawable.StateListDrawable torBg = new android.graphics.drawable.StateListDrawable();
+        torBg.addState(new int[]{android.R.attr.state_pressed}, rounded(HOVER, RULE, 4));
+        torBg.addState(new int[]{}, rounded(BG, RULE, 4));
+        tor.setBackground(torBg);
+        tor.setClickable(true);
+        tor.setOnClickListener(v -> torCheck());
+        LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(30));
+        tlp.leftMargin = dp(4);
+        tor.setLayoutParams(tlp);
+        top.addView(tor);
         View menuButton = iconButton("⋮", "More options", null);
         menuButton.setOnClickListener(v -> showMenu(menuButton));
         top.addView(menuButton);

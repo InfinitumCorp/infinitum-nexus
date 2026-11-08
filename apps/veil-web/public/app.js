@@ -21,7 +21,6 @@
     $("mode-chip").textContent = "Anonymous";
     $("mode-chip").title = "Anonymous session: nothing is kept when you close it";
     $("brand").href = "index.html"; // "./" is a directory inside file:///android_asset
-    $("tor-status-text").textContent = "Check Tor from the ⋮ menu";
     Array.prototype.forEach.call(document.querySelectorAll(".web-only"), function (el) { el.hidden = true; });
   }
 

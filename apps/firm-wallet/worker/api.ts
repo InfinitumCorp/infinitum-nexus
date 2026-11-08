@@ -1,6 +1,7 @@
 /**
  * The wallet's small server side. It never sees keys, phrases or balances: it serves the app and,
- * only if configured, forwards questions to the Conjure swarm.
+ * forwards Derive's public option data (Derive blocks direct browser calls), and, only if
+ * configured, forwards questions to the Conjure swarm.
  * It does no region or country checks.
  * Shared by the Cloudflare Worker and the Vite dev server.
  */
@@ -15,9 +16,33 @@ export interface ApiEnv {
 const json = (body: unknown, status = 200, extra: Record<string, string> = {}) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", ...extra } });
 
+/** Derive's v3 public API. It sends no CORS headers for other sites, so the wallet reads it through here. */
+const DERIVE_UPSTREAM = {
+  mainnet: "https://api.derive.xyz/v3/public",
+  testnet: "https://testnet.api.derive.xyz/v3/public",
+} as const;
+/** Only these read-only, public market-data methods are forwarded. */
+const DERIVE_METHODS = new Set(["get_all_live_instruments", "get_ticker"]);
+
+async function deriveProxy(request: Request, mode: keyof typeof DERIVE_UPSTREAM, method: string): Promise<Response> {
+  if (request.method !== "POST") return json({ error: "POST only" }, 405);
+  if (!DERIVE_METHODS.has(method)) return json({ error: "not found" }, 404);
+  const body = await request.text();
+  if (body.length > 512) return json({ error: "bad request" }, 400);
+  const upstream = await fetch(`${DERIVE_UPSTREAM[mode]}/${method}`, { method: "POST", headers: { "content-type": "application/json" }, body: body || "{}" });
+  // Fresh headers: never pass on upstream cookies or encodings.
+  return new Response(await upstream.text(), {
+    status: upstream.status,
+    headers: { "content-type": "application/json; charset=utf-8", "cache-control": method === "get_all_live_instruments" ? "public, max-age=60" : "no-store" },
+  });
+}
+
 export async function handleApi(request: Request, env: ApiEnv): Promise<Response | null> {
   const url = new URL(request.url);
   if (!url.pathname.startsWith("/api/")) return null;
+
+  const derive = /^\/api\/derive\/(mainnet|testnet)\/([a-z_]{1,40})$/.exec(url.pathname);
+  if (derive) return deriveProxy(request, derive[1] as keyof typeof DERIVE_UPSTREAM, derive[2]!);
 
   if (url.pathname.startsWith("/api/conjure")) {
     if (!env.CONJURE_URL || !env.CONJURE_KEY) return json({ error: "The Conjure swarm isn't switched on for this wallet." }, 404);

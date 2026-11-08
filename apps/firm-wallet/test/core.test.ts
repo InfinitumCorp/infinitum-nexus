@@ -12,6 +12,8 @@ import { historyCoin, parseGeckoOhlcv } from "../src/core/market-data.ts";
 import { candidatePaths } from "../src/core/evm.ts";
 import { tokensFor } from "../src/core/config.ts";
 import { balanceDelta } from "../src/core/rewards.ts";
+import { optionChain, parseOptionName, parseTicker } from "../src/core/options.ts";
+import { handleApi } from "../worker/api.ts";
 
 const ABANDON = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
 
@@ -199,5 +201,40 @@ describe("markets data", () => {
     const bal = (owner: string, amount: string) => ({ mint: "M", owner, uiTokenAmount: { amount } });
     expect(balanceDelta([bal("me", "5")], [bal("me", "12"), bal("you", "1")], "me", "M")).toBe(7n);
     expect(balanceDelta([bal("me", "5")], [bal("me", "2")], "me", "M")).toBe(-3n);
+  });
+});
+
+describe("derive options", () => {
+  it("parses v3 option names, including decimal strikes, and skips perps", () => {
+    expect(parseOptionName("ETH-20261127-2500-C")).toEqual({ instrument: "ETH-20261127-2500-C", kind: "call", strike: 2500, expiry: "2026-11-27T08:00:00.000Z" });
+    expect(parseOptionName("ADA-20261127-0_15-P")?.strike).toBe(0.15);
+    expect(parseOptionName("ETH-PERP")).toBeNull();
+    expect(parseOptionName("ETH-USDC")).toBeNull();
+  });
+
+  it("reads v3 short-key tickers; a zero bid or ask means none", () => {
+    const row = parseOptionName("ETH-20261109-1850-C")!;
+    const t = parseTicker(row, { b: "0", a: "385.1", M: "382.8", option_pricing: { i: "0.86875", d: "0.99999" } });
+    expect(t).toMatchObject({ mark: 382.8, bid: undefined, ask: 385.1, iv: 0.86875, delta: 0.99999 });
+    expect(parseTicker(row, { M: "1", option_pricing: null }).iv).toBeUndefined();
+  });
+
+  it("builds a chain for one currency, nearest live expiries first", async () => {
+    const names = ["BTC-20261127-90000-C", "ETH-PERP", "ETH-20261227-3000-P", "ETH-20261127-2500-P", "ETH-20261127-2500-C", "ETH-20261101-2000-C"];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async () => new Response(JSON.stringify({ result: names }))) as typeof fetch;
+    try {
+      const rows = await optionChain("mainnet", "ETH", 1, Date.UTC(2026, 10, 8));
+      expect(rows.map((r) => r.instrument)).toEqual(["ETH-20261127-2500-C", "ETH-20261127-2500-P"]);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
+  it("the Worker forwards only Derive's public read methods", async () => {
+    const post = (path: string) => handleApi(new Request(`https://w.test${path}`, { method: "POST", body: "{}" }), {});
+    expect((await post("/api/derive/mainnet/private_order"))!.status).toBe(404);
+    expect((await post("/api/derive/elsewhere/get_ticker"))!.status).toBe(404);
+    expect((await handleApi(new Request("https://w.test/api/derive/mainnet/get_ticker"), {}))!.status).toBe(405);
   });
 });

@@ -231,10 +231,13 @@ export const HYPERLIQUID_BRIDGE: Record<NetworkMode, `0x${string}`> = {
   mainnet: "0x2Df1c51E09aECF9cacB7bc98cB1742757f163dF7",
   testnet: "0x08cfc1B6b2dCF36A1480b99353A354AA8AC56f89",
 };
-/** Derive (formerly Lyra) options: public market data API. */
+/**
+ * Derive options: public market data (v3 API). Read through the wallet's own Worker, because
+ * Derive's API doesn't allow direct browser calls from other sites.
+ */
 export const DERIVE_API: Record<NetworkMode, string> = {
-  mainnet: env("VITE_DERIVE_API") ?? "https://api.lyra.finance",
-  testnet: env("VITE_DERIVE_API_TESTNET") ?? "https://api-demo.lyra.finance",
+  mainnet: env("VITE_DERIVE_API") ?? "/api/derive/mainnet",
+  testnet: env("VITE_DERIVE_API_TESTNET") ?? "/api/derive/testnet",
 };
 export const DERIVE_APP: Record<NetworkMode, string> = {
   mainnet: "https://www.derive.xyz",

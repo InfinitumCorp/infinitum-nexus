@@ -1,6 +1,6 @@
 /**
- * Options on Derive (formerly Lyra): live option chains from Derive's free public API, with
- * Conjure's chance of each strike finishing in the money next to the market's own price.
+ * Options on Derive: live option chains from Derive's free public API (v3), with Conjure's
+ * chance of each strike finishing in the money next to the market's own price.
  *
  * Trading Derive options needs a Derive account (its own chain and session keys), so the wallet
  * opens the chosen instrument on Derive to trade, and shows the probabilities here first.
@@ -21,38 +21,55 @@ export interface OptionRow {
 }
 
 async function pub<T>(mode: NetworkMode, method: string, params: unknown): Promise<T> {
-  const res = await fetch(`${DERIVE_API[mode]}/public/${method}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(params) });
-  const json = (await res.json()) as { result?: T; error?: { message: string } };
-  if (!res.ok || json.error) throw new Error(json.error?.message ?? `Derive ${res.status}`);
-  return json.result as T;
+  const res = await fetch(`${DERIVE_API[mode]}/${method}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(params) });
+  const json = (await res.json().catch(() => ({}))) as { result?: T; error?: { message: string } };
+  if (!res.ok || json.error || json.result === undefined) throw new Error(json.error?.message ?? `Derive is unavailable (${res.status}).`);
+  return json.result;
 }
 
-interface DeriveInstrument {
-  instrument_name: string;
-  is_active: boolean;
-  option_details?: { strike: string; expiry: number; option_type: "C" | "P" };
+/** Derive options expire at 08:00 UTC on the date in the name. */
+const EXPIRY_HOUR_UTC = 8;
+
+/**
+ * Parse a Derive option name, e.g. "ETH-20261127-2500-C" or "ADA-20261127-0_15-P"
+ * ("_" stands for the decimal point). Returns null for perps, spot and anything else.
+ */
+export function parseOptionName(name: string): Omit<OptionRow, "mark" | "iv" | "delta" | "bid" | "ask"> | null {
+  const m = /^([A-Z0-9]+)-(\d{4})(\d{2})(\d{2})-(\d+(?:_\d+)?)-([CP])$/.exec(name);
+  if (!m) return null;
+  const strike = Number(m[5]!.replace("_", "."));
+  const expiry = new Date(Date.UTC(Number(m[2]), Number(m[3]) - 1, Number(m[4]), EXPIRY_HOUR_UTC));
+  if (!Number.isFinite(strike) || Number.isNaN(expiry.getTime())) return null;
+  return { instrument: name, kind: m[6] === "C" ? "call" : "put", strike, expiry: expiry.toISOString() };
 }
 
-export async function optionChain(mode: NetworkMode, currency: "ETH" | "BTC" | "SOL", maxExpiries = 3): Promise<OptionRow[]> {
-  const list = await pub<DeriveInstrument[]>(mode, "get_instruments", { currency, instrument_type: "option", expired: false });
-  const rows = list
-    .filter((i) => i.is_active && i.option_details)
-    .map((i) => ({
-      instrument: i.instrument_name,
-      kind: i.option_details!.option_type === "C" ? ("call" as const) : ("put" as const),
-      strike: Number(i.option_details!.strike),
-      expiry: new Date(i.option_details!.expiry * 1000).toISOString(),
-    }));
+export async function optionChain(mode: NetworkMode, currency: "ETH" | "BTC" | "SOL", maxExpiries = 3, now = Date.now()): Promise<OptionRow[]> {
+  const names = await pub<string[]>(mode, "get_all_live_instruments", {});
+  const rows = names
+    .filter((n) => n.startsWith(`${currency}-`))
+    .map(parseOptionName)
+    .filter((r): r is NonNullable<typeof r> => !!r && Date.parse(r.expiry) > now);
   const expiries = [...new Set(rows.map((r) => r.expiry))].sort().slice(0, maxExpiries);
   return rows.filter((r) => expiries.includes(r.expiry)).sort((a, b) => a.expiry.localeCompare(b.expiry) || a.strike - b.strike || a.kind.localeCompare(b.kind));
 }
 
+/** Derive v3 ticker: short keys. b/a = best bid/ask price, M = mark, option_pricing.i = IV, .d = delta. */
+export interface DeriveTicker {
+  b?: string;
+  a?: string;
+  M?: string;
+  option_pricing?: { i?: string; d?: string } | null;
+}
+
+export function parseTicker(row: OptionRow, t: DeriveTicker): OptionRow {
+  const n = (v?: string) => (v === undefined || v === null || v === "" ? undefined : Number(v));
+  // A price of "0" means there is no bid or ask on the book.
+  const quote = (v?: string) => { const x = n(v); return x ? x : undefined; };
+  return { ...row, mark: n(t.M), bid: quote(t.b), ask: quote(t.a), iv: n(t.option_pricing?.i), delta: n(t.option_pricing?.d) };
+}
+
 export async function optionTicker(mode: NetworkMode, row: OptionRow): Promise<OptionRow> {
-  const t = await pub<{ mark_price?: string; best_bid_price?: string; best_ask_price?: string; option_pricing?: { iv?: string; delta?: string } }>(
-    mode, "get_ticker", { instrument_name: row.instrument },
-  );
-  const n = (v?: string) => (v === undefined ? undefined : Number(v));
-  return { ...row, mark: n(t.mark_price), bid: n(t.best_bid_price), ask: n(t.best_ask_price), iv: n(t.option_pricing?.iv), delta: n(t.option_pricing?.delta) };
+  return parseTicker(row, await pub<DeriveTicker>(mode, "get_ticker", { instrument_name: row.instrument }));
 }
 
 export function deriveTradeUrl(mode: NetworkMode, row: OptionRow): string {

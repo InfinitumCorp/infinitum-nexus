@@ -184,13 +184,19 @@ function Positions({ account, markets, onDone }: { account?: Awaited<ReturnType<
           );
         })}</tbody>
       </table></div>}
-      {account.openOrders.length > 0 && <>
-        <h3>Open orders</h3>
-        <table class="list"><tbody>{account.openOrders.map((o) => {
+      {(() => {
+        // Hyperliquid also returns spot orders (coins like "@1115"); this screen lists perps only.
+        const perpOrders = account.openOrders.flatMap((o) => {
           const m = markets.find((x) => x.name === o.coin);
-          return <tr><td>{o.coin} {o.side === "B" ? "buy" : "sell"} {o.sz} @ {o.limitPx}</td><td class="r">{m && <button class="btn ghost" onClick={() => run(prepareCancel(m, o.oid))}>Cancel</button>}</td></tr>;
-        })}</tbody></table>
-      </>}
+          return m ? [{ o, m }] : [];
+        });
+        return perpOrders.length > 0 && <>
+          <h3>Open orders</h3>
+          <table class="list"><tbody>{perpOrders.map(({ o, m }) => (
+            <tr><td>{o.coin} {o.side === "B" ? "buy" : "sell"} {o.sz} @ {o.limitPx}</td><td class="r"><button class="btn ghost" onClick={() => run(prepareCancel(m, o.oid))}>Cancel</button></td></tr>
+          ))}</tbody></table>
+        </>;
+      })()}
     </section>
   );
 }

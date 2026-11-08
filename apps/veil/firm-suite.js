@@ -1,3 +1,4 @@
+// @ts-nocheck (plain browser module, shared by repos with and without checkJs)
 // FIRM Suite embed: FIRM™, FIRM Wallet™ and Firmament Network™ in every Infinitum product.
 // Canonical source: infinitum-nexus/packages/firm/suite/firm-suite.js. Copies are re-synced by
 // `node packages/firm/suite/sync.mjs` (nexus) or copied by hand (standalone repos). Do not edit a copy.

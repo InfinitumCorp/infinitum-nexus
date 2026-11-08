@@ -92,7 +92,22 @@ export interface PostOfficeSendInput extends Omit<SendInput, "id" | "now"> {
   payment?: { asset: string; amount: string };
 }
 
-export const messageBytes = (m: Pick<MailMessage, "subject" | "body">) =>
+/** A message from outside Cumulus, already parsed from MIME. `recipients` is the SMTP envelope. */
+export interface InboundMail {
+  from: Person;
+  recipients: string[];
+  to: Person[];
+  cc: Person[];
+  subject: string;
+  body: string;
+  at?: string;
+  attachments?: { name: string; size: number }[];
+}
+
+/** Longest inbound body kept (characters); the rest is cut. */
+export const MAX_INBOUND_BODY = 512 * 1024;
+
+export const messageBytes =(m: Pick<MailMessage, "subject" | "body">) =>
   Buffer.byteLength(m.subject, "utf8") + Buffer.byteLength(m.body, "utf8") + 512; // headers
 
 const RESERVED_LOCAL = new Set([
@@ -341,6 +356,63 @@ export class PostOffice {
     };
     this.deliver(cid, message);
     return message;
+  }
+
+  /**
+   * Mail arriving from outside Cumulus (Email Routing). Delivered to each Cumulus recipient's inbox;
+   * returns who got it and which recipients don't exist (the caller rejects the message if nobody did).
+   * Mail claiming a Cumulus sender is refused: Cumulus mail never arrives from outside.
+   */
+  receive(input: InboundMail): { delivered: string[]; unknown: string[] } {
+    const sender = input.from.email.trim().toLowerCase();
+    if (!validEmail(sender)) throw new MailError("bad_sender", "The sender address isn't valid.");
+    if (isCumulus(sender)) throw new MailError("spoofed_sender", "Mail from a Cumulus address can't arrive from outside Cumulus.");
+    const subject = input.subject.slice(0, 998);
+    const body = input.body.slice(0, MAX_INBOUND_BODY);
+    const size = messageBytes({ subject, body });
+    const delivered: string[] = [];
+    const unknown: string[] = [];
+    const seen = new Set<string>();
+    for (const rcpt of input.recipients) {
+      const address = rcpt.trim().toLowerCase();
+      if (seen.has(address)) continue;
+      seen.add(address);
+      const cid = isCumulus(address) ? this.resolve(address) : undefined;
+      if (!cid || (this.quota && !this.quota.canFit(cid, size))) {
+        unknown.push(address);
+        continue;
+      }
+      const box = this.box(cid);
+      const id = `m-${randomUUID()}`;
+      this.deliver(cid, {
+        id,
+        threadId: this.threadFor(box, sender, subject) ?? id,
+        folder: "inbox",
+        from: { name: input.from.name.trim() || sender, email: sender },
+        to: input.to.length ? input.to : [{ ...box.owner }],
+        cc: input.cc,
+        subject,
+        body,
+        at: input.at ?? this.now(),
+        unread: true,
+        starred: false,
+        labels: [],
+        attachments: input.attachments?.length ? input.attachments : undefined,
+      });
+      this.quota?.charge(cid, "mail", size);
+      delivered.push(address);
+    }
+    return { delivered, unknown };
+  }
+
+  /** A reply ("Re: x") from someone joins the thread of the earlier message "x" with that person. */
+  private threadFor(box: StoredMailbox, sender: string, subject: string): string | undefined {
+    const base = subject.replace(/^((re|fwd?|aw|wg)\s*:\s*)+/i, "").trim().toLowerCase();
+    if (!base || base === subject.trim().toLowerCase()) return undefined;
+    const match = box.messages.find((m) =>
+      m.subject.replace(/^((re|fwd?|aw|wg)\s*:\s*)+/i, "").trim().toLowerCase() === base &&
+      [m.from, ...m.to, ...m.cc].some((p) => p.email.toLowerCase() === sender));
+    return match?.threadId;
   }
 
   /** Queued mail for the outbound relay (SMTP/JMAP bridge) to pick up. */

@@ -53,6 +53,9 @@ importers:
       '@infinitum/scalus':
         specifier: workspace:*
         version: link:../../packages/scalus
+      postal-mime:
+        specifier: 2.4.4
+        version: 2.4.4
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -1539,6 +1542,9 @@ packages:
     resolution: {integrity: sha512-qcJu88Q2IWqJsDD529JKMdwGm/dvInW4HvQnRwiH9JtihJvzGOscDtHE3x1pBKeUOTysQ8kVmLnJ2kJu7yhcGA==}
     engines: {node: '>=12'}
 
+  postal-mime@2.4.4:
+    resolution: {integrity: sha512-LDaFIsmGO+uNnPu28H52cubuHrovfewviU8Y8p+KgIKGVF871t/IQxzlO8QwhJMiG0ih2Lk2jTL3aGVoNz3NZQ==}
+
   postcss@8.5.32:
     resolution: {integrity: sha512-LJlKCCAUFKOuZxipUdYw1NzIITEsPcgyOG9LkvRJvuKj/bRzbuRY0ARXvL0pWGpsZvn8jku+LMep2eU0seHp8g==}
     engines: {node: ^10 || ^12 || >=14}
@@ -2622,6 +2628,8 @@ snapshots:
   picomatch@2.3.2: {}
 
   picomatch@4.0.7: {}
+
+  postal-mime@2.4.4: {}
 
   postcss@8.5.32:
     dependencies:

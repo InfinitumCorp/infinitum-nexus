@@ -3,6 +3,7 @@ import { Ledger, signerFromPrivateKey } from "@infinitum/firmament";
 import { socialFromEnv } from "@infinitum/cid";
 import { createCumulus, emptyCumulusStores } from "@infinitum/cumulus";
 import { RemoteState, HttpGateway } from "../../spectre/src/server/remote.ts";
+import type { InboundMail } from "@infinitum/mail";
 import { createMailApp } from "./app.ts";
 
 /**
@@ -85,10 +86,21 @@ function build() {
     await verifyOnce();
     return state.transaction(() => suite.mail.sendAllDue());
   };
-  return Object.assign(app, { sendDueNow: sendDue });
+  // For Email Routing: deliver mail that arrived from outside Cumulus.
+  const receive = async (mail: InboundMail) => {
+    await verifyOnce();
+    return state.transaction(async () => suite.mail.receive(mail));
+  };
+  return Object.assign(app, { sendDueNow: sendDue, receive });
 }
 
 let app: ReturnType<typeof build> | undefined;
+
+/** Delivers mail from outside Cumulus. Called by the Workers email() handler (Email Routing). */
+export async function receiveMail(mail: InboundMail) {
+  app ??= build();
+  return app.receive(mail);
+}
 
 /** Sends scheduled mail that is due. Called by the Workers cron trigger. */
 export async function sendScheduledMail(): Promise<number> {

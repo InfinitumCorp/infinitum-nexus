@@ -50,6 +50,8 @@
     .search input { width: 100%; font: inherit; font-size: 16px; padding: 14px 16px; border: 1px solid var(--rule); border-radius: 2px; background: #fff; color: var(--ink); -webkit-appearance: none; appearance: none; }
     .search input::placeholder { color: var(--ink-quiet); }
     .search input:focus { outline: none; border-color: var(--ink); }
+    .clean-strip { display: flex; justify-content: center; margin-top: 14px; }
+    .clean-strip + .panel { margin-top: 12px; }
     .workspace-strip { display: flex; justify-content: center; margin-top: 16px; }
     .workspace { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; white-space: nowrap; }
     .workspace::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); flex: none; }
@@ -99,7 +101,7 @@
     <a class="brand" href="./">VEIL&lt;/&gt;<sup>™</sup></a>
     <span class="spacer"></span>
     <nav class="top-links" aria-label="Infinitum">
-      <a class="nav-link" id="mail" href="https://infinitumcorporation.ai/products/cumulus-exchange#mail" rel="noreferrer">Mail</a>
+      <a class="nav-link" id="mail" href="https://infinitumcorporation.ai/products/cumulus-exchange#mail" rel="noreferrer">Cumulus://Mail</a>
       <div class="apps-menu">
         <button type="button" class="nav-link" id="apps-button" aria-haspopup="true" aria-expanded="false" aria-controls="apps-panel">Apps</button>
         <div class="apps-panel" id="apps-panel" role="menu" aria-label="Infinitum apps" hidden>
@@ -121,20 +123,9 @@
       <input id="omni" type="search" placeholder="Search privately or enter address" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Search privately or enter address" />
     </form>
 
-    <div class="workspace-strip"><span class="workspace" id="mode-chip" title="No account, no history, nothing kept">Free forever</span></div>
-
-    <div class="status" id="tor-status" aria-live="polite">
-      <span class="status-line"><span class="dot" aria-hidden="true"></span><span id="tor-status-text">Tor not checked</span></span>
-      <a class="text-button" href="https://check.torproject.org/" rel="noopener">Check Tor</a>
-      <a class="text-button" href="https://orbot.app/download/" rel="noopener">Get Orbot</a>
-    </div>
-
-    <nav class="bookmarks" id="bookmarks" aria-label="Bookmarks">
-      <a class="bookmark" href="https://duckduckgo.com/" rel="noopener">DuckDuckGo</a>
-      <a class="bookmark web-only" id="apk-link" href="downloads/veil-browser.apk" download>VEIL for Android</a>
-      <a class="bookmark web-only" href="downloads/veil-extension.zip" download>VEIL for Chrome</a>
+    <div class="clean-strip">
       <button type="button" class="bookmark" id="cleaner-toggle" aria-expanded="false" aria-controls="cleaner">Clean a link</button>
-    </nav>
+    </div>
 
     <section class="panel" id="cleaner" hidden>
       <h2>Clean a link</h2>
@@ -146,6 +137,18 @@
       </div>
       <div class="out" id="link-out" aria-live="polite"></div>
     </section>
+
+    <div class="workspace-strip"><span class="workspace" id="mode-chip" title="No account, no history, nothing kept">Free forever</span></div>
+
+    <div class="status" id="tor-status" aria-live="polite">
+      <span class="status-line"><span class="dot" aria-hidden="true"></span><span id="tor-status-text">Tor not checked</span></span>
+      <a class="text-button" href="https://check.torproject.org/" rel="noopener">Check Tor</a>
+    </div>
+
+    <nav class="bookmarks web-only" id="bookmarks" aria-label="Get VEIL">
+      <a class="bookmark" id="apk-link" href="downloads/veil-browser.apk" download>VEIL for Android</a>
+      <a class="bookmark" href="downloads/veil-extension.zip" download>VEIL for Chrome</a>
+    </nav>
 
     <section class="panel" id="privacy" hidden>
       <h2>What VEIL can't see</h2>

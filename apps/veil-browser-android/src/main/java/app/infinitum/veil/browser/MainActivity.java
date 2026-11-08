@@ -32,6 +32,7 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
@@ -98,7 +99,7 @@ public class MainActivity extends Activity {
         getWindow().setNavigationBarColor(BG);
         // White bars with dark icons, like the other Infinitum apps.
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
-        setContentView(buildUi());
+        setContentView(wrapWithPanel(buildUi()));
         configureWebView();
 
         Uri data = getIntent() != null ? getIntent().getData() : null;
@@ -173,6 +174,147 @@ public class MainActivity extends Activity {
             return false;
         });
         m.show();
+    }
+
+    // ---------------- App side panel ----------------
+    // Infinitum apps (:\ARCHITCT\, SCALVS.ai, FABRIC++) open in a panel that slides in
+    // from the left over the page, like a chat sidebar. It is its own WebView because
+    // those sites refuse to be framed (X-Frame-Options: DENY).
+
+    static final String PANEL_SCHEME = "veil-panel";
+    FrameLayout shell;
+    View scrim;
+    LinearLayout panel;
+    WebView panelWeb;
+    TextView panelTitle;
+    boolean panelOpen = false;
+    volatile String panelHost = "";
+
+    View wrapWithPanel(View content) {
+        shell = new FrameLayout(this);
+        shell.setBackgroundColor(BG);
+        shell.addView(content, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
+        scrim = new View(this);
+        scrim.setBackgroundColor(Color.argb(102, 17, 24, 32)); // ink at 40%
+        scrim.setVisibility(View.GONE);
+        scrim.setOnClickListener(v -> closePanel());
+        shell.addView(scrim, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
+        panel = new LinearLayout(this);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        panel.setBackgroundColor(BG);
+        panel.setClickable(true);
+        panel.setFitsSystemWindows(true);
+
+        LinearLayout head = new LinearLayout(this);
+        head.setOrientation(LinearLayout.HORIZONTAL);
+        head.setGravity(Gravity.CENTER_VERTICAL);
+        head.setPadding(dp(16), dp(4), dp(4), dp(4));
+        panelTitle = new TextView(this);
+        panelTitle.setTextColor(FG);
+        panelTitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
+        panelTitle.setSingleLine(true);
+        panelTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        head.addView(panelTitle, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        Button full = iconButton("↗", "Open in the main window", v -> {
+            String u = panelWeb.getUrl();
+            closePanel();
+            if (u != null && Privacy.isWeb(u)) open(u);
+        });
+        full.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18);
+        head.addView(full);
+        Button close = iconButton("✕", "Close panel", v -> closePanel());
+        close.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
+        head.addView(close);
+        panel.addView(head);
+        panel.addView(rule());
+
+        panelWeb = new WebView(this);
+        panelWeb.setBackgroundColor(BG);
+        WebSettings s = panelWeb.getSettings();
+        s.setJavaScriptEnabled(true);
+        s.setDomStorageEnabled(true);           // wiped with the main view on New Identity and exit
+        s.setAllowFileAccess(false);
+        s.setAllowContentAccess(false);
+        s.setGeolocationEnabled(false);
+        s.setSaveFormData(false);
+        s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
+        s.setSupportMultipleWindows(false);
+        s.setSafeBrowsingEnabled(false);
+        CookieManager.getInstance().setAcceptThirdPartyCookies(panelWeb, false);
+        panelWeb.setWebViewClient(new WebViewClient() {
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                String url = request.getUrl().toString();
+                if (!Privacy.isWeb(url)) return true;
+                if (request.isForMainFrame()) panelHost = String.valueOf(request.getUrl().getHost());
+                String cleaned = Privacy.clean(url);
+                if (!cleaned.equals(url)) { view.loadUrl(cleaned); return true; }
+                return false;
+            }
+
+            @Override
+            public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+                String host = request.getUrl().getHost();
+                if (blocking && host != null && Blocklist.isBlocked(host) && Privacy.isThirdParty(host, panelHost)) {
+                    return new WebResourceResponse("text/plain", "utf-8", new java.io.ByteArrayInputStream(new byte[0]));
+                }
+                return null;
+            }
+        });
+        panel.addView(panelWeb, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+
+        int width = Math.min((int) (getResources().getDisplayMetrics().widthPixels * 0.88f), dp(420));
+        FrameLayout.LayoutParams plp = new FrameLayout.LayoutParams(width, ViewGroup.LayoutParams.MATCH_PARENT, Gravity.START);
+        shell.addView(panel, plp);
+        panel.post(() -> panel.setTranslationX(-panel.getWidth() - dp(2)));
+        panel.setVisibility(View.INVISIBLE);
+        return shell;
+    }
+
+    /** veil-panel://open?u=<https url>&t=<title>, honoured only from VEIL's own start page. */
+    boolean handlePanelLink(WebView view, String url) {
+        if (!url.startsWith(PANEL_SCHEME + ":")) return false;
+        String from = view.getUrl();
+        if (from == null || !from.startsWith("file:///android_asset/hub/")) return true;
+        Uri u = Uri.parse(url);
+        String target = u.getQueryParameter("u");
+        String title = u.getQueryParameter("t");
+        if (target != null && target.startsWith("https://")) openPanel(target, title != null ? title : target);
+        return true;
+    }
+
+    void openPanel(String url, String title) {
+        panelTitle.setText(title);
+        panelHost = String.valueOf(Uri.parse(url).getHost());
+        panelWeb.loadUrl(url);
+        if (panelOpen) return;
+        panelOpen = true;
+        hideKeyboard();
+        scrim.setAlpha(0f);
+        scrim.setVisibility(View.VISIBLE);
+        scrim.animate().alpha(1f).setDuration(200).start();
+        panel.setVisibility(View.VISIBLE);
+        panel.setTranslationX(-panel.getWidth());
+        panel.animate().translationX(0).setDuration(220).setInterpolator(new android.view.animation.DecelerateInterpolator()).start();
+    }
+
+    void closePanel() {
+        if (!panelOpen) return;
+        panelOpen = false;
+        scrim.animate().alpha(0f).setDuration(180).withEndAction(() -> scrim.setVisibility(View.GONE)).start();
+        panel.animate().translationX(-panel.getWidth() - dp(2)).setDuration(200)
+            .setInterpolator(new android.view.animation.AccelerateInterpolator())
+            .withEndAction(() -> panel.setVisibility(View.INVISIBLE)).start();
+    }
+
+    void resetPanel() {
+        closePanel();
+        panelWeb.loadUrl("about:blank");
+        panelWeb.clearCache(true);
+        panelWeb.clearHistory();
+        panelWeb.clearFormData();
     }
 
     View rule() {
@@ -324,6 +466,7 @@ public class MainActivity extends Activity {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 String url = request.getUrl().toString();
+                if (handlePanelLink(view, url)) return true;
                 if (url.startsWith("file:///android_asset/")) return false;
                 if (request.isForMainFrame()) navHost = String.valueOf(request.getUrl().getHost());
                 if (!Privacy.isWeb(url)) {
@@ -512,6 +655,7 @@ public class MainActivity extends Activity {
         web.clearCache(true);
         web.clearHistory();
         web.clearFormData();
+        if (panelWeb != null) resetPanel();
         stripped = 0;
         blocked = 0;
         blockedSession = 0;
@@ -551,6 +695,10 @@ public class MainActivity extends Activity {
 
     @Override
     public void onBackPressed() {
+        if (panelOpen) {
+            if (panelWeb.canGoBack()) panelWeb.goBack(); else closePanel();
+            return;
+        }
         if (web.canGoBack()) web.goBack();
         else super.onBackPressed();
     }

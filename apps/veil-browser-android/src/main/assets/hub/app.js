@@ -22,6 +22,14 @@
     $("mode-chip").title = "Anonymous session: nothing is kept when you close it";
     $("brand").href = "index.html"; // "./" is a directory inside file:///android_asset
     Array.prototype.forEach.call(document.querySelectorAll(".web-only"), function (el) { el.hidden = true; });
+    // In the app, Infinitum apps open in VEIL's side panel instead of a new tab.
+    Array.prototype.forEach.call(document.querySelectorAll("a[data-panel]"), function (a) {
+      a.removeAttribute("target");
+      a.addEventListener("click", function (e) {
+        e.preventDefault();
+        location.href = "veil-panel://open?u=" + encodeURIComponent(a.href) + "&t=" + encodeURIComponent(a.textContent.trim());
+      });
+    });
   }
 
   // Apps menu and the privacy note open in place.

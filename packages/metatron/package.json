@@ -2,6 +2,7 @@
   "name": "@infinitum/metatron",
   "version": "0.1.0",
   "description": "METATRON: prediction engine and unified analytics environment.",
+  "homepage": "https://mttrn.app",
   "type": "module",
   "exports": {
     ".": "./src/index.ts"

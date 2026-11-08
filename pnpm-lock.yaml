@@ -57,9 +57,15 @@ importers:
       '@types/node':
         specifier: ^22.0.0
         version: 22.20.5
+      cf:
+        specifier: 1.0.0-beta.28
+        version: 1.0.0-beta.28(@types/node@22.20.5)
       typescript:
         specifier: ^5.9.0
         version: 5.9.3
+      wrangler:
+        specifier: ^4.158.0
+        version: 4.158.0(@types/node@22.20.5)
 
   apps/data-exchange:
     dependencies:
@@ -173,10 +179,10 @@ importers:
     devDependencies:
       cf:
         specifier: ^1.0.0-beta.28
-        version: 1.0.0-beta.28
+        version: 1.0.0-beta.28(@types/node@22.20.5)
       wrangler:
         specifier: ^4.158.0
-        version: 4.158.0
+        version: 4.158.0(@types/node@22.20.5)
 
   packages/aether:
     dependencies:
@@ -212,6 +218,15 @@ importers:
       '@infinitum/lbrnth-client':
         specifier: workspace:*
         version: link:../lbrnth-client
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.20.5
+      typescript:
+        specifier: ^5.9.0
+        version: 5.9.3
+
+  packages/billing:
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -989,9 +1004,9 @@ snapshots:
 
   '@cloudflare/kv-asset-handler@0.5.0': {}
 
-  '@cloudflare/runtime-types@0.1.23':
+  '@cloudflare/runtime-types@0.1.23(@types/node@22.20.5)':
     dependencies:
-      miniflare: 5.20261104.0-beta
+      miniflare: 5.20261104.0-beta(@types/node@22.20.5)
       workerd: 1.20261104.1
     transitivePeerDependencies:
       - '@types/node'
@@ -1243,13 +1258,13 @@ snapshots:
 
   blake3-wasm@2.1.5: {}
 
-  cf@1.0.0-beta.28:
+  cf@1.0.0-beta.28(@types/node@22.20.5):
     dependencies:
       '@cloudflare/build-output-utils': 0.9.10
       '@cloudflare/config': 0.30.2
-      '@cloudflare/runtime-types': 0.1.23
+      '@cloudflare/runtime-types': 0.1.23(@types/node@22.20.5)
       blake3-wasm: 2.1.5
-      miniflare: 5.20261104.0-beta
+      miniflare: 5.20261104.0-beta(@types/node@22.20.5)
     transitivePeerDependencies:
       - '@types/node'
       - bufferutil
@@ -1295,10 +1310,10 @@ snapshots:
 
   kleur@4.1.5: {}
 
-  miniflare@5.20261104.0-beta:
+  miniflare@5.20261104.0-beta(@types/node@22.20.5):
     dependencies:
       '@cspotcode/source-map-support': 0.8.1
-      sharp: 0.35.5
+      sharp: 0.35.5(@types/node@22.20.5)
       undici: 7.30.1
       workerd: 1.20261104.1
       ws: 8.21.0
@@ -1314,7 +1329,7 @@ snapshots:
 
   semver@7.8.6: {}
 
-  sharp@0.35.5:
+  sharp@0.35.5(@types/node@22.20.5):
     dependencies:
       '@img/colour': 1.1.0
       detect-libc: 2.1.2
@@ -1345,6 +1360,7 @@ snapshots:
       '@img/sharp-win32-arm64': 0.35.5
       '@img/sharp-win32-ia32': 0.35.5
       '@img/sharp-win32-x64': 0.35.5
+      '@types/node': 22.20.5
 
   supports-color@10.2.2: {}
 
@@ -1369,14 +1385,14 @@ snapshots:
       '@cloudflare/workerd-linux-arm64': 1.20261104.1
       '@cloudflare/workerd-windows-64': 1.20261104.1
 
-  wrangler@4.158.0:
+  wrangler@4.158.0(@types/node@22.20.5):
     dependencies:
       '@cloudflare/kv-asset-handler': 0.5.0
       '@cloudflare/unenv-preset': 2.16.2(unenv@2.0.0-rc.24)(workerd@1.20261104.1)
       '@cspotcode/source-map-support': 0.8.1
       blake3-wasm: 2.1.5
       esbuild: 0.28.2
-      miniflare: 5.20261104.0-beta
+      miniflare: 5.20261104.0-beta(@types/node@22.20.5)
       path-to-regexp: 6.3.0
       unenv: 2.0.0-rc.24
       workerd: 1.20261104.1

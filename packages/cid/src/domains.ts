@@ -13,7 +13,12 @@
  *   JWKS: https://id.cumuluscloud.app/realms/cumulus/protocol/openid-connect/certs
  *
  * Mail addresses are name@CUMULUS_ROOT_DOMAIN. The three hosts are the HTTPS
- * origins of the products. CORS allowlists those exact origins and nothing else.
+ * origins of the products.
+ *
+ * Products on their own domains that sign in with Cumulus://ID from the browser:
+ *   METATRON_HOST=mttrn.app   (METATRON¹⁰⁰)
+ *
+ * CORS allowlists those exact origins and nothing else.
  */
 
 const HOSTNAME =
@@ -26,6 +31,11 @@ export const CUMULUS_DOMAIN_DEFAULTS = Object.freeze({
   realm: "cumulus",
   cloudHost: "cloud.cumuluscloud.app",
   mailHost: "mail.cumuluscloud.app",
+});
+
+/** Canonical hosts of products outside the Cumulus root domain that use Cumulus://ID. */
+export const PRODUCT_HOST_DEFAULTS = Object.freeze({
+  metatron: "mttrn.app",
 });
 
 export interface CumulusDomains {
@@ -42,7 +52,9 @@ export interface CumulusDomains {
   /** Keycloak JWKS: <issuer>/protocol/openid-connect/certs. */
   jwksUri: string;
   origins: { id: string; cloud: string; mail: string };
-  /** Exact browser origins. Never includes "*". */
+  /** Origins of products on their own domains, e.g. METATRON¹⁰⁰ at https://mttrn.app. */
+  productOrigins: { metatron: string };
+  /** Exact browser origins: the Cumulus hosts plus `productOrigins`. Never includes "*". */
   corsOrigins: readonly string[];
 }
 
@@ -91,7 +103,12 @@ export function cumulusDomains(env: Record<string, string | undefined> = process
     cloud: `https://${cloudHost}`,
     mail: `https://${mailHost}`,
   };
-  const corsOrigins = [...new Set(Object.values(origins).map((origin) => assertExactOrigin(origin)))];
+  const productOrigins = {
+    metatron: `https://${hostname(env.METATRON_HOST, PRODUCT_HOST_DEFAULTS.metatron, "METATRON_HOST")}`,
+  };
+  const corsOrigins = [
+    ...new Set([...Object.values(origins), ...Object.values(productOrigins)].map((origin) => assertExactOrigin(origin))),
+  ];
   if (corsOrigins.some((origin) => origin === "*" || origin.includes("*"))) {
     throw new Error("CORS origins must be exact");
   }
@@ -106,6 +123,7 @@ export function cumulusDomains(env: Record<string, string | undefined> = process
     issuer,
     jwksUri: `${issuer}/protocol/openid-connect/certs`,
     origins,
+    productOrigins,
     corsOrigins,
   };
 }

@@ -56,10 +56,10 @@ public class MainActivity extends Activity {
     static final String ORBOT = "org.torproject.android";
 
     static final int BG = Color.parseColor("#ffffff");
-    static final int CARD = Color.parseColor("#f4f4f4");
-    static final int LINE = Color.parseColor("#ececec");
-    static final int FG = Color.parseColor("#141619");
-    static final int MUTED = Color.parseColor("#6b6b6b");
+    static final int CARD = Color.parseColor("#ffffff");
+    static final int LINE = Color.parseColor("#d6dce1");
+    static final int FG = Color.parseColor("#111820");
+    static final int MUTED = Color.parseColor("#52606b");
     static final int GOOD = Color.parseColor("#1a7f37");
     static final int BAD = Color.parseColor("#c62828");
 
@@ -120,7 +120,7 @@ public class MainActivity extends Activity {
         b.setAllCaps(false);
         b.setTextColor(FG);
         b.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
-        b.setBackground(rounded(BG, 0, 999));
+        b.setBackground(rounded(BG, 0, 0));
         b.setPadding(0, 0, 0, 0);
         b.setMinWidth(0);
         b.setMinimumWidth(0);
@@ -149,7 +149,7 @@ public class MainActivity extends Activity {
         shield.setTypeface(Typeface.DEFAULT_BOLD);
         shield.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         shield.setPadding(dp(10), dp(6), dp(10), dp(6));
-        shield.setBackground(rounded(CARD, 0, 999));
+        shield.setBackground(rounded(CARD, LINE, 0));
         shield.setOnClickListener(v -> showPrivacy());
         top.addView(shield);
 
@@ -163,7 +163,7 @@ public class MainActivity extends Activity {
         address.setSelectAllOnFocus(true);
         address.setImeOptions(EditorInfo.IME_ACTION_GO);
         address.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_URI);
-        address.setBackground(rounded(CARD, 0, 999));
+        address.setBackground(rounded(CARD, LINE, 0));
         address.setPadding(dp(16), dp(10), dp(16), dp(10));
         LinearLayout.LayoutParams alp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
         alp.leftMargin = dp(8);

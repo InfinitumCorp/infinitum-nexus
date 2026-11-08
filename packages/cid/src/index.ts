@@ -5,6 +5,8 @@ export {
   INFINITUM_APPS,
   FREE_ENTITLEMENTS,
   MAIL_DOMAIN,
+  APP_ORIGINS,
+  cidRedirectUri,
 } from "./service.ts";
 export type { CidEvent, CidEventName } from "./service.ts";
 export type { Account, Authenticator, Session, SessionMethod, LinkedIdentity, Grant, Organization, AppId, CidConfig } from "./service.ts";

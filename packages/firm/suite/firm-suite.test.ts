@@ -81,3 +81,10 @@ test("several products show each token once, links tagged with the first", () =>
   assert.match(html, /METATRON¹⁰⁰<sup class="tm">™<\/sup>/);
   assert.match(html, /\?ref=spectre"/);
 });
+
+test("METATRON¹⁰⁰ links to its canonical site, mttrn.app", () => {
+  assert.equal(PRODUCTS.metatron.url, "https://mttrn.app");
+  const html = render({ product: "spectre metatron" });
+  assert.match(html, /<a href="https:\/\/mttrn\.app" target="_blank" rel="noopener">METATRON¹⁰⁰<sup class="tm">™<\/sup><\/a>/);
+  assert.doesNotMatch(render({ product: "scalvs" }), /<span><a /);
+});

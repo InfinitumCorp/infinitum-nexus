@@ -10,6 +10,7 @@ import { VEIL_DEV } from "./build.js";
 export const PINNED_ORIGINS = Object.freeze({
   scalvs: "https://scalvs.app",
   architect: "https://rchtch.app",
+  metatron: "https://mttrn.app",
   veil: "https://infinitumveil.app",
 });
 
@@ -19,6 +20,7 @@ export const DEFAULT_ORIGINS = Object.freeze({
   mail: "http://localhost:3010",     // apps/cumulus-mail
   architect: PINNED_ORIGINS.architect,
   scalvs: PINNED_ORIGINS.scalvs,
+  metatron: PINNED_ORIGINS.metatron,
   veil: PINNED_ORIGINS.veil, // VEIL browser control plane, hosted on Cloudflare
 });
 
@@ -33,7 +35,7 @@ export const APPS = Object.freeze([
   { id: "cloud", name: "Cumulus://Cloud", blurb: "15 GB of Drive storage and a free cloud tier" },
   { id: "scalvs", name: "SCALVS.ai", blurb: "Free AI agents beside every page", origin: "scalvs" },
   { id: "architect", name: ":\\ARCHITECT\\", blurb: "Turn a page, an email or an idea into finished work", origin: "architect" },
-  { id: "metatron", name: "METATRON¹⁰⁰", blurb: "The open-source dashboard for everything you follow" },
+  { id: "metatron", name: "METATRON¹⁰⁰", blurb: "The open-source dashboard for everything you follow", origin: "metatron" },
   { id: "wallet", name: "FIRM Wallet", blurb: "Hold, send and swap every Infinitum token", panel: "wallet" },
 ]);
 

@@ -5,105 +5,162 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>VEIL</>: Tor-first secure browser</title>
   <meta name="description" content="VEIL</> is Infinitum's free, Tor-first secure browser: private browsing, tracker stripping, built-in AI and $VEIL rewards." />
-  <meta name="theme-color" content="#0a0a0a" />
+  <meta name="theme-color" content="#ffffff" />
   <meta name="referrer" content="no-referrer" />
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icons/icon-192.png" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <style>
-    :root { --bg:#0a0a0a; --card:#121212; --line:#242424; --fg:#f5f5f5; --muted:#8f8f8f; --good:#4ade80; --warn:#fbbf24; }
+    /* The Infinitum look: same tokens as +SPCTR and Cumulus://Mail (monochrome, Arial, 12px radius). */
+    :root {
+      --bg: #ffffff; --side: #f9f9f9; --text: #141619; --muted: #6b6b6b; --faint: #9b9b9b;
+      --line: #ececec; --hover: #f3f3f3; --chip: #f4f4f4; --accent: #141619; --on-accent: #ffffff;
+      --good: #1a7f37; --radius: 12px;
+      --shadow: 0 1px 2px rgba(0,0,0,.04), 0 4px 16px rgba(0,0,0,.06);
+      color-scheme: light;
+    }
     * { box-sizing: border-box; }
-    html, body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
-    main { max-width: 760px; margin: 0 auto; padding: max(20px, env(safe-area-inset-top)) 16px 40px; }
-    header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
-    .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; letter-spacing: .06em; }
-    .brand img { width: 32px; height: 32px; border-radius: 8px; }
-    .chip { font-size: 12px; padding: 3px 10px; border-radius: 999px; border: 1px solid #1f3d2a; color: var(--good); white-space: nowrap; }
-    h1 { font-size: clamp(28px, 7vw, 44px); line-height: 1.1; margin: 24px 0 8px; letter-spacing: -.01em; }
-    .lede { color: var(--muted); margin: 0 0 24px; }
-    section { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px; margin: 14px 0; }
-    h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0 0 10px; font-weight: 600; }
-    p { margin: 0 0 10px; }
-    .muted { color: var(--muted); font-size: 14px; }
-    .row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
-    a.btn, button.btn { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 18px; border-radius: 10px; background: var(--fg); color: #000; border: 0; font: inherit; font-weight: 600; text-decoration: none; cursor: pointer; }
-    a.btn.ghost, button.btn.ghost { background: transparent; color: var(--fg); border: 1px solid #3a3a3a; }
-    input[type=url], input[type=text] { width: 100%; min-height: 44px; background: #0c0c0c; color: var(--fg); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; font: inherit; }
-    .out { font-family: ui-monospace, Menlo, monospace; font-size: 13px; word-break: break-all; margin-top: 10px; padding: 10px; border-radius: 8px; background: #0c0c0c; border: 1px solid var(--line); min-height: 40px; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; }
-    .stat { background: #0e0e0e; border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
-    .stat b { display: block; font-size: 22px; font-variant-numeric: tabular-nums; }
-    table { width: 100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
-    td, th { text-align: left; padding: 8px 4px; border-bottom: 1px solid var(--line); }
-    th { color: var(--muted); font-weight: 500; }
-    td:last-child, th:last-child { text-align: right; }
-    ul.apps { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
-    ul.apps li { display: flex; justify-content: space-between; gap: 10px; padding: 10px 12px; background: #0e0e0e; border: 1px solid var(--line); border-radius: 10px; }
-    ul.apps span { color: var(--muted); font-size: 14px; text-align: right; }
-    .ok { color: var(--good); }
+    html, body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 Arial, Helvetica, sans-serif; -webkit-font-smoothing: antialiased; }
+    a { color: inherit; }
+    button, input { font: inherit; color: inherit; }
+    button { cursor: pointer; }
+    :focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
     [hidden] { display: none !important; }
-    footer { color: var(--muted); font-size: 13px; margin-top: 24px; }
+    sup.tm { font-size: .38em; vertical-align: super; line-height: 0; margin-left: .06em; font-weight: 400; letter-spacing: 0; }
+    .small sup.tm, .mark sup.tm { font-size: .6em; }
+
+    /* Top bar, like a browser's new tab page */
+    header { display: flex; align-items: center; justify-content: space-between; gap: 12px; height: 60px; padding: max(0px, env(safe-area-inset-top)) 20px 0; }
+    .mark { font-size: 17px; letter-spacing: -.01em; text-decoration: none; white-space: nowrap; }
+    .mark span { color: var(--faint); }
+    .top-links { display: flex; align-items: center; gap: 6px; }
+    .top-links a { text-decoration: none; font-size: 14px; color: var(--muted); padding: 8px 12px; border-radius: 999px; white-space: nowrap; }
+    .top-links a:hover { background: var(--hover); color: var(--text); }
+    .chip { font-size: 13px; padding: 6px 12px; border-radius: 999px; background: var(--chip); color: var(--text); white-space: nowrap; }
+
+    /* Centre: wordmark, search, shortcuts */
+    .home { min-height: calc(100dvh - 60px); display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0 16px 12vh; text-align: center; }
+    .word { font-size: clamp(56px, 14vw, 92px); font-weight: 400; letter-spacing: -.04em; line-height: 1; margin: 0; }
+    .word span { color: var(--faint); }
+    .word sup.tm { font-size: .24em; color: var(--muted); }
+    .tag { color: var(--muted); margin: 14px 0 28px; }
+    .omni { width: 100%; max-width: 584px; display: flex; align-items: center; gap: 12px; height: 52px; padding: 0 20px; border-radius: 999px; background: var(--chip); transition: background .15s, box-shadow .15s; }
+    .omni:hover, .omni:focus-within { background: var(--bg); box-shadow: var(--shadow); }
+    .omni svg { flex-shrink: 0; color: var(--muted); }
+    .omni input { flex: 1; min-width: 0; height: 100%; border: 0; outline: none; background: none; font-size: 16px; }
+    .omni input::placeholder { color: var(--muted); }
+    .hint { color: var(--faint); font-size: 13px; margin: 12px 0 0; }
+    .shortcuts { display: grid; grid-template-columns: repeat(6, 96px); gap: 4px; margin-top: 34px; justify-content: center; }
+    .shortcuts a { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 14px 4px 10px; border-radius: var(--radius); text-decoration: none; font-size: 13px; color: var(--text); }
+    .shortcuts a:hover { background: var(--hover); }
+    .tile { width: 48px; height: 48px; border-radius: 50%; background: var(--chip); display: grid; place-items: center; }
+    .shortcuts a:hover .tile { background: var(--line); }
+    .tile svg { width: 22px; height: 22px; }
+    @media (max-width: 640px) { .shortcuts { grid-template-columns: repeat(3, 96px); } }
+
+    /* Below the fold */
+    main { max-width: 720px; margin: 0 auto; padding: 0 16px 48px; }
+    section { border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; margin: 0 0 14px; background: var(--bg); }
+    h2 { font-size: 20px; font-weight: 400; letter-spacing: -.02em; margin: 0 0 8px; }
+    p { margin: 0 0 10px; }
+    .muted { color: var(--muted); }
+    .small { font-size: 13px; }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+    .btn { display: inline-flex; align-items: center; justify-content: center; height: 40px; padding: 0 20px; border-radius: 999px; background: var(--accent); color: var(--on-accent); border: 0; text-decoration: none; white-space: nowrap; }
+    .btn:hover { opacity: .88; }
+    .btn.outline { background: var(--bg); color: var(--text); border: 1px solid var(--line); }
+    .btn.outline:hover { background: var(--hover); opacity: 1; }
+    .field { width: 100%; height: 44px; padding: 0 16px; border-radius: 999px; border: 1px solid var(--line); background: var(--bg); outline: none; }
+    .field:focus { border-color: var(--text); }
+    .out { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px; word-break: break-all; margin-top: 12px; padding: 12px 14px; border-radius: var(--radius); background: var(--side); min-height: 44px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
+    .stat { background: var(--side); border-radius: var(--radius); padding: 14px; }
+    .stat b { display: block; font-size: 24px; font-weight: 400; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; margin-top: 14px; }
+    td, th { text-align: left; padding: 9px 4px; border-bottom: 1px solid var(--line); }
+    th { color: var(--muted); font-weight: 400; }
+    tr:last-child th { color: var(--text); border-bottom: 0; }
+    td:last-child, th:last-child { text-align: right; }
+    ul.apps { list-style: none; padding: 0; margin: 0; }
+    ul.apps li { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+    ul.apps li:last-child { border-bottom: 0; }
+    ul.apps span { color: var(--muted); font-size: 14px; text-align: right; }
+    footer { color: var(--faint); font-size: 13px; text-align: center; padding: 8px 16px 32px; }
+    footer p { margin: 0 0 4px; }
   </style>
 </head>
 <body>
-  <main>
-    <header>
-      <div class="brand"><img src="icons/icon-192.png" alt="" />VEIL&lt;/&gt;</div>
+  <header>
+    <a class="mark" href="./">VEIL<span>&lt;/&gt;</span><sup class="tm">™</sup></a>
+    <nav class="top-links" aria-label="Sections">
+      <a href="#get">Get VEIL</a>
+      <a href="#privacy">Privacy</a>
       <span class="chip" id="mode-chip">Free forever</span>
-    </header>
+    </nav>
+  </header>
 
-    <h1>See the web without being seen.</h1>
-    <p class="lede">VEIL is Infinitum's free, Tor-first secure browser. No account needed, no tracking parameters, nothing kept after you close it.</p>
+  <div class="home">
+    <h1 class="word">VEIL<span>&lt;/&gt;</span><sup class="tm">™</sup></h1>
+    <p class="tag">See the web without being seen.</p>
+    <label class="omni">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <input id="omni" type="text" inputmode="search" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Search privately or enter address" aria-label="Search privately or enter address" />
+    </label>
+    <p class="hint">Searches go to DuckDuckGo. Links open with tracking parameters removed.</p>
 
+    <nav class="shortcuts" aria-label="Shortcuts">
+      <a href="https://duckduckgo.com/" rel="noopener">
+        <span class="tile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></span>Search</a>
+      <a href="https://check.torproject.org/" rel="noopener">
+        <span class="tile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 5 6v5c0 4.5 3 8.4 7 10 4-1.6 7-5.5 7-10V6z"/><path d="m9 12 2 2 4-4"/></svg></span>Tor check</a>
+      <a href="https://orbot.app/download/" rel="noopener">
+        <span class="tile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5.5"/><circle cx="12" cy="12" r="2"/></svg></span>Orbot</a>
+      <a href="downloads/veil-browser.apk" download>
+        <span class="tile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="6" y="2.5" width="12" height="19" rx="2.5"/><path d="M11 18.5h2"/></svg></span>Android</a>
+      <a href="downloads/veil-extension.zip" download>
+        <span class="tile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M3 9h18M15 9v11"/></svg></span>Extension</a>
+      <a href="#cleaner">
+        <span class="tile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg></span>Clean link</a>
+    </nav>
+  </div>
+
+  <main>
     <section id="in-app" hidden>
       <h2>You're in VEIL for Android</h2>
-      <p>This session is anonymous: HTTPS-first, third-party cookies off, trackers stripped, and everything cleared when you close the app. Use <b>Identity</b> to wipe it now, or <b>Tor</b> to check your exit.</p>
-      <div class="row">
-        <a class="btn" href="https://duckduckgo.com/">Search privately</a>
-        <a class="btn ghost" href="https://check.torproject.org/">Am I on Tor?</a>
-      </div>
+      <p class="muted">This session is anonymous: HTTPS-first, third-party cookies off, trackers stripped, and everything cleared when you close the app. Use <b>Identity</b> to wipe it now, or <b>Tor</b> to check your exit.</p>
     </section>
 
     <section id="get">
       <h2>Get VEIL</h2>
       <div class="grid">
-        <div class="stat"><b>Android</b><span class="muted">Private WebView browser, Android 8+</span>
+        <div class="stat"><b>Android</b><span class="muted small">Private browser, Android 8+</span>
           <div class="row"><a class="btn" id="apk-link" href="downloads/veil-browser.apk" download>Download APK</a></div></div>
-        <div class="stat"><b>Chrome</b><span class="muted">Sidebar extension with Tor and VEIL VPN modes</span>
-          <div class="row"><a class="btn ghost" href="downloads/veil-extension.zip" download>Download extension</a></div></div>
+        <div class="stat"><b>Chrome</b><span class="muted small">Sidebar extension with Tor and VEIL VPN modes</span>
+          <div class="row"><a class="btn outline" href="downloads/veil-extension.zip" download>Download extension</a></div></div>
       </div>
-      <p class="muted" style="margin-top:12px">Preview builds. The Android APK is signed with a development key: allow installs from your browser when Android asks.</p>
+      <p class="muted small" style="margin:14px 0 0">Preview builds. The Android APK is signed with a development key: allow installs from your browser when Android asks.</p>
     </section>
 
-    <section>
-      <h2>Connection check</h2>
-      <p>Find out whether this connection leaves through the Tor network. The check runs on the Tor Project's own site.</p>
-      <div class="row">
-        <a class="btn" href="https://check.torproject.org/" rel="noopener">Check my connection</a>
-        <a class="btn ghost" href="https://orbot.app/download/" rel="noopener">Tor on Android: Orbot</a>
-      </div>
-    </section>
-
-    <section>
+    <section id="cleaner">
       <h2>Link cleaner</h2>
-      <p>Paste a link to remove tracking parameters (utm_*, fbclid, gclid and 20 more). It runs on this device; nothing is sent anywhere.</p>
-      <input type="url" id="link-in" placeholder="https://example.com/page?utm_source=newsletter&id=7" aria-label="Link to clean" />
+      <p class="muted">Paste a link to remove tracking parameters (utm_*, fbclid, gclid and 20 more). It runs on this device; nothing is sent anywhere.</p>
+      <input class="field" type="url" id="link-in" placeholder="https://example.com/page?utm_source=newsletter&id=7" aria-label="Link to clean" />
       <div class="row">
         <button class="btn" id="clean-btn">Clean link</button>
-        <button class="btn ghost" id="copy-btn" hidden>Copy</button>
+        <button class="btn outline" id="copy-btn" hidden>Copy</button>
       </div>
       <div class="out" id="link-out" aria-live="polite"></div>
     </section>
 
     <section>
       <h2>$VEIL rewards</h2>
-      <p>Signed-in browsing earns $VEIL for real, human-directed activity. Rewards never need the sites you visit.</p>
+      <p class="muted">Signed-in browsing earns $VEIL for real, human-directed activity. Rewards never need the sites you visit.</p>
       <div class="grid" id="policy">
-        <div class="stat"><b id="p-rate">0.1</b><span class="muted">$VEIL per active minute</span></div>
-        <div class="stat"><b id="p-min">240</b><span class="muted">rewarded minutes a day</span></div>
-        <div class="stat"><b id="p-max">24</b><span class="muted">$VEIL daily maximum</span></div>
+        <div class="stat"><b id="p-rate">0.1</b><span class="muted small">$VEIL per active minute</span></div>
+        <div class="stat"><b id="p-min">240</b><span class="muted small">rewarded minutes a day</span></div>
+        <div class="stat"><b id="p-max">24</b><span class="muted small">$VEIL daily maximum</span></div>
       </div>
-      <table style="margin-top:14px">
+      <table>
         <thead><tr><th>Allocation</th><th>Share</th><th>Tokens</th></tr></thead>
         <tbody>
           <tr><td>Browsing rewards</td><td>50%</td><td>500,000,000</td></tr>
@@ -114,7 +171,7 @@
           <tr><th>Total</th><th>100%</th><th>1,000,000,000</th></tr>
         </tbody>
       </table>
-      <p class="muted" style="margin-top:10px">$VEIL rewards are not income, an investment return or payment for visiting particular sites. $VEIL is not a share in Infinitum Corporation.</p>
+      <p class="muted small" style="margin:12px 0 0">$VEIL rewards are not income, an investment return or payment for visiting particular sites. $VEIL is not a share in Infinitum Corporation.</p>
     </section>
 
     <section>
@@ -128,20 +185,20 @@
         <li>METATRON¹⁰⁰ <span>Dashboard for everything you follow</span></li>
         <li>FIRM Wallet <span>Hold, send and swap Infinitum tokens</span></li>
       </ul>
-      <p class="muted" style="margin-top:10px">Anonymous browsing never connects to them. Signing in is a separate, labeled workspace.</p>
+      <p class="muted small" style="margin:12px 0 0">Anonymous browsing never connects to them. Signing in is a separate, labeled workspace.</p>
     </section>
 
     <section id="privacy">
       <h2>What VEIL can't see</h2>
       <p>Every check runs on your device. VEIL doesn't send your pages, searches, passwords, forms or downloads anywhere, keeps no browsing history, and can't see what you do in other apps or browsers.</p>
-      <p class="muted">The extension and the Android app block ad networks, trackers and data brokers by default, warn about unencrypted or look-alike sites, hold risky downloads and personal-data forms for a tap to confirm, and warn when a protected password is typed on the wrong site.</p>
+      <p class="muted" style="margin:0">The extension and the Android app block ad networks, trackers and data brokers by default, warn about unencrypted or look-alike sites, hold risky downloads and personal-data forms for a tap to confirm, and warn when a protected password is typed on the wrong site.</p>
     </section>
-
-    <footer>
-      <p>VEIL&lt;/&gt;™ · Infinitum Corporation · <span id="build"></span></p>
-      <p>The Android preview routes through Tor with Orbot's VPN mode. A built-in Tor engine is on the roadmap.</p>
-    </footer>
   </main>
+
+  <footer>
+    <p>VEIL&lt;/&gt;™ · Infinitum Corporation · <span id="build"></span></p>
+    <p>The Android preview routes through Tor with Orbot's VPN mode. A built-in Tor engine is on the roadmap.</p>
+  </footer>
   <script src="lib/trackers.js"></script>
   <script src="app.js"></script>
 </body>

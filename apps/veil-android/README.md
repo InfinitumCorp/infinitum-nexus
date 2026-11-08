@@ -43,7 +43,7 @@ unset).
 
 ## Run
 
-Requires Go 1.23.1 or newer.
+Requires Go 1.25.0 or newer (golang.org/x/crypto v0.52.0 declares Go 1.25.0).
 
 ```sh
 cd apps/veil-android/tunnel

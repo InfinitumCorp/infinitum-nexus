@@ -57,7 +57,7 @@ bash apps/veil-desktop/scripts/build-all.sh
 bash apps/veil-desktop/scripts/integration-test.sh
 ```
 
-Go 1.24.6 or newer is required because wireguard-go 0.0.20250522 declares Go 1.23.1. `CGO_ENABLED=0`.
+Go 1.25.0 or newer is required because golang.org/x/crypto v0.52.0 declares Go 1.25.0. `CGO_ENABLED=0`.
 
 Unsigned outputs land in `apps/veil-desktop/artifacts/`:
 

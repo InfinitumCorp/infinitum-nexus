@@ -45,7 +45,12 @@ javac --release 17 -nowarn -cp "$JAR$SEP$DEPS/webkit.jar$SEP$DEPS/core.jar" -d "
 python scripts/add-to-apk.py "$OUT/unsigned.apk" "$OUT/dex/classes.dex"
 python scripts/add-to-apk.py "$OUT/unsigned.apk" assets src/main/assets
 # Tor runs as its own process from the app's native library folder (lib/<abi>/libTor.so).
-python scripts/add-to-apk.py "$OUT/unsigned.apk" lib "$DEPS/lib"
+# VEIL_ABIS picks which CPUs get Tor (default all three); VEIL_ABIS="" builds without Tor,
+# and the app then browses directly and says "Tor off". A trimmed list leaves out
+# x86_64 (emulators, Chromebooks) to stay under Cloudflare's 25 MiB per-file limit.
+mkdir -p "$OUT/lib"
+for abi in ${VEIL_ABIS-arm64-v8a armeabi-v7a x86_64}; do cp -r "$DEPS/lib/$abi" "$OUT/lib/"; done
+python scripts/add-to-apk.py "$OUT/unsigned.apk" lib "$OUT/lib"
 python scripts/add-to-apk.py "$OUT/unsigned.apk" assets/tor "$DEPS/assets"
 
 # 4. Align and sign (debug key; release signing is a separate step).

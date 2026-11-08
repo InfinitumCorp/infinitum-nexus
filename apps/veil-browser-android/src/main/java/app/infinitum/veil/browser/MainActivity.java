@@ -100,6 +100,8 @@ public class MainActivity extends Activity {
 
     // Tor state. Web pages load only when proxyReady && tor.ready().
     final Tor tor = Tor.get();
+    /** True when this APK was built without the Tor binaries (see build.sh VEIL_ABIS). */
+    boolean torOff;
     TextView torBox;
     volatile boolean proxyReady = false;
     /** Set when this phone's WebView can't be pointed at Tor; VEIL then refuses to browse. */
@@ -118,6 +120,7 @@ public class MainActivity extends Activity {
         getWindow().setNavigationBarColor(BG);
         // White bars with dark icons, like the other Infinitum apps.
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
+        torOff = !new java.io.File(getApplicationInfo().nativeLibraryDir, "libTor.so").exists();
         setContentView(wrapWithPanel(buildUi()));
         configureWebView();
 
@@ -125,6 +128,13 @@ public class MainActivity extends Activity {
         if (data != null && Privacy.isWeb(data.toString())) pendingUrl = data.toString();
 
         // Point every WebView at Tor before anything loads, then start Tor.
+        if (torOff) {
+            // Built without Tor (VEIL_ABIS=""): browse directly, and say so in the Tor box.
+            updateTorBox();
+            web.loadUrl(HUB);
+            if (pendingUrl != null) { String u = pendingUrl; pendingUrl = null; open(u); }
+            return;
+        }
         startProxy();
         tor.setListener(this::onTorState);
         tor.start(this);
@@ -156,7 +166,7 @@ public class MainActivity extends Activity {
     }
 
     boolean torReady() {
-        return proxyReady && tor.ready();
+        return torOff || (proxyReady && tor.ready());
     }
 
     void onTorState(int progress, String summary, String error) {
@@ -172,6 +182,12 @@ public class MainActivity extends Activity {
     /** Box right of the address bar: "Tor 45%" while connecting, "● Tor" when connected. */
     void updateTorBox() {
         if (torBox == null) return;
+        if (torOff) {
+            torBox.setText("Tor off");
+            torBox.setTextColor(QUIET);
+            torBox.setContentDescription("This version doesn't use Tor. Tap for details");
+            return;
+        }
         String text;
         int color;
         if (proxyProblem != null || tor.error != null) {
@@ -195,6 +211,13 @@ public class MainActivity extends Activity {
     }
 
     void torTapped() {
+        if (torOff) {
+            new AlertDialog.Builder(this).setTitle("Tor isn't in this version")
+                .setMessage("This version of VEIL connects directly, not over Tor. Built-in Tor is coming in the next update. You can check this connection on the Tor Project's site.")
+                .setPositiveButton("Check connection", (d, w) -> open(TOR_CHECK))
+                .setNegativeButton("OK", null).show();
+            return;
+        }
         if (proxyProblem != null) {
             new AlertDialog.Builder(this).setTitle("Tor is unavailable").setMessage(proxyProblem)
                 .setPositiveButton("OK", null).show();
@@ -777,7 +800,7 @@ public class MainActivity extends Activity {
             + "• Trackers and ads blocked: " + blocked + " on this page, " + blockedSession + " this session\n"
             + "• Tracking parameters stripped: " + stripped + " this session\n"
             + "• HTTPS-first, certificate errors blocked\n"
-            + "• " + (torReady() ? "Every page goes over Tor (built in)" : "Tor: " + (tor.error != null || proxyProblem != null ? "not connected, pages blocked" : "connecting, " + tor.progress + "%")) + "\n"
+            + "• " + (torOff ? "Tor: not in this version (direct connection)" : torReady() ? "Every page goes over Tor (built in)" : "Tor: " + (tor.error != null || proxyProblem != null ? "not connected, pages blocked" : "connecting, " + tor.progress + "%")) + "\n"
             + "• Third-party cookies off\n"
             + "• Nothing kept after you close VEIL\n"
             + "• Screenshots of pages blocked\n\n"

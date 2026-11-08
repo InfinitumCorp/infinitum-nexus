@@ -1,7 +1,2 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="112" fill="#141619"/>
-  <circle cx="150" cy="200" r="30" fill="#fff"/>
-  <circle cx="150" cy="312" r="30" fill="#fff"/>
-  <rect x="226" y="136" width="44" height="240" rx="22" fill="#fff" transform="rotate(22 248 256)"/>
-  <rect x="318" y="136" width="44" height="240" rx="22" fill="#fff" transform="rotate(22 340 256)"/>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" rx="0" fill="#fff"/><g fill="#000" transform="translate(256 256) scale(1.0) translate(-256 -256)"><circle cx="150" cy="200" r="30"/><circle cx="150" cy="312" r="30"/>
+<path d="M284.7 165.2L211.3 346.8M376.7 165.2L303.3 346.8" fill="none" stroke="#000" stroke-width="44" stroke-linecap="round"/></g></svg>

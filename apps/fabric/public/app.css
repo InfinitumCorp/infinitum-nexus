@@ -20,7 +20,8 @@ body {
   color: var(--ink);
 }
 
-header, #signed-out, .layout { width: min(1080px, calc(100% - 2rem)); margin-inline: auto; }
+header, #signed-out, .layout, footer.firm { width: min(1080px, calc(100% - 2rem)); margin-inline: auto; }
+footer.firm { padding: 1.5rem 0 2rem; }
 
 header {
   display: flex;

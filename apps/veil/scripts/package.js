@@ -17,6 +17,8 @@ export const EXTENSION_FILES = [
   "popup.js",
   "sidebar.html",
   "sidebar.js",
+  "firm-suite.js",
+  "firm-suite.css",
   "lib/ask.js",
   "lib/build.js",
   "lib/browser-proxy.js",

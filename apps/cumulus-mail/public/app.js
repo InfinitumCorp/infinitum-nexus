@@ -717,12 +717,7 @@ function walletView() {
   const input = (label, key, attrs = {}) => el("label", { class: "field" }, [el("span", {}, [label]), el("input", { "aria-label": label, ...attrs, onInput: (event) => { form[key] = event.target.value.trim(); } })]);
   const asset = el("select", { "aria-label": "Asset", onChange: (event) => { form.asset = event.target.value; } }, ["USDC", "FIRM"].map((a) => el("option", { value: a }, [a])));
   return el("section", { class: "pane" }, [el("div", { class: "sheet" }, [
-    el("p", { class: "sub" }, ["FIRM Wallet · included with your Cumulus://ID"]),
-    el("div", { class: "stat-row" }, [
-      el("div", { class: "stat" }, [el("b", { class: "big" }, [w.balances.USDC]), el("span", {}, ["USDC"])]),
-      el("div", { class: "stat" }, [el("b", { class: "big" }, [w.balances.FIRM]), el("span", {}, ["FIRM"])]),
-    ]),
-    el("p", { class: "mono muted" }, [w.address]),
+    el("firm-suite", { product: "cumulus-mail", wallet: JSON.stringify({ address: w.address, balances: w.balances }) }),
     el("form", { class: "wallet-form", onSubmit: (event) => {
       event.preventDefault();
       if (!form.to || !form.amount) { state.error = "Add who to pay and how much."; render(); return; }

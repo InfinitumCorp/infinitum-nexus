@@ -23,6 +23,28 @@
     $("mode-chip").textContent = "Anonymous session";
   }
 
+  // Search box: an address opens with trackers removed; anything else searches DuckDuckGo.
+  // Navigates from script because the CSP sets form-action 'none'.
+  function looksLikeAddress(s) {
+    return /^[a-z][a-z0-9+.-]*:\/\//i.test(s) || (/^[^\s]+\.[a-z]{2,}(?:[:/?#][^\s]*)?$/i.test(s));
+  }
+  $("omni").addEventListener("keydown", function (e) {
+    if (e.key !== "Enter") return;
+    var q = $("omni").value.trim();
+    if (!q) return;
+    if (looksLikeAddress(q)) {
+      var href = /^[a-z][a-z0-9+.-]*:\/\//i.test(q) ? q : "https://" + q;
+      try {
+        var u = new URL(href);
+        if (u.protocol === "https:" || u.protocol === "http:") {
+          location.href = stripTrackers(u.toString()) || u.toString();
+          return;
+        }
+      } catch (err) { /* not a URL: search it */ }
+    }
+    location.href = "https://duckduckgo.com/?q=" + encodeURIComponent(q);
+  });
+
   $("clean-btn").addEventListener("click", function () {
     var raw = $("link-in").value.trim();
     var out = $("link-out");

@@ -55,13 +55,13 @@ public class MainActivity extends Activity {
     static final String TOR_CHECK = "https://check.torproject.org/";
     static final String ORBOT = "org.torproject.android";
 
-    static final int BG = Color.parseColor("#0a0a0a");
-    static final int CARD = Color.parseColor("#151515");
-    static final int LINE = Color.parseColor("#262626");
-    static final int FG = Color.parseColor("#f5f5f5");
-    static final int MUTED = Color.parseColor("#8a8a8a");
-    static final int GOOD = Color.parseColor("#4ade80");
-    static final int BAD = Color.parseColor("#f87171");
+    static final int BG = Color.parseColor("#ffffff");
+    static final int CARD = Color.parseColor("#f4f4f4");
+    static final int LINE = Color.parseColor("#ececec");
+    static final int FG = Color.parseColor("#141619");
+    static final int MUTED = Color.parseColor("#6b6b6b");
+    static final int GOOD = Color.parseColor("#1a7f37");
+    static final int BAD = Color.parseColor("#c62828");
 
     /** What VEIL can't see. Same statement as the extension and the web app. */
     static final String PRIVACY_STATEMENT = "Every check runs on this phone. VEIL doesn't send your pages, searches, passwords, forms or downloads anywhere, keeps no browsing history, and can't see what you do in other apps.";
@@ -89,6 +89,8 @@ public class MainActivity extends Activity {
         getWindow().setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE);
         getWindow().setStatusBarColor(BG);
         getWindow().setNavigationBarColor(BG);
+        // White bars with dark icons, like the other Infinitum apps.
+        getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
         setContentView(buildUi());
         configureWebView();
 
@@ -118,7 +120,7 @@ public class MainActivity extends Activity {
         b.setAllCaps(false);
         b.setTextColor(FG);
         b.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
-        b.setBackground(rounded(BG, 0, 8));
+        b.setBackground(rounded(BG, 0, 999));
         b.setPadding(0, 0, 0, 0);
         b.setMinWidth(0);
         b.setMinimumWidth(0);
@@ -143,11 +145,11 @@ public class MainActivity extends Activity {
         shield = new TextView(this);
         shield.setText("VEIL");
         shield.setContentDescription("VEIL privacy status");
-        shield.setTextColor(GOOD);
+        shield.setTextColor(FG);
         shield.setTypeface(Typeface.DEFAULT_BOLD);
         shield.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         shield.setPadding(dp(10), dp(6), dp(10), dp(6));
-        shield.setBackground(rounded(CARD, LINE, 999));
+        shield.setBackground(rounded(CARD, 0, 999));
         shield.setOnClickListener(v -> showPrivacy());
         top.addView(shield);
 
@@ -161,8 +163,8 @@ public class MainActivity extends Activity {
         address.setSelectAllOnFocus(true);
         address.setImeOptions(EditorInfo.IME_ACTION_GO);
         address.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_URI);
-        address.setBackground(rounded(CARD, LINE, 10));
-        address.setPadding(dp(12), dp(10), dp(12), dp(10));
+        address.setBackground(rounded(CARD, 0, 999));
+        address.setPadding(dp(16), dp(10), dp(16), dp(10));
         LinearLayout.LayoutParams alp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
         alp.leftMargin = dp(8);
         address.setLayoutParams(alp);
@@ -181,7 +183,7 @@ public class MainActivity extends Activity {
 
         progress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
         progress.setMax(100);
-        progress.setProgressTintList(android.content.res.ColorStateList.valueOf(GOOD));
+        progress.setProgressTintList(android.content.res.ColorStateList.valueOf(FG));
         progress.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(3)));
         root.addView(progress);
 
@@ -300,7 +302,7 @@ public class MainActivity extends Activity {
     void showShield() {
         boolean insecure = Privacy.isInsecure(web.getUrl());
         shield.setText(blocked > 0 ? "VEIL " + blocked : "VEIL");
-        shield.setTextColor(insecure ? BAD : GOOD);
+        shield.setTextColor(insecure ? BAD : FG);
         shield.setContentDescription(insecure ? "VEIL: this page is not encrypted"
             : "VEIL privacy status, " + blocked + " trackers blocked on this page");
     }

@@ -2,7 +2,8 @@ import { useState } from "preact/hooks";
 import { isAddress } from "viem";
 import { CHAINS, type ChainKey, type TokenInfo } from "../../core/config.ts";
 import { isSolanaAddress } from "../../core/keys.ts";
-import { kvDelete, unseal } from "../../core/vault.ts";
+import { kvDelete, removeDeviceVault, unseal } from "../../core/vault.ts";
+import { DataSharingCard, DeviceUnlockCard, InstallCard } from "../cards.tsx";
 import { errorText, lock, requestApproval, savePrefs, toast, useStore } from "../store.ts";
 import { Copy, Field, Seg } from "../kit.tsx";
 
@@ -47,6 +48,9 @@ export function SettingsScreen() {
           <p class="small muted">Solana</p>
           <div class="row between"><span class="mono">{session!.sol.address}</span><Copy text={session!.sol.address} /></div>
         </section>
+
+        <DeviceUnlockCard />
+        <InstallCard />
 
         <section class="card stack">
           <h3>Recovery phrase</h3>
@@ -93,6 +97,8 @@ export function SettingsScreen() {
           ))}
         </section>
 
+        <DataSharingCard />
+
         <section class="card stack">
           <h3>Lock and remove</h3>
           <button class="btn block" onClick={lock}>Lock now</button>
@@ -100,6 +106,7 @@ export function SettingsScreen() {
             const ok = await requestApproval({ title: "Remove this wallet from this device", details: [["What's deleted", "The encrypted wallet on this device and its settings"], ["Your funds", "Stay on chain. Restore them with your recovery phrase."]], warning: "Without your recovery phrase you can't get back in. Make sure you have it first.", confirmLabel: "Remove from this device" });
             if (!ok) return;
             await kvDelete("vault");
+            await removeDeviceVault();
             await kvDelete("prefs");
             lock();
             location.reload();

@@ -1,6 +1,7 @@
-import { useMemo, useState } from "preact/hooks";
+import { useEffect, useMemo, useState } from "preact/hooks";
 import { isValidPhrase, newRecoveryPhrase, normalizePhrase } from "../../core/keys.ts";
 import { checkPassword, saveVault, seal, unseal } from "../../core/vault.ts";
+import { deviceUnlockAvailable, unlockWithDevice } from "../../core/device-unlock.ts";
 import { errorText, setVault, unlockWith, useStore } from "../store.ts";
 import { Field } from "../kit.tsx";
 
@@ -124,10 +125,23 @@ function SetPassword({ busy, onSubmit }: { busy: boolean; onSubmit: (pw: string)
 }
 
 export function Unlock() {
-  const { vault } = useStore();
+  const { vault, deviceVault } = useStore();
   const [pw, setPw] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  const [canDevice, setCanDevice] = useState(false);
+  useEffect(() => void deviceUnlockAvailable().then(setCanDevice), []);
+  const withDevice = async () => {
+    setBusy(true);
+    setErr("");
+    try {
+      unlockWith(await unlockWithDevice(deviceVault!));
+    } catch (x) {
+      if (errorText(x) !== "Cancelled.") setErr(errorText(x));
+    } finally {
+      setBusy(false);
+    }
+  };
   return (
     <div class="center"><form class="narrow stack" onSubmit={async (e) => {
       e.preventDefault();
@@ -144,9 +158,15 @@ export function Unlock() {
     }}>
       <p class="eyebrow">$FIRM Wallet™</p>
       <h1>Unlock</h1>
-      <Field label="Password"><input type="password" autocomplete="current-password" autofocus value={pw} onInput={(e) => setPw((e.target as HTMLInputElement).value)} /></Field>
+      {deviceVault && canDevice && (
+        <>
+          <button class="btn solid block" type="button" disabled={busy} onClick={withDevice}>Unlock with fingerprint or face</button>
+          <p class="small muted center-text">or use your password</p>
+        </>
+      )}
+      <Field label="Password"><input type="password" autocomplete="current-password" autofocus={!deviceVault} value={pw} onInput={(e) => setPw((e.target as HTMLInputElement).value)} /></Field>
       {err && <p class="small down">{err}</p>}
-      <button class="btn solid block" type="submit" disabled={busy || !pw}>{busy ? "Unlocking…" : "Unlock"}</button>
+      <button class={`btn block ${deviceVault && canDevice ? "" : "solid"}`} type="submit" disabled={busy || !pw}>{busy ? "Unlocking…" : "Unlock"}</button>
       <p class="small muted">Forgot it? Restore with your recovery phrase from Settings after you remove this wallet, or on a new device.</p>
     </form></div>
   );

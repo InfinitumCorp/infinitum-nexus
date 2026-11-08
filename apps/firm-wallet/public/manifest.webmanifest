@@ -1,4 +1,5 @@
 {
+  "id": "/",
   "name": "$FIRM Wallet",
   "short_name": "FIRM Wallet",
   "description": "Self-custody wallet for Ethereum, Base and Solana with a built-in Infinitum Nexus swap.",

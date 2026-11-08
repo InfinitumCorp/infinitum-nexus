@@ -15,6 +15,7 @@ import { Onboarding, Unlock } from "../ui/screens/Onboarding.tsx";
 import { SwapScreen } from "../ui/screens/Swap.tsx";
 import { MarketsGate } from "../ui/screens/Markets.tsx";
 import { Deposit } from "../ui/screens/Perps.tsx";
+import { DeviceUnlockCard, InstallCard } from "../ui/cards.tsx";
 import * as tg from "./telegram.ts";
 
 type Tab = "trade" | "swap" | "portfolio" | "wallet";
@@ -74,7 +75,7 @@ export function MiniApp() {
   if (!st.ready) return <div class="center"><p class="muted">Loading…</p></div>;
 
   let body;
-  if (!st.vault) body = <Onboarding />;
+  if (!st.vault) body = <>{tg.inTelegram && <TelegramNote />}<Onboarding /></>;
   else if (!st.session) body = <Unlock />;
   else body = (
     <MarketsGate>
@@ -416,8 +417,20 @@ function WalletTab() {
         <span class="eyebrow">Fund trading</span>
         <Deposit onDone={() => {}} />
       </section>
+      <DeviceUnlockCard />
+      <InstallCard />
       <a class="btn block" href="/">Open the full $FIRM Wallet™</a>
       <p class="small muted">Self-custody: your keys stay on this device, encrypted with your password. Telegram and Infinitum never see them. Keep your recovery phrase offline.</p>
     </div>
+  );
+}
+
+/** Telegram keeps its own storage, apart from the phone's browser: say so before the first wallet. */
+function TelegramNote() {
+  return (
+    <p class="note">
+      Telegram keeps its own storage, separate from your phone's browser. If you already use $FIRM Wallet™ elsewhere, choose
+      "I have a recovery phrase": the same phrase gives the same addresses and funds here.
+    </p>
   );
 }

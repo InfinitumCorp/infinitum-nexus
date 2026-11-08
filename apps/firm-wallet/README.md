@@ -9,7 +9,7 @@ Self-custody wallet for Ethereum, Base, Arbitrum and Solana, with the Infinitum 
 ```bash
 pnpm install                       # from the monorepo root
 pnpm --filter @infinitum/firm-wallet dev        # http://localhost:5178
-pnpm --filter @infinitum/firm-wallet test       # 53 tests (keys, vault, Solana tx, Hyperliquid signing, Nexus origins, prediction markets, mini app…)
+pnpm --filter @infinitum/firm-wallet test       # 59 tests (keys, vault, device unlock, Solana tx, Hyperliquid signing, Nexus origins, prediction markets, mini app, data sharing…)
 pnpm --filter @infinitum/firm-wallet build      # typecheck + production build into dist/
 pnpm --filter @infinitum/firm-wallet deploy:check  # Worker bundle dry run (no deploy)
 ```
@@ -22,6 +22,9 @@ Conjure Markets lives in `packages/conjure/src/markets.ts` (9 tests: `node --tes
 |---|---|---|
 | Keys | BIP-39 phrase; Ethereum/Base/Arbitrum at `m/44'/60'/0'/0/0`; Solana at `m/44'/501'/0'/0'` (SLIP-0010). Tested against published vectors. | `src/core/keys.ts` |
 | Vault | Phrase encrypted on the device: PBKDF2-SHA256 (600k) → AES-256-GCM, stored in IndexedDB. Keys live in memory only while unlocked; auto-lock after idle. | `src/core/vault.ts`, `src/ui/store.ts` |
+| Fingerprint / face unlock | Optional, per device. A passkey made on the phone's own authenticator (secure hardware) returns a 32-byte secret through the WebAuthn PRF extension only after a fingerprint, face or screen-lock check; HKDF-SHA256 turns it into an AES-256-GCM key for a second copy of the phrase. No server, nothing sent; the password keeps working. Shown only where the browser supports it. | `src/core/device-unlock.ts`, `vault.ts`, `ui/cards.tsx` |
+| Install | Settings and the mini app's Wallet tab offer "Install" where the browser can (Android Chrome) and Share → Add to Home Screen on iPhone. The full wallet and `/mini` install as separate home-screen apps. | `src/ui/install.ts`, `public/*.webmanifest` |
+| Data exchange (opt-in, in development) | Product-by-product checkboxes for pooling de-identified usage data (pools of 1,000+, the person keeps 85%). Off by default; Global Privacy Control turns every product off; military editions are never offered; messages, documents, prompts, precise location and biometrics are never sold. Choices stay on the device until the exchange opens. | `src/core/data-sharing.ts`, `ui/cards.tsx` |
 | Send / receive | Native coins and ERC-20 (viem); SOL, SPL and Token-2022 transfers built and signed in-house, creating the recipient's token account when needed. QR receive. | `src/core/evm.ts`, `src/core/solana.ts` |
 | Wrapped crypto | WETH, WBTC, cbBTC, wSOL. One-tap ETH ⇄ WETH through the WETH contract; wSOL handled by Jupiter swaps. | `src/core/config.ts`, `evm.ts` |
 | Swap | EVM: Uniswap V2 routers, checking direct, via $FIRM™ and via USDC paths and taking the best. Solana: Jupiter. Approvals are exact-amount, never unlimited. | `evm.ts`, `solana.ts`, `ui/screens/Swap.tsx` |
@@ -44,6 +47,8 @@ No bot server is needed: the mini app talks to Telegram in the browser, and keys
 1. In Telegram, open @BotFather, send `/newbot` and follow the steps.
 2. Send `/newapp` (or `/setmenubutton`) to that bot and give it `https://<wallet domain>/mini`.
 3. Open the bot and tap the button. On first open, create or import a wallet; it's stored encrypted on that device.
+
+Telegram's in-app browser keeps its own storage, separate from Chrome or Safari, so a wallet made in Telegram lives in Telegram on that phone (the mini app says so before onboarding). To use the same wallet in both, import the recovery phrase in each.
 
 Phones and Telegram Desktop open it in a webview; Telegram Web frames it, which the Worker allows for `/mini` from `https://web.telegram.org` only.
 

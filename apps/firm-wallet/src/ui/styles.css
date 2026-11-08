@@ -151,3 +151,4 @@ table.book td:first-child { background-repeat: no-repeat; background-position: l
 .mini .grid.two { grid-template-columns: 1fr; }
 /* Inside Telegram the native bottom button sits under the page. */
 .tg .mini { padding-bottom: calc(72px + env(safe-area-inset-bottom)); }
+.center-text { text-align: center; }

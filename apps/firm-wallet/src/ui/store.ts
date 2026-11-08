@@ -6,7 +6,7 @@ import { useEffect, useState } from "preact/hooks";
 import type { HDAccount } from "viem/accounts";
 import { DEFAULT_MODE, type NetworkMode, type TokenInfo } from "../core/config.ts";
 import { evmAccount, solanaKeypair, type SolanaKeypair } from "../core/keys.ts";
-import { kvGet, kvSet, loadVault, type SealedVault } from "../core/vault.ts";
+import { kvGet, kvSet, loadDeviceVault, loadVault, type DeviceVault, type SealedVault } from "../core/vault.ts";
 import type { Connection } from "../core/connect.ts";
 import type { PriceAlert, WatchedEvent } from "../core/predictions.ts";
 
@@ -22,11 +22,13 @@ export interface Prefs {
   predictionWatch: WatchedEvent[];
   /** Price alerts on prediction-market outcomes, checked while the Predict screen is open. */
   predictionAlerts: PriceAlert[];
+  /** Data exchange opt-ins by product id (all off unless chosen; GPC overrides). */
+  dataSharing: Record<string, boolean>;
 }
 
 const DEFAULT_PREFS: Prefs = {
   mode: DEFAULT_MODE, marketsAcknowledged: false, connections: [], customTokens: [], autoLockMinutes: 10, slippageBps: 50,
-  predictionWatch: [], predictionAlerts: [],
+  predictionWatch: [], predictionAlerts: [], dataSharing: {},
 };
 
 export interface Session {
@@ -44,13 +46,15 @@ export interface ApprovalRequest {
 interface State {
   ready: boolean;
   vault: SealedVault | null;
+  /** Fingerprint / face unlock for this device, if turned on. */
+  deviceVault: DeviceVault | null;
   session: Session | null;
   prefs: Prefs;
   approval: (ApprovalRequest & { resolve: (ok: boolean) => void }) | null;
   toast: { text: string; kind: "ok" | "err" } | null;
 }
 
-let state: State = { ready: false, vault: null, session: null, prefs: DEFAULT_PREFS, approval: null, toast: null };
+let state: State = { ready: false, vault: null, deviceVault: null, session: null, prefs: DEFAULT_PREFS, approval: null, toast: null };
 const listeners = new Set<() => void>();
 const emit = () => listeners.forEach((l) => l());
 
@@ -74,8 +78,10 @@ export function useStore(): State {
 }
 
 export async function boot() {
-  const [vault, prefs] = await Promise.all([loadVault().catch(() => undefined), kvGet<Prefs>("prefs").catch(() => undefined)]);
-  set({ ready: true, vault: vault ?? null, prefs: { ...DEFAULT_PREFS, ...prefs } });
+  const [vault, device, prefs] = await Promise.all([
+    loadVault().catch(() => undefined), loadDeviceVault().catch(() => undefined), kvGet<Prefs>("prefs").catch(() => undefined),
+  ]);
+  set({ ready: true, vault: vault ?? null, deviceVault: device ?? null, prefs: { ...DEFAULT_PREFS, ...prefs } });
 }
 
 export async function savePrefs(patch: Partial<Prefs>) {
@@ -86,6 +92,10 @@ export async function savePrefs(patch: Partial<Prefs>) {
 
 export function setVault(vault: SealedVault) {
   set({ vault });
+}
+
+export function setDeviceVault(deviceVault: DeviceVault | null) {
+  set({ deviceVault });
 }
 
 let lockTimer: ReturnType<typeof setTimeout> | undefined;

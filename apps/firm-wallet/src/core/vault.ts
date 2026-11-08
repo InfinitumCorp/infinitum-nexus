@@ -60,6 +60,53 @@ export async function unseal(vault: SealedVault, password: string): Promise<stri
   }
 }
 
+/* ---------- Unlock with the device (passkey + WebAuthn PRF) ---------- */
+
+/**
+ * A second copy of the phrase, encrypted under a secret that only the device's authenticator can
+ * produce, after a fingerprint, face or screen-lock check (WebAuthn "prf" extension). On phones the
+ * authenticator lives in the secure hardware (TEE / Secure Enclave). There's no server: the
+ * passkey is used only to unlock this device, and the password still works.
+ */
+export interface DeviceVault {
+  v: 1;
+  credentialId: string; // base64
+  prfSalt: string; // base64, what the authenticator is asked to evaluate
+  iv: string;
+  data: string;
+  createdAt: string;
+}
+
+async function keyFromSecret(secret: Uint8Array, prfSalt: Uint8Array): Promise<CryptoKey> {
+  const base = await crypto.subtle.importKey("raw", secret as BufferSource, "HKDF", false, ["deriveKey"]);
+  return crypto.subtle.deriveKey(
+    { name: "HKDF", hash: "SHA-256", salt: prfSalt as BufferSource, info: enc.encode("firm-wallet device unlock v1") },
+    base,
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["encrypt", "decrypt"],
+  );
+}
+
+export async function sealWithSecret(phrase: string, secret: Uint8Array, credentialId: Uint8Array, prfSalt: Uint8Array): Promise<DeviceVault> {
+  if (secret.length < 32) throw new VaultError("This device didn't return a usable secret.");
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const key = await keyFromSecret(secret, prfSalt);
+  const data = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, enc.encode(phrase)));
+  return { v: 1, credentialId: b64(credentialId), prfSalt: b64(prfSalt), iv: b64(iv), data: b64(data), createdAt: new Date().toISOString() };
+}
+
+export async function unsealWithSecret(vault: DeviceVault, secret: Uint8Array): Promise<string> {
+  const key = await keyFromSecret(secret, unb64(vault.prfSalt));
+  try {
+    return dec.decode(await crypto.subtle.decrypt({ name: "AES-GCM", iv: unb64(vault.iv) as BufferSource }, key, unb64(vault.data) as BufferSource));
+  } catch {
+    throw new VaultError("This device couldn't unlock the wallet. Use your password.");
+  }
+}
+
+export const deviceVaultIds = (v: DeviceVault) => ({ credentialId: unb64(v.credentialId), prfSalt: unb64(v.prfSalt) });
+
 /* ---------- Storage (IndexedDB, device only) ---------- */
 
 const DB = "firm-wallet";
@@ -105,3 +152,6 @@ export async function kvDelete(key: string): Promise<void> {
 
 export const loadVault = () => kvGet<SealedVault>("vault");
 export const saveVault = (v: SealedVault) => kvSet("vault", v);
+export const loadDeviceVault = () => kvGet<DeviceVault>("vault-device");
+export const saveDeviceVault = (v: DeviceVault) => kvSet("vault-device", v);
+export const removeDeviceVault = () => kvDelete("vault-device");

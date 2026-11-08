@@ -11,6 +11,7 @@ import { chromeManifest, firefoxManifest } from "./manifests.js";
 const root = fileURLToPath(new URL("../", import.meta.url));
 
 export const EXTENSION_FILES = [
+  "THIRD_PARTY_NOTICES.md",
   "background.js",
   "content.js",
   "popup.html",

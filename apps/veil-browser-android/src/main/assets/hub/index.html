@@ -39,7 +39,7 @@
     .nav-link:hover::after, .nav-link:focus-visible::after, .nav-link[aria-expanded="true"]::after,
     .signin:hover::after, .signin:focus-visible::after { transform: scaleX(1); }
     .apps-menu { position: relative; }
-    .apps-panel { position: absolute; top: 40px; right: -12px; z-index: 10; width: 300px; display: flex; flex-direction: column; padding: 8px; background: #fff; border: 1px solid var(--rule); border-radius: 4px; box-shadow: 0 8px 28px rgba(17, 24, 32, .12); }
+    .apps-panel { position: absolute; top: 40px; left: -12px; z-index: 10; width: 300px; display: flex; flex-direction: column; padding: 8px; background: #fff; border: 1px solid var(--rule); border-radius: 4px; box-shadow: 0 8px 28px rgba(17, 24, 32, .12); }
     .menu-app { display: flex; flex-direction: column; gap: 1px; padding: 9px 12px; border-radius: 3px; text-decoration: none; }
     .menu-app:hover, .menu-app:focus-visible { background: var(--hover); }
     .menu-app-name { font-size: 14px; }
@@ -82,7 +82,7 @@
     @media (max-width: 560px) {
       .topbar { padding-left: 12px; padding-right: 12px; gap: 6px; }
       .top-links { gap: 16px; }
-      .apps-panel { width: min(300px, 100vw - 16px); }
+      .apps-panel { position: fixed; top: calc(52px + env(safe-area-inset-top, 0px)); left: 8px; right: 8px; width: auto; }
       .apps { gap: 2px 18px; }
       footer { justify-content: flex-start; }
     }
@@ -90,10 +90,9 @@
 </head>
 <body>
   <header class="topbar">
-    <a class="brand" href="./">VEIL&lt;/&gt;<sup>™</sup></a>
+    <a class="brand" id="brand" href="./">VEIL&lt;/&gt;<sup>™</sup></a>
     <span class="spacer"></span>
     <nav class="top-links" aria-label="Infinitum">
-      <a class="nav-link" id="mail" href="https://infinitumcorporation.ai/products/cumulus-exchange#mail" rel="noreferrer">Cumulus://Mail</a>
       <div class="apps-menu">
         <button type="button" class="nav-link" id="apps-button" aria-haspopup="true" aria-expanded="false" aria-controls="apps-panel">Apps</button>
         <div class="apps-panel" id="apps-panel" role="menu" aria-label="Infinitum apps" hidden>
@@ -106,6 +105,7 @@
           <a class="menu-app" role="menuitem" href="https://infinitumcorporation.ai/products/scalus" rel="noreferrer"><span class="menu-app-name">SCALVS.ai™</span><span class="menu-app-summary">AI workforce platform</span></a>
         </div>
       </div>
+      <a class="nav-link" id="mail" href="https://infinitumcorporation.ai/products/cumulus-exchange#mail" rel="noreferrer">Cumulus://Mail</a>
       <a class="signin" id="signin" href="https://infinitumcorporation.ai/products/cumulus-id" rel="noreferrer">Sign In</a>
     </nav>
   </header>
@@ -138,6 +138,7 @@
   <nav class="apps" aria-label="Infinitum apps">
     <a class="app-link" href="https://infinitumcorporation.ai/products/architect" rel="noreferrer">:\ARCHITCT\™</a>
     <a class="app-link" href="https://infinitumcorporation.ai/products/scalus" rel="noreferrer">SCALVS.ai™</a>
+    <a class="app-link" href="https://infinitumfabric.app/" rel="noreferrer">FABRIC++™</a>
   </nav>
   <footer>
     <span>AI-powered. Blockchain-governed™.</span>

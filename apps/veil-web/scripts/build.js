@@ -1,7 +1,7 @@
 /**
  * Generate the VEIL web app's derived files from the extension's sources:
  *   public/lib/trackers.js   tracker list from apps/veil/lib/privacy.js
- *   public/icons/*.png       icons from the icon.svg design
+ *   public/icons/*.png       icons: VEIL Phase I brand icon (scripts/brand-icon.js)
  *   public/build.js          build stamp
  *   node apps/veil-web/scripts/build.js
  */
@@ -9,7 +9,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { TRACKERS } from "../../veil/lib/privacy.js";
-import { render } from "../../veil/scripts/make-icons.js";
+import { render } from "./brand-icon.js";
 
 const pub = fileURLToPath(new URL("../public/", import.meta.url));
 mkdirSync(`${pub}lib`, { recursive: true });

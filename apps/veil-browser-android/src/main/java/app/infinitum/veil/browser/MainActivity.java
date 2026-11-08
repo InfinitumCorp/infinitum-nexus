@@ -150,6 +150,33 @@ public class MainActivity extends Activity {
         return b;
     }
 
+    /** Fixed 36dp round button for the toolbar, grey circle when pressed (Chrome style). */
+    Button iconButton(String glyph, String description, View.OnClickListener onClick) {
+        Button b = toolButton(glyph, description, onClick);
+        b.setTextSize(TypedValue.COMPLEX_UNIT_SP, 22);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(36), dp(36));
+        b.setLayoutParams(lp);
+        return b;
+    }
+
+    void showMenu(View anchor) {
+        android.widget.PopupMenu m = new android.widget.PopupMenu(this, anchor);
+        m.getMenu().add(0, 1, 0, "Home");
+        m.getMenu().add(0, 2, 1, "Check Tor");
+        m.getMenu().add(0, 3, 2, "New identity");
+        m.getMenu().add(0, 4, 3, "Privacy");
+        m.setOnMenuItemClickListener(item -> {
+            switch (item.getItemId()) {
+                case 1: web.loadUrl(HUB); return true;
+                case 2: torCheck(); return true;
+                case 3: confirmNewIdentity(); return true;
+                case 4: showPrivacy(); return true;
+            }
+            return false;
+        });
+        m.show();
+    }
+
     View rule() {
         View v = new View(this);
         v.setBackgroundColor(RULE);
@@ -163,18 +190,25 @@ public class MainActivity extends Activity {
         root.setBackgroundColor(BG);
         root.setFitsSystemWindows(true);
 
-        // Top bar: one grey pill (the omnibox) holding the white "Anonymous" chip and the address field.
+        // Chrome-style toolbar: back, forward, reload, the omnibox (grey pill with the
+        // white "Anonymous" chip), then the overflow menu.
         LinearLayout top = new LinearLayout(this);
         top.setOrientation(LinearLayout.HORIZONTAL);
         top.setGravity(Gravity.CENTER_VERTICAL);
-        top.setPadding(dp(10), dp(6), dp(10), dp(6));
+        top.setPadding(dp(4), dp(6), dp(2), dp(6));
+        top.addView(iconButton("‹", "Back", v -> { if (web.canGoBack()) web.goBack(); }));
+        top.addView(iconButton("›", "Forward", v -> { if (web.canGoForward()) web.goForward(); }));
+        top.addView(iconButton("↻", "Reload", v -> web.reload()));
 
         LinearLayout omni = new LinearLayout(this);
         omni.setOrientation(LinearLayout.HORIZONTAL);
         omni.setGravity(Gravity.CENTER_VERTICAL);
         omni.setBackground(rounded(OMNI, 0, 20));
         omni.setPadding(dp(5), 0, dp(6), 0);
-        omni.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(40)));
+        LinearLayout.LayoutParams olp = new LinearLayout.LayoutParams(0, dp(40), 1f);
+        olp.leftMargin = dp(4);
+        olp.rightMargin = dp(2);
+        omni.setLayoutParams(olp);
 
         shield = new TextView(this);
         shield.setContentDescription("VEIL privacy status");
@@ -197,7 +231,7 @@ public class MainActivity extends Activity {
 
         address = new EditText(this);
         address.setSingleLine(true);
-        address.setHint("Search privately or enter address");
+        address.setHint("Search or type URL");
         address.setContentDescription("Address bar");
         address.setHintTextColor(QUIET);
         address.setTextColor(FG);
@@ -220,7 +254,12 @@ public class MainActivity extends Activity {
         });
         omni.addView(address);
         top.addView(omni);
+        View menuButton = iconButton("⋮", "More options", null);
+        menuButton.setOnClickListener(v -> showMenu(menuButton));
+        top.addView(menuButton);
         root.addView(top);
+
+        root.addView(rule());
 
         progress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
         progress.setMax(100);
@@ -234,20 +273,6 @@ public class MainActivity extends Activity {
         web.setBackgroundColor(BG);
         root.addView(web);
 
-        // Bottom toolbar: round buttons under a hairline rule.
-        root.addView(rule());
-        LinearLayout bar = new LinearLayout(this);
-        bar.setOrientation(LinearLayout.HORIZONTAL);
-        bar.setGravity(Gravity.CENTER_VERTICAL);
-        bar.setPadding(dp(6), dp(2), dp(6), dp(2));
-        bar.setBackgroundColor(BG);
-        bar.addView(toolButton("‹", "Back", v -> { if (web.canGoBack()) web.goBack(); }));
-        bar.addView(toolButton("›", "Forward", v -> { if (web.canGoForward()) web.goForward(); }));
-        bar.addView(toolButton("↻", "Reload", v -> web.reload()));
-        bar.addView(toolButton("Tor", "Check Tor", v -> torCheck()));
-        bar.addView(toolButton("Identity", "New Identity", v -> confirmNewIdentity()));
-        bar.addView(toolButton("Home", "VEIL home", v -> web.loadUrl(HUB)));
-        root.addView(bar);
         return root;
     }
 

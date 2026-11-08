@@ -6,7 +6,7 @@
 import { cpSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { render } from "../../veil/scripts/make-icons.js";
+import { render } from "../../veil-web/scripts/brand-icon.js";
 import { BLOCKED_HOSTS } from "../../veil/lib/blocklist.js";
 
 const root = fileURLToPath(new URL("../", import.meta.url));

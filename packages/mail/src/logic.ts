@@ -6,8 +6,9 @@ import {
   type MailRule,
   type Person,
 } from "./model.ts";
+import { MAIL_DOMAIN } from "@infinitum/cid";
 
-const CUMULUS = "@cumulusmail.cloud";
+const CUMULUS = `@${MAIL_DOMAIN}`;
 
 export function isCumulus(email: string): boolean {
   return email.toLowerCase().endsWith(CUMULUS);

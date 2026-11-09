@@ -4,10 +4,10 @@ import { PostOffice } from "./postoffice.ts";
 
 async function setup() {
   const po = new PostOffice();
-  po.provision({ cid: "a", address: "alex@cumulusmail.cloud" });
-  po.provision({ cid: "b", address: "bea@cumulusmail.cloud" });
-  await po.send("b", { to: "alex@cumulusmail.cloud", subject: "Lunch?", body: "Friday works." });
-  await po.send("b", { to: "alex@cumulusmail.cloud", subject: "Notes", body: "Attached." });
+  po.provision({ cid: "a", address: "alex@cumuluscloud.app" });
+  po.provision({ cid: "b", address: "bea@cumuluscloud.app" });
+  await po.send("b", { to: "alex@cumuluscloud.app", subject: "Lunch?", body: "Friday works." });
+  await po.send("b", { to: "alex@cumuluscloud.app", subject: "Notes", body: "Attached." });
   const [one, two] = po.view("a").messages.filter((m) => m.folder === "inbox" && !m.system);
   return { po, one: one!, two: two! };
 }

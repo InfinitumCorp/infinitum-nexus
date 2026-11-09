@@ -2,11 +2,11 @@ import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { generateKeyPairSync, sign } from "node:crypto";
 import { Ledger, generateSigner } from "@infinitum/firmament";
-import { CidService, CidError, hotp, verifyTotp, base32Decode, base32Encode } from "./index.ts";
+import { CidService, CidError, MAIL_DOMAIN, hotp, verifyTotp, base32Decode, base32Encode } from "./index.ts";
 import { VirtualAuthenticator } from "./testing/virtual-authenticator.ts";
 
-const RP_ID = "infinitum.id";
-const ORIGIN = "https://infinitum.id";
+const RP_ID = "id.cumuluscloud.app";
+const ORIGIN = "https://id.cumuluscloud.app";
 
 function setup(start = new Date("2026-11-04T12:00:00Z")) {
   let now = start;
@@ -38,7 +38,15 @@ describe("CID accounts", () => {
     const { cid, ledger } = setup();
     const a = await cid.createAccount({ username: "Alex" });
     assert.equal(a.username, "alex");
-    assert.equal(a.mailAddress, "alex@cumulusmail.cloud");
+    assert.equal(a.mailAddress, `alex@${MAIL_DOMAIN}`);
+    assert.equal(MAIL_DOMAIN, "cumuluscloud.app");
+    assert.equal(cid.issuer, "https://id.cumuluscloud.app/realms/cumulus");
+    assert.equal(cid.jwksUri, "https://id.cumuluscloud.app/realms/cumulus/protocol/openid-connect/certs");
+    assert.equal(cid.issuerMetadata().id_host, "id.cumuluscloud.app");
+    assert.equal(cid.corsAllowOrigin(ORIGIN), ORIGIN);
+    assert.equal(cid.corsAllowOrigin("*"), null);
+    assert.equal(cid.corsHeaders("https://cloud.cumuluscloud.app")["Access-Control-Allow-Origin"], "https://cloud.cumuluscloud.app");
+    assert.equal(JSON.stringify(cid.corsHeaders("*")).includes("*"), false);
     assert.equal(a.handle, "@alex.veil");
     assert.equal(a.entitlements.storageGb, 15);
     assert.equal(a.entitlements.scalvs, "free");
@@ -89,6 +97,17 @@ describe("CID passkeys and security keys", () => {
     const { auth, key } = await withPasskey(cid, "alex", new VirtualAuthenticator({ useCounter: false }));
     assert.equal((await signIn(cid, auth, key.credentialId)).status, "ok");
     assert.equal((await signIn(cid, auth, key.credentialId)).status, "ok");
+  });
+
+  it("rejects a wildcard origin", () => {
+    const signer = generateSigner();
+    const ledger = new Ledger(undefined, { authorizedSigners: [signer.publicKey] });
+    for (const origins of [["*"], ["https://*.cumuluscloud.app"]]) {
+      assert.throws(
+        () => new CidService({ ledger, signer, rpId: RP_ID, origins }),
+        (e: unknown) => e instanceof CidError && e.code === "invalid_origin",
+      );
+    }
   });
 
   it("rejects a phishing site's origin", async () => {

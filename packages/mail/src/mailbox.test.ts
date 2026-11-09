@@ -22,7 +22,7 @@ test("mail inside Cumulus is end-to-end and mail to VYRAL is not", () => {
 test("sending drops the draft and files the note under sent", () => {
   const mail = new Mailbox();
   const sent = mail.send({
-    to: "leah@cumulusmail.cloud",
+    to: "leah@cumuluscloud.app",
     subject: "Notes received",
     body: "Got the Drive note.",
     draftId: "m-draft-1",
@@ -37,7 +37,7 @@ test("sending drops the draft and files the note under sent", () => {
 test("an external Cc is not labeled Personal", () => {
   const mail = new Mailbox();
   const sent = mail.send({
-    to: "leah@cumulusmail.cloud",
+    to: "leah@cumuluscloud.app",
     cc: "priya.shah@vyral.example",
     subject: "Shared note",
     body: "Copying Priya.",

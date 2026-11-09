@@ -169,7 +169,7 @@ describe("CID social sign-in", () => {
     if (gh.status !== "ok" || g.status !== "ok") return;
     assert.equal(cid.getAccount(gh.session.cid).username, "alexr");
     assert.equal(cid.getAccount(g.session.cid).username, "alex");
-    assert.equal(cid.getAccount(g.session.cid).mailAddress, "alex@cumulusmail.cloud");
+    assert.equal(cid.getAccount(g.session.cid).mailAddress, "alex@cumuluscloud.app");
   });
 
   it("sends Apple a valid ES256 client-secret JWT", async () => {

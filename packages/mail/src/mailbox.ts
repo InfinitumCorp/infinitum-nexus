@@ -42,7 +42,7 @@ export class Mailbox {
   constructor(seed: Partial<MailSnapshot> = {}, owner: MailOwner = ME) {
     this.owner = { name: owner.name, email: owner.email };
     this.messages = structuredClone(seed.messages ?? SEED_MESSAGES);
-    this.aliases = structuredClone(seed.aliases ?? ["press@cumulusmail.cloud"]);
+    this.aliases = structuredClone(seed.aliases ?? ["press@cumuluscloud.app"]);
     this.tasks = structuredClone(seed.tasks ?? SEED_TASKS);
     this.contacts = structuredClone(seed.contacts ?? SEED_CONTACTS);
     this.signature = seed.signature ?? `${this.owner.name}\n${this.owner.email}`;

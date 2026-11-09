@@ -69,11 +69,28 @@ describe("Cumulus://Mail over HTTP", () => {
     assert.match(page.data, /noindex/);
   });
 
+  it("publishes the mail domain and allows only exact Cumulus origins", async () => {
+    const b = new Browser();
+    const config = await b.call("GET", "/cumulus-config.js");
+    assert.equal(config.status, 200);
+    assert.match(String(config.data), /"mailDomain":"cumuluscloud\.app"/);
+    assert.equal(String(config.data).includes("*"), false);
+    const allowed = await b.call("OPTIONS", "/api/state", undefined, { origin: "https://id.cumuluscloud.app" });
+    assert.equal(allowed.status, 204);
+    assert.equal(allowed.headers.get("access-control-allow-origin"), "https://id.cumuluscloud.app");
+    assert.notEqual(allowed.headers.get("access-control-allow-origin"), "*");
+    const denied = await b.call("GET", "/", undefined, { origin: "https://evil.example" });
+    assert.equal(denied.headers.get("access-control-allow-origin"), null);
+    const cid = await b.signUp("river@cumuluscloud.app");
+    assert.match(cid, /^cid_/);
+    assert.equal((await b.call("GET", "/api/state")).data.me.email, "river@cumuluscloud.app");
+  });
+
   it("needs a Cumulus://ID session and the request header", async () => {
     const b = new Browser();
     assert.equal((await b.call("GET", "/api/state")).status, 401);
     await b.signUp("nora");
-    assert.equal((await b.call("POST", "/api/send", { to: "x@cumulusmail.cloud", subject: "x", body: "x" }, {})).status, 403, "no CSRF header");
+    assert.equal((await b.call("POST", "/api/send", { to: "x@cumuluscloud.app", subject: "x", body: "x" }, {})).status, 403, "no CSRF header");
   });
 
   it("signs up, finds the welcome mail, mails another person and pays by mail", async () => {
@@ -83,13 +100,13 @@ describe("Cumulus://Mail over HTTP", () => {
     const leahCid = await leah.signUp("leah");
 
     const state = await alex.call("GET", "/api/state");
-    assert.equal(state.data.me.email, "alex@cumulusmail.cloud");
+    assert.equal(state.data.me.email, "alex@cumuluscloud.app");
     assert.ok(state.data.messages.some((m: any) => m.subject === "Welcome to your Cumulus://ID"));
     assert.equal(state.data.account.plan, "Free");
     assert.equal(state.data.account.entitlements.firmWallet, true);
 
     await suite.credit(alexCid, "USDC", "50", "Cumulus Data Exchange");
-    const sent = await alex.call("POST", "/api/send", { to: "leah@cumulusmail.cloud", subject: "Your share", body: "Here you go.", payment: { asset: "USDC", amount: "12.25" } });
+    const sent = await alex.call("POST", "/api/send", { to: "leah@cumuluscloud.app", subject: "Your share", body: "Here you go.", payment: { asset: "USDC", amount: "12.25" } });
     assert.equal(sent.status, 200, JSON.stringify(sent.data));
     assert.equal(sent.data.payment.amount, "12.25");
 
@@ -100,9 +117,9 @@ describe("Cumulus://Mail over HTTP", () => {
 
     const wallet = await leah.call("GET", "/api/wallet");
     assert.equal(wallet.data.balances.USDC, "12.25");
-    assert.equal(wallet.data.history[0].counterparty, "alex@cumulusmail.cloud");
+    assert.equal(wallet.data.history[0].counterparty, "alex@cumuluscloud.app");
 
-    const pay = await leah.call("POST", "/api/wallet/pay", { to: "alex@cumulusmail.cloud", asset: "USDC", amount: "100" });
+    const pay = await leah.call("POST", "/api/wallet/pay", { to: "alex@cumuluscloud.app", asset: "USDC", amount: "100" });
     assert.equal(pay.status, 400);
     assert.match(pay.data.error, /Not enough USDC/);
 
@@ -134,15 +151,15 @@ describe("Cumulus://Mail over HTTP", () => {
     await owner.signUp("tidy");
     const bulk = new Browser();
     await bulk.signUp("digest");
-    for (const n of [1, 2, 3]) await bulk.call("POST", "/api/send", { to: "tidy@cumulusmail.cloud", subject: `Weekly ${n}`, body: "News. Unsubscribe." });
+    for (const n of [1, 2, 3]) await bulk.call("POST", "/api/send", { to: "tidy@cumuluscloud.app", subject: `Weekly ${n}`, body: "News. Unsubscribe." });
 
     const review = await owner.call("POST", "/api/clean/scalvs", {});
     assert.equal(review.status, 200, JSON.stringify(review.data));
     const mute = review.data.clean.suggestions.find((s: any) => s.kind === "mute");
-    assert.equal(mute?.email, "digest@cumulusmail.cloud");
+    assert.equal(mute?.email, "digest@cumuluscloud.app");
     const approved = await owner.call("POST", "/api/clean/approve", { id: mute.id });
     assert.equal(approved.status, 200);
-    assert.deepEqual(approved.data.clean.rules.muted, ["digest@cumulusmail.cloud"]);
+    assert.deepEqual(approved.data.clean.rules.muted, ["digest@cumuluscloud.app"]);
     assert.equal(approved.data.state.messages.filter((m: any) => m.subject.startsWith("Weekly") && m.folder === "archive").length, 3);
 
     const undo = await owner.call("POST", "/api/clean/undo", { id: approved.data.clean.log[0].id });
@@ -150,7 +167,7 @@ describe("Cumulus://Mail over HTTP", () => {
     const rules = await owner.call("POST", "/api/clean/rules", { auto: false, newslettersAfterDays: 3, emptyTrashAfterDays: null });
     assert.equal(rules.data.clean.rules.auto, false);
     assert.equal(rules.data.clean.rules.newslettersAfterDays, 3);
-    assert.equal((await owner.call("POST", "/api/clean/mute", { email: "security@cumulusmail.cloud" })).status, 400);
+    assert.equal((await owner.call("POST", "/api/clean/mute", { email: "security@cumuluscloud.app" })).status, 400);
   });
 });
 
@@ -190,7 +207,7 @@ describe("SCALVS Clean agent", () => {
     const jo = new Browser();
     await ivy.signUp("ivyb");
     await jo.signUp("joan");
-    for (const subject of ["One", "Two"]) assert.equal((await jo.call("POST", "/api/send", { to: "ivyb@cumulusmail.cloud", subject, body: "Hi" })).status, 200);
+    for (const subject of ["One", "Two"]) assert.equal((await jo.call("POST", "/api/send", { to: "ivyb@cumuluscloud.app", subject, body: "Hi" })).status, 200);
     const inbox = (await ivy.call("GET", "/api/state")).data.messages.filter((m: any) => m.folder === "inbox" && ["One", "Two"].includes(m.subject));
     assert.equal(inbox.length, 2);
     const ids = inbox.map((m: any) => m.threadId);
@@ -209,12 +226,12 @@ describe("SCALVS Clean agent", () => {
     const kim = new Browser();
     await kim.signUp("kimsched");
     const when = new Date(Date.now() + 3_600_000).toISOString();
-    const r = await kim.call("POST", "/api/schedule", { to: "nora@cumulusmail.cloud", subject: "Later on", body: "Hi", sendAt: when });
+    const r = await kim.call("POST", "/api/schedule", { to: "nora@cumuluscloud.app", subject: "Later on", body: "Hi", sendAt: when });
     assert.equal(r.status, 200, JSON.stringify(r.data));
     const draft = r.data.state.messages.find((m: any) => m.id === r.data.id);
     assert.equal(draft.folder, "drafts");
     assert.equal(draft.sendAt, when);
-    assert.equal((await kim.call("POST", "/api/schedule", { to: "nora@cumulusmail.cloud", subject: "x", body: "x", sendAt: "2001-01-01T00:00:00Z" })).status, 400);
+    assert.equal((await kim.call("POST", "/api/schedule", { to: "nora@cumuluscloud.app", subject: "x", body: "x", sendAt: "2001-01-01T00:00:00Z" })).status, 400);
     const c = await kim.call("POST", "/api/schedule/cancel", { id: r.data.id });
     assert.equal(c.status, 200);
     assert.equal(c.data.messages.find((m: any) => m.id === r.data.id).sendAt, undefined);

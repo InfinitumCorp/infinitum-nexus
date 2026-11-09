@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.28.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.4
+          cache: pnpm
+
+      - name: Install from the lockfile
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test
+
+      - name: Security evidence
+        run: bash scripts/labyrinth-security.sh "$RUNNER_TEMP/labyrinth-security"
+
+      - name: Pack Labyrinth packages
+        run: bash scripts/pack-labyrinth.sh "$RUNNER_TEMP/labyrinth-packages"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: labyrinth-packages
+          path: ${{ runner.temp }}/labyrinth-packages
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: labyrinth-security
+          path: ${{ runner.temp }}/labyrinth-security
+          if-no-files-found: error

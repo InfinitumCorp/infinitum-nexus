@@ -4,7 +4,8 @@
   "description": "Conjure\u2122: swarm prediction built into every Infinitum product. A swarm of AI agents plays out a question so you can read the likely outcome.",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./markets": "./src/markets.ts"
   },
   "private": true,
   "engines": {
@@ -12,7 +13,8 @@
   },
   "dependencies": {
     "@infinitum/scalus": "workspace:*",
-    "@infinitum/lbrnth-client": "workspace:*"
+    "@infinitum/lbrnth-client": "workspace:*",
+    "@infinitum/metatron": "workspace:*"
   },
   "scripts": {
     "typecheck": "tsc -p . --noEmit",

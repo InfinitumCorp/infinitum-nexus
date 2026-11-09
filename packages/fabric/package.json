@@ -1,9 +1,12 @@
 {
   "name": "@infinitum/fabric",
   "version": "0.1.0",
-  "description": "FABRIC encrypted messaging scaffold.",
+  "description": "FABRIC++ encrypted messaging.",
   "type": "module",
   "private": true,
+  "exports": {
+    ".": "./src/index.ts"
+  },
   "engines": {
     "node": ">=22.18"
   },

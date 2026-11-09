@@ -6,7 +6,7 @@ const { tokenize, parseQuery, searchThreads }: any = await import(path);
 
 const NOW = Date.parse("2026-11-06T12:00:00Z");
 const day = (n: number) => new Date(NOW - n * 86_400_000).toISOString();
-const who = (name: string) => ({ name, email: `${name.toLowerCase()}@cumulusmail.cloud` });
+const who = (name: string) => ({ name, email: `${name.toLowerCase()}@cumuluscloud.app` });
 const msg = (over: Record<string, unknown>) => ({
   id: String(Math.random()), threadId: "t", folder: "inbox", from: who("Leah"), to: [who("Alex")], cc: [],
   subject: "Hello", body: "", at: day(0), unread: false, starred: false, kind: "person", attachments: [], ...over,

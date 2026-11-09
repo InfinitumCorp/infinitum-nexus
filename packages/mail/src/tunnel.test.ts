@@ -46,11 +46,11 @@ describe("Cumulus Tunnel", () => {
 
   it("delivers Cumulus mail through the tunnel and marks it verified", async () => {
     const po = new PostOffice({ tunnel: new CumulusTunnel({ masterKey: randomBytes(32) }) });
-    po.provision({ cid: "a", address: "alex@cumulusmail.cloud" });
-    po.provision({ cid: "b", address: "leah@cumulusmail.cloud" });
-    const r = await po.send("a", { to: "leah@cumulusmail.cloud", subject: "Notes", body: "In Cloud.", attachments: [{ name: "n.pdf", size: 10 }] });
+    po.provision({ cid: "a", address: "alex@cumuluscloud.app" });
+    po.provision({ cid: "b", address: "leah@cumuluscloud.app" });
+    const r = await po.send("a", { to: "leah@cumuluscloud.app", subject: "Notes", body: "In Cloud.", attachments: [{ name: "n.pdf", size: 10 }] });
     const got = po.view("b").messages.find((m) => m.subject === "Notes")!;
-    assert.equal(got.body, "In Cloud.\n\nalex\nalex@cumulusmail.cloud");
+    assert.equal(got.body, "In Cloud.\n\nalex\nalex@cumuluscloud.app");
     assert.equal(got.attachments?.[0]?.name, "n.pdf");
     assert.deepEqual(got.tunnel, { verified: true, fingerprint: po.fingerprint("a") });
     assert.equal(po.message("a", r.id)?.tunnel?.verified, true);
@@ -61,31 +61,31 @@ describe("Cumulus Tunnel", () => {
 
   it("signs as the mailbox owner, not the demo account", async () => {
     const po = new PostOffice();
-    po.provision({ cid: "b", address: "leah@cumulusmail.cloud", name: "Leah Okonkwo" });
-    po.provision({ cid: "c", address: "sam@cumulusmail.cloud", name: "Sam" });
-    await po.send("b", { to: "sam@cumulusmail.cloud", subject: "Hi", body: "Hello Sam." });
+    po.provision({ cid: "b", address: "leah@cumuluscloud.app", name: "Leah Okonkwo" });
+    po.provision({ cid: "c", address: "sam@cumuluscloud.app", name: "Sam" });
+    await po.send("b", { to: "sam@cumuluscloud.app", subject: "Hi", body: "Hello Sam." });
     const got = po.view("c").messages.find((m) => m.subject === "Hi");
-    assert.equal(got?.body, "Hello Sam.\n\nLeah Okonkwo\nleah@cumulusmail.cloud");
+    assert.equal(got?.body, "Hello Sam.\n\nLeah Okonkwo\nleah@cumuluscloud.app");
   });
 
   it("writes mailboxes sealed at rest and opens them again", async () => {
     const key = randomBytes(32);
     const tunnel = new CumulusTunnel({ masterKey: key });
     const po = new PostOffice({ tunnel });
-    po.provision({ cid: "a", address: "alex@cumulusmail.cloud" });
-    po.provision({ cid: "b", address: "leah@cumulusmail.cloud" });
-    await po.send("a", { to: "leah@cumulusmail.cloud", subject: "Secret plans", body: "Meet at noon." });
+    po.provision({ cid: "a", address: "alex@cumuluscloud.app" });
+    po.provision({ cid: "b", address: "leah@cumuluscloud.app" });
+    await po.send("a", { to: "leah@cumuluscloud.app", subject: "Secret plans", body: "Meet at noon." });
 
     const onDisk = sealMailStore(po.store, tunnel);
     const json = JSON.stringify([...onDisk.mailboxes.values()]);
     assert.ok(!json.includes("Secret plans") && !json.includes("Meet at noon"), "no plaintext on disk");
-    assert.ok(json.includes("leah@cumulusmail.cloud"), "routing metadata stays readable");
+    assert.ok(json.includes("leah@cumuluscloud.app"), "routing metadata stays readable");
     assert.equal(po.view("b").messages[0]?.subject, "Secret plans", "the live store isn't touched");
 
     const loaded = structuredClone(onDisk) as PostOfficeStore;
     const reopened = new CumulusTunnel({ store: structuredClone(tunnel.store), masterKey: key });
     assert.equal(openMailStore(loaded, reopened), 0);
-    assert.equal(loaded.mailboxes.get("b")!.messages[0]!.body, "Meet at noon.\n\nalex\nalex@cumulusmail.cloud");
+    assert.equal(loaded.mailboxes.get("b")!.messages[0]!.body, "Meet at noon.\n\nalex\nalex@cumuluscloud.app");
 
     const locked = structuredClone(onDisk) as PostOfficeStore;
     const wrongKey = new CumulusTunnel({ store: structuredClone(tunnel.store), masterKey: randomBytes(32) });

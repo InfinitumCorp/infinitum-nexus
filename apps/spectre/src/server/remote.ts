@@ -34,7 +34,8 @@ export class HttpGateway implements NexusGateway {
   private readonly url: string;
   private readonly key: string;
   private readonly fetchImpl: typeof fetch;
-  constructor(url: string, key: string, fetchImpl: typeof fetch = fetch) {
+  // The default wraps fetch: Workers reject fetch called as a method of another object.
+  constructor(url: string, key: string, fetchImpl: typeof fetch = (input, init) => fetch(input, init)) {
     this.url = url;
     this.key = key;
     this.fetchImpl = fetchImpl;

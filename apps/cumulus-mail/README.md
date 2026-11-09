@@ -1,7 +1,7 @@
 # Cumulus://Mail
 
 The mailbox that comes with every Cumulus://ID, the way Gmail comes with a Google account.
-Sign up in any Infinitum product and you get `username@cumulusmail.cloud`, Cumulus://Cloud storage
+Sign up in any Infinitum product and you get `username@cumuluscloud.app`, Cumulus://Cloud storage
 and a FIRM Wallet, all on the free tier. The account suite is in `@infinitum/cumulus`; mailbox rules
 are in `@infinitum/mail`. This app serves them.
 
@@ -19,6 +19,11 @@ Open http://localhost:3010 and sign in with a passkey.
 |---|---|
 | `PORT` | Listener, default 3010 |
 | `MAIL_ORIGIN` | Public origin; passkeys are bound to it |
+| `CUMULUS_ROOT_DOMAIN` | Mail-address domain, default `cumuluscloud.app` |
+| `CUMULUS_ID_HOST` | Cumulus://ID host, default `id.cumuluscloud.app`. Issuer is `https://id.cumuluscloud.app/realms/cumulus` |
+| `CUMULUS_KEYCLOAK_REALM` | Keycloak realm, default `cumulus`. JWKS is `https://id.cumuluscloud.app/realms/cumulus/protocol/openid-connect/certs` |
+| `CUMULUS_CLOUD_HOST` | Cumulus://Cloud host, default `cloud.cumuluscloud.app` |
+| `CUMULUS_MAIL_HOST` | Cumulus://Mail host, default `mail.cumuluscloud.app` |
 | `MAIL_DATA_DIR` | Where stores and the Firmament ledger live, default `./data` |
 | `XAI_API_KEY` | Turns on SCALVS briefs |
 | `CUMULUS_MAIL_MASTER_KEY` | Base64 32-byte Cumulus Tunnel master key. Without it, one is created at `MAIL_DATA_DIR/tunnel-master.key`; in production set it from a secrets manager instead |
@@ -34,7 +39,7 @@ Open http://localhost:3010 and sign in with a passkey.
   replies. Unknown Cumulus addresses bounce. Outside addresses are queued for the outbound relay
   (`PostOffice.outboundQueue()`); the SMTP bridge itself is not built yet.
 - **Login security mail.** Sign-ins from a new device, new or removed keys, MFA changes, linked
-  providers and "signed out everywhere" each send a notice from `security@cumulusmail.cloud`.
+  providers and "signed out everywhere" each send a notice from `security@cumuluscloud.app`.
   Product sender names (`security`, `wallet`, `cloud`, `welcome`, `postmaster`, …) are reserved and
   can't be registered.
 - **Shared 15 GB.** Mail and Cloud draw from one quota. A full account can't send; a full recipient bounces.
@@ -43,7 +48,7 @@ Open http://localhost:3010 and sign in with a passkey.
   never shows a payment that failed. Each payment is a Firmament `payment` entry (amounts and wallet
   IDs only, no mail content). The server never holds wallet private keys.
 
-- **Your address is your Cumulus://ID.** `name@cumulusmail.cloud` and `name` sign in to the same account,
+- **Your address is your Cumulus://ID.** `name@cumuluscloud.app` and `name` sign in to the same account,
   in Mail and in every other Infinitum product.
 - **Cumulus Tunnel.** Mail between Cumulus accounts is sealed to the recipient (X25519 + AES-256-GCM) and
   signed by the sender (Ed25519). The recipient's copy comes only out of that envelope, and the reader shows
@@ -64,3 +69,25 @@ Open http://localhost:3010 and sign in with a passkey.
 
 `scripts/dev-seed.ts` creates two test accounts with a virtual passkey and prints a local session
 cookie, so the signed-in app can be checked without a hardware key. It refuses https origins.
+
+## Install it (web and Android)
+
+**Web app.** Mail is an installable web app: `manifest.webmanifest`, icons and a service worker
+(`public/sw.js`) that caches only the app shell. Mail itself (`/api/*`) is never cached. In Chrome,
+use **Install app**; on Android, **Add to Home screen**. The Compose shortcut opens `/?compose=1`.
+
+**Android app.** `android/` is a small native launcher, `app.cumuluscloud.mail`, that opens Mail in a
+Chrome Custom Tab. That's the full browser engine, so passkey sign-in with Cumulus://ID works the same
+as on the web. It also handles `mailto:` links by opening the composer. It builds with the plain SDK
+tools, so no Gradle is needed:
+
+```bash
+MAIL_URL=https://mail.cumuluscloud.app bash apps/cumulus-mail/android/build-apk.sh
+adb install -r apps/cumulus-mail/android/build/cumulus-mail.apk
+```
+
+To test against a local server, build with `MAIL_URL=http://localhost:3010` and run
+`adb reverse tcp:3010 tcp:3010`. Without `KEYSTORE`, `KEY_ALIAS` and `KEY_PASS`, the APK is signed
+with the local debug key. Use a release key for Play Store builds.
+
+Icons come from `scripts/make-icons.py` (Pillow), which draws the same "://" mark as `public/icon.svg`.

@@ -1,49 +1,85 @@
 # VEIL</>
 
-Tor-first secure browser sidebar for the Infinitum ecosystem (Chrome MV3 extension).
-This is the extension edition used to build and test VEIL features ahead of the
-Tor Browser-derived desktop engine described on the product page.
+Infinitum Corporation® cyber proxy for this browser. The default route is the VEIL exit (a Cumulus ID with a VEIL plan). Tor is an optional mode through a local Tor client. The signed-in sidebar still sits beside the rest of the ecosystem.
 
-## Status
-v0.5.0: roadmap Phase I (browser foundation), the start of Phase II (identity and
-communications), and the rewards ledger from Phase IV.
+## Limits
 
-- **Two workspaces.** Anonymous (default): Tor, tracker stripping and New Identity only.
-  Signed-in: Cumulus://ID, Mail, the Infinitum apps, Ask (:\ARCHITECT\), FIRM Wallet and $VEIL rewards.
-  Every switch is confirmed in the panel and clears cookies and site data first.
-- **Tor.** SOCKS5 proxy to a local Tor service on 127.0.0.1:9050 (DNS goes over Tor),
-  WebRTC limited to the proxy, connectivity check against check.torproject.org.
-- **New Identity.** Clears cookies, caches and site storage and closes every tab.
-  History, passwords and downloads are untouched.
-- **Tracker stripping.** Removes utm_*, fbclid, gclid and similar parameters, on by default.
-- **$VEIL rewards** at the published launch rate: 0.1 $VEIL per eligible active minute,
-  max 240 minutes (24 $VEIL) per UTC day. A minute counts only with a trusted keyboard,
-  mouse or touch event on the active tab of the focused window, in the signed-in workspace.
-  Pages report three booleans and nothing about the site. Claims produce receipts that
-  stay `pending-settlement` until the $VEIL claim contract is deployed.
-- **Cumulus account (Phase II).** After sign-in, the Account tab shows plan, unread mail and shared
-  Mail + Cloud storage; the Wallet tab shows the FIRM Wallet account that comes with the CID. Unread
-  mail also shows on the toolbar badge, refreshed every 5 minutes. All of it is dropped when you
-  leave the signed-in workspace or use New Identity.
-- **Apps (VEIL Nexus).** The seven free-tier products from the product page. Mail, :\ARCHITECT\ and
-  Cumulus://ID open in their own tab; FIRM Wallet opens its panel; the rest are marked Coming soon.
-- **Ask** shares the current tab's title and address only when you tick the box.
+Both modes cover **traffic in this browser**. This is not a device-wide VPN. Device-wide coverage is a separate client, `apps/veil-desktop`, and it is not this extension.
+
+Tor mode does **not** give Tor Browser fingerprinting protection. Sites can still see this browser's fonts, screen size, APIs, and other traits that Tor Browser equalizes. VEIL does not modify those surfaces.
+
+- Other applications, the operating system, and browsers without this extension are unchanged.
+- DNS for proxied requests, including `.onion` names, is resolved by Tor (SOCKS5, and `proxyDNS` on Firefox). The operating system's resolver is not reconfigured.
+- Only loopback is contacted directly, so the browser can reach the local Tor client. Everything else stays on that SOCKS port.
+- If Tor is unreachable, requests fail. They are not sent on the ordinary network.
+- WebRTC's non-proxied UDP is disabled. That is the leak control the extension API allows. It is not Tor Browser's removal of WebRTC.
+- Incognito and other profiles are covered only when that browser runs the extension there.
+- The Tor binary is not bundled. Install Tor, or use Tor Browser's client, yourself.
+- Circuit isolation uses a different SOCKS username and password per site and tab. That only builds separate circuits when the local client has `IsolateSOCKSAuth`. Tor Browser's port 9150 already does. A system Tor on 9050 needs a line such as `SocksPort 9050 IsolateSOCKSAuth`.
+- New circuit rotates that SOCKS identity. New Identity also clears site data and closes tabs. Neither signal reaches Tor's control port.
+
+## Modes
+
+The toolbar popup switches **VEIL VPN**, **Tor**, or **Off**. Only one route is on at a time. Both active routes disable non-proxied WebRTC UDP and send DNS through the proxy. If the selected route does not answer, browser traffic stays blocked.
+
+VEIL VPN is the default. It needs the signed-in workspace, a live Cumulus ID session, and a VEIL plan. The extension sends a server id. The control plane mints a short-lived proxy password. That password is not stored.
+
+## Tor routing
+
+Tor does not call Infinitum servers. The toolbar and the sidebar Privacy tab can turn it on.
+
+| Client | SOCKS address |
+| --- | --- |
+| System Tor | `127.0.0.1:9050` |
+| Tor Browser | `127.0.0.1:9150` |
+
+Check uses `https://check.torproject.org/api/ip`. The status line says whether the exit is Tor, whether Tor did not answer, or whether Tor is off.
+
+Turning Tor on does not call Infinitum servers.
+
+## Optional bridges
+
+A Cumulus ID session is the same cookie the sidebar already uses for `/api/me`. A VEIL plan, checked on the CID host, may download bridge lines from `GET /api/veil/bridges`. Those lines are for your local Tor configuration. They are not exits, and Tor works with the list empty.
+
+```sh
+VEIL_ENTITLED_CIDS=cid_...
+VEIL_BRIDGES='["bridge obfs4 192.0.2.10:443 FINGERPRINT cert=... iat-mode=0"]'
+```
+
+Unset means nobody is entitled and no lines are published.
+
+## Sidebar
+
+Anonymous and signed-in workspaces, tracker stripping, $VEIL rewards, the Cumulus account summary, and the Nexus launcher are unchanged. Rewards and apps still require the signed-in workspace. Tor does not.
 
 ## Load
-`chrome://extensions` → Developer mode → Load unpacked → `apps/veil`
+
+Chrome: `chrome://extensions` → Developer mode → Load unpacked → `apps/veil`.
+
+Firefox: `node scripts/package.js`, then load `apps/veil/dist/firefox` from `about:debugging`.
 
 ## Develop
+
 ```sh
 cd apps/veil
-node --test test/            # unit + background tests (fake chrome.*)
-node scripts/make-icons.js   # regenerate icons/ from the icon.svg design
+pnpm test
+pnpm typecheck
+pnpm lint
+node scripts/package.js
+node scripts/make-icons.js
 ```
 
 ## Configuration (chrome.storage.local)
-`origins` overrides where each product runs; only http(s) origins are accepted.
+
+`cid` and `mail` accept a stored http(s) origin. `torPort` is `9050` or `9150` (or another local port).
+
+Production packages pin `veil`, `architect`, `scalvs` and `metatron`. A stored value for those keys is ignored. `VEIL_DEV=1 node scripts/package.js` is the dev build: those keys then accept `http` or `https` on `localhost` or `127.0.0.1` only.
 
 | Key in `origins` | Default | Product |
 | --- | --- | --- |
-| `cid` | `http://localhost:3000` | Cumulus://ID sign-in and `/api/me` (served by +SPCTR today) |
-| `mail` | `http://localhost:3010` | Cumulus://Mail (the account summary can override it) |
-| `architect` | `http://localhost:3001` | :\ARCHITECT\ endpoint for Ask |
+| `cid` | `http://localhost:3000` | Cumulus://ID sign-in and `/api/me` |
+| `veil` | `https://infinitumveil.app` | VEIL browser control plane. Hosted on Cloudflare. |
+| `mail` | `http://localhost:3010` | Cumulus://Mail |
+| `architect` | `https://rchtch.app` | :\ARCHITECT\ (CNDCTR) endpoint for Ask. Hosted on Cloudflare. |
+| `scalvs` | `https://scalvs.app` | SCALVS.ai. Hosted on Cloudflare. |
+| `metatron` | `https://mttrn.app` | METATRON¹⁰⁰. |

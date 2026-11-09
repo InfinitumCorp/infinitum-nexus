@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>VEIL</>: Tor-first secure browser</title>
+  <meta name="description" content="VEIL</> is Infinitum's free, Tor-first secure browser: private browsing, tracker stripping, built-in AI and $VEIL rewards." />
+  <meta name="theme-color" content="#ffffff" />
+  <meta name="referrer" content="no-referrer" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="icons/icon-192.png" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <style>
+    /* Standard Infinitum White, as on VEIL Phase I's start page (veil-chrome/src/shared/veil.css):
+       white, quiet, Helvetica Neue at a regular weight, one coloured dot beside "Anonymous". */
+    :root {
+      --bg: #ffffff; --ink: #111820; --ink-quiet: #6b6b74; --slate: #49545e; --rule: #e8e8ec;
+      --hover: #f3f3f5; --focus: #1f5fd6; --accent: #5b3fd1;
+      --font: "Helvetica Neue", Helvetica, Arial, sans-serif;
+      color-scheme: light;
+    }
+    @media (prefers-contrast: more) { :root { --ink-quiet: var(--ink); --rule: #9a9aa3; } }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; background: var(--bg); }
+    body { color: var(--ink); font: 15px/1.5 var(--font); min-height: 100vh; min-height: 100dvh; display: flex; flex-direction: column; -webkit-font-smoothing: antialiased; }
+    :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+    button { font: inherit; color: inherit; cursor: pointer; }
+    a { color: inherit; }
+    [hidden] { display: none !important; }
+
+    /* Top bar: brand left; Mail, Apps, Sign In right */
+    .topbar { display: flex; align-items: center; gap: 0 12px; min-height: 52px; padding: env(safe-area-inset-top, 0px) 14px 0; border-bottom: 1px solid var(--rule); }
+    .brand { display: inline-flex; align-items: center; height: 52px; font-size: 19px; letter-spacing: -0.04em; text-decoration: none; white-space: nowrap; }
+    .brand sup { font-size: .5em; letter-spacing: 0; margin-left: 1px; align-self: flex-start; margin-top: 15px; }
+    .spacer { flex: 1; }
+    .top-links { display: flex; align-items: center; gap: 22px; }
+    .nav-link, .signin { position: relative; padding: 8px 0; font-size: 13px; color: var(--ink); text-decoration: none; white-space: nowrap; background: none; border: 0; }
+    .nav-link::after, .signin::after, .app-link::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: var(--ink); transform: scaleX(0); transition: transform .15s ease; }
+    .nav-link:hover::after, .nav-link:focus-visible::after, .nav-link[aria-expanded="true"]::after,
+    .signin:hover::after, .signin:focus-visible::after { transform: scaleX(1); }
+    .apps-menu { position: relative; }
+    .apps-panel { position: absolute; top: 40px; left: -12px; z-index: 10; width: 300px; display: flex; flex-direction: column; padding: 8px; background: #fff; border: 1px solid var(--rule); border-radius: 4px; box-shadow: 0 8px 28px rgba(17, 24, 32, .12); }
+    .signin-panel { left: auto; right: -12px; width: 260px; }
+    .menu-app { display: flex; flex-direction: column; gap: 1px; padding: 9px 12px; border-radius: 3px; text-decoration: none; }
+    .menu-app:hover, .menu-app:focus-visible { background: var(--hover); }
+    .menu-app-name { font-size: 14px; }
+    .menu-app-summary { font-size: 12px; color: var(--ink-quiet); }
+
+    /* Centre: search, workspace, status, bookmarks */
+    main { flex: 1; width: min(620px, 100% - 32px); margin: 0 auto; display: flex; flex-direction: column; justify-content: center; padding: 48px 0 80px; }
+    .search input { width: 100%; font: inherit; font-size: 16px; padding: 14px 16px; border: 1px solid var(--rule); border-radius: 2px; background: #fff; color: var(--ink); -webkit-appearance: none; appearance: none; }
+    .search input::placeholder { color: var(--ink-quiet); }
+    .search input:focus { outline: none; border-color: var(--ink); }
+    .workspace-strip { display: flex; justify-content: center; margin-top: 16px; }
+    .workspace { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; white-space: nowrap; }
+    .workspace::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); flex: none; }
+    .status { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 6px 14px; margin-top: 8px; font-size: 12px; color: var(--ink-quiet); }
+    .status-line { display: inline-flex; align-items: center; gap: 7px; }
+    .dot { width: 7px; height: 7px; border-radius: 50%; background: #b5b5bd; }
+    .text-button { border: 0; background: none; padding: 6px 10px; border-radius: 2px; font-size: 12px; color: var(--ink-quiet); white-space: nowrap; text-decoration: none; }
+    .text-button:hover { background: var(--hover); color: var(--ink); }
+    .bookmarks { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin-top: 32px; }
+    .bookmark { font-size: 12px; padding: 6px 12px; border-radius: 2px; border: 1px solid var(--rule); background: #fff; color: var(--ink); text-decoration: none; white-space: nowrap; }
+    .bookmark:hover { background: var(--hover); }
+
+    /* Panels that open under the bookmarks */
+    .panel { margin-top: 20px; padding: 16px; border: 1px solid var(--rule); border-radius: 2px; font-size: 13px; }
+    .panel h2 { font-size: 14px; font-weight: 400; margin: 0 0 6px; }
+    .panel p { margin: 0 0 10px; color: var(--ink-quiet); }
+    .panel p:last-child { margin-bottom: 0; }
+
+    /* App names along the bottom, then the footer */
+    .apps { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 4px 22px; padding: 0 14px 14px; }
+    .app-link { position: relative; padding: 8px 0; font-size: 13px; color: var(--slate); text-decoration: none; white-space: nowrap; }
+    .app-link:hover, .app-link:focus-visible { color: var(--ink); }
+    .app-link:hover::after, .app-link:focus-visible::after { transform: scaleX(1); }
+    footer { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 6px 16px; margin: 0 14px; padding: 14px 0 max(14px, env(safe-area-inset-bottom, 0px)); border-top: 1px solid var(--rule); font-size: 12px; }
+    .quiet { color: var(--ink-quiet); }
+    .footer-right { display: inline-flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+    .footer-link { color: var(--ink); text-decoration: none; background: none; border: 0; padding: 0; font-size: 12px; }
+    .footer-link:hover, .footer-link:focus-visible { text-decoration: underline; text-underline-offset: 3px; }
+
+    @media (max-width: 560px) {
+      .topbar { padding-left: 12px; padding-right: 12px; gap: 6px; }
+      .top-links { gap: 16px; }
+      .apps-panel { position: fixed; top: calc(52px + env(safe-area-inset-top, 0px)); left: 8px; right: 8px; width: auto; }
+      .apps { gap: 2px 18px; }
+      /* Phones: the footer stacks, centered under the app names */
+      footer { flex-direction: column; align-items: center; text-align: center; gap: 8px; }
+      .footer-right { justify-content: center; gap: 8px 18px; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" id="brand" href="./">VEIL&lt;/&gt;<sup>™</sup></a>
+    <span class="spacer"></span>
+    <nav class="top-links" aria-label="Infinitum">
+      <div class="apps-menu">
+        <button type="button" class="nav-link" id="apps-button" aria-haspopup="true" aria-expanded="false" aria-controls="apps-panel">Apps</button>
+        <div class="apps-panel" id="apps-panel" role="menu" aria-label="Infinitum apps" hidden>
+          <a class="menu-app" role="menuitem" href="https://infinitumcorporation.ai/products/architect" rel="noreferrer"><span class="menu-app-name">:\ARCHITCT\™</span><span class="menu-app-summary">Turn an idea into finished work</span></a>
+          <a class="menu-app" role="menuitem" href="https://infinitumcorporation.ai/products/cumulus-exchange" rel="noreferrer"><span class="menu-app-name">Cumulus://Cloud™</span><span class="menu-app-summary">AI cloud, storage and data exchange</span></a>
+          <a class="menu-app" role="menuitem" href="https://infinitumcorporation.ai/products/cumulus-exchange#mail" rel="noreferrer"><span class="menu-app-name">Cumulus://Mail™</span><span class="menu-app-summary">Email that comes with your cloud</span></a>
+          <a class="menu-app" role="menuitem" href="https://infinitumcorporation.ai/products/fabric" rel="noreferrer"><span class="menu-app-name">FABRIC™</span><span class="menu-app-summary">Secure communications</span></a>
+          <a class="menu-app" role="menuitem" href="https://infinitumcorporation.ai/products/firm#wallet" rel="noreferrer"><span class="menu-app-name">FIRM Wallet™</span><span class="menu-app-summary">Token, wallet and exchange</span></a>
+          <a class="menu-app" role="menuitem" href="https://infinitumcorporation.ai/products/metatron" rel="noreferrer"><span class="menu-app-name">METATRON¹⁰⁰™</span><span class="menu-app-summary">Consumer command suite</span></a>
+          <a class="menu-app" role="menuitem" href="https://infinitumcorporation.ai/products/scalus" rel="noreferrer"><span class="menu-app-name">SCALVS.ai™</span><span class="menu-app-summary">AI workforce platform</span></a>
+        </div>
+      </div>
+      <div class="apps-menu">
+        <button type="button" class="signin" id="signin" aria-haspopup="true" aria-expanded="false" aria-controls="signin-panel">Sign In</button>
+        <div class="apps-panel signin-panel" id="signin-panel" role="menu" aria-label="Sign in" hidden>
+          <a class="menu-app" role="menuitem" href="https://infinitumcorporation.ai/products/cumulus-id" rel="noreferrer"><span class="menu-app-name">Cumulus://ID™</span><span class="menu-app-summary">Your Infinitum account</span></a>
+          <a class="menu-app" role="menuitem" href="https://mail.cumuluscloud.app/" rel="noreferrer"><span class="menu-app-name">Cumulus://Mail™</span><span class="menu-app-summary">Sign in to your email</span></a>
+        </div>
+      </div>
+    </nav>
+  </header>
+
+  <main id="main">
+    <form class="search" role="search" id="search-form">
+      <input id="omni" type="search" placeholder="Search privately or enter address" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Search privately or enter address" />
+    </form>
+
+    <div class="workspace-strip"><span class="workspace" id="mode-chip" title="No account, no history, nothing kept">Free forever</span></div>
+
+
+    <nav class="bookmarks web-only" id="bookmarks" aria-label="Get VEIL">
+      <a class="bookmark" id="apk-link" href="downloads/veil-browser.apk" download>VEIL for Android</a>
+      <a class="bookmark" href="downloads/veil-extension.zip" download>VEIL for Chrome</a>
+    </nav>
+
+    <section class="panel" id="privacy" hidden>
+      <h2>What VEIL can't see</h2>
+      <p>Every check runs on your device. VEIL doesn't send your pages, searches, passwords, forms or downloads anywhere, keeps no browsing history, and can't see what you do in other apps or browsers.</p>
+      <p>The extension and the Android app block ad networks, trackers and data brokers by default, warn about unencrypted or look-alike sites, hold risky downloads and personal-data forms for a tap to confirm, and warn when a protected password is typed on the wrong site.</p>
+      <p>$VEIL rewards are not income, an investment return or payment for visiting particular sites. $VEIL is not a share in Infinitum Corporation.</p>
+    </section>
+  </main>
+
+  <nav class="apps" aria-label="Infinitum apps">
+    <a class="app-link" data-panel href="https://rchtch.app/" target="_blank" rel="noopener noreferrer">:\ARCHITCT\™</a>
+    <a class="app-link" data-panel href="https://scalvs.app/" target="_blank" rel="noopener noreferrer">SCALVS.ai™</a>
+    <a class="app-link" data-panel href="https://infinitumfabric.app/" target="_blank" rel="noopener noreferrer">FABRIC++™</a>
+  </nav>
+  <footer>
+    <span>AI-powered. Blockchain-governed™.</span>
+    <span class="footer-right">
+      <button type="button" class="footer-link" id="privacy-toggle" aria-expanded="false" aria-controls="privacy">Privacy</button>
+      <span class="quiet">© 2026 Infinitum Corporation · <span id="build"></span></span>
+    </span>
+  </footer>
+  <script src="lib/trackers.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

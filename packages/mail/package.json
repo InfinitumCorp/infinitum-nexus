@@ -13,11 +13,12 @@
     "typecheck": "tsc -p . --noEmit",
     "test": "node --test --experimental-strip-types $(find src -name \"*.test.ts\" 2>/dev/null || true)"
   },
+  "dependencies": {
+    "@infinitum/cid": "workspace:*",
+    "@infinitum/lbrnth-client": "workspace:*"
+  },
   "devDependencies": {
     "typescript": "^5.9.0",
     "@types/node": "^22.0.0"
-  },
-  "dependencies": {
-    "@infinitum/lbrnth-client": "workspace:*"
   }
 }

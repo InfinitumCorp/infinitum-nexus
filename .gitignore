@@ -1,7 +1,9 @@
 node_modules
 dist
+artifacts/
 .env
 .env.*
+!.env.example
 packages/contracts/artifacts
 packages/contracts/cache
 packages/contracts/typechain-types
@@ -9,3 +11,9 @@ data/
 apps/spectre/screenshots/
 .vercel/
 *.key
+
+# Android build output
+apps/cumulus-mail/android/build/
+
+# Vercel build output
+apps/cumulus-mail/.vercel/

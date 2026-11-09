@@ -8,8 +8,8 @@ import { WalletError } from "@infinitum/firm";
 import { VirtualAuthenticator } from "../../cid/src/testing/virtual-authenticator.ts";
 import { createCumulus } from "./index.ts";
 
-const RP_ID = "infinitum.id";
-const ORIGIN = "https://infinitum.id";
+const RP_ID = "id.cumuluscloud.app";
+const ORIGIN = "https://id.cumuluscloud.app";
 
 function setup() {
   const signer = generateSigner();
@@ -38,7 +38,7 @@ describe("every Cumulus://ID comes with Mail, Cloud and a FIRM Wallet", () => {
   it("provisions a mailbox and wallet the moment the CID is created", async () => {
     const { suite } = setup();
     const { account } = await signUp(suite, "alex");
-    assert.equal(suite.mail.resolve("alex@cumulusmail.cloud"), account.cid);
+    assert.equal(suite.mail.resolve("alex@cumuluscloud.app"), account.cid);
     const welcome = inbox(suite, account.cid).find((m) => m.system === "welcome");
     assert.ok(welcome, "a welcome message is waiting");
     assert.match(welcome!.body, /15 GB/);
@@ -58,8 +58,8 @@ describe("every Cumulus://ID comes with Mail, Cloud and a FIRM Wallet", () => {
       await assert.rejects(suite.cid.createAccount({ username: name }), (e: unknown) => e instanceof CidError && e.code === "reserved");
     }
     const { account } = await signUp(suite, "alex");
-    assert.equal(suite.mail.addAlias(account.cid, "wallet@cumulusmail.cloud"), false);
-    assert.equal(suite.mail.addAlias(account.cid, "alex.press@cumulusmail.cloud"), true);
+    assert.equal(suite.mail.addAlias(account.cid, "wallet@cumuluscloud.app"), false);
+    assert.equal(suite.mail.addAlias(account.cid, "alex.press@cumuluscloud.app"), true);
   });
 
   it("backfills CIDs created before the suite was wired in", async () => {
@@ -68,7 +68,7 @@ describe("every Cumulus://ID comes with Mail, Cloud and a FIRM Wallet", () => {
     suite.stores.mail.mailboxes.clear();
     suite.stores.mail.addresses.clear();
     assert.equal(suite.provisionAll(), 1);
-    assert.equal(suite.mail.resolve("old@cumulusmail.cloud"), account.cid);
+    assert.equal(suite.mail.resolve("old@cumuluscloud.app"), account.cid);
   });
 });
 
@@ -86,7 +86,7 @@ describe("logins send security mail", () => {
     const alert = notices().find((m) => m.subject === "New sign-in to your Cumulus://ID");
     assert.ok(alert);
     assert.match(alert!.body, /Pixel · Chrome/);
-    assert.equal(alert!.from.email, "security@cumulusmail.cloud");
+    assert.equal(alert!.from.email, "security@cumuluscloud.app");
   });
 });
 
@@ -95,15 +95,15 @@ describe("mail between Cumulus addresses", () => {
     const { suite } = setup();
     const a = (await signUp(suite, "alex")).account;
     const b = (await signUp(suite, "leah")).account;
-    const sent = await suite.mail.send(a.cid, { to: "leah@cumulusmail.cloud, priya@vyral.london", subject: "Notes", body: "Are the ODIN notes in Drive?" });
+    const sent = await suite.mail.send(a.cid, { to: "leah@cumuluscloud.app, priya@vyral.london", subject: "Notes", body: "Are the ODIN notes in Drive?" });
     assert.equal(sent.delivered, 1);
     assert.equal(sent.queued, 1);
     assert.equal(suite.mail.outboundQueue()[0]?.to[0], "priya@vyral.london");
     const got = inbox(suite, b.cid).find((m) => m.subject === "Notes")!;
     assert.equal(got.unread, true);
-    assert.equal(got.from.email, "alex@cumulusmail.cloud");
+    assert.equal(got.from.email, "alex@cumuluscloud.app");
 
-    await suite.mail.send(b.cid, { to: "alex@cumulusmail.cloud", subject: "Re: Notes", body: "Yes.", threadId: got.threadId });
+    await suite.mail.send(b.cid, { to: "alex@cumuluscloud.app", subject: "Re: Notes", body: "Yes.", threadId: got.threadId });
     const thread = suite.mail.view(a.cid).messages.filter((m) => m.threadId === got.threadId);
     assert.equal(thread.length, 2, "the reply joins the sender's thread");
   });
@@ -111,8 +111,8 @@ describe("mail between Cumulus addresses", () => {
   it("bounces unknown Cumulus addresses back to the sender", async () => {
     const { suite } = setup();
     const a = (await signUp(suite, "alex")).account;
-    const r = await suite.mail.send(a.cid, { to: "nobody-here@cumulusmail.cloud", subject: "Hi", body: "Hi" });
-    assert.deepEqual(r.bounced, ["nobody-here@cumulusmail.cloud"]);
+    const r = await suite.mail.send(a.cid, { to: "nobody-here@cumuluscloud.app", subject: "Hi", body: "Hi" });
+    assert.deepEqual(r.bounced, ["nobody-here@cumuluscloud.app"]);
     assert.ok(inbox(suite, a.cid).some((m) => m.system === "postmaster"));
   });
 
@@ -121,15 +121,15 @@ describe("mail between Cumulus addresses", () => {
     const a = (await signUp(suite, "alex")).account;
     await signUp(suite, "leah");
     const r = await suite.mail.send(a.cid, {
-      to: "leah@cumulusmail.cloud, nobody-here@cumulusmail.cloud, priya@vyral.london", subject: "Hops", body: "Hi",
+      to: "leah@cumuluscloud.app, nobody-here@cumuluscloud.app, priya@vyral.london", subject: "Hops", body: "Hi",
       attachments: [{ name: "plan.pdf", size: 2048 }],
     });
     const sent = suite.mail.message(a.cid, r.id)!;
     const status = Object.fromEntries((sent.delivery ?? []).map((h) => [h.email, h.status]));
-    assert.deepEqual(status, { "leah@cumulusmail.cloud": "inside", "nobody-here@cumulusmail.cloud": "bounced", "priya@vyral.london": "outbound" });
+    assert.deepEqual(status, { "leah@cumuluscloud.app": "inside", "nobody-here@cumuluscloud.app": "bounced", "priya@vyral.london": "outbound" });
     assert.equal(sent.attachments?.[0]?.name, "plan.pdf");
 
-    const self = await suite.mail.send(a.cid, { to: "alex@cumulusmail.cloud", subject: "Note to self", body: "Hi" });
+    const self = await suite.mail.send(a.cid, { to: "alex@cumuluscloud.app", subject: "Note to self", body: "Hi" });
     assert.equal(self.delivered, 1);
     assert.equal(inbox(suite, a.cid).filter((m) => m.subject === "Note to self").length, 1);
   });
@@ -149,13 +149,13 @@ describe("shared 15 GB free tier", () => {
   it("mail and Cloud draw from the same storage, and a full account can't send", async () => {
     const { suite } = setup();
     const a = (await signUp(suite, "alex")).account;
-    await suite.mail.send(a.cid, { to: "alex@cumulusmail.cloud", subject: "Note to self", body: "x".repeat(10_000) });
+    await suite.mail.send(a.cid, { to: "alex@cumuluscloud.app", subject: "Note to self", body: "x".repeat(10_000) });
     suite.cloud.put("video.mp4", a.cid, 14.99 * GB);
     const usage = suite.quota.usage(a.cid);
     assert.ok(usage.byProduct.mail > 0 && usage.byProduct.cloud > 0);
     assert.equal(usage.limitBytes, 15 * GB);
     assert.throws(() => suite.cloud.put("more.bin", a.cid, 0.1 * GB), QuotaError);
-    await assert.rejects(suite.mail.send(a.cid, { to: "alex@cumulusmail.cloud", subject: "Big", body: "x".repeat(20_000_000) }), (e: unknown) => e instanceof MailError && e.code === "quota_exceeded");
+    await assert.rejects(suite.mail.send(a.cid, { to: "alex@cumuluscloud.app", subject: "Big", body: "x".repeat(20_000_000) }), (e: unknown) => e instanceof MailError && e.code === "quota_exceeded");
   });
 
   it("sharing a Cloud file mails the recipient", async () => {
@@ -163,9 +163,9 @@ describe("shared 15 GB free tier", () => {
     const a = (await signUp(suite, "alex")).account;
     const b = (await signUp(suite, "leah")).account;
     suite.cloud.put("odin-briefing.pdf", a.cid, 2_000_000);
-    await suite.shareFile(a.cid, "odin-briefing.pdf", "leah@cumulusmail.cloud");
+    await suite.shareFile(a.cid, "odin-briefing.pdf", "leah@cumuluscloud.app");
     const notice = inbox(suite, b.cid).find((m) => m.system === "cloud");
-    assert.match(notice!.subject, /alex@cumulusmail\.cloud shared “odin-briefing\.pdf”/);
+    assert.match(notice!.subject, /alex@cumuluscloud\.app shared “odin-briefing\.pdf”/);
   });
 });
 
@@ -175,7 +175,7 @@ describe("FIRM Wallet with Mail", () => {
     const a = (await signUp(suite, "alex")).account;
     const b = (await signUp(suite, "leah")).account;
     await suite.credit(a.cid, "USDC", "204", "Cumulus Data Exchange");
-    const r = await suite.mail.send(a.cid, { to: "leah@cumulusmail.cloud", subject: "Dinner", body: "My half.", payment: { asset: "USDC", amount: "42.50" } });
+    const r = await suite.mail.send(a.cid, { to: "leah@cumuluscloud.app", subject: "Dinner", body: "My half.", payment: { asset: "USDC", amount: "42.50" } });
     assert.equal(r.payment?.amount, "42.5");
     assert.deepEqual(suite.wallets.balances(a.cid).USDC, "161.5");
     assert.deepEqual(suite.wallets.balances(b.cid).USDC, "42.5");
@@ -192,7 +192,7 @@ describe("FIRM Wallet with Mail", () => {
     const a = (await signUp(suite, "alex")).account;
     const b = (await signUp(suite, "leah")).account;
     await assert.rejects(
-      suite.mail.send(a.cid, { to: "leah@cumulusmail.cloud", subject: "Pay", body: "x", payment: { asset: "USDC", amount: "5" } }),
+      suite.mail.send(a.cid, { to: "leah@cumuluscloud.app", subject: "Pay", body: "x", payment: { asset: "USDC", amount: "5" } }),
       (e: unknown) => e instanceof WalletError && e.code === "insufficient_funds",
     );
     assert.equal(inbox(suite, b.cid).some((m) => m.subject === "Pay"), false);
@@ -207,7 +207,7 @@ describe("FIRM Wallet with Mail", () => {
     await suite.credit(a.cid, "FIRM", "10", "Settlement");
     const leahWallet = suite.wallets.get(b.cid)!.address;
     await suite.pay(a.cid, leahWallet, "FIRM", "3", "thanks");
-    await suite.pay(a.cid, "leah@cumulusmail.cloud", "FIRM", "2");
+    await suite.pay(a.cid, "leah@cumuluscloud.app", "FIRM", "2");
     assert.equal(suite.wallets.balances(b.cid).FIRM, "5");
     assert.equal(inbox(suite, b.cid).filter((m) => m.system === "wallet").length, 2);
     assert.ok(inbox(suite, a.cid).some((m) => m.subject.startsWith("You sent 3 FIRM")));
@@ -228,7 +228,7 @@ describe("Cumulus Tunnel across the suite", () => {
     const suite = createCumulus({ ledger, signer, rpId: RP_ID, origins: [ORIGIN], stores, masterKey });
     const a = (await signUp(suite, "alex")).account;
     const b = (await signUp(suite, "leah")).account;
-    await suite.mail.send(a.cid, { to: "leah@cumulusmail.cloud", subject: "Board deck", body: "Draft attached in Cloud." });
+    await suite.mail.send(a.cid, { to: "leah@cumuluscloud.app", subject: "Board deck", body: "Draft attached in Cloud." });
     assert.equal(inbox(suite, b.cid).find((m) => m.subject === "Board deck")?.tunnel?.verified, true);
     saveCumulusStores(dir, stores, { tunnel: suite.tunnel });
 
@@ -239,7 +239,7 @@ describe("Cumulus Tunnel across the suite", () => {
 
     const restored = loadCumulusStores(dir, emptyCumulusStores());
     const again = createCumulus({ ledger, signer, rpId: RP_ID, origins: [ORIGIN], stores: restored, masterKey: loadOrCreateMasterKey(dir, {}) });
-    assert.equal(again.mail.view(b.cid).messages.find((m) => m.subject === "Board deck")?.body, "Draft attached in Cloud.\n\nalex\nalex@cumulusmail.cloud");
+    assert.equal(again.mail.view(b.cid).messages.find((m) => m.subject === "Board deck")?.body, "Draft attached in Cloud.\n\nalex\nalex@cumuluscloud.app");
     assert.equal(again.tunnel.fingerprint(a.cid), suite.tunnel.fingerprint(a.cid));
   });
 });

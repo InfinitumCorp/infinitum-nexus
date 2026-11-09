@@ -1,3 +1,4 @@
+export { DEFAULT_FIRM_ROOT_DOMAIN, FirmDomainError, firmRootDomain } from "./domain.ts";
 export type { FirmToken, FirmWallet, Settlement } from "./interfaces.ts";
 export type { EvmFirmToken, EvmFirmWallet, EvmSettlement } from "./evm.ts";
 export { createEvmFirmToken, getBalance } from "./evm.ts";

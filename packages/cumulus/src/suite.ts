@@ -4,7 +4,7 @@ import type { CidLabyrinthOptions } from "@infinitum/lbrnth";
  * The Cumulus account suite. Build it once and every Infinitum product gets the same account:
  *
  *   Cumulus://ID      sign-in (passkeys, MFA, social, SSO)
- *   Cumulus://Mail    username@cumulusmail.cloud, provisioned the moment the CID is created
+ *   Cumulus://Mail    username@cumuluscloud.app, provisioned the moment the CID is created
  *   Cumulus://Cloud   Drive storage
  *   FIRM Wallet       opened with the account; payments can be sent by mail
  *   Free tier         15 GB shared by Mail and Cloud, plus Mail, Cloud and Wallet at no cost
@@ -13,7 +13,7 @@ import type { CidLabyrinthOptions } from "@infinitum/lbrnth";
  * sign-ins, Cloud share notices and wallet receipts all arrive in the person's Cumulus inbox.
  * It is not a product listed on the public site; people reach it from inside the other products.
  */
-import { CidService, CidStore, FREE_ENTITLEMENTS, type CidConfig, type CidEvent, type Account } from "@infinitum/cid";
+import { CidService, CidStore, FREE_ENTITLEMENTS, cumulusDomains, type CidConfig, type CidEvent, type Account } from "@infinitum/cid";
 import { CloudStore, QuotaStore, StorageQuota, formatBytes } from "@infinitum/cloud";
 import { WalletAccounts, WalletStore, WalletError, type WalletTransfer } from "@infinitum/firm";
 import { CumulusTunnel, PostOffice, PostOfficeStore, TunnelStore, openMailStore } from "@infinitum/mail";
@@ -44,7 +44,7 @@ export interface CumulusConfig extends Omit<CidConfig, "store" | "onEvent" | "le
   ledger: Ledger;
   signer: Signer;
   stores?: Partial<CumulusStores>;
-  /** Where people open their mail, used in notices. Default https://mail.cumulusmail.cloud */
+  /** Where people open their mail, used in notices. Default https://mail.cumuluscloud.app */
   mailOrigin?: string;
   /**
    * 32-byte Cumulus Tunnel master key. With it, account keys and sealed mailboxes survive restarts.
@@ -74,13 +74,16 @@ export class CumulusSuite {
   private readonly ledger: Ledger;
   private readonly signer: Signer;
   readonly mailOrigin: string;
+  private readonly cloudOrigin: string;
 
   constructor(config: CumulusConfig) {
     const empty = emptyCumulusStores();
     this.stores = { ...empty, ...config.stores } as CumulusStores;
     this.ledger = config.ledger;
     this.signer = config.signer;
-    this.mailOrigin = (config.mailOrigin ?? "https://mail.cumulusmail.cloud").replace(/\/$/, "");
+    const domains = cumulusDomains();
+    this.mailOrigin = (config.mailOrigin ?? domains.origins.mail).replace(/\/$/, "");
+    this.cloudOrigin = domains.origins.cloud;
     const clock = config.clock;
 
     this.quota = new StorageQuota({ store: this.stores.quota, freeGb: FREE_ENTITLEMENTS.storageGb });
@@ -124,8 +127,8 @@ export class CumulusSuite {
           "",
           "Your Cumulus://ID is ready, and it already comes with:",
           "",
-          `• Cumulus://Mail at ${account.mailAddress}`,
-          `• Cumulus://Cloud storage: ${FREE_ENTITLEMENTS.storageGb} GB, shared between Mail and Cloud`,
+          `• Cumulus://Mail at ${account.mailAddress} (${this.mailOrigin})`,
+          `• Cumulus://Cloud storage: ${FREE_ENTITLEMENTS.storageGb} GB, shared between Mail and Cloud (${this.cloudOrigin})`,
           `• A FIRM Wallet: ${wallet.address}`,
           "• SCALVS.ai and :\\ARCHITECT\\ on the free plan, and the METATRON dashboard",
           "",
@@ -207,7 +210,7 @@ export class CumulusSuite {
     const from = this.stores.mail.mailboxes.get(owner)?.owner.email ?? "Someone";
     this.mail.notify(recipient, "cloud", {
       subject: `${from} shared “${key}” with you`,
-      body: `${from} shared a file with you on Cumulus://Cloud.\n\nFile: ${key}\n\nOpen it from Cumulus://Cloud. Only your Cumulus://ID can see it.\n\nCumulus://Cloud`,
+      body: `${from} shared a file with you on Cumulus://Cloud.\n\nFile: ${key}\n\nOpen it at ${this.cloudOrigin}. Only your Cumulus://ID can see it.\n\nCumulus://Cloud`,
     });
   }
 

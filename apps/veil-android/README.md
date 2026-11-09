@@ -43,7 +43,7 @@ steps are in BUILD.md.
 
 ## Run
 
-Requires Go 1.25.0 or newer (golang.org/x/crypto v0.52.0 declares Go 1.25).
+Requires Go 1.26.0 or newer (golang.org/x/crypto v0.58.0 declares Go 1.26).
 
 ```sh
 cd apps/veil-android/tunnel

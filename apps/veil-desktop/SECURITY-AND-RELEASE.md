@@ -37,7 +37,7 @@ Assign `10.64.0.1/32` on the exit interface. The client addresses are `10.64.0.2
 
 ## Reproducible unsigned build
 
-`scripts/build-reproducible.sh` pins Go 1.25.0 (`GOTOOLCHAIN=go1.25.0`, matching the `go 1.25.0` line in `go.mod`) and Node 22.23.4, exports `SOURCE_DATE_EPOCH` from the git commit time unless it is already set, and writes zip and tar archives with sorted names and that timestamp. `artifacts/SHA256SUMS` is the manifest. `scripts/repro-check.sh` builds twice and compares every hashed file. Go binaries use `-trimpath`, `-buildvcs=false`, and `-buildid=`. The second build uses a cold `GOCACHE`.
+`scripts/build-reproducible.sh` pins Go 1.26.0 (`GOTOOLCHAIN=go1.26.0`, matching the `go 1.26.0` line in `go.mod`) and Node 22.23.4, exports `SOURCE_DATE_EPOCH` from the git commit time unless it is already set, and writes zip and tar archives with sorted names and that timestamp. `artifacts/SHA256SUMS` is the manifest. `scripts/repro-check.sh` builds twice and compares every hashed file. Go binaries use `-trimpath`, `-buildvcs=false`, and `-buildid=`. The second build uses a cold `GOCACHE`.
 
 This does not sign anything and does not buy a certificate.
 

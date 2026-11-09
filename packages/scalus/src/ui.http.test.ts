@@ -95,6 +95,17 @@ describe("SCALVS web app", { concurrency: false }, () => {
     const css = await call(base, "GET", "/app.css");
     assert.equal(css.status, 200);
     assert.match(css.headers.get("content-type") ?? "", /css/);
+
+    // FIRM Suite: shown on the page and served without sign-in.
+    assert.match(page.text, /<firm-suite product="scalvs">/);
+    const suite = await call(base, "GET", "/firm-suite.js");
+    assert.equal(suite.status, 200);
+    assert.match(suite.headers.get("content-type") ?? "", /javascript/);
+    assert.match(suite.text, /customElements\.define\("firm-suite"/);
+    assert.match(suite.text, /SCLV/);
+    const suiteCss = await call(base, "GET", "/firm-suite.css");
+    assert.equal(suiteCss.status, 200);
+    assert.match(suiteCss.headers.get("content-type") ?? "", /css/);
     assert.deepEqual(idp.calls, []);
   });
 

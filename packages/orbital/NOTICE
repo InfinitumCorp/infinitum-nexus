@@ -1,0 +1,36 @@
+Infinitum Corporation® — offline orbital planning backend
+
+Runtime dependency (not vendored source):
+  satellite.js 7.1.0, MIT
+  https://github.com/shashwatak/satellite-js
+  Copyright (C) 2013 Shashwat Kandadai, UCSC Jack Baskin School of Engineering
+  Full upstream license preserved in licenses/satellite.js-MIT.txt.
+  Exact version/integrity is pinned in pnpm-lock.yaml. Only the JavaScript
+  implementation is called; no WASM/build scripts are invoked.
+
+Numerical reference facts in src/reference-vectors.json:
+  David A. Vallado, Paul Crawford, Richard Hujsak and T. S. Kelso,
+  "Revisiting Spacetrack Report #3," AIAA 2006-6753.
+  https://celestrak.org/publications/AIAA/2006-6753/
+  Selected TLEs and numerical outputs from SGP4-VER.TLE / tcppver.out, also
+  available in the python-sgp4 reference-data mirror at revision
+  8126f773923c2902719d45aab8bdb5cce86cf39d:
+  https://github.com/brandon-rhodes/python-sgp4/tree/8126f773923c2902719d45aab8bdb5cce86cf39d/sgp4
+  Cases 00005, 04632 and 08195; positions km, velocities km/s, time minutes
+  since epoch, TEME frame. These are selected published numerical facts,
+  not copied Python/C++ implementation code. No python-sgp4 runtime added.
+
+Independent implementations / public standards, no source copied:
+  STAC 1.0.0 item structure: https://github.com/radiantearth/stac-spec/tree/v1.0.0
+  The metadata is STAC-style, not a complete STAC API/conformance claim.
+  All custom hash/size/provenance fields use the infinitum: namespace.
+  Free-space loss: Friis equation with c = 299792458 m/s.
+  Thermal noise: kTB with k = 1.380649e-23 J/K.
+  Scheduling: independently written bounded priority-first greedy intervals.
+
+No satellite-company SDK, Apache/GPL source, proprietary SDK, API credential,
+commercial imagery dataset, satellite tasking, antenna control or radio driver
+is introduced by this package. Existing repository notices remain applicable
+to their respective packages. Attribution is not vendor endorsement or a grant
+of data/service rights. All computed artifacts are offline proposals requiring
+operator review, not operational safety or accuracy certification.

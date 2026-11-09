@@ -3,6 +3,11 @@
 Infinitum Corporation® — checked 2026-11-07. New branch stacked on drone archive
 PR #27; repository-only work. No website, Vercel, merge, spend or production action.
 
+> Scope note: this document records PR #28. The subsequent, strictly offline
+> Firmament/ORBIS numerical planning backend is documented separately in
+> [ORBITAL-PLANNING.md](ORBITAL-PLANNING.md); historical exclusions/counts below
+> describe the earlier PR, not the follow-up.
+
 ## Implemented, not just surveyed
 
 | Source code actually read | License/revision | Applied backend capability | Files |

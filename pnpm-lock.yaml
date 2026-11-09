@@ -125,6 +125,9 @@ importers:
       '@infinitum/metatron':
         specifier: workspace:*
         version: link:../../packages/metatron
+      '@infinitum/orbital':
+        specifier: workspace:*
+        version: link:../../packages/orbital
       '@infinitum/scalus':
         specifier: workspace:*
         version: link:../../packages/scalus
@@ -470,6 +473,28 @@ importers:
         specifier: ^5.9.0
         version: 5.9.3
 
+  packages/orbital:
+    dependencies:
+      '@infinitum/lbrnth':
+        specifier: workspace:*
+        version: link:../lbrnth
+      satellite.js:
+        specifier: 7.1.0
+        version: 7.1.0
+    devDependencies:
+      '@infinitum/cid':
+        specifier: workspace:*
+        version: link:../cid
+      '@infinitum/firmament':
+        specifier: workspace:*
+        version: link:../firmament
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.20.5
+      typescript:
+        specifier: ^5.9.0
+        version: 5.9.3
+
   packages/scalus:
     dependencies:
       '@infinitum/lbrnth-client':
@@ -488,6 +513,9 @@ packages:
   '@types/node@22.20.5':
     resolution: {integrity: sha512-U2+DNr+wSjpsTS/wZGYHq7GcwfuSmKiKvoPvK22zwTlRhU91yOniN4qRR5KhIjvif7ysw/dz/hKmfDH0Ris4aA==}
 
+  satellite.js@7.1.0:
+    resolution: {integrity: sha512-U6nRml9Nb7dV9LJPiMNPyna7U7ry+1nXYkOeCEG7K/YbojQQLHHmcjPisp03VNY+HLcbQHqbt7t4t1vQMaKCLQ==}
+
   typescript@5.9.3:
     resolution: {integrity: sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw==}
     engines: {node: '>=14.17'}
@@ -501,6 +529,8 @@ snapshots:
   '@types/node@22.20.5':
     dependencies:
       undici-types: 6.21.0
+
+  satellite.js@7.1.0: {}
 
   typescript@5.9.3: {}
 

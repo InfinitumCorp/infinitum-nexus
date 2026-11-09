@@ -18,6 +18,7 @@
   "dependencies": {
     "@infinitum/cid": "workspace:*",
     "@infinitum/firmament": "workspace:*",
+    "@infinitum/lbrnth-client": "workspace:*",
     "pg": "^8.16.3"
   },
   "devDependencies": {

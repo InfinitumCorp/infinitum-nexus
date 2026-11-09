@@ -69,6 +69,23 @@ describe("Cumulus://Mail over HTTP", () => {
     assert.match(page.data, /noindex/);
   });
 
+  it("publishes the mail domain and allows only exact Cumulus origins", async () => {
+    const b = new Browser();
+    const config = await b.call("GET", "/cumulus-config.js");
+    assert.equal(config.status, 200);
+    assert.match(String(config.data), /"mailDomain":"cumuluscloud\.app"/);
+    assert.equal(String(config.data).includes("*"), false);
+    const allowed = await b.call("OPTIONS", "/api/state", undefined, { origin: "https://id.cumuluscloud.app" });
+    assert.equal(allowed.status, 204);
+    assert.equal(allowed.headers.get("access-control-allow-origin"), "https://id.cumuluscloud.app");
+    assert.notEqual(allowed.headers.get("access-control-allow-origin"), "*");
+    const denied = await b.call("GET", "/", undefined, { origin: "https://evil.example" });
+    assert.equal(denied.headers.get("access-control-allow-origin"), null);
+    const cid = await b.signUp("river@cumuluscloud.app");
+    assert.match(cid, /^cid_/);
+    assert.equal((await b.call("GET", "/api/state")).data.me.email, "river@cumuluscloud.app");
+  });
+
   it("needs a Cumulus://ID session and the request header", async () => {
     const b = new Browser();
     assert.equal((await b.call("GET", "/api/state")).status, 401);

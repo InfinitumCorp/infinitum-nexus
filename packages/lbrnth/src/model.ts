@@ -41,6 +41,11 @@ export interface LabyrinthOptions {
   clock?: () => Date;
   /** Optional lower per-client quotas. Values cannot exceed the package hard ceilings. */
   limits?: Partial<LabyrinthLimits>;
+  /**
+   * Exact browser origins allowed to call a host that exposes Labyrinth.
+   * Defaults to the Cumulus://ID, Cloud and Mail origins. "*" is rejected.
+   */
+  corsOrigins?: readonly string[];
 }
 export interface CommitInput {
   branch: string;

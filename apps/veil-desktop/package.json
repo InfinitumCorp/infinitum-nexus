@@ -1,0 +1,10 @@
+{
+  "name": "@infinitum/veil-desktop",
+  "version": "0.9.0",
+  "private": true,
+  "type": "module",
+  "description": "Infinitum Corporation® VEIL device-wide cyber VPN. Default VEIL tunnel, optional local Tor. Not the browser extension.",
+  "scripts": {
+    "test": "node --experimental-strip-types --check scripts/mint-fixture.ts"
+  }
+}

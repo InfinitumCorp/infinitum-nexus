@@ -1,0 +1,154 @@
+/* $FIRM Wallet — the Infinitum clean layout: ink on paper, Helvetica, square 1px rules. */
+:root {
+  --ink: #111820; --ink-2: #49545e; --ink-3: #8a949c; --line: #e3e6e9; --paper: #fff; --wash: #f6f7f8;
+  --up: #0f7b4f; --down: #b42318; --sol-b: #14f195; --warn-bg: #fff8e6; --warn: #7a4b00;
+  --f: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --gut: 16px; --max: 1100px;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ink: #eef1f3; --ink-2: #a9b2ba; --ink-3: #6f7a83; --line: #26303a; --paper: #0d1217; --wash: #141b22;
+    --up: #3ecf8e; --down: #ff6b5e; --warn-bg: #2a2110; --warn: #f0c36b; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --ink: #eef1f3; --ink-2: #a9b2ba; --ink-3: #6f7a83; --line: #26303a; --paper: #0d1217; --wash: #141b22;
+  --up: #3ecf8e; --down: #ff6b5e; --warn-bg: #2a2110; --warn: #f0c36b; color-scheme: dark;
+}
+@media (min-width: 720px) { :root { --gut: 32px; } }
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: var(--f); color: var(--ink); background: var(--paper); -webkit-font-smoothing: antialiased; overflow-x: hidden; min-height: 100vh; }
+a { color: inherit; }
+button, input, select, textarea { font: inherit; color: inherit; }
+.wrap { max-width: var(--max); margin: 0 auto; padding: 0 var(--gut); }
+.eyebrow { font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-2); }
+.muted { color: var(--ink-2); }
+.small { font-size: 13px; line-height: 1.45; }
+.mono { font-family: var(--mono); font-size: 13px; word-break: break-all; }
+.up { color: var(--up); } .down { color: var(--down); }
+.row { display: flex; align-items: center; gap: 12px; }
+.between { justify-content: space-between; }
+.wrapflex { flex-wrap: wrap; }
+.grid { display: grid; gap: 16px; }
+@media (min-width: 860px) { .grid.two { grid-template-columns: 1fr 1fr; } .grid.three { grid-template-columns: repeat(3, 1fr); } }
+.stack > * + * { margin-top: 12px; }
+
+header.top { position: sticky; top: 0; z-index: 20; background: color-mix(in srgb, var(--paper) 88%, transparent); backdrop-filter: saturate(1.4) blur(10px); border-bottom: 1px solid var(--line); }
+.bar { display: flex; align-items: center; justify-content: space-between; height: 60px; gap: 16px; }
+.wordmark { font-size: 17px; letter-spacing: -.03em; font-weight: 500; white-space: nowrap; }
+.wordmark .tm { font-size: .5em; vertical-align: super; }
+.mode { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; border: 1px solid var(--line); padding: 4px 8px; color: var(--ink-2); }
+.mode.live { border-color: var(--ink); color: var(--ink); }
+nav.tabs { display: flex; gap: 0; overflow-x: auto; border-bottom: 1px solid var(--line); scrollbar-width: none; }
+nav.tabs a { flex: 0 0 auto; padding: 14px 14px; font-size: 13px; text-decoration: none; color: var(--ink-2); border-bottom: 2px solid transparent; }
+nav.tabs a.on { color: var(--ink); border-bottom-color: var(--ink); }
+
+main { padding: 28px 0 80px; }
+h1 { font-weight: 400; font-size: clamp(34px, 6vw, 56px); letter-spacing: -.05em; line-height: 1; }
+h2 { font-weight: 400; font-size: 24px; letter-spacing: -.03em; }
+h3 { font-weight: 500; font-size: 15px; letter-spacing: -.01em; }
+.total { font-size: clamp(40px, 8vw, 72px); letter-spacing: -.06em; font-weight: 400; line-height: 1; }
+
+.card { border: 1px solid var(--line); padding: 20px; background: var(--paper); }
+.card.ink { border-color: var(--ink); }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 42px; padding: 0 18px; border: 1px solid var(--ink); background: transparent; cursor: pointer; font-size: 13px; letter-spacing: .02em; transition: background .15s, color .15s; text-decoration: none; }
+.btn:hover:not(:disabled), .btn.solid { background: var(--ink); color: var(--paper); }
+.btn.solid:hover:not(:disabled) { opacity: .9; }
+.btn.ghost { border-color: var(--line); }
+.btn.block { width: 100%; min-height: 50px; font-size: 14px; }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.btn.danger { border-color: var(--down); color: var(--down); }
+.btn.danger:hover:not(:disabled) { background: var(--down); color: #fff; }
+.seg { display: inline-flex; border: 1px solid var(--line); }
+.seg button { border: 0; background: transparent; padding: 8px 14px; font-size: 13px; cursor: pointer; color: var(--ink-2); }
+.seg button.on { background: var(--ink); color: var(--paper); }
+
+.field { display: flex; flex-direction: column; gap: 6px; }
+.field label { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-2); }
+.field input, .field select, .field textarea { min-height: 46px; border: 1px solid var(--line); padding: 10px 14px; font-size: 15px; background: var(--paper); border-radius: 0; width: 100%; }
+.field textarea { min-height: 96px; resize: vertical; font-family: var(--mono); font-size: 14px; }
+.field input:focus, .field select:focus, .field textarea:focus { outline: none; border-color: var(--ink); }
+:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+
+table.list { width: 100%; border-collapse: collapse; font-size: 14px; }
+table.list th { text-align: left; font-weight: 400; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-2); padding: 8px 0; border-bottom: 1px solid var(--line); }
+table.list td { padding: 12px 0; border-bottom: 1px solid var(--line); vertical-align: middle; }
+table.list td.r, table.list th.r { text-align: right; }
+.scroll-x { overflow-x: auto; }
+
+.asset { display: flex; align-items: center; gap: 12px; padding: 14px 0; border-bottom: 1px solid var(--line); }
+.asset .glyph { width: 36px; height: 36px; border: 1px solid var(--line); display: grid; place-items: center; font-size: 11px; font-weight: 500; flex: 0 0 auto; overflow: hidden; }
+.asset .glyph img { width: 100%; height: 100%; object-fit: cover; }
+.asset .name { flex: 1; min-width: 0; }
+.asset .amt { text-align: right; }
+.tag { display: inline-block; font-size: 10px; letter-spacing: .1em; text-transform: uppercase; border: 1px solid var(--line); padding: 2px 6px; color: var(--ink-2); margin-left: 6px; vertical-align: middle; }
+
+.note { border: 1px solid var(--line); background: var(--wash); padding: 12px 14px; font-size: 13px; line-height: 1.5; color: var(--ink-2); }
+.warn { border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent); background: var(--warn-bg); color: var(--warn); padding: 12px 14px; font-size: 13px; line-height: 1.5; }
+.words { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; counter-reset: w; }
+@media (min-width: 560px) { .words { grid-template-columns: repeat(3, 1fr); } }
+.words span { border: 1px solid var(--line); padding: 10px 12px; font-family: var(--mono); font-size: 14px; counter-increment: w; }
+.words span::before { content: counter(w) "  "; color: var(--ink-3); }
+
+.overlay { position: fixed; inset: 0; background: rgba(13, 18, 23, .55); z-index: 50; display: flex; align-items: flex-end; justify-content: center; }
+@media (min-width: 640px) { .overlay { align-items: center; } }
+.sheet { background: var(--paper); border: 1px solid var(--ink); width: 100%; max-width: 520px; max-height: 92vh; overflow: auto; padding: 24px var(--gut); }
+.kv { display: grid; grid-template-columns: minmax(110px, 38%) 1fr; gap: 10px 16px; font-size: 14px; }
+.kv dt { color: var(--ink-2); }
+.kv dd { word-break: break-word; }
+.toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 60; background: var(--ink); color: var(--paper); padding: 12px 18px; font-size: 13px; max-width: calc(100vw - 32px); }
+.toast.err { background: var(--down); color: #fff; }
+.qr { width: 200px; height: 200px; border: 1px solid var(--line); padding: 8px; background: #fff; }
+.qr svg { width: 100%; height: 100%; display: block; }
+.prob { height: 6px; background: var(--wash); border: 1px solid var(--line); position: relative; }
+.prob i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--ink); }
+.signal { font-size: 28px; letter-spacing: -.04em; text-transform: capitalize; }
+.center { min-height: 70vh; display: grid; place-items: center; }
+.narrow { max-width: 480px; width: 100%; }
+.footer { border-top: 1px solid var(--line); padding: 20px 0; font-size: 12px; color: var(--ink-3); }
+
+/* Predict: prediction markets */
+.pm-grid { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
+.pm-card { cursor: pointer; transition: border-color .15s; }
+.pm-card:hover, .pm-card:focus-visible { border-color: var(--ink); outline: none; }
+.pm-card h3 { font-size: 16px; line-height: 1.3; }
+.badge { display: inline-block; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-2); }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { border: 1px solid var(--line); background: transparent; padding: 6px 12px; font-size: 13px; cursor: pointer; color: var(--ink-2); }
+.chip.on { border-color: var(--ink); background: var(--ink); color: var(--paper); }
+.btn.star { min-height: 32px; padding: 0 10px; font-size: 16px; }
+.spark { width: 100%; height: 160px; display: block; color: var(--ink); border: 1px solid var(--line); background: var(--wash); }
+div.spark { display: flex; align-items: center; justify-content: center; }
+.spark .grid-line { stroke: var(--line); stroke-dasharray: 3 4; vector-effect: non-scaling-stroke; }
+.spark-label { font-size: 13px; fill: var(--ink); }
+table.book td { padding: 5px 0; font-variant-numeric: tabular-nums; }
+table.book td:first-child { background-repeat: no-repeat; background-position: left; }
+.book-bid td:first-child { color: var(--up); background-image: linear-gradient(color-mix(in srgb, var(--up) 14%, transparent), color-mix(in srgb, var(--up) 14%, transparent)); }
+.book-ask td:first-child { color: var(--down); background-image: linear-gradient(color-mix(in srgb, var(--down) 14%, transparent), color-mix(in srgb, var(--down) 14%, transparent)); }
+
+/* ---------------- $FIRM Mini (Telegram-sized DEX) ---------------- */
+.mini { max-width: 560px; margin: 0 auto; min-height: 100vh; padding-bottom: calc(72px + env(safe-area-inset-bottom)); }
+.mini-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 12px var(--gut); border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--paper); z-index: 5; }
+.mini-top .wordmark { font-size: 16px; }
+.mini-body { padding: 16px var(--gut); }
+.mini-body .center { min-height: 60vh; }
+.mini-nav { position: fixed; left: 0; right: 0; bottom: 0; display: grid; grid-template-columns: repeat(4, 1fr); background: var(--paper); border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom); z-index: 6; max-width: 560px; margin: 0 auto; }
+.mini-nav button { border: 0; background: transparent; color: var(--ink-3); padding: 14px 4px; font: inherit; font-size: 13px; cursor: pointer; }
+.mini-nav button.on { color: var(--ink); font-weight: 700; box-shadow: inset 0 2px 0 var(--ink); }
+.mini-market { display: flex; justify-content: space-between; align-items: center; width: 100%; padding: 14px; border: 1px solid var(--line); background: var(--wash); color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.mini-market b { font-size: 18px; }
+.mini-sides { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.mini-sides .btn.danger { background: var(--down); color: #fff; }
+.mini-list { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
+.mini-list button { display: flex; justify-content: space-between; width: 100%; padding: 12px 4px; border: 0; border-bottom: 1px solid var(--line); background: transparent; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.mini .r { text-align: right; }
+.mini-pos { border-top: 1px solid var(--line); padding-top: 10px; display: grid; gap: 6px; }
+.mini .seg { display: flex; }
+.mini .seg button { flex: 1; }
+.mini .grid.two { grid-template-columns: 1fr; }
+/* Inside Telegram the native bottom button sits under the page. */
+.tg .mini { padding-bottom: calc(72px + env(safe-area-inset-bottom)); }
+.center-text { text-align: center; }

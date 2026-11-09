@@ -1,5 +1,6 @@
 node_modules
 dist
+artifacts/
 .env
 .env.*
 !.env.example
@@ -10,3 +11,9 @@ data/
 apps/spectre/screenshots/
 .vercel/
 *.key
+
+# Android build output
+apps/cumulus-mail/android/build/
+
+# Vercel build output
+apps/cumulus-mail/.vercel/

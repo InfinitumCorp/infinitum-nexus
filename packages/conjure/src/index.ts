@@ -4,3 +4,11 @@ export {
   interview as conjureInterview, estimateCalls as conjureEstimate, claudeComplete, parseJson, ConjureError,
 } from "./conjure.ts";
 export type { Simulation, Persona, Post, Report as ConjureReport, RoundStats, Complete, Entity, Relation } from "./conjure.ts";
+
+export { createConjureLabyrinth } from "./labyrinth.ts";
+
+/** @conjure: reach Conjure from any product by mentioning it. */
+export {
+  parseConjureMention, hasConjureMention, formatForecast, createConjureLive, conjureLiveFromEnv, handleConjureMention, ConjureApiError,
+} from "./mention.ts";
+export type { ConjureMention, LivePrediction, PredictOptions, ConjureLiveClient } from "./mention.ts";

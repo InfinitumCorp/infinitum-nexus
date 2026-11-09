@@ -4,6 +4,7 @@
  */
 import { ANONYMOUS, AUTHENTICATED, LABELS, can } from "./lib/workspace.js";
 import { formatVeil, POLICY } from "./lib/rewards.js";
+import { submitAsk } from "./lib/ask.js";
 
 const $ = (id) => document.getElementById(id);
 const statusEl = $("status");
@@ -79,8 +80,19 @@ $("confirm-yes").onclick = async () => {
 // ---------- Privacy ----------
 
 function renderTor() {
-  $("tor-dot").classList.toggle("on", state.torEnabled);
-  $("tor-status").textContent = state.torEnabled ? "Tor proxy on (socks5://127.0.0.1:9050)" : "Tor proxy off";
+  const status = state.tor?.status;
+  const dot = $("tor-dot");
+  dot.classList.toggle("on", status === "tor");
+  dot.classList.toggle("bad", status === "unreachable" || status === "not-tor");
+  const port = state.tor?.endpoint?.port ?? 9050;
+  const labels = {
+    tor: `Tor is up · socks5://127.0.0.1:${port}`,
+    checking: "Checking Tor…",
+    unreachable: "Tor unreachable — browser traffic blocked",
+    "not-tor": "The check did not see a Tor exit — traffic stays blocked",
+    off: "Tor off",
+  };
+  $("tor-status").textContent = labels[status] ?? (state.torEnabled ? "Tor on" : "Tor off");
   $("tor-toggle").textContent = state.torEnabled ? "Turn off Tor" : "Turn on Tor";
 }
 $("tor-toggle").onclick = async () => {
@@ -93,7 +105,14 @@ $("tor-toggle").onclick = async () => {
 $("check-tor").onclick = async () => {
   say("Checking with check.torproject.org…");
   const r = await send("checkTor");
-  say(r.isTor ? "Confirmed: traffic is leaving through Tor" : `Not on Tor${r.error ? ` (${r.error})` : ""}`);
+  say(r.isTor ? "Confirmed: this browser is exiting through Tor" : r.status === "unreachable" ? "Tor is unreachable. Traffic stays blocked." : `Not a Tor exit${r.error ? ` (${r.error})` : ""}`);
+  await refresh();
+};
+$("new-circuit").onclick = async () => {
+  try {
+    const r = await send("newCircuit");
+    say(`New circuit requested (isolation ${r.generation}). Tor must use IsolateSOCKSAuth.`);
+  } catch (err) { say(err.message); }
 };
 $("auto-clean").onchange = (e) => send("setAutoClean", { enabled: e.target.checked });
 $("clean-current").onclick = async () => {
@@ -124,20 +143,13 @@ $("ask-btn").onclick = async () => {
   if (!can(state.workspace, "ai")) return;
   const text = $("q").value.trim();
   if (!text) return;
-  let intent = text;
-  if ($("include-page").checked) {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (tab) intent = `${text}\n\n(Page the user shared: ${tab.title ?? ""} — ${tab.url ?? ""})`;
-  }
   say("Thinking…");
   try {
-    const r = await fetch(`${state.origins.architect}/api/perform`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ intent, autonomy: "rehearsal" }),
-    });
-    if (!r.ok) throw new Error(`Architect answered ${r.status}`);
-    $("out").textContent = JSON.stringify(await r.json(), null, 2);
+    const page = $("include-page").checked
+      ? await chrome.tabs.query({ active: true, currentWindow: true }).then(([tab]) => tab ? { title: tab.title, url: tab.url } : null)
+      : null;
+    const result = await submitAsk({ origin: state.origins.architect, text, page });
+    $("out").textContent = JSON.stringify(result, null, 2);
     say("Ready");
   } catch (err) {
     $("out").textContent = `Architect unreachable at ${state.origins.architect}.\n${err.message}`;
@@ -187,6 +199,8 @@ function renderWallet() {
     cell.append(label, value);
     bal.append(cell);
   }
+  const suite = $("w-suite");
+  if (suite) suite.wallet = w ? { address: w.address, balances: w.balances } : null;
   $("w-note").textContent = w
     ? "The FIRM Wallet account that came with your Cumulus://ID. Self-custody keys on this device arrive with roadmap Phase IV."
     : "Sign in with Cumulus://ID to see the FIRM Wallet account that comes with it. VEIL never creates placeholder addresses or balances.";

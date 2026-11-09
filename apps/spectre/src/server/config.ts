@@ -6,7 +6,10 @@ export const config = {
   workspace: process.env.SPECTRE_WORKSPACE ?? "demo",
   actor: process.env.SPECTRE_ACTOR ?? "cid:demo-user",
   logLevel: process.env.LOG_LEVEL ?? "info",
-  architectUrl: process.env.ARCHITECT_URL ?? "http://localhost:3001",
+  /** CNDCTR public host, hosted on Cloudflare. ARCHITECT_URL overrides it. */
+  architectUrl: process.env.ARCHITECT_URL ?? "https://rchtch.app",
+  /** SCALVS.ai public host, hosted on Cloudflare. SCALVS_URL overrides it. */
+  scalvsUrl: process.env.SCALVS_URL ?? "https://scalvs.app",
 };
 
 export function log(level: string, msg: string, extra?: Record<string, unknown>) {

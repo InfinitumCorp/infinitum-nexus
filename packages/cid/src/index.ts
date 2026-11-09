@@ -5,6 +5,8 @@ export {
   INFINITUM_APPS,
   FREE_ENTITLEMENTS,
   MAIL_DOMAIN,
+  APP_ORIGINS,
+  cidRedirectUri,
 } from "./service.ts";
 export {
   CUMULUS_DOMAIN,
@@ -32,3 +34,13 @@ export { generateTotpSecret, verifyTotp, hotp, otpauthUri, base32Encode, base32D
 export { verifyIdToken } from "./oidc.ts";
 export type { SsoConfig, IdTokenClaims } from "./oidc.ts";
 export { encodeCbor, decodeCbor } from "./cbor.ts";
+export {
+  CUMULUS_DOMAIN_DEFAULTS,
+  MAIL_DOMAIN as CUMULUS_MAIL_DOMAIN,
+  assertExactOrigin,
+  cidIssuerMetadata,
+  cumulusCorsHeaders,
+  cumulusDomains,
+  exactCorsOrigin,
+} from "./domains.ts";
+export type { CidIssuerMetadata, CumulusDomains } from "./domains.ts";

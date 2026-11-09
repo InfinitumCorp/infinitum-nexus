@@ -1,3 +1,5 @@
+import { CidLabyrinth } from "@infinitum/lbrnth";
+import type { CidLabyrinthOptions } from "@infinitum/lbrnth";
 /**
  * The Cumulus account suite. Build it once and every Infinitum product gets the same account:
  *
@@ -11,7 +13,7 @@
  * sign-ins, Cloud share notices and wallet receipts all arrive in the person's Cumulus inbox.
  * It is not a product listed on the public site; people reach it from inside the other products.
  */
-import { CidService, CidStore, CUMULUS_MAIL_ORIGIN, FREE_ENTITLEMENTS, type CidConfig, type CidEvent, type Account } from "@infinitum/cid";
+import { CidService, CidStore, FREE_ENTITLEMENTS, cumulusDomains, type CidConfig, type CidEvent, type Account } from "@infinitum/cid";
 import { CloudStore, QuotaStore, StorageQuota, formatBytes } from "@infinitum/cloud";
 import { WalletAccounts, WalletStore, WalletError, type WalletTransfer } from "@infinitum/firm";
 import { CumulusTunnel, PostOffice, PostOfficeStore, TunnelStore, openMailStore } from "@infinitum/mail";
@@ -37,6 +39,8 @@ export function emptyCumulusStores(): CumulusStores {
 }
 
 export interface CumulusConfig extends Omit<CidConfig, "store" | "onEvent" | "ledger" | "signer"> {
+  /** Opt-in: trusted client billing plus durable encrypted storage; no free LBRNTH access. */
+  labyrinth?: Omit<CidLabyrinthOptions, "clock">;
   ledger: Ledger;
   signer: Signer;
   stores?: Partial<CumulusStores>;
@@ -59,6 +63,7 @@ const methodLabel = (m: string) =>
   METHOD_LABEL[m] ?? (m.startsWith("social:") ? `Continue with ${m.slice(7).replace("+totp", " and authenticator code")}` : m);
 
 export class CumulusSuite {
+  readonly labyrinth?: CidLabyrinth;
   readonly stores: CumulusStores;
   readonly cid: CidService;
   readonly mail: PostOffice;
@@ -69,13 +74,16 @@ export class CumulusSuite {
   private readonly ledger: Ledger;
   private readonly signer: Signer;
   readonly mailOrigin: string;
+  private readonly cloudOrigin: string;
 
   constructor(config: CumulusConfig) {
     const empty = emptyCumulusStores();
     this.stores = { ...empty, ...config.stores } as CumulusStores;
     this.ledger = config.ledger;
     this.signer = config.signer;
-    this.mailOrigin = (config.mailOrigin ?? CUMULUS_MAIL_ORIGIN).replace(/\/$/, "");
+    const domains = cumulusDomains();
+    this.mailOrigin = (config.mailOrigin ?? domains.origins.mail).replace(/\/$/, "");
+    this.cloudOrigin = domains.origins.cloud;
     const clock = config.clock;
 
     this.quota = new StorageQuota({ store: this.stores.quota, freeGb: FREE_ENTITLEMENTS.storageGb });
@@ -91,8 +99,9 @@ export class CumulusSuite {
       quota: this.quota,
       notifier: { shared: ({ owner, recipient, key }) => this.cloudShared(owner, recipient, key) },
     });
-    const { stores: _s, mailOrigin: _m, masterKey: _k, ...cidConfig } = config;
+    const { stores: _s, mailOrigin: _m, masterKey: _k, labyrinth: _l, ...cidConfig } = config;
     this.cid = new CidService({ ...cidConfig, store: this.stores.cid, onEvent: (e) => this.onCidEvent(e) });
+    if (config.labyrinth) this.labyrinth = new CidLabyrinth(this.cid, { ...config.labyrinth, clock });
   }
 
   private recordPayment(t: WalletTransfer) {
@@ -118,8 +127,8 @@ export class CumulusSuite {
           "",
           "Your Cumulus://ID is ready, and it already comes with:",
           "",
-          `• Cumulus://Mail at ${account.mailAddress}`,
-          `• Cumulus://Cloud storage: ${FREE_ENTITLEMENTS.storageGb} GB, shared between Mail and Cloud`,
+          `• Cumulus://Mail at ${account.mailAddress} (${this.mailOrigin})`,
+          `• Cumulus://Cloud storage: ${FREE_ENTITLEMENTS.storageGb} GB, shared between Mail and Cloud (${this.cloudOrigin})`,
           `• A FIRM Wallet: ${wallet.address}`,
           "• SCALVS.ai and :\\ARCHITECT\\ on the free plan, and the METATRON dashboard",
           "",
@@ -201,7 +210,7 @@ export class CumulusSuite {
     const from = this.stores.mail.mailboxes.get(owner)?.owner.email ?? "Someone";
     this.mail.notify(recipient, "cloud", {
       subject: `${from} shared “${key}” with you`,
-      body: `${from} shared a file with you on Cumulus://Cloud.\n\nFile: ${key}\n\nOpen it from Cumulus://Cloud. Only your Cumulus://ID can see it.\n\nCumulus://Cloud`,
+      body: `${from} shared a file with you on Cumulus://Cloud.\n\nFile: ${key}\n\nOpen it at ${this.cloudOrigin}. Only your Cumulus://ID can see it.\n\nCumulus://Cloud`,
     });
   }
 

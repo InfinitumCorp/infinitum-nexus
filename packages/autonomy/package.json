@@ -16,6 +16,7 @@
     "@types/node": "^22.0.0"
   },
   "dependencies": {
-    "@infinitum/hardware": "workspace:*"
+    "@infinitum/hardware": "workspace:*",
+    "@infinitum/lbrnth-client": "workspace:*"
   }
 }

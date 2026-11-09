@@ -17,6 +17,13 @@ Versioned full trees reference SHA-256 objects. Immutable parent-linked commits,
 CAS branch heads, immutable tags, historical byte reads and file-level diffs give
 products a stable integration surface without assuming a Git server or UI.
 
+Hosts that expose Labyrinth to a browser allow only the exact Cumulus origins
+(`https://id.cumuluscloud.app`, `https://cloud.cumuluscloud.app`,
+`https://mail.cumuluscloud.app` by default). CORS is not a wildcard.
+Cumulus://ID's issuer is the Keycloak realm
+`https://id.cumuluscloud.app/realms/cumulus`, with JWKS at
+`https://id.cumuluscloud.app/realms/cumulus/protocol/openid-connect/certs`.
+
 The encrypted snapshot adapter provides per-org AES-256-GCM at-rest protection,
 atomic snapshot persistence with exclusive writer locking/revision CAS and fail-closed restore. In-memory transactions
 publish only after storage succeeds. Hash-chained audit records successful access

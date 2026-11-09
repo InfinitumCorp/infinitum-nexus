@@ -8,7 +8,7 @@ import { WalletError } from "@infinitum/firm";
 import { VirtualAuthenticator } from "../../cid/src/testing/virtual-authenticator.ts";
 import { createCumulus } from "./index.ts";
 
-const RP_ID = "cumuluscloud.app";
+const RP_ID = "id.cumuluscloud.app";
 const ORIGIN = "https://id.cumuluscloud.app";
 
 function setup() {

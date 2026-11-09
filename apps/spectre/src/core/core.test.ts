@@ -61,9 +61,12 @@ describe("+SPCTR records and audit trail", () => {
     const d = await crm.addDeal(WS, ME, { companyId: co.id, name: "Fleet rollout", amount: 120000, closeDate: "2026-12-15" });
     await crm.moveDeal(WS, ME, d.id, "proposal");
     await rejectsWith(crm.moveDeal(WS, ME, d.id, "lost"), "invalid");
-    await crm.moveDeal(WS, ME, d.id, "lost", "Chose incumbent vendor");
+    const lost = await crm.moveDeal(WS, ME, d.id, "lost", "Chose incumbent vendor");
+    assert.equal(lost.closedFrom, "proposal");
+    assert.equal((await crm.moveDeal(WS, ME, d.id, "won")).closedFrom, "proposal");
+    assert.equal((await crm.moveDeal(WS, ME, d.id, "negotiation")).closedFrom, undefined);
     const events = (await crm.history("deal", d.id)).map((e) => e.payload);
-    assert.deepEqual(events.slice(1).map((e) => [e.from, e.to]), [["lead", "proposal"], ["proposal", "lost"]]);
+    assert.deepEqual(events.slice(1).map((e) => [e.from, e.to]), [["lead", "proposal"], ["proposal", "lost"], ["lost", "won"], ["won", "negotiation"]]);
   });
 
   it("honors opt-outs: erases details and blocks re-adding", async () => {

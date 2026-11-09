@@ -19,7 +19,10 @@
     "@infinitum/conjure": "workspace:*",
     "@infinitum/cumulus": "workspace:*",
     "@infinitum/metatron": "workspace:*",
-    "@infinitum/scalus": "workspace:*"
+    "@infinitum/scalus": "workspace:*",
+    "@infinitum/lbrnth": "workspace:*",
+    "@infinitum/lbrnth-client": "workspace:*",
+    "@infinitum/veil": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.9.0",

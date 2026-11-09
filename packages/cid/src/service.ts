@@ -9,6 +9,14 @@ import {
 import { generateTotpSecret, verifyTotp, otpauthUri } from "./totp.ts";
 import { verifyIdToken, type SsoConfig } from "./oidc.ts";
 import {
+  assertExactOrigin,
+  cumulusCorsHeaders,
+  cumulusDomains,
+  exactCorsOrigin,
+  MAIL_DOMAIN,
+  type CidIssuerMetadata,
+} from "./domains.ts";
+import {
   PROVIDERS,
   SocialClient,
   pkcePair,
@@ -17,7 +25,8 @@ import {
   type SocialProfile,
   type SocialProviderId,
 } from "./social.ts";
-import { MAIL_DOMAIN } from "./domain.ts";
+
+export { MAIL_DOMAIN };
 
 /* ------------------------------------------------------------------ *
  * Product registry: every app a CID can sign in to and grant access to.
@@ -26,12 +35,29 @@ import { MAIL_DOMAIN } from "./domain.ts";
 export const INFINITUM_APPS = [
   "veil", "fabric", "throne", "eon", "scalvs", "architect", "spectre", "metatron",
   "cumulus", "cumulus-mail", "cumulus-cloud", "firm-wallet", "aether", "argus", "hrvst", "eidetic",
-  "orbis", "pollen", "flower", "nemesis", "LBRNTH",
+  "orbis", "pollen", "flower", "nemesis", "LBRNTH", "firm", "daemon", "slug", "seraphim", "tokens",
+  "odin", "firmament", "cumulus-exchange", "cherubim", "azrail", "cloud", "conjure",
 ] as const;
 export type AppId = (typeof INFINITUM_APPS)[number];
 
 /** Earlier ids for the same app, still accepted for one release. */
-const LEGACY_APP_IDS: Record<string, AppId> = { architct: "architect", cndctr: "architect" };
+const LEGACY_APP_IDS: Record<string, AppId> = { architct: "architect", cndctr: "architect", scalus: "scalvs" };
+
+/**
+ * Canonical web origins of apps on their own domains (METATRON¹⁰⁰: https://mttrn.app).
+ * Each one is in the CID CORS allowlist (domains.ts) and registers `cidRedirectUri(app, provider)`
+ * with every social sign-in provider.
+ */
+export const APP_ORIGINS: Readonly<Partial<Record<AppId, string>>> = Object.freeze({
+  metatron: cumulusDomains().productOrigins.metatron,
+});
+
+/** Social sign-in callback for an app: the same path +SPCTR and Cumulus://Mail serve. */
+export function cidRedirectUri(app: AppId, provider: SocialProviderId): string {
+  const origin = APP_ORIGINS[app];
+  if (!origin) throw new Error(`${app} has no registered web origin`);
+  return `${origin}/api/auth/oauth/${provider}/callback`;
+}
 
 /**
  * What every new CID comes with, per the Cumulus://ID page. Like a Google account and Gmail,
@@ -46,8 +72,6 @@ export const FREE_ENTITLEMENTS = {
   architect: "free",
   metatronDashboard: true,
 } as const;
-
-export { MAIL_DOMAIN };
 
 /* ------------------------------------------------------------------ *
  * Data model
@@ -158,9 +182,9 @@ export class CidStore {
 export interface CidConfig {
   ledger: Ledger;
   signer: Signer;
-  /** WebAuthn relying party ID. Production uses cumuluscloud.app so one passkey covers every product host. */
+  /** WebAuthn relying party ID, e.g. "id.cumuluscloud.app". */
   rpId: string;
-  /** Origins allowed to run passkey ceremonies (web, VEIL, #THRONE shells). */
+  /** Exact origins allowed to run passkey ceremonies. Wildcards are rejected. */
   origins: string[];
   store?: CidStore;
   clock?: () => Date;
@@ -214,6 +238,14 @@ const hashToken = (t: string) => createHash("sha256").update(t).digest("hex");
 
 export class CidService {
   readonly store: CidStore;
+  /** Keycloak issuer for Cumulus://ID, https://id.cumuluscloud.app/realms/cumulus by default. */
+  readonly issuer: string;
+  /** JWKS URI for `issuer`. */
+  readonly jwksUri: string;
+  /** Email domain, cumuluscloud.app by default. */
+  readonly mailDomain: string;
+  /** Exact CORS origins for ID, Cloud and Mail. Never a wildcard. */
+  readonly corsOrigins: readonly string[];
   private readonly cfg: Required<Omit<CidConfig, "store" | "social" | "onEvent">>;
   private readonly socialProviders: Partial<Record<SocialProviderId, SocialCredentials>>;
   private readonly socialClient: SocialClient;
@@ -222,11 +254,22 @@ export class CidService {
   constructor(config: CidConfig) {
     this.onEvent = config.onEvent;
     this.store = config.store ?? new CidStore();
+    const domains = cumulusDomains();
+    this.issuer = domains.issuer;
+    this.jwksUri = domains.jwksUri;
+    this.mailDomain = domains.mailDomain;
+    this.corsOrigins = domains.corsOrigins;
     this.cfg = {
       ledger: config.ledger,
       signer: config.signer,
       rpId: config.rpId,
-      origins: config.origins,
+      origins: config.origins.map((origin) => {
+        try {
+          return assertExactOrigin(origin);
+        } catch (err) {
+          throw new CidError("invalid_origin", err instanceof Error ? err.message : "Origin must be exact");
+        }
+      }),
       clock: config.clock ?? (() => new Date()),
       sessionDays: config.sessionDays ?? 30,
     };
@@ -236,6 +279,21 @@ export class CidService {
 
   private now() {
     return this.cfg.clock();
+  }
+
+  /** Issuer and JWKS for Cumulus://ID. The issuer string has no trailing slash. */
+  issuerMetadata(): CidIssuerMetadata {
+    return { issuer: this.issuer, jwks_uri: this.jwksUri, id_host: new URL(this.issuer).host };
+  }
+
+  /** Allowlisted origin for this request, or null. Never "*". */
+  corsAllowOrigin(requestOrigin: string | undefined): string | null {
+    return exactCorsOrigin(requestOrigin, this.corsOrigins);
+  }
+
+  /** CORS headers for a browser call. Allow-Origin is set only for an exact match. */
+  corsHeaders(requestOrigin: string | undefined): Record<string, string> {
+    return cumulusCorsHeaders(requestOrigin, this.corsOrigins);
   }
 
   private record(type: Entry["type"], actor: string, subject: string, payload: Record<string, unknown>) {
@@ -273,7 +331,7 @@ export class CidService {
     const account: Account = {
       cid: `cid_${randomUUID()}`,
       username,
-      mailAddress: `${username}@${MAIL_DOMAIN}`,
+      mailAddress: `${username}@${this.mailDomain}`,
       handle: `@${username}.veil`,
       orgId: input.orgId,
       createdAt: this.now().toISOString(),
@@ -789,6 +847,20 @@ export class CidService {
   orgMembers(orgId: string, adminCid: string): Account[] {
     this.org(orgId, adminCid);
     return [...this.store.accounts.values()].filter((a) => a.orgId === orgId);
+  }
+
+  /** Server-side linked-credential checks; a session id by itself is never a login token. */
+  isSessionActive(cid: string, sessionId: string): boolean {
+    const session = this.store.sessions.get(sessionId);
+    const expiresAt = session ? Date.parse(session.expiresAt) : NaN;
+    return !!session && session.cid === cid && !session.revokedAt && Number.isFinite(expiresAt) && expiresAt > this.now().getTime() && this.store.accounts.has(cid);
+  }
+
+  /** Trusted current directory membership; never infer organizations by email. */
+  organizationMembership(cid: string): { id: string; name: string; admin: boolean } | null {
+    const account = this.account(cid);
+    const org = account.orgId ? this.store.orgs.get(account.orgId) : undefined;
+    return org ? { id: org.id, name: org.name, admin: org.admins.includes(cid) } : null;
   }
 
   /** Admin control: sign a member out of every device (e.g. a lost laptop or offboarding). */

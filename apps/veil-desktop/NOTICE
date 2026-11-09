@@ -1,0 +1,20 @@
+Infinitum Corporation® — VEIL Desktop
+
+This directory is original source written for Infinitum Corporation®,
+except the third-party licenses recorded in THIRD_PARTY_NOTICES.
+
+The tunnel engine is wireguard-go (MIT), used as a Go module.
+It is not vendored line-by-line in this repository.
+Windows loads the official Wintun prebuilt DLL beside the executable.
+That DLL is covered by the Wintun prebuilt-binary license, which permits
+redistribution alongside an application that uses the Wintun API.
+The DLL is downloaded by scripts/fetch-wintun.sh and is not modified.
+
+macOS NetworkExtension source links WireGuardKit from wireguard-apple (MIT).
+That project is not copied into git. macos/build-macos.sh pins tag 1.0.16-27.
+
+No GPL-licensed source is copied here.
+Tor is not bundled. The client speaks to a Tor the user installs.
+Tor is published by The Tor Project under a permissive license.
+That interoperability is not a grant of Tor's license and not an endorsement
+by The Tor Project.

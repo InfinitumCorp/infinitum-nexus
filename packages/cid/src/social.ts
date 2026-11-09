@@ -1,4 +1,4 @@
-import { createHash, createPrivateKey, randomBytes, sign, webcrypto } from "node:crypto";
+import { createHash, randomBytes, sign, webcrypto } from "node:crypto";
 import { verifyIdToken, type IdTokenClaims } from "./oidc.ts";
 
 type JsonWebKey = webcrypto.JsonWebKey;
@@ -126,8 +126,7 @@ export function appleClientSecret(creds: SocialCredentials, now: Date): string {
   const payload = { iss: creds.apple.teamId, iat, exp: iat + 300, aud: "https://appleid.apple.com", sub: creds.clientId };
   const enc = (o: unknown) => b64u(Buffer.from(JSON.stringify(o)));
   const data = `${enc(header)}.${enc(payload)}`;
-  const key = createPrivateKey(creds.apple.privateKeyPem);
-  return `${data}.${b64u(sign("sha256", Buffer.from(data), { key, dsaEncoding: "ieee-p1363" }))}`;
+  return `${data}.${b64u(sign("sha256", Buffer.from(data), { key: creds.apple.privateKeyPem, dsaEncoding: "ieee-p1363" }))}`;
 }
 
 const issuerKey = (issuer: string) => issuer.replace(/\/$/, "");

@@ -1,3 +1,4 @@
+export { DEFAULT_FIRMAMENT_ROOT_DOMAIN, FirmamentDomainError, firmamentRootDomain } from "./domain.ts";
 export { Ledger, GENESIS } from "./ledger.ts";
 export type { Entry, RecordInput, RecordType, VerifyResult } from "./ledger.ts";
 export { MemoryStore, FileStore } from "./store.ts";
@@ -9,3 +10,5 @@ export type { ProofStep } from "./merkle.ts";
 export { canonicalize, sha256Hex, commit, verifyCommitment } from "./canonical.ts";
 export { prepareAnchor, merkleRootPlaceholder } from "./anchoring.ts";
 export type { AnchorProof } from "./anchoring.ts";
+
+export { createFirmamentLabyrinth } from "./labyrinth.ts";

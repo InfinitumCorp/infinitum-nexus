@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { applyRules, inBox, isSnoozed, listThreads, planDelivery, tomorrowMorning, withSignature } from "./logic.ts";
+import { MAIL_DOMAIN } from "@infinitum/cid";
+import { applyRules, inBox, isCumulus, isSnoozed, listThreads, planDelivery, tomorrowMorning, withSignature } from "./logic.ts";
 import { ME, SEED_MESSAGES, type MailMessage } from "./model.ts";
+
+test("only the configured Cumulus domain stays inside", () => {
+  assert.equal(isCumulus(`alex@${MAIL_DOMAIN}`), true);
+  assert.equal(isCumulus("alex@cumulusmail.cloud"), false);
+  assert.equal(isCumulus("alex@*.cumuluscloud.app"), false);
+});
 
 test("Cumulus recipients stay inside and everyone else is outbound", () => {
   const hops = planDelivery([

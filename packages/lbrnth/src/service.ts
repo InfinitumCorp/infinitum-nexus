@@ -1,6 +1,7 @@
 import { DEFAULT_LIMITS } from "./limits.ts";
 import type { LabyrinthLimits } from "./limits.ts";
 import { randomUUID } from "node:crypto";
+import { assertExactOrigin, cumulusCorsHeaders, cumulusDomains, exactCorsOrigin } from "@infinitum/cid";
 import { LabyrinthError, MemoryStorage } from "./model.ts";
 import type { Commit, CommitInput, LabyrinthOptions, Organization, Repository, Role, Scope } from "./model.ts";
 import { auditHash, commitHash, hashBytes, validName, validPath, verifyAudit } from "./integrity.ts";
@@ -19,10 +20,19 @@ export class Labyrinth {
   readonly #storage;
   #orgs: Organization[];
   readonly #limits: LabyrinthLimits;
+  readonly #corsOrigins: readonly string[];
   readonly #rates = new Map<string, { at: number; count: number }>();
   constructor(options: LabyrinthOptions) {
     this.#opts = options;
     this.#limits = { ...DEFAULT_LIMITS, ...options.limits };
+    const configured = options.corsOrigins ?? cumulusDomains().corsOrigins;
+    this.#corsOrigins = configured.map((origin) => {
+      try {
+        return assertExactOrigin(origin);
+      } catch (err) {
+        return fail("invalid", err instanceof Error ? err.message : "Invalid CORS origin");
+      }
+    });
     for (const key of Object.keys(DEFAULT_LIMITS) as (keyof LabyrinthLimits)[]) {
       const value = this.#limits[key];
       if (!Number.isSafeInteger(value) || value < 1 || value > DEFAULT_LIMITS[key]) fail("invalid", "Invalid Labyrinth capacity limit");
@@ -46,6 +56,14 @@ export class Labyrinth {
     }
   }
   #at() { return (this.#opts.clock?.() ?? new Date()).toISOString(); }
+  /** Allowlisted origin for a browser call, or null. Never "*". */
+  corsAllowOrigin(requestOrigin: string | undefined): string | null {
+    return exactCorsOrigin(requestOrigin, this.#corsOrigins);
+  }
+  /** CORS headers for a host exposing Labyrinth. Allow-Origin is set only for an exact match. */
+  corsHeaders(requestOrigin: string | undefined): Record<string, string> {
+    return cumulusCorsHeaders(requestOrigin, this.#corsOrigins);
+  }
   #gate(cid: string, orgId: string, scope: Scope) {
     if (!approved(this.#opts.entitled(orgId, "LBRNTH")) || !approved(this.#opts.can(cid, "LBRNTH", scope))) fail("forbidden", "Labyrinth access denied");
   }
@@ -231,10 +249,15 @@ export class Labyrinth {
       });
     }, repoId);
   }
+  /** Trusted auth adapter records credential issuance without storing any bearer in audit. */
+  recordCredentialIssue(cid: string, orgId: string) {
+    this.#run(cid, orgId, "repo:read", "credential.issue", () => undefined);
+  }
   audit(cid: string, orgId: string) {
     return this.#run(cid, orgId, "repo:admin", "audit.read", org => [...org.audit]);
   }
-  /** Bind only an authenticated CID. Host products can share this SDK without trusting client claims. */
+  /** @deprecated Trusted server-internal API only; use CidLabyrinth.forSession for real CID authentication.
+   * Bind only an authenticated CID. Host products can share this SDK without trusting client claims. */
   forClient(cid: string, orgId: string) {
     return {
       repositories: () => this.repositories(cid, orgId),

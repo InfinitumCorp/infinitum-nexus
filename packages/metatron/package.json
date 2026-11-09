@@ -2,9 +2,13 @@
   "name": "@infinitum/metatron",
   "version": "0.1.0",
   "description": "METATRON: prediction engine and unified analytics environment.",
+  "homepage": "https://mttrn.app",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./learn": "./src/learn.ts",
+    "./evaluate": "./src/evaluate.ts",
+    "./backtest": "./src/backtest.ts"
   },
   "private": true,
   "engines": {
@@ -17,5 +21,8 @@
   "devDependencies": {
     "typescript": "^5.9.0",
     "@types/node": "^22.0.0"
+  },
+  "dependencies": {
+    "@infinitum/lbrnth-client": "workspace:*"
   }
 }

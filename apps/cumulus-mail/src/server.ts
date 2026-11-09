@@ -1,3 +1,4 @@
+import { labyrinthFromEnvironment } from "@infinitum/lbrnth";
 /**
  * Cumulus://Mail.
  * Run: node --experimental-strip-types src/server.ts
@@ -42,7 +43,7 @@ if (!verified.ok) {
 const stores = loadCumulusStores(dataDir, emptyCumulusStores());
 const social = socialFromEnv();
 const masterKey = loadOrCreateMasterKey(dataDir);
-const suite = createCumulus({ ledger, signer, rpId: new URL(origin).hostname, origins: [origin], stores, social: { providers: social }, mailOrigin: origin, masterKey });
+const suite = createCumulus({ labyrinth: labyrinthFromEnvironment(process.env, join(dataDir, "labyrinth.json")), ledger, signer, rpId: new URL(origin).hostname, origins: [origin], stores, social: { providers: social }, mailOrigin: origin, masterKey });
 const backfilled = suite.provisionAll();
 
 const app = createMailApp({

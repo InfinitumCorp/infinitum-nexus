@@ -12,6 +12,23 @@ const spectreMe = {
   },
 };
 
+test("Ask uses the CNDCTR public host by default", () => {
+  assert.equal(DEFAULT_ORIGINS.architect, "https://rchtch.app");
+});
+
+test("SCALVS.ai uses the purchased public host by default", () => {
+  assert.equal(DEFAULT_ORIGINS.scalvs, "https://scalvs.app");
+  const by = Object.fromEntries(launcher(resolveOrigins({}), null).map((a) => [a.id, a]));
+  assert.equal(by.scalvs.url, "https://scalvs.app");
+});
+
+test("METATRON¹⁰⁰ opens its canonical host mttrn.app", () => {
+  assert.equal(DEFAULT_ORIGINS.metatron, "https://mttrn.app");
+  const by = Object.fromEntries(launcher(resolveOrigins({}), null).map((a) => [a.id, a]));
+  assert.equal(by.metatron.url, "https://mttrn.app");
+  assert.equal(resolveOrigins({ metatron: "https://evil.example" }).metatron, "https://mttrn.app");
+});
+
 test("lists the seven free-tier products from the product page", () => {
   assert.deepEqual(APPS.map((a) => a.id), ["cid", "mail", "cloud", "scalvs", "architect", "metatron", "wallet"]);
   assert.equal(PRODUCTION_ORIGINS.cid, "https://id.cumuluscloud.app");
@@ -25,6 +42,33 @@ test("only plain http(s) origins are accepted", () => {
   for (const bad of ["javascript:alert(1)", "file:///c:/x", "chrome://settings", "https://u:p@x.example", 42, null, "nope"]) {
     assert.equal(safeOrigin(bad), null, String(bad));
   }
+});
+
+test("production pins VEIL, CNDCTR, and SCALVS and ignores stored hosts", () => {
+  const stored = {
+    veil: "https://evil.example",
+    architect: "http://127.0.0.1:3001",
+    scalvs: "https://user:secret@scalvs.app/path",
+    mail: "https://mail.example/",
+  };
+  const o = resolveOrigins(stored);
+  assert.equal(o.veil, "https://infinitumveil.app");
+  assert.equal(o.architect, "https://rchtch.app");
+  assert.equal(o.scalvs, "https://scalvs.app");
+  assert.equal(o.mail, "https://mail.example");
+});
+
+test("dev builds accept only localhost and 127.0.0.1 for pinned products", () => {
+  const o = resolveOrigins({
+    veil: "http://localhost:3000",
+    architect: "https://127.0.0.1:3001",
+    scalvs: "https://evil.example",
+  }, { dev: true });
+  assert.equal(o.veil, "http://localhost:3000");
+  assert.equal(o.architect, "https://127.0.0.1:3001");
+  assert.equal(o.scalvs, "https://scalvs.app");
+  const v6 = resolveOrigins({ architect: "http://[::1]:3001" }, { dev: true });
+  assert.equal(v6.architect, "https://rchtch.app");
 });
 
 test("stored origins override defaults only when valid", () => {

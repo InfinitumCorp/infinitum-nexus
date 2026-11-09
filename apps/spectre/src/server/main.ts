@@ -1,3 +1,4 @@
+import { labyrinthFromEnvironment } from "@infinitum/lbrnth";
 import { existsSync, readFileSync, writeFileSync, mkdirSync, chmodSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -6,6 +7,7 @@ import { cookieDomainForHost, readCumulusDomain, socialFromEnv } from "@infinitu
 import { createCumulus, emptyCumulusStores, loadCumulusStores, loadOrCreateMasterKey, saveCumulusStores } from "@infinitum/cumulus";
 import { SpectreCRM, emptyStore } from "../core/crm.ts";
 import { createApp } from "./app.ts";
+import { veilFromEnv } from "@infinitum/veil/server";
 import { aiConfigFromEnv } from "./ai.ts";
 import { providersFromEnv } from "../core/messaging.ts";
 import { saveSnapshot, loadSnapshot } from "./persist.ts";
@@ -14,6 +16,14 @@ import { saveSnapshot, loadSnapshot } from "./persist.ts";
  * Starts +SPCTR.
  *   PORT                 default 3000
  *   SPECTRE_ORIGIN       public origin for passkeys, default http://localhost:PORT
+ *   CUMULUS_ROOT_DOMAIN  mail addresses, default cumuluscloud.app
+ *   CUMULUS_ID_HOST      Cumulus://ID host, default id.cumuluscloud.app
+ *   CUMULUS_KEYCLOAK_REALM Keycloak realm, default cumulus
+ *                        issuer https://id.cumuluscloud.app/realms/cumulus
+ *                        JWKS https://id.cumuluscloud.app/realms/cumulus/protocol/openid-connect/certs
+ *   CUMULUS_CLOUD_HOST   Cumulus://Cloud, default cloud.cumuluscloud.app
+ *   CUMULUS_MAIL_HOST    Cumulus://Mail, default mail.cumuluscloud.app
+ *   CUMULUS_MAIL_ORIGIN  full mail URL in notices; default https://CUMULUS_MAIL_HOST
  *   SPECTRE_DATA_DIR     default ./data
  *   ANTHROPIC_API_KEY    enables AI features
  *   USE_METATRON         set to 1 (default) to use METATRON scorer
@@ -67,6 +77,7 @@ const social = socialFromEnv();
 
 // Every CID that signs up through +SPCTR gets the full Cumulus account: Mail, Cloud and a FIRM Wallet.
 const suite = createCumulus({
+  labyrinth: labyrinthFromEnvironment(process.env, join(dataDir, "labyrinth.json")),
   ledger, signer, rpId, origins: [origin], stores: cumulusStores, social: { providers: social },
   mailOrigin: process.env.CUMULUS_MAIL_ORIGIN ?? cumulus.mailOrigin,
   masterKey: loadOrCreateMasterKey(dataDir),
@@ -88,6 +99,7 @@ const app = createApp({
   providers: providersFromEnv(),
   cronSecret: process.env.CRON_SECRET,
   twilioAuthToken: process.env.TWILIO_AUTH_TOKEN,
+  veil: veilFromEnv(process.env),
   onChange: () => {
     saveCumulusStores(dataDir, cumulusStores, { tunnel: suite.tunnel });
     saveSnapshot(join(dataDir, "spectre.json"), spectreStore);

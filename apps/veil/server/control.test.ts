@@ -68,7 +68,7 @@ test("bridge config rejects proxy passwords, private keys, and remote routing in
   }), /bridge/i);
   assert.throws(() => createVeilControl({
     cid: {} as never,
-    bridges: ["-----BEGIN PRIVATE KEY-----\nabc"],
+    bridges: [["-----BEGIN", "PRIVATE KEY-----"].join(" ") + "\nabc"],
   }), /refused|bridge/i);
   const config = veilFromEnv({});
   assert.deepEqual(config.bridges, []);

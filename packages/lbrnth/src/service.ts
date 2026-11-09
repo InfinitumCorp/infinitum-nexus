@@ -249,10 +249,15 @@ export class Labyrinth {
       });
     }, repoId);
   }
+  /** Trusted auth adapter records credential issuance without storing any bearer in audit. */
+  recordCredentialIssue(cid: string, orgId: string) {
+    this.#run(cid, orgId, "repo:read", "credential.issue", () => undefined);
+  }
   audit(cid: string, orgId: string) {
     return this.#run(cid, orgId, "repo:admin", "audit.read", org => [...org.audit]);
   }
-  /** Bind only an authenticated CID. Host products can share this SDK without trusting client claims. */
+  /** @deprecated Trusted server-internal API only; use CidLabyrinth.forSession for real CID authentication.
+   * Bind only an authenticated CID. Host products can share this SDK without trusting client claims. */
   forClient(cid: string, orgId: string) {
     return {
       repositories: () => this.repositories(cid, orgId),

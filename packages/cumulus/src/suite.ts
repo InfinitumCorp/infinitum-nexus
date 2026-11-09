@@ -1,3 +1,5 @@
+import { CidLabyrinth } from "@infinitum/lbrnth";
+import type { CidLabyrinthOptions } from "@infinitum/lbrnth";
 /**
  * The Cumulus account suite. Build it once and every Infinitum product gets the same account:
  *
@@ -37,6 +39,8 @@ export function emptyCumulusStores(): CumulusStores {
 }
 
 export interface CumulusConfig extends Omit<CidConfig, "store" | "onEvent" | "ledger" | "signer"> {
+  /** Opt-in: trusted client billing plus durable encrypted storage; no free LBRNTH access. */
+  labyrinth?: Omit<CidLabyrinthOptions, "clock">;
   ledger: Ledger;
   signer: Signer;
   stores?: Partial<CumulusStores>;
@@ -59,6 +63,7 @@ const methodLabel = (m: string) =>
   METHOD_LABEL[m] ?? (m.startsWith("social:") ? `Continue with ${m.slice(7).replace("+totp", " and authenticator code")}` : m);
 
 export class CumulusSuite {
+  readonly labyrinth?: CidLabyrinth;
   readonly stores: CumulusStores;
   readonly cid: CidService;
   readonly mail: PostOffice;
@@ -94,8 +99,9 @@ export class CumulusSuite {
       quota: this.quota,
       notifier: { shared: ({ owner, recipient, key }) => this.cloudShared(owner, recipient, key) },
     });
-    const { stores: _s, mailOrigin: _m, masterKey: _k, ...cidConfig } = config;
+    const { stores: _s, mailOrigin: _m, masterKey: _k, labyrinth: _l, ...cidConfig } = config;
     this.cid = new CidService({ ...cidConfig, store: this.stores.cid, onEvent: (e) => this.onCidEvent(e) });
+    if (config.labyrinth) this.labyrinth = new CidLabyrinth(this.cid, { ...config.labyrinth, clock });
   }
 
   private recordPayment(t: WalletTransfer) {

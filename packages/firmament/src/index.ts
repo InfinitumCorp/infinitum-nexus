@@ -10,3 +10,5 @@ export type { ProofStep } from "./merkle.ts";
 export { canonicalize, sha256Hex, commit, verifyCommitment } from "./canonical.ts";
 export { prepareAnchor, merkleRootPlaceholder } from "./anchoring.ts";
 export type { AnchorProof } from "./anchoring.ts";
+
+export { createFirmamentLabyrinth } from "./labyrinth.ts";

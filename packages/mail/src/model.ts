@@ -21,7 +21,8 @@ export type MailRule = {
   label?: string;
 };
 
-export type Attachment = { name: string; size: number };
+/** A file on a message. `id` is its key in Cumulus file storage (absent on old, name-only entries). */
+export type Attachment = { name: string; size: number; id?: string; type?: string };
 
 export type DeliveryHop = {
   email: string;

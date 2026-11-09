@@ -1,0 +1,175 @@
+import assert from "node:assert/strict";
+import { spawn, type ChildProcess } from "node:child_process";
+import { randomBytes } from "node:crypto";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { createServer } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { test } from "node:test";
+import { FabricClient } from "./client.ts";
+import { startTestIdp } from "./test-idp.ts";
+
+const appRoot = join(import.meta.dirname, "..");
+
+test("starts the server and runs login, conversation, send, and receive", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "fabric-e2e-"));
+  const idpPort = await freePort();
+  const appPort = await freePort();
+  const idp = await startTestIdp(idpPort, "fabric");
+  const origin = `http://127.0.0.1:${appPort}`;
+  const phrase = `sealed-phrase-${randomBytes(8).toString("hex")}`;
+  const env = childEnv({
+    PORT: String(appPort),
+    FABRIC_BIND: "127.0.0.1",
+    FABRIC_PUBLIC_ORIGIN: origin,
+    FABRIC_JWT_ISSUER: idp.issuer,
+    FABRIC_OIDC_CLIENT_ID: "fabric",
+    FABRIC_DATA_DIR: dir,
+    FABRIC_MASTER_KEY: randomBytes(32).toString("base64"),
+    FABRIC_ROOT_DOMAIN: "infinitumfabric.app",
+  });
+  let child: ChildProcess | undefined;
+  try {
+    child = await startServer(env);
+    const health = await fetch(`${origin}/health`);
+    assert.equal(health.status, 200);
+    const healthBody = await health.json() as { status: string; issuer: string; rootDomain: string };
+    assert.equal(healthBody.status, "ok");
+    assert.equal(healthBody.issuer, idp.issuer);
+    assert.equal(healthBody.rootDomain, "infinitumfabric.app");
+
+    const html = await (await fetch(`${origin}/`)).text();
+    assert.match(html, /Sign in with Cumulus:\/\/ID/);
+    assert.match(html, /id="sessions"/);
+    assert.match(html, /id="send"/);
+    assert.match(html, /id="text"/);
+    const js = await (await fetch(`${origin}/app.js`)).text();
+    assert.match(js, /\/api\/sessions/);
+    assert.match(js, /messages/);
+    assert.equal((await fetch(`${origin}/app.css`)).status, 200);
+
+    const alice = new FabricClient(origin);
+    const bob = new FabricClient(origin);
+    const aliceProfile = await alice.login("alice");
+    const bobProfile = await bob.login("bob");
+    assert.equal(aliceProfile.username, "alice");
+    assert.equal(bobProfile.username, "bob");
+    assert.notEqual(aliceProfile.sub, bobProfile.sub);
+
+    const session = await alice.openSession("bob");
+    const sent = await alice.sendMessage(session.id, phrase);
+    assert.equal(sent.text, phrase);
+    const received = await bob.receive(session.id);
+    assert.equal(received[0]?.text, phrase);
+    assert.equal(received[0]?.username, "alice");
+    assert.equal((await bob.sessions())[0]?.preview, phrase);
+    assert.equal((await bob.openSession("alice")).id, session.id);
+
+    const cara = new FabricClient(origin);
+    await cara.login("cara");
+    await assert.rejects(() => cara.receive(session.id), /404 not found/);
+    assert.equal((await fetch(`${origin}/api/sessions`)).status, 401);
+
+    const bearer = await FabricClient.bearer(origin, idp.token("alice"), "/api/me");
+    assert.equal(bearer.status, 200);
+    const wrongIssuer = await FabricClient.bearer(origin, idp.token("alice", { iss: "https://evil.example" }), "/api/sessions");
+    assert.equal(wrongIssuer.status, 401);
+    const expired = await FabricClient.bearer(origin, idp.token("alice", { exp: Math.floor(Date.now() / 1000) - 120 }), "/api/sessions");
+    assert.equal(expired.status, 401);
+
+    const metrics = await (await fetch(`${origin}/metrics`)).text();
+    assert.match(metrics, /^fabric_up 1$/m);
+    assert.match(metrics, /^fabric_messages [1-9]/m);
+    assert.match(metrics, /^fabric_sessions [1-9]/m);
+    assert.match(metrics, /fabric_http_requests_total\{method="GET",status="200"\}/);
+
+    if (!child) throw new Error("server missing");
+    await stop(child);
+    child = undefined;
+    for (const suffix of ["", "-wal", "-shm"]) {
+      const file = join(dir, "fabric.sqlite") + suffix;
+      if (existsSync(file)) assert.equal(readFileSync(file).includes(phrase), false, suffix || "db");
+    }
+
+    child = await startServer(env);
+    const returned = new FabricClient(origin);
+    await returned.login("alice");
+    const persisted = await returned.receive(session.id);
+    assert.equal(persisted[0]?.text, phrase);
+    await returned.logout();
+    await assert.rejects(() => returned.sessions(), /401 unauthorized/);
+  } finally {
+    if (child) await stop(child);
+    await idp.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+function childEnv(extra: Record<string, string>): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env, ...extra };
+  for (const key of Object.keys(env)) {
+    if ((key.startsWith("FABRIC_") || key === "CUMULUS_ID_HOST" || key === "CUMULUS_KEYCLOAK_REALM") && !(key in extra)) delete env[key];
+  }
+  return env;
+}
+
+function startServer(env: NodeJS.ProcessEnv): Promise<ChildProcess> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, ["--experimental-strip-types", join(appRoot, "src", "server.ts")], {
+      cwd: appRoot,
+      env,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let out = "";
+    let err = "";
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      child.kill("SIGKILL");
+      reject(new Error(`server did not listen\n${out}\n${err}`));
+    }, 10_000);
+    child.stdout?.on("data", (chunk: Buffer) => {
+      out += chunk.toString();
+      if (!settled && /FABRIC\+\+ listening on http:\/\/\S+/.test(out)) {
+        settled = true;
+        clearTimeout(timer);
+        resolve(child);
+      }
+    });
+    child.stderr?.on("data", (chunk: Buffer) => {
+      err += chunk.toString();
+    });
+    child.once("exit", (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      reject(new Error(`server exited ${code}\n${out}\n${err}`));
+    });
+  });
+}
+
+async function stop(child: ChildProcess): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  const exited = new Promise((resolve) => child.once("exit", resolve));
+  child.kill("SIGTERM");
+  const killer = setTimeout(() => child.kill("SIGKILL"), 2_000);
+  await exited;
+  clearTimeout(killer);
+}
+
+function freePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const server = createServer();
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      if (!address || typeof address === "string") {
+        reject(new Error("no port"));
+        return;
+      }
+      const { port } = address;
+      server.close(() => resolve(port));
+    });
+  });
+}

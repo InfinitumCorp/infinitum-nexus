@@ -7,7 +7,9 @@ import {
   cumulusCorsHeaders,
   cumulusDomains,
   exactCorsOrigin,
+  PRODUCT_HOST_DEFAULTS,
 } from "./domains.ts";
+import { APP_ORIGINS, cidRedirectUri } from "./service.ts";
 
 const defaults = {
   CUMULUS_ROOT_DOMAIN: undefined,
@@ -15,6 +17,7 @@ const defaults = {
   CUMULUS_KEYCLOAK_REALM: undefined,
   CUMULUS_CLOUD_HOST: undefined,
   CUMULUS_MAIL_HOST: undefined,
+  METATRON_HOST: undefined,
 };
 
 describe("Cumulus domain", () => {
@@ -35,8 +38,24 @@ describe("Cumulus domain", () => {
       "https://id.cumuluscloud.app",
       "https://cloud.cumuluscloud.app",
       "https://mail.cumuluscloud.app",
+      "https://mttrn.app",
     ]);
     assert.equal(domains.corsOrigins.includes("*"), false);
+  });
+
+  it("allows METATRON at mttrn.app and rejects a wildcard override", () => {
+    const domains = cumulusDomains(defaults);
+    assert.equal(PRODUCT_HOST_DEFAULTS.metatron, "mttrn.app");
+    assert.equal(domains.productOrigins.metatron, "https://mttrn.app");
+    assert.equal(exactCorsOrigin("https://mttrn.app", domains.corsOrigins), "https://mttrn.app");
+    assert.equal(exactCorsOrigin("https://evil.mttrn.app", domains.corsOrigins), null);
+    assert.equal(cumulusDomains({ ...defaults, METATRON_HOST: "staging.mttrn.app" }).productOrigins.metatron, "https://staging.mttrn.app");
+    for (const bad of ["*", "*.mttrn.app", "https://mttrn.app", "mttrn.app/path"]) {
+      assert.throws(() => cumulusDomains({ ...defaults, METATRON_HOST: bad }), /exact hostname/, bad);
+    }
+    assert.equal(APP_ORIGINS.metatron, "https://mttrn.app");
+    assert.equal(cidRedirectUri("metatron", "google"), "https://mttrn.app/api/auth/oauth/google/callback");
+    assert.throws(() => cidRedirectUri("odin", "google"), /no registered web origin/);
   });
 
   it("derives hosts from the root domain and accepts an explicit host under that root", () => {

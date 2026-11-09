@@ -1,3 +1,4 @@
+import { labyrinthFromEnvironment } from "@infinitum/lbrnth";
 import { existsSync, readFileSync, writeFileSync, mkdirSync, chmodSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -75,6 +76,7 @@ const social = socialFromEnv();
 
 // Every CID that signs up through +SPCTR gets the full Cumulus account: Mail, Cloud and a FIRM Wallet.
 const suite = createCumulus({
+  labyrinth: labyrinthFromEnvironment(process.env, join(dataDir, "labyrinth.json")),
   ledger, signer, rpId, origins: [origin], stores: cumulusStores, social: { providers: social },
   mailOrigin: process.env.CUMULUS_MAIL_ORIGIN,
   masterKey: loadOrCreateMasterKey(dataDir),

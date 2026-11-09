@@ -13,6 +13,11 @@ import { APPS, badgeText, launcher, parseSummary, resolveOrigins } from "./lib/n
 import { createRouteProxy, detectPlatform } from "./lib/browser-proxy.js";
 import { bypassHostsFor, CHECK_URL, normalizeTorEndpoint, parseTorCheck } from "./lib/proxy.js";
 import { fetchBridges, fetchSession, postConnect, postDisconnect, VeilApiError } from "./lib/veil-api.js";
+import { BLOCKED_HOSTS, blocklistRules, ruleCategory } from "./lib/blocklist.js";
+import { assessError, assessRedirect, assessUrl, mergeIssues } from "./lib/safety.js";
+import { assessDownload } from "./lib/downloads.js";
+import { generateFor } from "./lib/passgen.js";
+import { check as checkPassword, protect, publicView, trust } from "./lib/password-guard.js";
 
 chrome.sidePanel?.setPanelBehavior?.({ openPanelOnActionClick: false })?.catch?.(() => {});
 
@@ -324,6 +329,172 @@ async function claimRewards() {
   return { receipt };
 }
 
+// ---------- Protection: blocklist, safety alerts, downloads ----------
+
+/** What VEIL can't see. Shown in the popup next to the Protected status. */
+const PRIVACY_STATEMENT = "Every check runs inside this browser. VEIL doesn't send your pages, searches, passwords, forms or downloads anywhere, keeps no browsing history, and can't see what you do in other apps or browsers.";
+
+const BLOCK_RULE_IDS = blocklistRules().map((r) => r.id);
+/** Per-tab counts and issues. Kept in memory only, never in storage. */
+const tabs = new Map();
+/** Downloads VEIL paused for the user to decide. */
+const heldDownloads = new Map();
+
+function tabEntry(tabId) {
+  if (!tabs.has(tabId)) tabs.set(tabId, { host: "", url: "", since: Date.now(), stripped: 0, issues: [], pending: [] });
+  return tabs.get(tabId);
+}
+
+async function flagTab(tabId) {
+  const entry = tabs.get(tabId);
+  if (!entry?.issues.length || tabId < 0) return;
+  await chrome.action.setBadgeText({ tabId, text: "!" }).catch(() => {});
+  await chrome.action.setBadgeBackgroundColor({ tabId, color: "#f87171" }).catch(() => {});
+}
+
+async function installBlocklist() {
+  const dnr = chrome.declarativeNetRequest;
+  if (!dnr?.updateDynamicRules) return;
+  const { blockingEnabled } = await get(["blockingEnabled"]);
+  const on = blockingEnabled !== false;
+  await dnr.updateDynamicRules({
+    removeRuleIds: BLOCK_RULE_IDS,
+    addRules: on ? blocklistRules().map(({ category, ...rule }) => rule) : [],
+  });
+}
+
+async function blockedOnTab(tabId, since) {
+  const byCategory = {};
+  let blocked = 0;
+  try {
+    const { rulesMatchedInfo } = await chrome.declarativeNetRequest.getMatchedRules({ tabId, minTimeStamp: since });
+    for (const info of rulesMatchedInfo ?? []) {
+      const category = ruleCategory(info.rule?.ruleId);
+      if (!category) continue;
+      blocked++;
+      byCategory[category] = (byCategory[category] ?? 0) + 1;
+    }
+  } catch { /* not available in this browser */ }
+  return { blocked, byCategory };
+}
+
+function onNavigate(tabId, url) {
+  const prev = tabs.get(tabId);
+  const pending = (prev?.pending ?? []).filter((p) => Date.now() - p.at < 10_000).map((p) => p.issue);
+  let host = "";
+  try { host = new URL(url).hostname; } catch {}
+  tabs.set(tabId, { host, url, since: Date.now(), stripped: 0, issues: mergeIssues(assessUrl(url), pending), pending: [] });
+  return flagTab(tabId);
+}
+
+chrome.tabs?.onUpdated?.addListener?.((tabId, info) => {
+  if (info.url) onNavigate(tabId, info.url);
+});
+chrome.tabs?.onRemoved?.addListener?.((tabId) => tabs.delete(tabId));
+chrome.webRequest?.onBeforeRedirect?.addListener?.((d) => {
+  const issue = assessRedirect(d.url, d.redirectUrl);
+  if (issue && d.tabId >= 0) tabEntry(d.tabId).pending.push({ at: Date.now(), issue });
+}, { urls: ["<all_urls>"], types: ["main_frame"] });
+chrome.webRequest?.onErrorOccurred?.addListener?.((d) => {
+  const issue = assessError(d.url, d.error);
+  if (!issue || d.tabId < 0) return;
+  const entry = tabEntry(d.tabId);
+  entry.issues = mergeIssues(entry.issues, [issue]);
+  flagTab(d.tabId);
+}, { urls: ["<all_urls>"], types: ["main_frame"] });
+
+async function considerDownload(item) {
+  if (!item || heldDownloads.has(item.id) || item.state !== "in_progress" || !item.filename) return;
+  const verdict = assessDownload({ filename: item.filename, mime: item.mime, url: item.finalUrl || item.url });
+  if (!verdict.risky) return;
+  await chrome.downloads.pause(item.id).catch(() => {});
+  heldDownloads.set(item.id, { id: item.id, name: item.filename.split(/[\\/]/).pop(), reasons: verdict.reasons });
+  const [active] = await chrome.tabs.query({ active: true, lastFocusedWindow: true }).catch(() => []);
+  if (active?.id !== undefined) {
+    await chrome.action.setBadgeText({ tabId: active.id, text: "!" }).catch(() => {});
+    await chrome.action.setBadgeBackgroundColor({ tabId: active.id, color: "#f87171" }).catch(() => {});
+  }
+}
+
+chrome.downloads?.onCreated?.addListener?.((item) => { considerDownload(item); });
+chrome.downloads?.onChanged?.addListener?.(async (delta) => {
+  if (!delta.filename?.current) return;
+  const [item] = await chrome.downloads.search({ id: delta.id }).catch(() => []);
+  considerDownload(item);
+});
+
+async function activeTab(tabId) {
+  if (Number.isInteger(tabId)) return chrome.tabs.get(tabId).catch(() => null);
+  const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true }).catch(() => []);
+  return tab ?? null;
+}
+
+async function getProtection(m) {
+  const tab = await activeTab(m.tabId);
+  if (tab && !tabs.has(tab.id) && tab.url) await onNavigate(tab.id, tab.url);
+  const entry = tab ? tabs.get(tab.id) ?? null : null;
+  const { blockingEnabled } = await get(["blockingEnabled"]);
+  const counts = tab && entry ? await blockedOnTab(tab.id, entry.since) : { blocked: 0, byCategory: {} };
+  let https = false;
+  try { https = new URL(tab?.url ?? "").protocol === "https:"; } catch {}
+  return {
+    tabId: tab?.id ?? null,
+    host: entry?.host ?? "",
+    https,
+    blockingEnabled: blockingEnabled !== false,
+    listSize: BLOCKED_HOSTS.length,
+    blocked: counts.blocked,
+    byCategory: counts.byCategory,
+    stripped: entry?.stripped ?? 0,
+    issues: entry?.issues ?? [],
+    downloads: [...heldDownloads.values()],
+    statement: PRIVACY_STATEMENT,
+  };
+}
+
+async function fixIssue(m) {
+  const tab = await activeTab(m.tabId);
+  if (!tab) throw new Error("No tab");
+  if (m.action === "https") {
+    const url = new URL(m.url);
+    if (url.protocol !== "https:") throw new Error("Not an HTTPS address");
+    await chrome.tabs.update(tab.id, { url: url.href });
+  } else if (m.action === "back") {
+    await chrome.tabs.goBack(tab.id).catch(() => chrome.tabs.update(tab.id, { url: "about:blank" }));
+  } else if (m.action === "tor") {
+    await setTor(true);
+    await chrome.tabs.reload(tab.id);
+  } else {
+    throw new Error("Unknown fix");
+  }
+  return { ok: true };
+}
+
+async function downloadDecision(m) {
+  const held = heldDownloads.get(m.id);
+  if (!held) throw new Error("That download is no longer held");
+  heldDownloads.delete(m.id);
+  if (m.keep === true) await chrome.downloads.resume(m.id);
+  else await chrome.downloads.cancel(m.id);
+  return { ok: true };
+}
+
+// ---------- Passwords ----------
+
+async function guardEntries() {
+  const { pwGuard } = await get(["pwGuard"]);
+  return Array.isArray(pwGuard) ? pwGuard : [];
+}
+
+async function saveGuard(entries) {
+  await set({ pwGuard: entries, pwGuardLengths: [...new Set(entries.map((e) => e.length))] });
+  return { protected: publicView(entries) };
+}
+
+function senderHost(sender) {
+  try { return new URL(sender.tab?.url ?? sender.url).hostname; } catch { return ""; }
+}
+
 // ---------- Lifecycle & messages ----------
 
 chrome.runtime.onInstalled.addListener(async () => {
@@ -335,11 +506,13 @@ chrome.runtime.onInstalled.addListener(async () => {
   if (s.autoClean === undefined) defaults.autoClean = true;
   if (s.rewardsLedger === undefined) defaults.rewardsLedger = emptyLedger();
   await set(defaults);
+  await installBlocklist().catch(() => {});
   await chrome.storage.local.remove(["totalVeil", "rewardLog", "firmBalance", "veilStatus", "veilServerId"]);
 });
 
 chrome.runtime.onStartup?.addListener(() => {
   serial(() => bootRoute());
+  installBlocklist().catch(() => {});
 });
 
 serial(() => bootRoute());
@@ -377,7 +550,41 @@ const handlers = {
   activity: (m, sender) => onActivity(m, sender),
   getRewards: () => rewardsSummary(),
   claimRewards: () => claimRewards(),
+  // Protection
+  getProtection: (m) => getProtection(m),
+  fixIssue: (m) => fixIssue(m),
+  setBlocking: async (m) => { await set({ blockingEnabled: m.enabled !== false }); await installBlocklist(); return { ok: true }; },
+  downloadDecision: (m) => downloadDecision(m),
+  // Passwords
+  listProtected: async () => ({ protected: publicView(await guardEntries()) }),
+  protectPassword: async (m) => saveGuard([...(await guardEntries()), await protect(m.password, m.hosts)]),
+  removeProtected: async (m) => saveGuard((await guardEntries()).filter((e) => e.id !== m.id)),
+  generatePassword: (m) => generateFor(m.host),
+  fillPassword: async (m) => {
+    const tab = await activeTab(m.tabId);
+    if (!tab) throw new Error("No tab");
+    return chrome.tabs.sendMessage(tab.id, { type: "fillPassword", value: String(m.value ?? "") });
+  },
+  // From content scripts (see PAGE_MESSAGES)
+  protection: async (m, sender) => {
+    const n = Number(m.stripped);
+    if (sender.tab?.id !== undefined && Number.isInteger(n) && n > 0 && n < 100) tabEntry(sender.tab.id).stripped += n;
+    return { ok: true };
+  },
+  pwCheck: async (m, sender) => {
+    const result = await checkPassword(await guardEntries(), String(m.value ?? ""), senderHost(sender));
+    return result.reused ? result : { reused: false };
+  },
+  pwTrust: async (m, sender) => {
+    const host = senderHost(sender);
+    if (!host) throw new Error("No site");
+    await saveGuard(trust(await guardEntries(), m.id, host));
+    return { ok: true };
+  },
 };
+
+/** Messages content scripts may send. Everything else is for extension pages only. */
+const PAGE_MESSAGES = new Set(["activity", "protection", "pwCheck", "pwTrust"]);
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   const handler = handlers[msg?.type];
@@ -388,7 +595,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   const fromExtensionPage = sender.id === chrome.runtime.id
     && typeof sender.url === "string"
     && sender.url.startsWith(chrome.runtime.getURL(""));
-  const allowed = msg.type === "activity" ? !fromExtensionPage && !!sender.tab : fromExtensionPage;
+  const allowed = PAGE_MESSAGES.has(msg.type) ? !fromExtensionPage && !!sender.tab : fromExtensionPage;
   if (!allowed) {
     sendResponse({ error: "not allowed from a page" });
     return false;

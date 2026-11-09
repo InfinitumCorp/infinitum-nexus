@@ -1,6 +1,8 @@
 # @infinitum/fabric
 
-FABRIC++ encrypted messaging scaffold.
+FABRIC++ encrypted messaging. Message bodies use AES-256-GCM. A string key is stretched with scrypt (`encrypt` / `decrypt`). A 32-byte key uses `seal` / `open`, and optional associated data is bound into the authentication tag.
+
+The running service and web client live in `apps/fabric`.
 
 ## Domain
 

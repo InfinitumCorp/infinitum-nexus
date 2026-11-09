@@ -15,5 +15,8 @@
   "devDependencies": {
     "typescript": "^5.9.0",
     "@types/node": "^22.0.0"
+  },
+  "dependencies": {
+    "@infinitum/lbrnth-client": "workspace:*"
   }
 }

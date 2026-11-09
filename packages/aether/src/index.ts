@@ -18,3 +18,5 @@ export type { Transport } from "./transport.ts";
 export { SimNetwork, SimTransport } from "./sim/network.ts";
 export { runScenario } from "./sim/scenario.ts";
 export type { ScenarioOptions, ScenarioResult } from "./sim/scenario.ts";
+
+export { createAetherLabyrinth } from "./labyrinth.ts";

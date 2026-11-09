@@ -58,7 +58,7 @@ bash apps/veil-desktop/scripts/repro-check.sh
 bash apps/veil-desktop/scripts/integration-test.sh
 ```
 
-The reproducible build pins Go 1.23.1 and Node 22.23.4. `go.mod` requires Go 1.23.1, and the build script sets `GOTOOLCHAIN=go1.23.1` so a newer compiler is not used. `CGO_ENABLED=0`. `SOURCE_DATE_EPOCH` sets archive timestamps; when it is unset, the git commit time is used. `repro-check.sh` builds twice, once with a cold Go build cache, and fails if `SHA256SUMS` or any hashed file differs.
+The reproducible build pins Go 1.25.0 and Node 22.23.4. `go.mod` requires Go 1.25.0 because golang.org/x/crypto v0.52.0 declares Go 1.25, and the build script sets `GOTOOLCHAIN=go1.25.0` so a different compiler is not used. `CGO_ENABLED=0`. `SOURCE_DATE_EPOCH` sets archive timestamps; when it is unset, the git commit time is used. `repro-check.sh` builds twice, once with a cold Go build cache, and fails if `SHA256SUMS` or any hashed file differs.
 
 Unsigned outputs land in `apps/veil-desktop/artifacts/`:
 

@@ -1,3 +1,4 @@
+import { serveNodeLabyrinthProxy } from "@infinitum/lbrnth";
 /**
  * Architect server: serves the Podium UI and /api/perform.
  * Records evidence on Firmament.
@@ -53,6 +54,7 @@ const server = createServer(async (req, res) => {
   const start = Date.now();
   const url = new URL(req.url ?? "/", `http://${req.headers.host}`);
   try {
+    if (url.pathname === "/api/labyrinth") return await serveNodeLabyrinthProxy(req, res, process.env.LBRNTH_ENDPOINT, "architect");
     if (url.pathname === "/health") {
       return json(res, 200, { ok: true, service: "architect", uptime: process.uptime() });
     }

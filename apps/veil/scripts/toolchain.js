@@ -6,4 +6,4 @@
 
 export const NODE_VERSION = "22.23.4";
 export const PNPM_VERSION = "10.28.0";
-export const GO_VERSION = "1.23.1";
+export const GO_VERSION = "1.25.0";

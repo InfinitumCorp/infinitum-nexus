@@ -77,7 +77,9 @@ export class VirtualAuthenticator {
     const authData = Buffer.concat([sha256(opts.rpIdOverride ?? cred.rpId), Buffer.from([this.flags(false)]), counterBytes]);
     const clientDataJSON = Buffer.from(JSON.stringify({ type: "webauthn.get", challenge: opts.challenge, origin: opts.origin, crossOrigin: false }));
     const data = Buffer.concat([authData, sha256(clientDataJSON)]);
-    const signature = cred.alg === "EdDSA" ? sign(null, data, cred.privateKey) : sign("sha256", data, cred.privateKey);
+    const signature = cred.alg === "EdDSA"
+      ? sign(null, data, cred.privateKey)
+      : sign("sha256", data, { key: cred.privateKey, dsaEncoding: "ieee-p1363" });
     return {
       credentialId: opts.credentialId,
       clientDataJSON: b64u(clientDataJSON),

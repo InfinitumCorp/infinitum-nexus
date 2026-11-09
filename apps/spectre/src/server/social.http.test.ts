@@ -69,7 +69,7 @@ describe("+SPCTR social sign-in over HTTP", () => {
     const me = await get("/api/me", session.split(";")[0]);
     const body = await me.json();
     assert.equal(body.username, "morgan-k");
-    assert.equal(body.mailAddress, "morgan-k@cumulusmail.cloud");
+    assert.equal(body.mailAddress, "morgan-k@cumuluscloud.app");
 
     const ids = await (await get("/api/me/identities", session.split(";")[0])).json();
     assert.equal(ids.linked[0].provider, "github");

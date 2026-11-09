@@ -4,7 +4,7 @@ Extracted from https://infinitum-corporation.vercel.app/#products
 
 These are the product titles as displayed on the website, each with the trademark symbol (™):
 
-- /CNDCTR/™
+- :\ARCHITECT\\™
 - SCALVS.ai™
 - Flower™
 - NEMESIS™
@@ -21,9 +21,10 @@ These are the product titles as displayed on the website, each with the trademar
 - >_ARGUS™
 - ei·det·ic™
 - [HRVST]™
-- METATRON¹⁰⁰™
+- METATRON¹⁰⁰™ (mttrn.app)
 - +SPCTR™ (Spectre)
 - ODIN°™
 - FIRM Wallet™
+- Labyrinth *LBRNTH
 
-All titles use the ™ symbol as shown on the live site.
+Earlier titles use the ™ symbol as shown on the live site. Labyrinth *LBRNTH is the new client repository product by Infinitum Corporation®; product id `LBRNTH`, display name `Labyrinth`.

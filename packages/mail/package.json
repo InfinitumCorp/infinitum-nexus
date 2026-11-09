@@ -1,0 +1,24 @@
+{
+  "name": "@infinitum/mail",
+  "version": "0.1.0",
+  "description": "Cumulus://Mail mailbox: folders, threads, end-to-end marking, aliases, and Architect tasks.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "typecheck": "tsc -p . --noEmit",
+    "test": "node --test --experimental-strip-types $(find src -name \"*.test.ts\" 2>/dev/null || true)"
+  },
+  "dependencies": {
+    "@infinitum/cid": "workspace:*",
+    "@infinitum/lbrnth-client": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.0",
+    "@types/node": "^22.0.0"
+  }
+}

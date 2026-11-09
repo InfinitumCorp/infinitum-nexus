@@ -6,6 +6,7 @@ import { Ledger, generateSigner } from "@infinitum/firmament";
 test("package dataset and sell with rev share and CDAT", async () => {
   const dx = new DataExchange();
 
+  await dx.consent.grant({ cid: "cid_user123", product: "scalus", scopes: ["usage_metrics"], purpose: "data_licensing" });
   const { dataset } = await dx.packageDataset({
     cid: "cid_user123",
     product: "scalus",
@@ -38,6 +39,30 @@ test("package dataset and sell with rev share and CDAT", async () => {
   assert.equal(dx.revshare.pendingForCid("cid_user123"), 212.5);
 });
 
+test("a sale needs a positive price and the shares add back up", async () => {
+  const dx = new DataExchange();
+  await dx.consent.grant({ cid: "cid_user123", product: "scalus", scopes: ["usage_metrics"], purpose: "data_licensing" });
+  const { dataset } = await dx.packageDataset({
+    cid: "cid_user123",
+    product: "scalus",
+    title: "Small set",
+    description: "Aggregated",
+    schema: "x",
+    sizeEstimate: 1,
+    privacyLevel: "aggregated",
+    licenseTerms: "CDAT-research-1y",
+    priceUsd: 1,
+    scopes: ["usage_metrics"],
+  });
+  dx.catalog.updateStatus(dataset.id, "listed");
+  assert.equal(await dx.sell(dataset.id, "buyer", 0), null);
+  assert.equal(await dx.sell(dataset.id, "buyer", -10), null);
+  const sale = await dx.sell(dataset.id, "buyer", 0.1);
+  assert.ok(sale);
+  assert.equal(Math.round((sale!.userShareUsd + sale!.platformShareUsd) * 100), Math.round(sale!.amountUsd * 100));
+  assert.equal(dx.catalog.get(dataset.id)?.status, "sold");
+});
+
 test("Firmament records consent, license, and payment", async () => {
   const ledger = new Ledger();
   const signer = generateSigner();
@@ -45,6 +70,7 @@ test("Firmament records consent, license, and payment", async () => {
 
   const dx = new DataExchange(ledger, signer);
 
+  await dx.consent.grant({ cid: "cid_firmament", product: "cumulus", scopes: ["usage_metrics"], purpose: "data_licensing" });
   const { dataset, consent } = await dx.packageDataset({
     cid: "cid_firmament",
     product: "cumulus",
@@ -69,7 +95,42 @@ test("Firmament records consent, license, and payment", async () => {
 
   const entries = await ledger.entries();
   assert.deepEqual(entries.map((e) => e.type), ["grant", "license", "payment"]);
-  assert.equal(entries[0].subject, dataset.id);
+  assert.equal(entries[0].subject, "cumulus");
   assert.equal(entries[1].subject, dataset.id);
   assert.equal((await ledger.verify()).ok, true);
+});
+
+test("a ledger failure during the sale leaves the dataset listed", async () => {
+  const ledger = new Ledger();
+  const signer = generateSigner();
+  ledger.authorize(signer.publicKey);
+  let signs = 0;
+  const flaky = {
+    publicKey: signer.publicKey,
+    sign(message: string) {
+      signs += 1;
+      if (signs > 1) throw new Error("ledger down");
+      return signer.sign(message);
+    },
+  };
+  const dx = new DataExchange(ledger, flaky);
+  await dx.consent.grant({ cid: "cid_user123", product: "scalus", scopes: ["usage_metrics"], purpose: "data_licensing" });
+  const { dataset } = await dx.packageDataset({
+    cid: "cid_user123",
+    product: "scalus",
+    title: "Small set",
+    description: "Aggregated",
+    schema: "x",
+    sizeEstimate: 1,
+    privacyLevel: "aggregated",
+    licenseTerms: "CDAT-research-1y",
+    priceUsd: 10,
+    scopes: ["usage_metrics"],
+  });
+  dx.catalog.updateStatus(dataset.id, "listed");
+  await assert.rejects(dx.sell(dataset.id, "broker_acme", 10), /ledger down/);
+  assert.equal(dx.catalog.get(dataset.id)?.status, "listed");
+  assert.equal(dx.marketplace.listSales().length, 0);
+  assert.equal(dx.revshare.pendingForCid("cid_user123"), 0);
+  assert.equal(dx.cdat.list().length, 0);
 });

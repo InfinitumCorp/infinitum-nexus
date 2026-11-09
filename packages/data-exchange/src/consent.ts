@@ -19,7 +19,7 @@ export class ConsentManager {
   async grant(params: {
     cid: string;
     product: ProductId;
-    datasetId: string;
+    datasetId?: string;
     scopes: string[];
     purpose: string;
   }): Promise<ConsentRecord> {
@@ -41,7 +41,7 @@ export class ConsentManager {
           type: "grant",
           product: "data-exchange",
           actor: params.cid,
-          subject: params.datasetId,
+          subject: params.datasetId ?? params.product,
           payload: {
             consentId: id,
             product: params.product,
@@ -60,6 +60,15 @@ export class ConsentManager {
     return record;
   }
 
+  /** The newest active consent for this person, product and purpose. */
+  findActive(cid: string, product: ProductId, purpose: string): ConsentRecord | undefined {
+    let found: ConsentRecord | undefined;
+    for (const c of this.consents.values()) {
+      if (c.cid === cid && c.product === product && c.purpose === purpose && c.granted) found = c;
+    }
+    return found;
+  }
+
   async revoke(consentId: string): Promise<boolean> {
     const c = this.consents.get(consentId);
     if (!c) return false;
@@ -72,7 +81,7 @@ export class ConsentManager {
           type: "revoke",
           product: "data-exchange",
           actor: c.cid,
-          subject: c.datasetId,
+          subject: c.datasetId ?? c.product,
           payload: {
             consentId,
             revoked: true,

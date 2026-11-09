@@ -6,7 +6,7 @@ export type ProductId =
   | "cumulus" 
   | "scalus" 
   | "spectre" 
-  | "conductor" 
+  | "architect" 
   | "veil" 
   | "fabric" 
   | "aether" 
@@ -23,7 +23,7 @@ export interface ConsentRecord {
   id: string;
   cid: string; // Cumulus://ID
   product: ProductId;
-  datasetId: string;
+  datasetId?: string;
   granted: boolean;
   scopes: string[]; // e.g. ["usage_metrics", "anonymized_content"]
   purpose: string; // e.g. "licensing_to_brokers"

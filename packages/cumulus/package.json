@@ -1,0 +1,29 @@
+{
+  "name": "@infinitum/cumulus",
+  "version": "0.1.0",
+  "description": "The Cumulus account suite: one Cumulus://ID with Cumulus://Mail, Cumulus://Cloud, a FIRM Wallet and the shared 15 GB free tier, wired together for every Infinitum product.",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "typecheck": "tsc -p . --noEmit",
+    "test": "node --test --experimental-strip-types $(find src -name \"*.test.ts\" 2>/dev/null || true)"
+  },
+  "dependencies": {
+    "@infinitum/cid": "workspace:*",
+    "@infinitum/cloud": "workspace:*",
+    "@infinitum/firm": "workspace:*",
+    "@infinitum/firmament": "workspace:*",
+    "@infinitum/mail": "workspace:*",
+    "@infinitum/lbrnth": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.0",
+    "@types/node": "^22.0.0"
+  }
+}

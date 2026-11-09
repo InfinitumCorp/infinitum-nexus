@@ -23,7 +23,7 @@ export function createPacket(owner: string, mediaType: string, rawHash: string):
 }
 
 export function privacyFilter(raw: string): string {
-  // Scaffold: strip obvious PII patterns
+  const phone = /(?:\+\d{1,3}[\s.-]?)?(?:\(?\d{3}\)?[\s.-]*)\d{3}[\s.-]*\d{4}\b/g;
   return raw.replace(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, "[email]")
-            .replace(/\b\d{3}[-.]?\d{3}[-.]?\d{4}\b/g, "[phone]");
+            .replace(phone, "[phone]");
 }

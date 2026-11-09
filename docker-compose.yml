@@ -8,14 +8,14 @@ services:
     environment:
       PORT: 3000
       SPECTRE_WORKSPACE: demo
-      CONDUCTOR_URL: http://conductor:3001
+      ARCHITECT_URL: http://architect:3001
     depends_on:
-      - conductor
+      - architect
 
-  conductor:
+  architect:
     build:
       context: .
-      dockerfile: apps/conductor/Dockerfile
+      dockerfile: apps/architect/Dockerfile
     ports:
       - "3001:3001"
     environment:

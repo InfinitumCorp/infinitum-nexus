@@ -1,7 +1,7 @@
 {
   "name": "@infinitum/aether",
-  "version": "0.1.0",
-  "description": "ÆTHER distributed communications concept stub.",
+  "version": "0.2.0",
+  "description": "\u00c6THER mesh protocol core: signed packets, flooding with TTL, store-and-forward, receipts, simulator.",
   "type": "module",
   "private": true,
   "engines": {
@@ -9,10 +9,14 @@
   },
   "scripts": {
     "typecheck": "tsc -p . --noEmit",
-    "test": "node --test --experimental-strip-types $(find src -name \"*.test.ts\" 2>/dev/null || true)"
+    "test": "node --test --experimental-strip-types $(find src -name \"*.test.ts\" 2>/dev/null || true)",
+    "sim": "node --experimental-strip-types src/sim/cli.ts"
   },
   "devDependencies": {
     "typescript": "^5.9.0",
     "@types/node": "^22.0.0"
+  },
+  "dependencies": {
+    "@infinitum/lbrnth-client": "workspace:*"
   }
 }

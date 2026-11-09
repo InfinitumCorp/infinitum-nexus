@@ -1,4 +1,5 @@
 import type { Activity, Company, Contact, Deal } from "./model.ts";
+import type { SpectreCRM } from "./crm.ts";
 
 /**
  * Self-cleaning data: duplicates found and merged, outdated contacts flagged.
@@ -56,6 +57,41 @@ export function findDuplicateCompanies(companies: Company[], threshold = 0.85): 
     }
   }
   return groups;
+}
+
+/** Workspace-level duplicate companies. Domain matches use a stable reason. */
+export function findCompanyDuplicates(crm: SpectreCRM, workspace: string): DuplicateGroup<Company>[] {
+  return findDuplicateCompanies(crm.list("companies", workspace)).map((group) => ({
+    ...group,
+    reason: group.reason.startsWith("Same website") ? "same domain" : group.reason,
+  }));
+}
+
+/**
+ * Collapse duplicate companies into the kept record: facts and references move,
+ * the duplicates are removed, and the merge is written to Firmament.
+ */
+export async function mergeCompanies(
+  crm: SpectreCRM,
+  workspace: string,
+  actor: string,
+  keepId: string,
+  mergeIds: string[],
+) {
+  const ids = mergeIds.filter((id) => id !== keepId);
+  crm.company(workspace, keepId);
+  for (const id of ids) crm.company(workspace, id);
+  for (const contact of crm.list("contacts", workspace)) {
+    if (contact.companyId && ids.includes(contact.companyId)) contact.companyId = keepId;
+  }
+  const keep = crm.company(workspace, keepId);
+  for (const id of ids) {
+    keep.facts.push(...crm.company(workspace, id).facts);
+    crm.store.companies.delete(id);
+  }
+  repointReferences(keepId, ids, crm.list("deals", workspace), crm.list("activities", workspace));
+  await crm.recordMerge(actor, "company", keepId, ids);
+  return { kept: keepId, merged: ids };
 }
 
 export function findDuplicateContacts(contacts: Contact[], threshold = 0.9): DuplicateGroup<Contact>[] {

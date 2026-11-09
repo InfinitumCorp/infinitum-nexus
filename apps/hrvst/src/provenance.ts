@@ -6,7 +6,8 @@ import type { HarvestPacket } from "./packet.ts";
 import { privacyFilter } from "./privacy.ts";
 
 export async function recordPacket(ledger: Ledger, packet: HarvestPacket) {
-  const { cleaned, redactions } = privacyFilter(packet.observation);
+  const observation = privacyFilter(packet.observation);
+  const location = packet.location == null ? undefined : privacyFilter(packet.location);
   const signer = generateSigner();
   const entry = await ledger.append({
     type: "provenance",
@@ -15,13 +16,18 @@ export async function recordPacket(ledger: Ledger, packet: HarvestPacket) {
     subject: `packet:${packet.id}`,
     payload: {
       packetId: packet.id,
-      observation: cleaned,
-      redactions,
+      observation: observation.cleaned,
+      redactions: [...observation.redactions, ...(location?.redactions ?? [])],
       quality: packet.quality,
       permittedUses: packet.permittedUses,
-      location: packet.location,
+      location: location?.cleaned,
       observedAt: packet.observedAt,
     },
   }, signer);
-  return { ...packet, observation: cleaned, provenanceHash: entry.hash };
+  return {
+    ...packet,
+    observation: observation.cleaned,
+    location: location?.cleaned,
+    provenanceHash: entry.hash,
+  };
 }

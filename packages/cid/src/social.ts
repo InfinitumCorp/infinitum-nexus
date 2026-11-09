@@ -1,4 +1,4 @@
-import { createHash, createPrivateKey, randomBytes, sign, webcrypto } from "node:crypto";
+import { createHash, randomBytes, sign, webcrypto } from "node:crypto";
 import { verifyIdToken, type IdTokenClaims } from "./oidc.ts";
 
 type JsonWebKey = webcrypto.JsonWebKey;
@@ -126,9 +126,10 @@ export function appleClientSecret(creds: SocialCredentials, now: Date): string {
   const payload = { iss: creds.apple.teamId, iat, exp: iat + 300, aud: "https://appleid.apple.com", sub: creds.clientId };
   const enc = (o: unknown) => b64u(Buffer.from(JSON.stringify(o)));
   const data = `${enc(header)}.${enc(payload)}`;
-  const key = createPrivateKey(creds.apple.privateKeyPem);
-  return `${data}.${b64u(sign("sha256", Buffer.from(data), { key, dsaEncoding: "ieee-p1363" }))}`;
+  return `${data}.${b64u(sign("sha256", Buffer.from(data), { key: creds.apple.privateKeyPem, dsaEncoding: "ieee-p1363" }))}`;
 }
+
+const issuerKey = (issuer: string) => issuer.replace(/\/$/, "");
 
 export class SocialClient {
   private readonly fetchImpl: typeof fetch;
@@ -155,11 +156,12 @@ export class SocialClient {
       return { authorize: spec.authorizeUrl!, token: spec.tokenUrl!, jwks: spec.jwksUrl, issuer: spec.issuer };
     }
     if (!creds.issuer) throw new Error(`${spec.label} sign-in needs its issuer URL configured`);
-    let d = this.discoveryCache.get(creds.issuer);
+    const configured = issuerKey(creds.issuer);
+    let d = this.discoveryCache.get(configured);
     if (!d) {
-      d = await this.json(`${creds.issuer.replace(/\/$/, "")}/.well-known/openid-configuration`);
-      if (d!.issuer !== creds.issuer) throw new Error(`${spec.label} discovery issuer mismatch`);
-      this.discoveryCache.set(creds.issuer, d!);
+      d = await this.json(`${configured}/.well-known/openid-configuration`);
+      if (issuerKey(d!.issuer) !== configured) throw new Error(`${spec.label} discovery issuer mismatch`);
+      this.discoveryCache.set(configured, d!);
     }
     return { authorize: d!.authorization_endpoint, token: d!.token_endpoint, jwks: d!.jwks_uri, issuer: d!.issuer };
   }

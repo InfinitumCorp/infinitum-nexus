@@ -111,6 +111,8 @@ await shot("03-pipeline", "/#/pipeline");
 await shot("04-account", `/#/accounts/${nw.id}`);
 await shot("05-people", "/#/people");
 await shot("07-settings", "/#/settings");
+await shot("08-agents", "/#/agents");
+await shot("09-conjure", "/#/conjure");
 await shot("06-today-mobile", "/#/today", { width: 390, height: 844, mobile: true });
 
 sock.close();

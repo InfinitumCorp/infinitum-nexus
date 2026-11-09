@@ -1,20 +1,35 @@
+import { serveNodeLabyrinth } from "@infinitum/lbrnth";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { readFile } from "node:fs/promises";
 import { join, normalize, extname } from "node:path";
-import { CidService, CidError, type Account } from "@infinitum/cid";
+import { CidService, CidError, cumulusCorsHeaders, type Account } from "@infinitum/cid";
+import type { CumulusSuite } from "@infinitum/cumulus";
 import { SpectreCRM, SpectreError } from "../core/crm.ts";
-import { scoreDealMetatron as scoreDeal } from "../core/intelligence-metatron.ts";
+import { scoreDealMetatron as scoreDeal, learnedContextFor } from "../core/intelligence-metatron.ts";
+import { backtestReport, industryLookup, learnedFor, DEFAULT_MODEL, LEARNED_MODEL } from "../core/metatron-learned.ts";
 import { nextBestAction, forecast, riskAlerts, type Score } from "../core/intelligence.ts";
 import { warmestPath, buyingCommittee, committeeGaps } from "../core/relationships.ts";
 import {
   findDuplicateCompanies,
   findDuplicateContacts,
+  mergeCompanies,
   mergeContactFields,
   repointReferences,
   dataIssues,
 } from "../core/cleaning.ts";
 import { OPEN_STAGES, STAGES } from "../core/model.ts";
 import { askClaude, AiNotConnected, type AiConfig } from "./ai.ts";
+import { registerGrowthRoutes, type GrowthEvent } from "./growth-routes.ts";
+import { registerConjureRoutes, dealSeed } from "./conjure-routes.ts";
+import { registerEngageRoutes, RawResponse } from "./engage-routes.ts";
+import { dispatch, runDue, type AutomationEngine } from "../core/automations.ts";
+import type { Providers } from "../core/messaging.ts";
+import type { Complete, ConjureLiveClient } from "@infinitum/conjure";
+import { parseConjureMention, handleConjureMention, conjureLiveFromEnv, formatForecast, ConjureApiError } from "@infinitum/conjure";
+import { createVeilControl, serveNodeVeil } from "@infinitum/veil/server";
+import type { DeviceExitConfig, VeilServer } from "@infinitum/veil/server";
+import { runLlmAgent, LlmError } from "@infinitum/scalus";
+import { AGENTS, AGENT_IDS, agentDefinition, applyProposal, newProposalId, newRunId, type AgentId, type AgentRunRecord } from "../core/agent-team.ts";
 
 /**
  * +SPCTR HTTP app. Sign-in is Cumulus://ID; access requires the "spectre" grant on the
@@ -27,6 +42,8 @@ const MAX_BODY = 1_000_000;
 
 export interface AppDeps {
   cid: CidService;
+  /** The Cumulus account suite (Mail, Cloud, FIRM Wallet) behind `cid`, when wired in. */
+  suite?: CumulusSuite;
   crm: SpectreCRM;
   ai: AiConfig;
   publicDir: string;
@@ -40,6 +57,28 @@ export interface AppDeps {
    * atomically afterwards, and re-run the request if someone else saved in between.
    */
   transaction?: <T>(fn: () => Promise<T>) => Promise<T>;
+  /** Automations: receives events such as form submissions and new tags. */
+  emit?: (ws: string, event: GrowthEvent) => Promise<void>;
+  /** Email and SMS providers (Resend, Twilio). Without them, messages are saved as drafts. */
+  providers?: Providers;
+  /** Shared secret the scheduler sends to resume waiting automation steps. */
+  cronSecret?: string;
+  /** Twilio auth token, to verify inbound SMS webhooks. */
+  twilioAuthToken?: string;
+  /** Tests: scripted model for Conjure simulations. */
+  conjureComplete?: Complete;
+  /** Hosted Conjure for "@conjure" in Ask. Defaults to CONJURE_URL + CONJURE_PRODUCT_KEY; null turns it off. */
+  conjureLive?: ConjureLiveClient | null;
+  /**
+   * VEIL browser proxy. A plan is required for the exit and for bridges.
+   * Local Tor in the extension does not call this.
+   */
+  veil?: {
+    entitled?: (cid: string) => boolean;
+    servers?: readonly VeilServer[];
+    bridges?: readonly string[];
+    deviceExit?: DeviceExitConfig;
+  };
 }
 
 class HttpError extends Error {
@@ -69,6 +108,9 @@ interface Ctx {
 
 type Handler = (ctx: Ctx) => Promise<unknown> | unknown;
 interface Route { method: string; pattern: RegExp; keys: string[]; auth: boolean; handler: Handler; csrf: boolean; optionalAuth: boolean; }
+
+/** Static pages that may be shown inside other sites (iframe embeds). */
+export const EMBEDDABLE = new Set(["/form.html", "/book.html"]);
 
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -112,6 +154,13 @@ async function readBody(req: IncomingMessage): Promise<Record<string, any>> {
 
 export function createApp(deps: AppDeps) {
   const { cid, crm } = deps;
+  const providers: Providers = deps.providers ?? {};
+  /** Events start matching automations, then reach any outside listener. */
+  const raise = async (ws: string, event: GrowthEvent) => {
+    await dispatch(engine, ws, event);
+    await deps.emit?.(ws, event);
+  };
+  const engine: AutomationEngine = { crm, providers, raise };
   const routes: Route[] = [];
   const route = (method: string, path: string, handler: Handler, auth = true, opts: { csrf?: boolean; optionalAuth?: boolean } = {}) => {
     const keys: string[] = [];
@@ -244,16 +293,39 @@ export function createApp(deps: AppDeps) {
 
   route("GET", "/api/me", (ctx) => {
     const a = ctx.user!.account;
-    return { cid: a.cid, username: a.username, mailAddress: a.mailAddress, handle: a.handle, workspace: ctx.user!.workspace };
+    // The Cumulus account that comes with every CID: Mail (unread), Cloud storage, FIRM Wallet.
+    const cumulus = deps.suite?.summary(a.cid);
+    return { cid: a.cid, username: a.username, mailAddress: a.mailAddress, handle: a.handle, workspace: ctx.user!.workspace, cumulus };
   });
 
   /* ---------------- Today / dashboard ---------------- */
 
+  const learnedCtx = (ws: string) => learnedContextFor(ws, crm.list("deals", ws), crm.list("activities", ws), crm.list("companies", ws));
   const scoresFor = (ws: string) => {
     const acts = crm.list("activities", ws);
     const now = crm.now();
-    return new Map<string, Score>(crm.list("deals", ws).map((d) => [d.id, scoreDeal(d, acts, now)]));
+    const learned = learnedCtx(ws);
+    return new Map<string, Score>(crm.list("deals", ws).map((d) => [d.id, scoreDeal(d, acts, now, learned)]));
   };
+
+  /* ---------------- METATRON ---------------- */
+
+  /** Which METATRON model scores this workspace, and how close it is to a learned one. */
+  const metatronStatus = (ws: string) => {
+    if (process.env.USE_METATRON !== "1") return { on: false, model: "baseline" };
+    const state = learnedFor(ws, crm.list("deals", ws), crm.list("activities", ws), industryLookup(crm.list("companies", ws)));
+    return state.ready
+      ? { on: true, model: LEARNED_MODEL, closedDeals: state.closedDeals, won: state.won, lost: state.lost }
+      : { on: true, model: DEFAULT_MODEL, closedDeals: state.closedDeals, won: state.won, lost: state.lost, learning: state.reason };
+  };
+
+  route("GET", "/api/metatron", (ctx) => metatronStatus(ctx.user!.workspace));
+
+  route("GET", "/api/metatron/backtest", (ctx) => {
+    const ws = ctx.user!.workspace;
+    const holdout = Number(ctx.query.get("holdout") || 0.3);
+    return backtestReport(crm.list("deals", ws), crm.list("activities", ws), industryLookup(crm.list("companies", ws)), holdout > 0 && holdout < 1 ? holdout : 0.3);
+  });
 
 
 
@@ -348,6 +420,7 @@ export function createApp(deps: AppDeps) {
       byKind,
       byIndustry,
       metatron: process.env.USE_METATRON === "1",
+      metatronModel: metatronStatus(ws).model,
     };
   });
 
@@ -444,10 +517,12 @@ export function createApp(deps: AppDeps) {
       .sort((a, b) => a.name.localeCompare(b.name));
   });
 
-  route("POST", "/api/contacts", (ctx) => {
+  route("POST", "/api/contacts", async (ctx) => {
     need(ctx, "name");
     const { name, title, email, phone, companyId, influence } = ctx.body;
-    return crm.addContact(ctx.user!.workspace, ctx.user!.account.cid, { name, title, email, phone, companyId: companyId || undefined, influence: influence || undefined });
+    const c = await crm.addContact(ctx.user!.workspace, ctx.user!.account.cid, { name, title, email, phone, companyId: companyId || undefined, influence: influence || undefined, source: "manual" });
+    await raise(ctx.user!.workspace, { type: "contact.created", contactId: c.id });
+    return c;
   });
 
   route("PATCH", "/api/contacts/:id", (ctx) => {
@@ -486,7 +561,7 @@ export function createApp(deps: AppDeps) {
     const ws = ctx.user!.workspace;
     const deal = crm.deal(ws, ctx.params.id);
     const acts = crm.list("activities", ws);
-    const score = scoreDeal(deal, acts, crm.now());
+    const score = scoreDeal(deal, acts, crm.now(), learnedCtx(ws));
     return {
       deal,
       company: crm.company(ws, deal.companyId),
@@ -503,9 +578,12 @@ export function createApp(deps: AppDeps) {
     return crm.updateDeal(ctx.user!.workspace, ctx.user!.account.cid, ctx.params.id, Object.fromEntries(Object.entries({ name, amount: amount === undefined ? undefined : Number(amount), closeDate, market, contactIds, ownerCid }).filter(([, v]) => v !== undefined)));
   });
 
-  route("POST", "/api/deals/:id/stage", (ctx) => {
+  route("POST", "/api/deals/:id/stage", async (ctx) => {
     need(ctx, "stage");
-    return crm.moveDeal(ctx.user!.workspace, ctx.user!.account.cid, ctx.params.id, ctx.body.stage, ctx.body.lostReason);
+    const before = crm.deal(ctx.user!.workspace, ctx.params.id).stage;
+    const d = await crm.moveDeal(ctx.user!.workspace, ctx.user!.account.cid, ctx.params.id, ctx.body.stage, ctx.body.lostReason);
+    if (d.stage !== before) await raise(ctx.user!.workspace, { type: "deal.stage_changed", dealId: d.id, toStage: d.stage });
+    return d;
   });
 
   /* ---------------- Activities & relationships ---------------- */
@@ -553,23 +631,36 @@ export function createApp(deps: AppDeps) {
       const dups = mergeIds.map((id) => crm.contact(ws, id));
       crm.store.contacts.set(keepId, { ...mergeContactFields(keep, dups), updatedAt: crm.now().toISOString() });
       dups.forEach((d) => crm.store.contacts.delete(d.id));
+      repointReferences(keepId, mergeIds, crm.list("deals", ws), crm.list("activities", ws));
+      await crm.recordMerge(ctx.user!.account.cid, kind, keepId, mergeIds);
     } else if (kind === "company") {
-      crm.company(ws, keepId);
-      mergeIds.forEach((id) => crm.company(ws, id));
-      for (const c of crm.list("contacts", ws)) if (c.companyId && mergeIds.includes(c.companyId)) c.companyId = keepId;
-      const keep = crm.company(ws, keepId);
-      for (const id of mergeIds) { keep.facts.push(...crm.company(ws, id).facts); crm.store.companies.delete(id); }
+      await mergeCompanies(crm, ws, ctx.user!.account.cid, keepId, mergeIds);
     } else throw new HttpError(400, "kind is company or contact");
-    repointReferences(keepId, mergeIds, crm.list("deals", ws), crm.list("activities", ws));
-    await crm.recordMerge(ctx.user!.account.cid, kind, keepId, mergeIds);
     return { ok: true };
   });
 
   /* ---------------- Ask in plain language ---------------- */
 
+  // "@conjure <question>" in Ask starts a live Conjure forecast instead of a plain answer.
+  const conjureLive = deps.conjureLive === undefined ? conjureLiveFromEnv() : deps.conjureLive;
+  const livePredictions = new Map<string, string>(); // prediction id -> workspace that asked
+
   route("POST", "/api/ask", async (ctx) => {
     need(ctx, "question");
     const ws = ctx.user!.workspace;
+    if (parseConjureMention(String(ctx.body.question))) {
+      if (!conjureLive) throw new HttpError(503, "Conjure isn't connected. Set CONJURE_URL and CONJURE_PRODUCT_KEY to use @conjure.");
+      // On a deal, the forecast is seeded with everything +SPCTR knows about it.
+      const deal = typeof ctx.body.dealId === "string" ? dealSeed(crm, ws, ctx.body.dealId).seed : "";
+      try {
+        const out = await handleConjureMention(conjureLive, String(ctx.body.question).slice(0, 2000), { context: deal, user: ctx.user!.account.cid, source: deal ? "deal" : "ask", wait: false });
+        if (out!.prediction) livePredictions.set(out!.prediction.id, ws);
+        return { answer: out!.text, conjure: out!.prediction };
+      } catch (err) {
+        if (err instanceof ConjureApiError) throw new HttpError(err.status === 429 ? 429 : 502, err.message);
+        throw err;
+      }
+    }
     const scores = scoresFor(ws);
     const companies = crm.list("companies", ws);
     const names = new Map(companies.map((c) => [c.id, c.name]));
@@ -588,6 +679,13 @@ export function createApp(deps: AppDeps) {
     }
   });
 
+
+  /** Follow a live @conjure forecast started from Ask (only from the workspace that asked). */
+  route("GET", "/api/conjure/live/:id", async (ctx) => {
+    if (!conjureLive || livePredictions.get(ctx.params.id) !== ctx.user!.workspace) throw new HttpError(404, "No such forecast");
+    const prediction = await conjureLive.get(ctx.params.id);
+    return { prediction, text: formatForecast(prediction) };
+  });
 
   /* ---------------- Research & Agents ---------------- */
 
@@ -870,23 +968,92 @@ export function createApp(deps: AppDeps) {
   });
 
 
+  /* ---------------- SCALVS.ai agents ---------------- */
+
+  const agentCtx = (ctx: Ctx) => ({ crm, workspace: ctx.user!.workspace });
+
+  /** Run one SCALVS.ai agent on the workspace; store its proposals for approval. */
+  async function runTeamAgent(ctx: Ctx, agentId: string, prompt: string) {
+    if (!deps.ai.apiKey) throw new HttpError(503, new AiNotConnected().message);
+    const ws = ctx.user!.workspace;
+    const def = agentDefinition(agentId, agentCtx(ctx), crm.now().toISOString().slice(0, 10));
+    if (!def) throw new HttpError(404, "No such agent");
+    let result;
+    try {
+      result = await runLlmAgent({ apiKey: deps.ai.apiKey, model: deps.ai.model, fetchImpl: deps.ai.fetchImpl, newId: newProposalId }, def, prompt);
+    } catch (err) {
+      if (err instanceof LlmError) throw new HttpError(502, err.status === 429 ? "The AI is busy right now. Please try again in a minute." : "The AI service couldn't complete this run. Please try again.");
+      throw err;
+    }
+    const at = crm.now().toISOString();
+    const by = ctx.user!.account.cid;
+    for (const p of result.proposals) {
+      crm.store.proposals.set(p.id, { ...p, workspace: ws, agentId: agentId as AgentId, status: "pending", requestedBy: by, createdAt: at });
+    }
+    const run: AgentRunRecord = { id: newRunId(), workspace: ws, agentId: agentId as AgentId, prompt: prompt.slice(0, 2000), output: result.output, steps: result.steps, proposalIds: result.proposals.map((p) => p.id), requestedBy: by, at, usage: result.usage };
+    crm.store.agentRuns.set(run.id, run);
+    // Keep the 50 most recent runs per workspace.
+    const runs = crm.list("agentRuns", ws).sort((a, b) => b.at.localeCompare(a.at));
+    for (const old of runs.slice(50)) crm.store.agentRuns.delete(old.id);
+    await crm.auditAgent(by, agentId, { event: "agent.run", run: run.id, proposals: run.proposalIds.length, tools: [...new Set(result.steps.map((s) => s.tool))] });
+    return { run, proposals: run.proposalIds.map((id) => crm.store.proposals.get(id)) };
+  }
+
+  route("GET", "/api/agents", (ctx) => ({
+    aiConnected: Boolean(deps.ai.apiKey),
+    agents: AGENT_IDS.map((id) => ({ id, name: AGENTS[id].name, role: AGENTS[id].role, starters: AGENTS[id].starters, canPropose: AGENTS[id].propose })),
+    pending: crm.list("proposals", ctx.user!.workspace).filter((p) => p.status === "pending").length,
+  }));
+
+  route("POST", "/api/agents/:id/run", async (ctx) => {
+    const prompt = String(ctx.body.prompt ?? "").trim();
+    if (!prompt) throw new HttpError(400, "Tell the agent what to do");
+    return runTeamAgent(ctx, ctx.params.id, prompt);
+  });
+
+  route("GET", "/api/agents/runs", (ctx) =>
+    crm.list("agentRuns", ctx.user!.workspace).sort((a, b) => b.at.localeCompare(a.at)).slice(0, 20));
+
+  route("GET", "/api/agents/proposals", (ctx) => {
+    const status = ctx.query.get("status") ?? "pending";
+    return crm.list("proposals", ctx.user!.workspace).filter((p) => status === "all" || p.status === status).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 100);
+  });
+
+  route("POST", "/api/agents/proposals/:id/:decision", async (ctx) => {
+    const ws = ctx.user!.workspace;
+    const p = crm.store.proposals.get(ctx.params.id);
+    if (!p || p.workspace !== ws) throw new HttpError(404, "Proposal not found");
+    if (p.status !== "pending") throw new HttpError(409, `Already ${p.status}`);
+    const decision = ctx.params.decision;
+    if (decision !== "approve" && decision !== "dismiss") throw new HttpError(404, "Not found");
+    const by = ctx.user!.account.cid;
+    let resultId: string | undefined;
+    if (decision === "approve") {
+      try {
+        resultId = await applyProposal(crm, ws, by, p);
+      } catch (err) {
+        throw new HttpError(400, `Couldn't apply this: ${(err as Error).message}`);
+      }
+    }
+    const updated = { ...p, status: decision === "approve" ? "approved" as const : "dismissed" as const, decidedBy: by, decidedAt: crm.now().toISOString(), resultId };
+    crm.store.proposals.set(p.id, updated);
+    await crm.auditAgent(by, p.agentId, { event: `proposal.${updated.status}`, proposal: p.id, tool: p.tool, result: resultId ?? null });
+    if (decision === "approve" && p.tool === "move_deal" && resultId) {
+      await raise(ws, { type: "deal.stage_changed", dealId: resultId, toStage: crm.deal(ws, resultId).stage });
+    }
+    return updated;
+  });
+
+  /** Deal Rehearsal: the Deal coach plays out the next meeting from the deal's records. */
   route("POST", "/api/rehearse", async (ctx) => {
     need(ctx, "dealId");
     const deal = crm.deal(ctx.user!.workspace, String(ctx.body.dealId));
-    const { runSpectreAgent } = await import("../core/agents.ts");
-    const summary = `${deal.name} at ${deal.stage} for ${deal.amount}`;
-    const result = await runSpectreAgent("deal-coach", `rehearse ${summary}`, { crm, workspace: ctx.user!.workspace });
-    return result;
+    return runTeamAgent(ctx, "deal-coach",
+      `Rehearse my next meeting on the deal "${deal.name}" (dealId ${deal.id}). Build the buying committee from the records, play out how the conversation is likely to go, list the likely objections with a response to each, and say who still needs convincing. Mark clearly what is an assumption. Propose a task for the most important preparation step.`);
   });
 
-  route("POST", "/api/agents/:id/run", async (ctx) => {
-    need(ctx, "prompt");
-    const { runSpectreAgent } = await import("../core/agents.ts");
-    const result = await runSpectreAgent(ctx.params.id, String(ctx.body.prompt), { crm, workspace: ctx.user!.workspace });
-
-  route("POST", "/api/prospect", async (ctx) => {
-    const { runSpectreAgent } = await import("../core/agents.ts");
-    const result = await runSpectreAgent("prospector", "suggest new accounts matching ideal customer profile", { crm, workspace: ctx.user!.workspace });
+  route("POST", "/api/prospect", async (ctx) =>
+    runTeamAgent(ctx, "prospector", "Find up to 5 new prospects that match our best customers. Propose adding each with the reason it fits."));
 
   route("GET", "/api/execution/pending", async (ctx) => {
     const { listPendingActions } = await import("./execution.ts");
@@ -894,7 +1061,7 @@ export function createApp(deps: AppDeps) {
   });
 
   route("POST", "/api/execution/run", async (ctx) => {
-    const { executeAll } = await import("../core/conductor-bridge.ts");
+    const { executeAll } = await import("../core/architect-bridge.ts");
     const { listPendingActions } = await import("./execution.ts");
     const pending = await listPendingActions(crm, ctx.user!.workspace);
     const results = await executeAll(pending, { crm, workspace: ctx.user!.workspace, actor: ctx.user!.account.cid } as any);
@@ -912,12 +1079,31 @@ export function createApp(deps: AppDeps) {
     return { results, logged: results?.length || 0 };
   });
 
+  /* ---------------- Growth: contacts+, forms, calendars, automations, conversations ---------------- */
 
-    return result;
+  registerGrowthRoutes({
+    route,
+    crm,
+    httpError: (status, message) => new HttpError(status, message),
+    emit: raise,
   });
 
+  registerEngageRoutes({
+    route, crm, engine, providers,
+    httpError: (status, message) => new HttpError(status, message),
+    cronSecret: deps.cronSecret,
+    twilioAuthToken: deps.twilioAuthToken,
+    origin: deps.origin,
+  });
 
-    return result;
+  registerConjureRoutes({ route, crm, ai: deps.ai, httpError: (status, message) => new HttpError(status, message), complete: deps.conjureComplete });
+
+  const veilControl = createVeilControl({
+    cid: deps.cid,
+    entitled: deps.veil?.entitled,
+    servers: deps.veil?.servers,
+    bridges: deps.veil?.bridges,
+    deviceExit: deps.veil?.deviceExit,
   });
 
   /* ---------------- Request handling ---------------- */
@@ -943,10 +1129,22 @@ export function createApp(deps: AppDeps) {
   async function handle(req: IncomingMessage, res: ServerResponse) {
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
-    res.setHeader("X-Frame-Options", "DENY");
-    res.setHeader("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'");
     const url = new URL(req.url ?? "/", "http://localhost");
+    // Public form and booking pages can be embedded on other sites; everything else can't be framed.
+    const embeddable = EMBEDDABLE.has(url.pathname);
+    if (!embeddable) res.setHeader("X-Frame-Options", "DENY");
+    res.setHeader("Content-Security-Policy", `default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors ${embeddable ? "*" : "'none'"}`);
+    const requestOrigin = typeof req.headers.origin === "string" ? req.headers.origin : undefined;
+    const cors = cumulusCorsHeaders(requestOrigin);
+    for (const [name, value] of Object.entries(cors)) res.setHeader(name, value);
+    if (req.method === "OPTIONS" && cors["Access-Control-Allow-Origin"]) {
+      res.writeHead(204, { "Cache-Control": "no-store" });
+      res.end();
+      return;
+    }
     try {
+      if (url.pathname === "/api/labyrinth") return await serveNodeLabyrinth(req, res, deps.suite?.labyrinth, parseCookies(req.headers.cookie)[COOKIE], deps.onChange);
+      if (url.pathname.startsWith("/api/veil/")) return await serveNodeVeil(req, res, veilControl, deps.origin);
       if (!url.pathname.startsWith("/api/")) {
         if (req.method !== "GET" && req.method !== "HEAD") throw new HttpError(405, "Method not allowed");
         return await serveStatic(url.pathname, res);
@@ -976,6 +1174,11 @@ export function createApp(deps: AppDeps) {
       };
       const result = deps.transaction ? await deps.transaction(run) : await run();
       if (MUTATING.has(req.method!) || result instanceof Redirect) deps.onChange?.();
+      if (result instanceof RawResponse) {
+        res.writeHead(result.status, { "Content-Type": result.contentType, "Cache-Control": "no-store" });
+        res.end(result.body);
+        return;
+      }
       if (result instanceof Redirect) {
         res.writeHead(302, { Location: result.location, "Cache-Control": "no-store" });
         res.end();
@@ -986,7 +1189,7 @@ export function createApp(deps: AppDeps) {
     } catch (err) {
       const status = err instanceof HttpError ? err.status
         : err instanceof CidError ? (["not_found"].includes(err.code) ? 404 : err.code === "forbidden" ? 403 : 400)
-        : err instanceof SpectreError ? (err.code === "not_found" ? 404 : 400)
+        : err instanceof SpectreError ? (err.code === "not_found" ? 404 : err.code === "inactive" ? 410 : err.code === "slot_taken" || err.code === "opted_out" ? 409 : 400)
         : 500;
       if (status === 500) console.error(err);
       const code = err instanceof CidError || err instanceof SpectreError ? err.code : undefined;
@@ -997,5 +1200,13 @@ export function createApp(deps: AppDeps) {
     }
   }
 
-  return { handle, server: () => createServer((req, res) => void handle(req, res)) };
+  /** Resume automation steps whose wait is over (local timer; hosted mode uses the cron endpoint). */
+  const runDueAutomations = async () => {
+    const run = () => runDue(engine);
+    const n = deps.transaction ? await deps.transaction(run) : await run();
+    if (n) deps.onChange?.();
+    return n;
+  };
+
+  return { handle, runDueAutomations, server: () => createServer((req, res) => void handle(req, res)) };
 }

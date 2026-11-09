@@ -1,6 +1,6 @@
 /**
  * Hardware / physical product interface stub.
- * ORBIS, POLLEN, Flower, NEMESIS, EON, ARGUS, ODIN°.
+ * DAEMON, SLUG, ORBIS, POLLEN, Flower, NEMESIS, EON, ARGUS, ODIN°.
  * Software cannot fully build these; this is the tasking/telemetry/evidence interface.
  */
 export interface HardwareTask {

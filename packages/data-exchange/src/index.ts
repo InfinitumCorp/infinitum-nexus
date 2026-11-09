@@ -21,8 +21,17 @@ import type { Payout } from "./revshare.ts";
  * Main Data Exchange service.
  * Products call collectors that feed into catalog after consent.
  * A completed sale mints one soulbound CDAT license and, when a ledger is
- * attached, records the license and the 85/15 payment split on Firmament.
+ * attached, records the license and the payment split on Firmament (contributor share per product: PRODUCT_REV_SHARE_PCT; default 85%, FABRIC 70%).
  */
+export const DATA_LICENSING = "data_licensing";
+
+export class ConsentRequiredError extends Error {
+  code = "consent_required" as const;
+  constructor() {
+    super("Grant data-licensing consent for this product before packaging data");
+  }
+}
+
 export class DataExchange {
   consent: ConsentManager;
   catalog = new DatasetCatalog();
@@ -53,7 +62,7 @@ export class DataExchange {
   }
 
   /**
-   * Package a dataset from a product after user consent.
+   * Package a dataset from a product. Requires an existing active data-licensing consent; never creates one.
    * Records the grant on Firmament when ledger is configured.
    */
   async packageDataset(params: {
@@ -68,6 +77,9 @@ export class DataExchange {
     priceUsd: number;
     scopes: string[];
   }) {
+    const consent = this.consent.findActive(params.cid, params.product, DATA_LICENSING);
+    if (!consent) throw new ConsentRequiredError();
+
     const ds = this.catalog.create({
       ownerCid: params.cid,
       product: params.product,
@@ -78,18 +90,27 @@ export class DataExchange {
       privacyLevel: params.privacyLevel,
       licenseTerms: params.licenseTerms,
       priceUsd: params.priceUsd,
-    });
-
-    const consent = await this.consent.grant({
-      cid: params.cid,
-      product: params.product,
-      datasetId: ds.id,
-      scopes: params.scopes,
-      purpose: "data_licensing",
+      consentId: consent.id,
     });
 
     await this.flush();
     return { dataset: ds, consent };
+  }
+
+  /** Revoke a consent and delist every dataset that relied on it. */
+  async revokeConsent(consentId: string): Promise<{ revoked: boolean; delisted: number }> {
+    const revoked = await this.consent.revoke(consentId);
+    let delisted = 0;
+    if (revoked) {
+      for (const ds of this.catalog.list()) {
+        if (ds.consentId === consentId && ds.status === "listed") {
+          this.catalog.updateStatus(ds.id, "revoked");
+          delisted++;
+        }
+      }
+    }
+    await this.flush();
+    return { revoked, delisted };
   }
 
   listForSale() {
@@ -105,24 +126,31 @@ export class DataExchange {
 
     const wallet = licenseeAddress ?? (/^0x[0-9a-fA-F]{40}$/.test(buyerId) ? buyerId : undefined);
     this.revshare.recordPayout(sale, ds.ownerCid);
-    const token = await this.cdat.issue({
-      datasetId,
-      saleId: sale.id,
-      licensee: buyerId,
-      ownerCid: ds.ownerCid,
-      terms: ds.licenseTerms,
-      amountUsd,
-      userShareUsd: sale.userShareUsd,
-      platformShareUsd: sale.platformShareUsd,
-      licenseeAddress: wallet,
-    });
-    sale.cdatTokenId = token.tokenId;
-    this.persist();
-    await this.flush();
-    return sale;
+    try {
+      const token = await this.cdat.issue({
+        datasetId,
+        saleId: sale.id,
+        licensee: buyerId,
+        ownerCid: ds.ownerCid,
+        terms: ds.licenseTerms,
+        amountUsd,
+        userShareUsd: sale.userShareUsd,
+        platformShareUsd: sale.platformShareUsd,
+        licenseeAddress: wallet,
+      });
+      sale.cdatTokenId = token.tokenId;
+      this.persist();
+      await this.flush();
+      return sale;
+    } catch (err) {
+      this.marketplace.voidSale(sale.id);
+      this.catalog.updateStatus(datasetId, "listed");
+      this.revshare.drop(sale.id);
+      throw err;
+    }
   }
 
-  /** Mark the owner's 85% share paid and record the settlement on Firmament. */
+  /** Mark the owner's share (PRODUCT_REV_SHARE_PCT; default 85%, FABRIC 70%) paid and record the settlement on Firmament. */
   async settlePayout(saleId: string): Promise<Payout | null> {
     const payout = this.revshare.get(saleId);
     if (!payout || payout.paid) return null;
@@ -151,7 +179,9 @@ export class DataExchange {
   mintCalldata(tokenId: string): string | undefined {
     const token = this.cdat.get(tokenId);
     if (!token) return undefined;
-    return encodeCdatMint(this.cdat.mintIntent(token).args);
+    const intent = this.cdat.mintIntent(token);
+    if (!intent) return undefined;
+    return encodeCdatMint(intent.args);
   }
 
   async load(): Promise<void> {
@@ -189,3 +219,5 @@ export class DataExchange {
     await this.pending;
   }
 }
+
+export { createCumulusExchangeLabyrinth } from "./labyrinth.ts";

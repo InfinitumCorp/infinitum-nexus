@@ -33,10 +33,13 @@ test("issue writes license and payment on Firmament", async () => {
   assert.ok(token.firmamentTx);
   assert.ok(token.paymentTx);
 
-  const intent = issuer.mintIntent(token);
-  assert.equal(intent.function, "mint");
-  assert.equal(intent.args.datasetId, "ds_1");
-  assert.equal(intent.args.amountUsdCents, 10000);
+  assert.equal(issuer.mintIntent(token), null, "no wallet means no mint, not the zero address");
+  const wallet = "0x1111111111111111111111111111111111111111";
+  const intent = issuer.mintIntent(token, wallet);
+  assert.equal(intent?.function, "mint");
+  assert.equal(intent?.args.licensee, wallet);
+  assert.equal(intent?.args.datasetId, "ds_1");
+  assert.equal(intent?.args.amountUsdCents, 10000);
 
   const entries = await ledger.entries();
   assert.deepEqual(entries.map((e) => e.type), ["license", "payment"]);

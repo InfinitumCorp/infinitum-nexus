@@ -11,6 +11,7 @@
  */
 import type { ProductId } from "./types.ts";
 import type { DataExchange } from "./index.ts";
+import { ConsentRequiredError } from "./index.ts";
 
 export interface CollectorResult {
   datasetId?: string;
@@ -27,14 +28,18 @@ export abstract class ProductCollector {
   abstract collect(cid: string, opts?: Record<string, unknown>): Promise<CollectorResult> | CollectorResult;
 }
 
-function listDataset(
+async function listDataset(
   dx: DataExchange,
   params: Parameters<DataExchange["packageDataset"]>[0],
 ): Promise<CollectorResult> {
-  return dx.packageDataset(params).then(({ dataset }) => {
+  try {
+    const { dataset } = await dx.packageDataset(params);
     dx.catalog.updateStatus(dataset.id, "listed");
     return { datasetId: dataset.id };
-  });
+  } catch (err) {
+    if (err instanceof ConsentRequiredError) return { skippedReason: "consent_required" };
+    throw err;
+  }
 }
 
 /** SCALVS.ai: agent usage metrics, workflow patterns */
@@ -94,14 +99,14 @@ export class SpectreCollector extends ProductCollector {
   }
 }
 
-/** /CNDCTR/ Conductor: workflow execution patterns */
-export class ConductorCollector extends ProductCollector {
-  product: ProductId = "conductor";
+/** :\ARCHITECT\ Architect: workflow execution patterns */
+export class ArchitectCollector extends ProductCollector {
+  product: ProductId = "architect";
   collect(cid: string) {
     return listDataset(this.dx, {
       cid,
       product: this.product,
-      title: "Conductor workflow aggregates",
+      title: "Architect workflow aggregates",
       description: "Anonymized intent-to-completion rates and tool usage",
       schema: "intentType,completionRate,avgSteps",
       sizeEstimate: 40_000,
@@ -177,8 +182,8 @@ export class AetherCollector extends ProductCollector {
     return listDataset(this.dx, {
       cid,
       product: this.product,
-      title: "ÆTHER connectivity aggregates",
-      description: "Aggregated mesh hop counts and uptime stats (no location or traffic content)",
+      title: "ÆTHER™ connectivity aggregates",
+      description: "Aggregated mesh hop counts and uptime stats (no location or traffic content; ÆTHER™ MIL nodes excluded)",
       schema: "hopCount,uptimeHours,tier",
       sizeEstimate: 12_000,
       privacyLevel: "aggregated",
@@ -310,7 +315,7 @@ export function createCollectors(dx: DataExchange): ProductCollector[] {
     new ScalusCollector(dx),
     new CumulusCollector(dx),
     new SpectreCollector(dx),
-    new ConductorCollector(dx),
+    new ArchitectCollector(dx),
     new MetatronCollector(dx),
     new VeilCollector(dx),
     new FabricCollector(dx),

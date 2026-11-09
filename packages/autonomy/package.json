@@ -1,0 +1,22 @@
+{
+  "name": "@infinitum/autonomy",
+  "version": "0.1.0",
+  "description": "Mission safety for DAEMON, SLUG, ORBIS, POLLEN and Flower: geofences, energy reserve, runtime interlocks, swarm coverage and dock scheduling.",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "typecheck": "tsc -p . --noEmit",
+    "test": "node --test --experimental-strip-types $(find src -name \"*.test.ts\" 2>/dev/null || true)"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.0",
+    "@types/node": "^22.0.0"
+  },
+  "dependencies": {
+    "@infinitum/hardware": "workspace:*",
+    "@infinitum/lbrnth-client": "workspace:*"
+  }
+}

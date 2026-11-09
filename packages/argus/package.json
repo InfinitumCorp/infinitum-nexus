@@ -1,0 +1,21 @@
+{
+  "name": "@infinitum/argus",
+  "version": "0.1.0",
+  "description": ">_ARGUS sensor fusion: multi-sensor track association, Kalman filtering and a fused picture with provenance.",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "typecheck": "tsc -p . --noEmit",
+    "test": "node --test --experimental-strip-types $(find src -name \"*.test.ts\" 2>/dev/null || true)"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.0",
+    "@types/node": "^22.0.0"
+  },
+  "dependencies": {
+    "@infinitum/lbrnth-client": "workspace:*"
+  }
+}

@@ -47,6 +47,11 @@ export interface VerifyResult {
 
 export const GENESIS = "0".repeat(64);
 
+// Writers using the same store must read the head and append as one operation.
+// Persistent backends shared across processes must additionally enforce this
+// transaction in the database; this queue coordinates one JavaScript process.
+const pendingWrites = new WeakMap<LedgerStore, Promise<void>>();
+
 function entryBody(e: Omit<Entry, "hash" | "signature">) {
   const { seq, prevHash, timestamp, signer, type, product, actor, subject, payload } = e;
   return canonicalize({ seq, prevHash, timestamp, signer, type, product, actor, subject, payload });
@@ -72,6 +77,18 @@ export class Ledger {
   }
 
   async append(input: RecordInput, signer: Signer): Promise<Entry> {
+    const snapshot = structuredClone(input);
+    const previous = pendingWrites.get(this.store) ?? Promise.resolve();
+    const write = previous.then(() => this.appendEntry(snapshot, signer));
+    const settled = write.then(() => {}, () => {});
+    pendingWrites.set(this.store, settled);
+    void settled.then(() => {
+      if (pendingWrites.get(this.store) === settled) pendingWrites.delete(this.store);
+    });
+    return write;
+  }
+
+  private async appendEntry(input: RecordInput, signer: Signer): Promise<Entry> {
     if (this.authorized.size > 0 && !this.authorized.has(signer.publicKey)) {
       throw new Error("Firmament: signer is not authorized to write to this ledger");
     }
@@ -123,3 +140,4 @@ export class Ledger {
     return merkleRoot((await this.store.all()).map((e) => e.hash));
   }
 }
+

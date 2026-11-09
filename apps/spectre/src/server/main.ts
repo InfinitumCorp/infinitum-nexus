@@ -1,17 +1,29 @@
+import { labyrinthFromEnvironment } from "@infinitum/lbrnth";
 import { existsSync, readFileSync, writeFileSync, mkdirSync, chmodSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Ledger, FileStore, generateSigner, signerFromPrivateKey } from "@infinitum/firmament";
-import { CidService, CidStore, socialFromEnv } from "@infinitum/cid";
+import { socialFromEnv } from "@infinitum/cid";
+import { createCumulus, emptyCumulusStores, loadCumulusStores, loadOrCreateMasterKey, saveCumulusStores } from "@infinitum/cumulus";
 import { SpectreCRM, emptyStore } from "../core/crm.ts";
 import { createApp } from "./app.ts";
+import { veilFromEnv } from "@infinitum/veil/server";
 import { aiConfigFromEnv } from "./ai.ts";
+import { providersFromEnv } from "../core/messaging.ts";
 import { saveSnapshot, loadSnapshot } from "./persist.ts";
 
 /**
  * Starts +SPCTR.
  *   PORT                 default 3000
  *   SPECTRE_ORIGIN       public origin for passkeys, default http://localhost:PORT
+ *   CUMULUS_ROOT_DOMAIN  mail addresses, default cumuluscloud.app
+ *   CUMULUS_ID_HOST      Cumulus://ID host, default id.cumuluscloud.app
+ *   CUMULUS_KEYCLOAK_REALM Keycloak realm, default cumulus
+ *                        issuer https://id.cumuluscloud.app/realms/cumulus
+ *                        JWKS https://id.cumuluscloud.app/realms/cumulus/protocol/openid-connect/certs
+ *   CUMULUS_CLOUD_HOST   Cumulus://Cloud, default cloud.cumuluscloud.app
+ *   CUMULUS_MAIL_HOST    Cumulus://Mail, default mail.cumuluscloud.app
+ *   CUMULUS_MAIL_ORIGIN  full mail URL in notices; default https://CUMULUS_MAIL_HOST
  *   SPECTRE_DATA_DIR     default ./data
  *   ANTHROPIC_API_KEY    enables AI features
  *   USE_METATRON         set to 1 (default) to use METATRON scorer
@@ -22,6 +34,10 @@ import { saveSnapshot, loadSnapshot } from "./persist.ts";
  *     APPLE_CLIENT_ID, APPLE_TEAM_ID, APPLE_KEY_ID, APPLE_PRIVATE_KEY
  *     CHATGPT_CLIENT_ID, CHATGPT_CLIENT_SECRET, CHATGPT_ISSUER   (OpenAI partner program)
  *   Callback URL to register with each provider: {SPECTRE_ORIGIN}/api/auth/oauth/{provider}/callback
+ *   Conversations (each optional; without them messages are saved as drafts):
+ *     RESEND_API_KEY, MAIL_FROM                         email
+ *     TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM  SMS; inbound webhook: {SPECTRE_ORIGIN}/api/hooks/twilio/sms
+ *   CRON_SECRET          lets an outside scheduler call POST /api/cron/automations (a local timer runs anyway)
  */
 
 // Enable METATRON by default for advertised prediction performance.
@@ -51,24 +67,39 @@ if (!verified.ok) {
   process.exit(1);
 }
 
-const cidStore = loadSnapshot(join(dataDir, "cid.json"), new CidStore());
+// cid.json keeps its old name; mail, wallet, quota and suite sit next to it.
+const cumulusStores = loadCumulusStores(dataDir, emptyCumulusStores());
+const cidStore = cumulusStores.cid;
 const spectreStore = loadSnapshot(join(dataDir, "spectre.json"), emptyStore());
 // Social sign-in available to every Infinitum product that uses Cumulus://ID.
 const social = socialFromEnv();
 
-const cid = new CidService({ ledger, signer, rpId, origins: [origin], store: cidStore, social: { providers: social } });
+// Every CID that signs up through +SPCTR gets the full Cumulus account: Mail, Cloud and a FIRM Wallet.
+const suite = createCumulus({
+  labyrinth: labyrinthFromEnvironment(process.env, join(dataDir, "labyrinth.json")),
+  ledger, signer, rpId, origins: [origin], stores: cumulusStores, social: { providers: social },
+  mailOrigin: process.env.CUMULUS_MAIL_ORIGIN,
+  masterKey: loadOrCreateMasterKey(dataDir),
+});
+suite.provisionAll();
+const cid = suite.cid;
 const crm = new SpectreCRM({ ledger, signer, store: spectreStore });
 
 const ai = aiConfigFromEnv();
 const app = createApp({
   cid,
+  suite,
   crm,
   ai,
   publicDir: join(here, "../../public"),
   secureCookies: origin.startsWith("https://"),
   origin,
+  providers: providersFromEnv(),
+  cronSecret: process.env.CRON_SECRET,
+  twilioAuthToken: process.env.TWILIO_AUTH_TOKEN,
+  veil: veilFromEnv(process.env),
   onChange: () => {
-    saveSnapshot(join(dataDir, "cid.json"), cidStore);
+    saveCumulusStores(dataDir, cumulusStores, { tunnel: suite.tunnel });
     saveSnapshot(join(dataDir, "spectre.json"), spectreStore);
   },
 });
@@ -76,3 +107,6 @@ const app = createApp({
 app.server().listen(port, () => {
   console.log(`+SPCTR running at ${origin}  (ledger: ${verified.length} verified entries, AI: ${ai.apiKey ? "connected" : "not connected"}, METATRON: ${process.env.USE_METATRON === "1" ? "on" : "off"}, sign-in: passkey${Object.keys(social).map((p) => ", " + p).join("")})`);
 });
+
+// Resume automation steps whose wait is over.
+setInterval(() => void app.runDueAutomations().catch((err) => console.error("automations:", err)), 60_000).unref();

@@ -1,6 +1,6 @@
 /**
  * SCALVS.ai agent: a unit of work with tools, memory and a run loop.
- * Used by Spectre's AI team and coordinated by Conductor.
+ * Used by Spectre's AI team and coordinated by Architect.
  */
 import { ContextVault, type MemoryEntry } from "./vault.ts";
 

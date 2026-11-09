@@ -71,7 +71,7 @@ export class CdatIssuer {
     platformShareUsd: number;
     licenseeAddress?: string;
   }): Promise<CdatToken> {
-    const onchainId = this.nextOnchainId++;
+    const onchainId = this.nextOnchainId;
     const tokenId = `cdat_${onchainId}`;
     const issuedAt = new Date();
     const expiresAt = new Date(issuedAt.getTime() + termDurationMs(params.terms));
@@ -134,15 +134,17 @@ export class CdatIssuer {
       token.paymentTx = payment.hash;
     }
 
+    this.nextOnchainId = onchainId + 1;
     this.tokens.set(tokenId, token);
     this.changed?.();
     return token;
   }
 
-  mintIntent(token: CdatToken, licenseeAddress?: string): CdatMintIntent {
+  mintIntent(token: CdatToken, licenseeAddress?: string): CdatMintIntent | null {
     const licensee = licenseeAddress
       ?? token.licenseeAddress
-      ?? (isAddress(token.licensee) ? token.licensee : "0x0000000000000000000000000000000000000000");
+      ?? (isAddress(token.licensee) ? token.licensee : undefined);
+    if (!licensee || !isAddress(licensee)) return null;
     return {
       contract: "CdatLicense",
       function: "mint",

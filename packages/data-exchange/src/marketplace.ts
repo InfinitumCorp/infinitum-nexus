@@ -34,15 +34,18 @@ export class DataMarketplace {
   }): LicenseSale | null {
     const ds = this.catalog.get(params.datasetId);
     if (!ds || ds.status !== "listed") return null;
+    if (!Number.isFinite(params.amountUsd) || params.amountUsd <= 0) return null;
 
-    const userShare = (params.amountUsd * ds.revSharePct) / 100;
-    const platformShare = params.amountUsd - userShare;
+    const amountCents = Math.round(params.amountUsd * 100);
+    const userCents = Math.round((amountCents * ds.revSharePct) / 100);
+    const userShare = userCents / 100;
+    const platformShare = (amountCents - userCents) / 100;
 
     const sale: LicenseSale = {
       id: `sale_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       datasetId: params.datasetId,
       buyerId: params.buyerId,
-      amountUsd: params.amountUsd,
+      amountUsd: amountCents / 100,
       userShareUsd: userShare,
       platformShareUsd: platformShare,
       soldAt: new Date().toISOString(),
@@ -53,6 +56,14 @@ export class DataMarketplace {
     this.catalog.updateStatus(params.datasetId, "sold");
     this.changed?.();
     return sale;
+  }
+
+  /** Undo a purchase that never finished (the license was not issued). */
+  voidSale(saleId: string): void {
+    const sale = this.sales.get(saleId);
+    if (!sale) return;
+    this.sales.delete(saleId);
+    this.changed?.();
   }
 
   listSales(ownerCid?: string): LicenseSale[] {

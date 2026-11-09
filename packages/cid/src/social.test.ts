@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { generateKeyPairSync, sign, verify } from "node:crypto";
 import { Ledger, generateSigner } from "@infinitum/firmament";
 import { CidService, CidError, hotp, base32Decode, type SocialCredentials, type SocialProviderId } from "./index.ts";
+import { PROVIDERS, SocialClient, type PendingAuth } from "./social.ts";
 import { VirtualAuthenticator } from "./testing/virtual-authenticator.ts";
 
 const REDIRECT = "https://spectre.infinitum.example/api/auth/oauth/callback";
@@ -115,6 +116,21 @@ const rejectsWith = (p: Promise<unknown>, code: string) =>
   assert.rejects(p, (e: unknown) => e instanceof CidError && e.code === code);
 
 describe("CID social sign-in", () => {
+  it("accepts a discovery issuer with a trailing slash", async () => {
+    const fake = fakeProviders();
+    const client = new SocialClient(fake.fetchImpl);
+    const pending: PendingAuth = {
+      state: "s",
+      provider: "chatgpt",
+      nonce: "n",
+      codeVerifier: "v",
+      redirectUri: REDIRECT,
+      expiresAt: Date.now() + 60_000,
+    };
+    const url = await client.authorizeUrl(PROVIDERS.chatgpt, { clientId: "chatgpt-client", issuer: `${CHATGPT_ISSUER}/` }, pending, "challenge");
+    assert.equal(new URL(url).origin + new URL(url).pathname, `${CHATGPT_ISSUER}/authorize`);
+  });
+
   it("offers only providers that are configured", () => {
     const { cid } = setup(["google", "github"]);
     assert.deepEqual(cid.socialProvidersEnabled().map((p) => p.id), ["google", "github"]);
@@ -153,7 +169,7 @@ describe("CID social sign-in", () => {
     if (gh.status !== "ok" || g.status !== "ok") return;
     assert.equal(cid.getAccount(gh.session.cid).username, "alexr");
     assert.equal(cid.getAccount(g.session.cid).username, "alex");
-    assert.equal(cid.getAccount(g.session.cid).mailAddress, "alex@cumulusmail.cloud");
+    assert.equal(cid.getAccount(g.session.cid).mailAddress, "alex@cumuluscloud.app");
   });
 
   it("sends Apple a valid ES256 client-secret JWT", async () => {

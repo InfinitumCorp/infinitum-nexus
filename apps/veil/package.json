@@ -1,0 +1,29 @@
+{
+  "name": "@infinitum/veil",
+  "version": "0.8.0",
+  "description": "VEIL</>: Infinitum Corporation® browser cyber proxy. Default VEIL VPN, optional Tor. Not a device-wide VPN or Tor Browser fingerprinting protection.",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./server/index.ts",
+    "./server": "./server/index.ts"
+  },
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "test": "node --test \"test/*.test.js\" && node --test --experimental-strip-types \"server/*.test.ts\"",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "node scripts/lint.js",
+    "package": "node scripts/package.js",
+    "icons": "node scripts/make-icons.js"
+  },
+  "dependencies": {
+    "@infinitum/cid": "workspace:*"
+  },
+  "devDependencies": {
+    "@infinitum/firmament": "workspace:*",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.9.0"
+  }
+}

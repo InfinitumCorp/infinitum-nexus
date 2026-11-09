@@ -6,92 +6,178 @@
   <title>VEIL&lt;/&gt;™</title>
   <link rel="stylesheet" href="brand.css" />
   <style>
-    /* Brand tokens, font and wordmark styles come from brand.css. White, as on infinitum-corporation.vercel.app. */
-    :root { --good: #1a7f37; --bad: #c62828; --soft: #f7f8f9; }
+    :root {
+  --brand-accent: #2454dd; /* //RULES// interactive blue */ --bg: #ffffff; --fg: #111820; --muted: #52606b; --line: #d6dce1; --card: #ffffff; --good: #1a7f37; --warn: #9a6700; --bad: #c62828; }
     * { box-sizing: border-box; }
-    body { font-size: 14px; }
-    header { padding: 0.75rem 1rem; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
-    header .wordmark { margin: 0; }
-    nav { display: flex; gap: 0.25rem; flex-wrap: wrap; }
-    nav button { background: transparent; color: var(--muted); border: none; padding: 0.25rem 0.5rem; cursor: pointer; border-bottom: 2px solid transparent; }
-    nav button.active { color: var(--ink); border-bottom-color: var(--ink); }
+    body { margin: 0; font-family: var(--font); background: var(--bg); color: var(--fg); font-size: 14px; }
+    header { padding: 0.75rem 1rem 0; border-bottom: 1px solid var(--line); }
+    .top { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; }
+    h1 { margin: 0; font-size: 1rem; font-weight: 600; letter-spacing: 0.06em; }
+    .chip { font-size: 0.75rem; padding: 0.15rem 0.5rem; border-radius: 0; border: 1px solid var(--line); white-space: nowrap; }
+    .chip.anon { color: var(--good); border-color: var(--line); }
+    .chip.auth { color: var(--warn); border-color: var(--line); }
+    nav { display: flex; gap: 0.25rem; margin-top: 0.5rem; overflow-x: auto; }
+    nav button { background: transparent; color: var(--muted); border: none; padding: 0.4rem 0.5rem; cursor: pointer; font: inherit; border-bottom: 2px solid transparent; }
+    nav button.active { color: var(--fg); border-bottom-color: var(--fg); }
+    nav button[hidden] { display: none; }
     main { padding: 1rem; }
     .panel { display: none; }
     .panel.active { display: block; }
-    .card { border: 1px solid var(--line); border-radius: 12px; padding: 0.875rem; margin-bottom: 0.75rem; background: var(--paper); }
-    textarea { width: 100%; min-height: 4rem; background: var(--paper); border: 1px solid var(--line); border-radius: 12px; padding: 0.5rem 0.75rem; outline: none; }
-    textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(36,84,221,.12); }
-    button.primary { background: var(--ink); color: var(--paper); border: none; padding: 0.5rem 1rem; border-radius: 999px; cursor: pointer; font-weight: 500; }
-    button.primary:hover { opacity: .88; }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 0; padding: 0.75rem; margin-bottom: 0.75rem; }
+    .label { color: var(--muted); font-size: 0.8rem; margin-bottom: 0.35rem; }
+    .big { font-size: 1.4rem; font-variant-numeric: tabular-nums; }
+    .row { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.5rem; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; font-variant-numeric: tabular-nums; }
+    textarea { width: 100%; min-height: 4.5rem; background: #fff; color: var(--fg); border: 1px solid var(--line); border-radius: 0; padding: 0.5rem; font: inherit; resize: vertical; }
+    button.btn { background: var(--fg); color: #fff; border: none; padding: 0.45rem 0.9rem; border-radius: 0; cursor: pointer; font: inherit; }
+    button.ghost { background: transparent; color: var(--fg); border: 1px solid var(--line); }
+    button.danger { background: var(--bad); color: #fff; }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
     .muted { color: var(--muted); font-size: 0.85rem; }
-    #out, #rewards-log { white-space: pre-wrap; font-size: 0.85rem; max-height: 12rem; overflow: auto; background: var(--soft); border-radius: 8px; padding: 0.5rem; }
-    #out:empty, #rewards-log:empty { display: none; }
-    .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--good); display: inline-block; margin-right: 0.5rem; }
-    .status-dot.offline { background: var(--bad); }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.8rem; word-break: break-all; }
+    pre { white-space: pre-wrap; font-size: 0.8rem; max-height: 14rem; overflow: auto; margin: 0.5rem 0 0; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 0.4rem; background: var(--muted); }
+    .dot.on { background: var(--good); }
+    .dot.bad { background: var(--bad); }
+    .bar { height: 6px; background: var(--line); border-radius: 0; overflow: hidden; margin-top: 0.4rem; }
+    .bar > div { height: 100%; background: var(--good); width: 0; }
+    label.check { display: flex; gap: 0.4rem; align-items: center; margin-top: 0.5rem; }
+    #confirm { border-color: var(--line); }
+    #confirm[hidden] { display: none; }
+    a.provider { display: block; margin: 0.3rem 0; padding: 0.45rem; background: var(--fg); color: #fff; text-align: center; border-radius: 0; text-decoration: none; }
+    footer { padding: 0 1rem 1rem; }
+    .app { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; width: 100%; text-align: left; background: var(--card); color: var(--fg); border: 1px solid var(--line); border-radius: 0; padding: 0.6rem 0.75rem; margin-bottom: 0.5rem; font: inherit; cursor: pointer; }
+    .app:hover:not(:disabled) { border-color: var(--fg); }
+    .app .name { font-weight: 500; }
+    .app .badge { background: var(--good); color: #fff; border-radius: 0; font-size: 0.75rem; padding: 0 0.45rem; font-variant-numeric: tabular-nums; }
+    .app .soon { color: var(--muted); font-size: 0.75rem; white-space: nowrap; }
+    [hidden] { display: none !important; }
   </style>
 </head>
 <body>
   <header>
-    <h1 class="wordmark">VEIL&lt;/&gt;<sup class="tm">™</sup></h1>
+    <div class="top">
+      <h1 class="wordmark">VEIL&lt;/&gt;<sup class="tm">™</sup></h1>
+      <span id="ws-chip" class="chip anon">Anonymous</span>
+    </div>
     <nav>
-      <button class="active" data-panel="ask">Ask</button>
-      <button data-panel="wallet">Wallet</button>
-      <button data-panel="rewards">Rewards</button>
-      <button data-panel="privacy">Privacy</button>
-      <button data-panel="signin">Sign in</button>
+      <button class="active" data-panel="privacy">Privacy</button>
+      <button data-panel="ask" data-cap="ai">Ask</button>
+      <button data-panel="rewards" data-cap="rewards">Rewards</button>
+      <button data-panel="wallet" data-cap="wallet">Wallet</button>
+      <button data-panel="apps" data-cap="signin">Apps</button>
+      <button data-panel="account">Account</button>
     </nav>
   </header>
+
   <main>
-    <div id="ask" class="panel active">
+    <div id="confirm" class="card" hidden>
+      <div class="label">Confirm workspace switch</div>
+      <div id="confirm-text"></div>
+      <div class="row">
+        <button class="btn" id="confirm-yes">Switch and clear site data</button>
+        <button class="btn ghost" id="confirm-no">Cancel</button>
+      </div>
+    </div>
+
+    <section id="privacy" class="panel active">
       <div class="card">
-        <div class="muted" style="margin-bottom:0.5rem">Ask the sidebar assistant (via /CNDCTR/<sup class="tm">™</sup>)</div>
-        <textarea id="q" placeholder="Research this page, or ask about Infinitum..."></textarea>
-        <button class="primary" id="ask-btn" style="margin-top:0.5rem">Ask</button>
+        <div class="label">Tor</div>
+        <div><span class="dot" id="tor-dot"></span><span id="tor-status">Tor proxy off</span></div>
+        <div class="muted" style="margin-top:0.35rem">Optional. The toolbar defaults to the VEIL VPN. Tor routes this browser through your local Tor client (SOCKS5, DNS and .onion resolved by Tor). If Tor is unreachable, pages stay blocked. This is not a device-wide VPN, and it does not give Tor Browser fingerprinting protection.</div>
+        <div class="row">
+          <button class="btn" id="tor-toggle">Turn on Tor</button>
+          <button class="btn ghost" id="check-tor">Check connection</button>
+          <button class="btn ghost" id="new-circuit">New circuit</button>
+        </div>
+      </div>
+      <div class="card">
+        <div class="label">Trackers</div>
+        <label class="check"><input type="checkbox" id="auto-clean" /> Strip tracking parameters on every page</label>
+        <div class="row"><button class="btn ghost" id="clean-current">Clean this tab's URL</button></div>
+      </div>
+      <div class="card">
+        <div class="label">New Identity</div>
+        <div class="muted">Clears cookies, caches and site storage, closes every tab, and rotates Tor's SOCKS isolation so the next circuits are new. History, passwords and downloads stay. Tor itself stays on. Your Tor client needs IsolateSOCKSAuth (Tor Browser's port 9150 already has it).</div>
+        <div class="row"><button class="btn danger" id="new-identity">New Identity</button></div>
+      </div>
+    </section>
+
+    <section id="ask" class="panel">
+      <div class="card">
+        <div class="label">Ask (via :\ARCHITECT\<sup class="tm">™</sup>)</div>
+        <textarea id="q" placeholder="Research, summarize or plan something…"></textarea>
+        <label class="check"><input type="checkbox" id="include-page" /> Share this tab's title and address with the assistant</label>
+        <div class="row"><button class="btn" id="ask-btn">Ask</button></div>
         <pre id="out" class="muted"></pre>
       </div>
-    </div>
-    <div id="wallet" class="panel">
+    </section>
+
+    <section id="rewards" class="panel">
       <div class="card">
-        <div class="muted">FIRM Wallet<sup class="tm">™</sup></div>
-        <div id="addr">Not connected</div>
-        <div id="bal" class="muted">Balance: —</div>
-        <button class="primary" id="connect-wallet" style="margin-top:0.5rem">Connect (scaffold)</button>
+        <div class="label">$VEIL today</div>
+        <div class="big" id="r-today">0.000000</div>
+        <div class="muted" id="r-minutes">0 of 240 rewarded minutes</div>
+        <div class="bar"><div id="r-bar"></div></div>
       </div>
-    </div>
-    <div id="rewards" class="panel">
-      <div class="card">
-        <div class="muted">$VEIL rewards</div>
-        <div id="veil-balance">0.000000 VEIL</div>
-        <div class="muted" id="session-time">Session: 0s</div>
-        <pre id="rewards-log" class="muted"></pre>
+      <div class="card grid">
+        <div><div class="label">Pending</div><div id="r-pending">0.000000</div></div>
+        <div><div class="label">Lifetime</div><div id="r-lifetime">0.000000</div></div>
+        <div><div class="label">Daily limit</div><div id="r-limit">24.000000</div></div>
+        <div><div class="label">Receipts</div><div id="r-receipts">0</div></div>
       </div>
-    </div>
-    <div id="privacy" class="panel">
       <div class="card">
-        <div class="muted">Tor-first / Privacy</div>
-        <div><span class="status-dot" id="tor-dot"></span><span id="tor-status">Tor proxy: OFF</span></div>
-        <div class="muted" style="margin-top:0.5rem">Tracker stripping active. Requires local Tor on 127.0.0.1:9050.</div>
-        <label class="muted" style="display:block; margin-top:0.5rem">
-          <input type="checkbox" id="auto-clean" /> Auto-clean trackers on page load
-        </label>
-        <button class="primary" id="tor-toggle" style="margin-top:0.5rem">Enable Tor</button>
-        <button class="primary" id="check-tor" style="margin-top:0.5rem; margin-left:0.5rem">Check Tor</button>
-        <button class="primary" id="clean-current" style="margin-top:0.5rem; margin-left:0.5rem">Clean current tab URL</button>
+        <div class="label">Claim</div>
+        <div class="muted">Claiming turns pending $VEIL into a receipt. Receipts settle to FIRM Wallet on Firmament Network once the $VEIL claim contract is live.</div>
+        <div class="row"><button class="btn" id="claim">Create claim receipt</button></div>
+        <pre id="r-log" class="muted"></pre>
       </div>
-    </div>
-    <div class="card">
-      <div class="muted">Status</div>
-      <div id="status">Ready</div>
-    </div>
-  
-    <div id="signin" class="panel">
+      <div class="muted">0.1 $VEIL per minute with real keyboard, mouse or touch activity on the tab you're looking at, up to 240 minutes a day (UTC). VEIL never records which sites you visit. $VEIL rewards are not income or an investment return.</div>
+    </section>
+
+    <section id="apps" class="panel">
+      <div class="muted" style="margin-bottom:0.5rem">Every free Infinitum product, connected to your Cumulus://ID. Each opens in its own tab.</div>
+      <div id="app-list"></div>
+    </section>
+
+    <section id="wallet" class="panel">
       <div class="card">
-        <div class="muted">Sign in with Cumulus://ID<sup class="tm">™</sup></div>
+        <div class="label">FIRM Wallet<sup class="tm">™</sup></div>
+        <div id="w-addr" class="mono">Not set up</div>
+        <div id="w-bal" class="grid" style="margin-top:0.5rem"></div>
+        <div class="muted" id="w-note" style="margin-top:0.5rem">Sign in with Cumulus://ID<sup class="tm">™</sup> to see the FIRM Wallet<sup class="tm">™</sup> account that comes with it. VEIL never creates placeholder addresses or balances.</div>
+      </div>
+      <firm-suite id="w-suite" product="veil" compact></firm-suite>
+    </section>
+
+    <section id="account" class="panel">
+      <div class="card">
+        <div class="label">Workspace</div>
+        <div id="ws-desc"></div>
+        <div class="row"><button class="btn" id="ws-switch">Switch</button></div>
+      </div>
+      <div class="card" id="signin-card">
+        <div class="label">Cumulus://ID<sup class="tm">™</sup></div>
+        <div id="cid-who" class="muted">Not signed in</div>
         <div id="social-buttons"></div>
-        <p class="muted small" style="margin-top:0.5rem">Uses the same Google, GitHub, ChatGPT, etc. providers as the rest of Infinitum.</p>
+        <div class="row"><button class="btn ghost" id="cid-refresh">I've signed in: refresh</button></div>
       </div>
-    </div>
+      <div class="card" id="summary-card" hidden>
+        <div class="label">Your Cumulus account</div>
+        <div class="grid">
+          <div><div class="label">Plan</div><div id="s-plan">Free</div></div>
+          <div><div class="label">Unread mail</div><div id="s-unread">0</div></div>
+        </div>
+        <div class="label" style="margin-top:0.6rem">Storage (Mail + Cloud)</div>
+        <div id="s-storage" class="muted"></div>
+        <div class="bar"><div id="s-storage-bar"></div></div>
+      </div>
+    </section>
   </main>
+
+  <footer><div class="muted" id="status" role="status">Ready</div></footer>
+  <link rel="stylesheet" href="firm-suite.css">
+  <script type="module" src="firm-suite.js"></script>
   <script type="module" src="sidebar.js"></script>
 </body>
 </html>

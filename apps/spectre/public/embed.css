@@ -1,0 +1,31 @@
+/* Public form and booking pages: same clean look as +SPCTR, standalone and embeddable. */
+:root {
+  --brand-accent: #2454dd; /* //RULES// interactive blue */ --bg: #ffffff; --text: #111820; --muted: #52606b; --line: #d6dce1; --hover: rgba(17, 24, 32, .04); --accent: #111820; --bad: #c62828; }
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--text); font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 15px; line-height: 1.5; }
+main { max-width: 520px; margin: 0 auto; padding: 40px 20px 60px; }
+h1 { font-size: 26px; font-weight: 400; letter-spacing: -.02em; margin: 0 0 6px; }
+.lead { color: var(--muted); margin: 0 0 28px; }
+label { display: block; margin-bottom: 16px; font-size: 13px; color: var(--muted); }
+label span.req { color: var(--bad); }
+input, textarea, select { display: block; width: 100%; margin-top: 6px; padding: 11px 12px; border: 1px solid var(--line); border-radius: 0; font: inherit; color: var(--text); background: #fff; }
+input:focus, textarea:focus, select:focus { outline: 2px solid var(--text); outline-offset: -1px; }
+textarea { min-height: 110px; resize: vertical; }
+button { border: 0; border-radius: 0; background: var(--accent); color: #fff; font: inherit; padding: 12px 22px; cursor: pointer; }
+button:disabled { opacity: .5; cursor: default; }
+button.ghost { background: transparent; color: var(--text); border: 1px solid var(--line); }
+.error { color: var(--bad); font-size: 14px; min-height: 20px; margin: 4px 0 12px; }
+.done { padding: 40px 0; text-align: center; font-size: 17px; }
+.hp { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
+.foot { margin-top: 36px; font-size: 11px; color: var(--muted); text-align: center; }
+.foot sup { font-size: .65em; }
+/* booking */
+.days { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 6px; margin-bottom: 18px; }
+.day { flex: 0 0 auto; text-align: center; border: 1px solid var(--line); border-radius: 0; padding: 8px 12px; background: #fff; color: var(--text); cursor: pointer; font-size: 13px; }
+.day b { display: block; font-size: 17px; font-weight: 400; }
+.day.active { border-color: var(--text); }
+.slots { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; margin-bottom: 24px; }
+.slot { border: 1px solid var(--line); border-radius: 0; padding: 10px 0; background: #fff; color: var(--text); cursor: pointer; font-size: 14px; }
+.slot.active { background: var(--text); color: #fff; border-color: var(--text); }
+.muted { color: var(--muted); }
+.gap { height: 20px; }

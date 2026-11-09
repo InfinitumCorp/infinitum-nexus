@@ -1,0 +1,13 @@
+Infinitum Corporation® — VEIL Tor extension
+
+This directory is original source written for Infinitum Corporation®.
+No Tor source, Tor binary, or GPL-licensed code is copied here.
+
+Tor itself is published by The Tor Project under the 3-clause BSD license:
+https://gitweb.torproject.org/tor.git/tree/LICENSE
+VEIL does not vendor that code. It speaks SOCKS5 to a Tor client the user
+installs and starts. That interoperability is not a grant of Tor's license
+and not an endorsement by The Tor Project.
+
+A Tor extension in Chrome or Firefox routes this browser's traffic. It does
+not reproduce Tor Browser and it is not a device-wide VPN.

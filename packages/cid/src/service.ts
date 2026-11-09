@@ -9,6 +9,14 @@ import {
 import { generateTotpSecret, verifyTotp, otpauthUri } from "./totp.ts";
 import { verifyIdToken, type SsoConfig } from "./oidc.ts";
 import {
+  assertExactOrigin,
+  cumulusCorsHeaders,
+  cumulusDomains,
+  exactCorsOrigin,
+  MAIL_DOMAIN,
+  type CidIssuerMetadata,
+} from "./domains.ts";
+import {
   PROVIDERS,
   SocialClient,
   pkcePair,
@@ -18,28 +26,52 @@ import {
   type SocialProviderId,
 } from "./social.ts";
 
+export { MAIL_DOMAIN };
+
 /* ------------------------------------------------------------------ *
  * Product registry: every app a CID can sign in to and grant access to.
  * ------------------------------------------------------------------ */
 
 export const INFINITUM_APPS = [
-  "veil", "fabric", "throne", "eon", "scalvs", "cndctr", "spectre", "metatron",
+  "veil", "fabric", "throne", "eon", "scalvs", "architect", "spectre", "metatron",
   "cumulus", "cumulus-mail", "firm-wallet", "aether", "argus", "hrvst", "eidetic",
-  "orbis", "pollen", "flower", "nemesis",
+  "orbis", "pollen", "flower", "nemesis", "LBRNTH", "firm", "daemon", "slug", "seraphim", "tokens",
+  "odin", "firmament", "cumulus-exchange", "cherubim", "azrail", "cloud", "conjure",
 ] as const;
 export type AppId = (typeof INFINITUM_APPS)[number];
 
-/** What every new CID comes with, per the Cumulus://ID page. */
+/** Earlier ids for the same app, still accepted for one release. */
+const LEGACY_APP_IDS: Record<string, AppId> = { architct: "architect", cndctr: "architect", scalus: "scalvs" };
+
+/**
+ * Canonical web origins of apps on their own domains (METATRON¹⁰⁰: https://mttrn.app).
+ * Each one is in the CID CORS allowlist (domains.ts) and registers `cidRedirectUri(app, provider)`
+ * with every social sign-in provider.
+ */
+export const APP_ORIGINS: Readonly<Partial<Record<AppId, string>>> = Object.freeze({
+  metatron: cumulusDomains().productOrigins.metatron,
+});
+
+/** Social sign-in callback for an app: the same path +SPCTR and Cumulus://Mail serve. */
+export function cidRedirectUri(app: AppId, provider: SocialProviderId): string {
+  const origin = APP_ORIGINS[app];
+  if (!origin) throw new Error(`${app} has no registered web origin`);
+  return `${origin}/api/auth/oauth/${provider}/callback`;
+}
+
+/**
+ * What every new CID comes with, per the Cumulus://ID page. Like a Google account and Gmail,
+ * every CID gets a Cumulus://Mail address, a Cumulus://Cloud drive and a FIRM Wallet on the free tier.
+ */
 export const FREE_ENTITLEMENTS = {
-  storageGb: 15, // shared by Cumulus Drive and Cumulus://Mail
+  storageGb: 15, // shared by Cumulus://Cloud (Drive) and Cumulus://Mail
   mail: true,
+  cloud: true,
   firmWallet: true,
   scalvs: "free",
-  cndctr: "free",
+  architect: "free",
   metatronDashboard: true,
 } as const;
-
-export const MAIL_DOMAIN = "cumulusmail.cloud";
 
 /* ------------------------------------------------------------------ *
  * Data model
@@ -48,7 +80,7 @@ export const MAIL_DOMAIN = "cumulusmail.cloud";
 export interface Account {
   cid: string;
   username: string;
-  /** e.g. alex@cumulusmail.cloud */
+  /** e.g. alex@cumuluscloud.app */
   mailAddress: string;
   /** Ecosystem handle, e.g. @alex.veil */
   handle: string;
@@ -150,15 +182,40 @@ export class CidStore {
 export interface CidConfig {
   ledger: Ledger;
   signer: Signer;
-  /** WebAuthn relying party ID, e.g. "infinitum.id". */
+  /** WebAuthn relying party ID, e.g. "id.cumuluscloud.app". */
   rpId: string;
-  /** Origins allowed to run passkey ceremonies (web, VEIL, #THRONE shells). */
+  /** Exact origins allowed to run passkey ceremonies. Wildcards are rejected. */
   origins: string[];
   store?: CidStore;
   clock?: () => Date;
   sessionDays?: number;
   /** Social sign-in providers with their client credentials. Only configured ones are offered. */
   social?: { providers: Partial<Record<SocialProviderId, SocialCredentials>>; fetchImpl?: typeof fetch };
+  /**
+   * Account events for the rest of the suite: Cumulus://Mail provisions a mailbox on
+   * "account.created" and sends security notices for sign-ins, keys and MFA changes.
+   * A failing listener never blocks sign-in.
+   */
+  onEvent?: (event: CidEvent) => void | Promise<void>;
+}
+
+export type CidEventName =
+  | "account.created"
+  | "authenticator.added"
+  | "authenticator.removed"
+  | "session.created"
+  | "session.revoked_all"
+  | "mfa.enabled"
+  | "mfa.disabled"
+  | "identity.linked"
+  | "identity.unlinked";
+
+export interface CidEvent {
+  event: CidEventName;
+  cid: string;
+  at: string;
+  /** Event details safe to show the account owner (device, method, key kind, provider). */
+  detail: Record<string, string | number>;
 }
 
 export class CidError extends Error {
@@ -170,23 +227,49 @@ export class CidError extends Error {
 }
 
 const USERNAME = /^[a-z0-9][a-z0-9._-]{2,29}$/;
-const RESERVED = new Set(["admin", "root", "support", "security", "odin", "infinitum", "postmaster", "abuse"]);
+// Includes the Cumulus://Mail product senders, so no person can register an address that
+// looks like a security notice or a wallet receipt.
+const RESERVED = new Set([
+  "admin", "root", "support", "security", "odin", "infinitum", "postmaster", "abuse",
+  "welcome", "cloud", "wallet", "ledger", "noreply", "no-reply", "mail", "cumulus", "firm",
+]);
 const CHALLENGE_TTL_MS = 5 * 60_000;
 const hashToken = (t: string) => createHash("sha256").update(t).digest("hex");
 
 export class CidService {
   readonly store: CidStore;
-  private readonly cfg: Required<Omit<CidConfig, "store" | "social">>;
+  /** Keycloak issuer for Cumulus://ID, https://id.cumuluscloud.app/realms/cumulus by default. */
+  readonly issuer: string;
+  /** JWKS URI for `issuer`. */
+  readonly jwksUri: string;
+  /** Email domain, cumuluscloud.app by default. */
+  readonly mailDomain: string;
+  /** Exact CORS origins for ID, Cloud and Mail. Never a wildcard. */
+  readonly corsOrigins: readonly string[];
+  private readonly cfg: Required<Omit<CidConfig, "store" | "social" | "onEvent">>;
   private readonly socialProviders: Partial<Record<SocialProviderId, SocialCredentials>>;
   private readonly socialClient: SocialClient;
+  private readonly onEvent?: CidConfig["onEvent"];
 
   constructor(config: CidConfig) {
+    this.onEvent = config.onEvent;
     this.store = config.store ?? new CidStore();
+    const domains = cumulusDomains();
+    this.issuer = domains.issuer;
+    this.jwksUri = domains.jwksUri;
+    this.mailDomain = domains.mailDomain;
+    this.corsOrigins = domains.corsOrigins;
     this.cfg = {
       ledger: config.ledger,
       signer: config.signer,
       rpId: config.rpId,
-      origins: config.origins,
+      origins: config.origins.map((origin) => {
+        try {
+          return assertExactOrigin(origin);
+        } catch (err) {
+          throw new CidError("invalid_origin", err instanceof Error ? err.message : "Origin must be exact");
+        }
+      }),
       clock: config.clock ?? (() => new Date()),
       sessionDays: config.sessionDays ?? 30,
     };
@@ -198,8 +281,32 @@ export class CidService {
     return this.cfg.clock();
   }
 
+  /** Issuer and JWKS for Cumulus://ID. The issuer string has no trailing slash. */
+  issuerMetadata(): CidIssuerMetadata {
+    return { issuer: this.issuer, jwks_uri: this.jwksUri, id_host: new URL(this.issuer).host };
+  }
+
+  /** Allowlisted origin for this request, or null. Never "*". */
+  corsAllowOrigin(requestOrigin: string | undefined): string | null {
+    return exactCorsOrigin(requestOrigin, this.corsOrigins);
+  }
+
+  /** CORS headers for a browser call. Allow-Origin is set only for an exact match. */
+  corsHeaders(requestOrigin: string | undefined): Record<string, string> {
+    return cumulusCorsHeaders(requestOrigin, this.corsOrigins);
+  }
+
   private record(type: Entry["type"], actor: string, subject: string, payload: Record<string, unknown>) {
     return this.cfg.ledger.append({ type, product: "cid", actor, subject, payload }, this.cfg.signer);
+  }
+
+  private async emit(event: CidEventName, cid: string, detail: CidEvent["detail"] = {}) {
+    if (!this.onEvent) return;
+    try {
+      await this.onEvent({ event, cid, at: this.now().toISOString(), detail });
+    } catch (err) {
+      console.error(`CID event listener failed for ${event}:`, err);
+    }
   }
 
   private account(cid: string): Account {
@@ -224,7 +331,7 @@ export class CidService {
     const account: Account = {
       cid: `cid_${randomUUID()}`,
       username,
-      mailAddress: `${username}@${MAIL_DOMAIN}`,
+      mailAddress: `${username}@${this.mailDomain}`,
       handle: `@${username}.veil`,
       orgId: input.orgId,
       createdAt: this.now().toISOString(),
@@ -234,6 +341,7 @@ export class CidService {
     this.store.byUsername.set(username, account.cid);
     // Only the event is recorded; the CID is never sold and personal details stay off the ledger.
     await this.record("identity", account.cid, account.cid, { event: "account.created", org: input.orgId ?? null });
+    await this.emit("account.created", account.cid);
     return account;
   }
 
@@ -319,6 +427,7 @@ export class CidService {
     this.store.authenticators.set(auth.id, auth);
     this.store.byCredentialId.set(auth.credentialId, auth.id);
     await this.record("audit", cid, cid, { event: "authenticator.added", kind, authenticator: auth.id });
+    await this.emit("authenticator.added", cid, { kind, label: auth.label });
     return auth;
   }
 
@@ -338,6 +447,7 @@ export class CidService {
     this.store.authenticators.delete(authenticatorId);
     this.store.byCredentialId.delete(auth.credentialId);
     await this.record("audit", cid, cid, { event: "authenticator.removed", authenticator: authenticatorId });
+    await this.emit("authenticator.removed", cid, { kind: auth.kind, label: auth.label });
   }
 
   /** Options for navigator.credentials.get(). Omit the username for discoverable passkey sign-in. */
@@ -426,6 +536,7 @@ export class CidService {
     if (step === null) throw new CidError("mfa_failed", "That code didn't match");
     account.totp = { ...account.totp, confirmed: true, lastStep: step };
     await this.record("audit", cid, cid, { event: "mfa.enabled", method: "totp" });
+    await this.emit("mfa.enabled", cid, { method: "authenticator app" });
   }
 
   async disableTotp(cid: string, code: string) {
@@ -436,6 +547,7 @@ export class CidService {
     }
     account.totp = undefined;
     await this.record("audit", cid, cid, { event: "mfa.disabled", method: "totp" });
+    await this.emit("mfa.disabled", cid, { method: "authenticator app" });
   }
 
   /* ---------------- Sessions ---------------- */
@@ -455,6 +567,7 @@ export class CidService {
     this.store.sessions.set(session.id, session);
     this.store.byTokenHash.set(session.tokenHash, session.id);
     await this.record("audit", cid, cid, { event: "session.created", session: session.id, method });
+    await this.emit("session.created", cid, { device, method, session: session.id });
     return { token, session };
   }
 
@@ -491,6 +604,7 @@ export class CidService {
       }
     }
     await this.record("audit", actor, cid, { event: "session.revoked_all", count });
+    await this.emit("session.revoked_all", cid, { count, by: actor === cid ? "you" : "your organization admin" });
     return count;
   }
 
@@ -606,6 +720,7 @@ export class CidService {
     this.store.byIdentity.set(`${profile.provider}|${profile.subject}`, cid);
     // The provider's account ID and email stay off the ledger; only the event is recorded.
     await this.record("audit", cid, cid, { event: "identity.linked", provider: profile.provider });
+    await this.emit("identity.linked", cid, { provider: PROVIDERS[profile.provider]?.label ?? profile.provider });
   }
 
   linkedIdentities(cid: string): LinkedIdentity[] {
@@ -621,18 +736,21 @@ export class CidService {
     account.identities = account.identities!.filter((i) => i.provider !== provider);
     this.store.byIdentity.delete(`${identity.provider}|${identity.subject}`);
     await this.record("audit", cid, cid, { event: "identity.unlinked", provider });
+    await this.emit("identity.unlinked", cid, { provider: PROVIDERS[provider as SocialProviderId]?.label ?? provider });
   }
 
   /* ---------------- Permissions dashboard ---------------- */
 
-  private assertApp(app: string): asserts app is AppId {
-    if (!(INFINITUM_APPS as readonly string[]).includes(app)) throw new CidError("unknown_app", `Unknown Infinitum app: ${app}`);
+  private appId(app: string): AppId {
+    const id = LEGACY_APP_IDS[app] ?? app;
+    if (!(INFINITUM_APPS as readonly string[]).includes(id)) throw new CidError("unknown_app", `Unknown Infinitum app: ${app}`);
+    return id as AppId;
   }
 
   /** Grant an app access, app by app. Every grant is recorded on Firmament Network. */
-  async grant(cid: string, app: string, scopes: string[]): Promise<Grant> {
+  async grant(cid: string, appName: string, scopes: string[]): Promise<Grant> {
     this.account(cid);
-    this.assertApp(app);
+    const app = this.appId(appName);
     if (scopes.length === 0 || scopes.some((s) => !/^[a-z0-9-]+:[a-z0-9-]+$/.test(s))) {
       throw new CidError("invalid_scope", "Scopes look like 'contacts:read'");
     }
@@ -645,8 +763,8 @@ export class CidService {
   }
 
   /** Revoke some scopes, or all access when scopes are omitted. Recorded on Firmament. */
-  async revoke(cid: string, app: string, scopes?: string[]) {
-    this.assertApp(app);
+  async revoke(cid: string, appName: string, scopes?: string[]) {
+    const app = this.appId(appName);
     const key = `${cid}|${app}`;
     const current = this.store.grants.get(key);
     if (!current) return;
@@ -657,7 +775,8 @@ export class CidService {
   }
 
   can(cid: string, app: string, scope: string): boolean {
-    return this.store.grants.get(`${cid}|${app}`)?.scopes.includes(scope) ?? false;
+    const id = LEGACY_APP_IDS[app] ?? app;
+    return this.store.grants.get(`${cid}|${id}`)?.scopes.includes(scope) ?? false;
   }
 
   /** One permissions dashboard: which product can use what. */
@@ -728,6 +847,20 @@ export class CidService {
   orgMembers(orgId: string, adminCid: string): Account[] {
     this.org(orgId, adminCid);
     return [...this.store.accounts.values()].filter((a) => a.orgId === orgId);
+  }
+
+  /** Server-side linked-credential checks; a session id by itself is never a login token. */
+  isSessionActive(cid: string, sessionId: string): boolean {
+    const session = this.store.sessions.get(sessionId);
+    const expiresAt = session ? Date.parse(session.expiresAt) : NaN;
+    return !!session && session.cid === cid && !session.revokedAt && Number.isFinite(expiresAt) && expiresAt > this.now().getTime() && this.store.accounts.has(cid);
+  }
+
+  /** Trusted current directory membership; never infer organizations by email. */
+  organizationMembership(cid: string): { id: string; name: string; admin: boolean } | null {
+    const account = this.account(cid);
+    const org = account.orgId ? this.store.orgs.get(account.orgId) : undefined;
+    return org ? { id: org.id, name: org.name, admin: org.admins.includes(cid) } : null;
   }
 
   /** Admin control: sign a member out of every device (e.g. a lost laptop or offboarding). */

@@ -37,6 +37,12 @@ export interface Contact {
   influence?: "decision-maker" | "champion" | "influencer" | "blocker" | "user";
   /** Contacts who opted out are kept only as a suppression record. */
   optedOut?: boolean;
+  /** Labels for segmenting and automations, e.g. "webinar-2026", "hot". Lowercase. */
+  tags?: string[];
+  /** Workspace-defined fields, e.g. { budget: "50k", region: "EMEA" }. */
+  fields?: Record<string, string>;
+  /** Where the lead came from: "form:<id>", "booking:<id>", "import", "manual", a campaign name… */
+  source?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -62,6 +68,8 @@ export interface Deal {
   createdAt: string;
   updatedAt: string;
   lostReason?: string;
+  /** The open stage a deal was in when it was won or lost (lets METATRON learn stage win rates). */
+  closedFrom?: Stage;
 }
 
 export type ActivityKind = "email" | "call" | "meeting" | "note" | "task";

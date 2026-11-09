@@ -4,6 +4,7 @@
  * Swap builds the calldata; signing/sending is still external.
  */
 import type { RpcClient } from "./evm-client.ts";
+import { encodeGetAmountsOut, encodeSwapExactTokensForTokens } from "./dex-router.ts";
 
 export interface DexPool {
   tokenA: string;
@@ -22,16 +23,7 @@ export interface SwapQuote {
 
 export interface FirmDex {
   quote(tokenIn: string, tokenOut: string, amountIn: string): Promise<SwapQuote>;
-  swap(tokenIn: string, tokenOut: string, amountIn: string, minAmountOut: string): Promise<{ txHash: string; data: string }>;
-}
-
-/** getAmountsOut(uint256,address[]) selector = 0xd06ca61f */
-function encodeGetAmountsOut(amountIn: string, path: string[]): string {
-  const amount = BigInt(amountIn).toString(16).padStart(64, "0");
-  const pathOffset = "0000000000000000000000000000000000000000000000000000000000000040";
-  const pathLen = path.length.toString(16).padStart(64, "0");
-  const pathData = path.map((p) => p.replace(/^0x/, "").padStart(64, "0")).join("");
-  return "0xd06ca61f" + amount + pathOffset + pathLen + pathData;
+  swap(tokenIn: string, tokenOut: string, amountIn: string, minAmountOut: string, to: string): Promise<{ txHash: string; data: string }>;
 }
 
 export function createFirmDex(client: RpcClient, routerAddress: string): FirmDex {
@@ -52,19 +44,11 @@ export function createFirmDex(client: RpcClient, routerAddress: string): FirmDex
         return { tokenIn, tokenOut, amountIn, amountOut: amountIn, priceImpact: 0 };
       }
     },
-    async swap(tokenIn, tokenOut, amountIn, minAmountOut) {
-      // swapExactTokensForTokens selector 0x38ed1739
-      const data =
-        "0x38ed1739" +
-        BigInt(amountIn).toString(16).padStart(64, "0") +
-        BigInt(minAmountOut).toString(16).padStart(64, "0") +
-        "00000000000000000000000000000000000000000000000000000000000000a0" +
-        "0000000000000000000000000000000000000000000000000000000000000000" +
-        Math.floor(Date.now() / 1000 + 600).toString(16).padStart(64, "0") +
-        "0000000000000000000000000000000000000000000000000000000000000002" +
-        tokenIn.replace(/^0x/, "").padStart(64, "0") +
-        tokenOut.replace(/^0x/, "").padStart(64, "0");
-      return { txHash: `0xswap_pending_${tokenIn.slice(2, 10)}`, data };
+    async swap(tokenIn, tokenOut, amountIn, minAmountOut, to) {
+      if (!/^0x[0-9a-fA-F]{40}$/.test(to)) throw new Error("Swap recipient must be an address");
+      const deadline = Math.floor(Date.now() / 1000) + 600;
+      const data = encodeSwapExactTokensForTokens(amountIn, minAmountOut, [tokenIn, tokenOut], to, deadline);
+      return { txHash: `0xswap_pending_${tokenIn.replace(/^0x/, "").slice(0, 8)}`, data };
     },
   };
 }

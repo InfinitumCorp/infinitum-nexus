@@ -1,33 +1,63 @@
 {
   "manifest_version": 3,
   "name": "VEIL</>™",
-  "version": "0.3.1",
-  "description": "Tor-first secure browser sidebar: private browsing, AI assistant, and Infinitum ecosystem access.",
-  "permissions": ["sidePanel", "storage", "activeTab", "tabs", "proxy"],
-  "host_permissions": ["https://*/*", "http://*/*"],
+  "version": "0.8.0",
+  "description": "VEIL VPN and optional Tor for this browser from Infinitum Corporation®. It is not a device-wide VPN.",
+  "permissions": [
+    "storage",
+    "tabs",
+    "proxy",
+    "privacy",
+    "browsingData",
+    "alarms",
+    "webRequest",
+    "declarativeNetRequest",
+    "declarativeNetRequestFeedback",
+    "downloads",
+    "sidePanel",
+    "webRequestAuthProvider"
+  ],
+  "host_permissions": [
+    "https://*/*",
+    "http://*/*"
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'; worker-src 'self'"
+  },
   "action": {
-    "default_title": "Open VEIL</>™ sidebar",
+    "default_title": "VEIL Tor",
+    "default_popup": "popup.html",
     "default_icon": {
-      "16": "icon.svg",
-      "32": "icon.svg",
-      "48": "icon.svg"
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png"
     }
   },
   "icons": {
-    "48": "icon.svg"
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
   },
-  "side_panel": {
-    "default_path": "sidebar.html"
-  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*/*",
+        "http://*/*"
+      ],
+      "js": [
+        "lib/content-pii.js",
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "minimum_chrome_version": "116",
   "background": {
     "service_worker": "background.js",
     "type": "module"
   },
-  "content_scripts": [
-    {
-      "matches": ["https://*/*", "http://*/*"],
-      "js": ["content.js"],
-      "run_at": "document_idle"
-    }
-  ]
+  "side_panel": {
+    "default_path": "sidebar.html"
+  }
 }

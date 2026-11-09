@@ -26,7 +26,7 @@ export interface ProjectTokenSpec {
 
 export const PROJECT_TOKENS: Omit<ProjectTokenSpec, "rpcUrl" | "contractAddress" | "chainId">[] = [
   { symbol: "HRVST", name: "Harvest", product: "hrvst" },
-  { symbol: "CNDT", name: "Conductor", product: "conductor" },
+  { symbol: "ARCT", name: "Architect", product: "architect" },
   { symbol: "SPCTR", name: "Spectre", product: "spectre" },
   { symbol: "SCLV", name: "Scalus", product: "scalus" },
 ];

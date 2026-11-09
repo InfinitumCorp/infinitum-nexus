@@ -2,7 +2,7 @@
  * Endpoint helpers for Spectre self-cleaning.
  */
 import type { SpectreCRM } from "../core/crm.ts";
-import { findDuplicateCompanies, findDuplicateContacts, dataIssues, repointReferences } from "../core/cleaning.ts";
+import { findDuplicateCompanies, findDuplicateContacts, dataIssues, mergeCompanies, repointReferences } from "../core/cleaning.ts";
 
 export function listDuplicates(crm: SpectreCRM, workspace: string) {
   const companies = crm.list("companies", workspace);
@@ -24,15 +24,14 @@ export async function runMerge(
   keepId: string,
   mergeIds: string[],
 ) {
+  const ids = mergeIds.filter((id) => id !== keepId);
+  if (kind === "company") {
+    return mergeCompanies(crm, workspace, actor, keepId, ids);
+  }
   const deals = crm.list("deals", workspace);
   const activities = crm.list("activities", workspace);
-  repointReferences(keepId, mergeIds, deals, activities);
-
-  if (kind === "company") {
-    for (const id of mergeIds) crm.store.companies.delete(id);
-  } else {
-    for (const id of mergeIds) crm.store.contacts.delete(id);
-  }
-  await crm.recordMerge(actor, kind, keepId, mergeIds);
-  return { kept: keepId, merged: mergeIds };
+  repointReferences(keepId, ids, deals, activities);
+  for (const id of ids) crm.store.contacts.delete(id);
+  await crm.recordMerge(actor, kind, keepId, ids);
+  return { kept: keepId, merged: ids };
 }

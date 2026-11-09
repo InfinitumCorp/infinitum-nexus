@@ -1,4 +1,5 @@
 import type { Dataset, ProductId } from "./types.ts";
+import { DEFAULT_REV_SHARE_PCT, PRODUCT_REV_SHARE_PCT } from "./revshare.ts";
 
 /**
  * Dataset catalog. Users package eligible data from any Infinitum product.
@@ -7,14 +8,14 @@ export class DatasetCatalog {
   private datasets = new Map<string, Dataset>();
   changed?: () => void;
 
-  create(params: Omit<Dataset, "id" | "createdAt" | "status"> & { status?: Dataset["status"] }): Dataset {
+  create(params: Omit<Dataset, "id" | "createdAt" | "status" | "revSharePct"> & { status?: Dataset["status"]; revSharePct?: number }): Dataset {
     const id = `ds_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const ds: Dataset = {
       ...params,
       id,
       status: params.status ?? "draft",
       createdAt: new Date().toISOString(),
-      revSharePct: params.revSharePct ?? 85,
+      revSharePct: params.revSharePct ?? PRODUCT_REV_SHARE_PCT[params.product] ?? DEFAULT_REV_SHARE_PCT,
     };
     this.datasets.set(id, ds);
     this.changed?.();

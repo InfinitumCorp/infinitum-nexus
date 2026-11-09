@@ -1,15 +1,42 @@
 # Infinitum Nexus
 
-Shared foundation for every Infinitum product.
+Shared foundation for every Infinitum product, by Infinitum Corporation®.
+
+**Repos:** [product delivery](PRODUCT-DELIVERY.md) · [deploy](DEPLOY.md) · [GitHub standards](docs/github/ORG-STANDARDS.md) · [cleanup audit](docs/github/CLEANUP-AUDIT.md) · [security](SECURITY.md)
 
 | Package | What it is |
 |---|---|
 | `packages/firmament` | Firmament Network core: append-only, hash-chained, Ed25519-signed ledger for identity, provenance, licensing, payments and audit. Merkle roots for anchoring to Base. |
-| `packages/cid` | Cumulus://ID (CID): one account for every product. Passkeys and security keys (WebAuthn), authenticator-app MFA, session revocation, app-by-app permissions recorded on Firmament, organization SSO (OIDC), and social sign-in with Google, Apple, Microsoft, GitHub and ChatGPT (PKCE, state bound to the browser, nonce, issuer checks; accounts are never joined by email). |
+| `packages/cid` | Cumulus://ID (CID): one account for every product. Passkeys and security keys (WebAuthn), authenticator-app MFA, session revocation, app-by-app permissions recorded on Firmament, organization SSO (OIDC), and social sign-in with Google, Apple, Microsoft, GitHub and ChatGPT (PKCE, state bound to the browser, nonce, issuer checks; accounts are never joined by email). Canonical host `id.cumuluscloud.app`. |
+| `packages/aether` | ÆTHER™ mesh protocol core: Ed25519 node addresses, signed packets, flooding with TTL and ttl upgrades, store-and-forward, delivery receipts, rate limits, and a radio simulator. 100 nodes with 20% churn deliver 100% of messages across 6–13 hops (19 passing tests). Not encrypted yet. |
 
 | `apps/spectre` | +SPCTR™ (Spectre) intelligent CRM. Core so far: companies, contacts, deals, activities and relationships with a Firmament audit trail and source provenance; opt-out handling; predictive pipeline with explained win probability, risk alerts, next best action and monthly forecast; warmest-path relationship map and buying-committee gaps; duplicate detection, merging and stale-data flags (17 passing tests). |
 
+| `packages/cumulus` | The Cumulus account suite. Every CID gets Cumulus://Mail, Cumulus://Cloud and a FIRM Wallet on the free tier (15 GB shared by Mail and Cloud), like Gmail with a Google account. Sends login security notices, Cloud share notices and wallet receipts by mail. Products build their CID from `createCumulus()`. |
+| `packages/mail` | Cumulus://Mail post office: one mailbox per CID (`name@cumuluscloud.app`), delivery between Cumulus addresses, bounces, an outbound queue, reserved product senders, pay-by-mail, folders, threads, aliases and Architect tasks. |
+| `apps/cumulus-mail` | Cumulus://Mail web client (unlisted, noindex). Sign in with a Cumulus://ID. |
+| `packages/eon` | E(O)N™ AI wearable core: X25519 pairing with a 6-digit safety code, AES-256-GCM voice and text frames with replay protection, on-device intents, and an aggregate-only usage meter (9 tests). |
+| `packages/argus` | >_ARGUS™ sensor fusion: gated multi-sensor association, constant-velocity Kalman tracks, track lifecycle and per-track sensor provenance (6 tests). Military edition stays out of the public Data Exchange. |
+| `packages/hardware` | Tasking, telemetry and evidence interface for physical products, with a profile per platform including DAEMON™ (autonomous aircraft) and SLUG™ (autonomous land drone). |
+| `packages/autonomy` | Mission safety for DAEMON™, SLUG™, ORBIS™ and POLLEN™ with Flower™ docking: fence and no-go checks, altitude limits, energy reserve, a runtime interlock (hold, return, land), swarm coverage planning and pad scheduling (7 tests). Every mission still needs a person's approval. |
+
+Run Cumulus://Mail: `node --experimental-strip-types apps/cumulus-mail/src/server.ts`, then open http://localhost:3010. Set `XAI_API_KEY` to turn on SCALVS briefs. Mail is intentionally not listed on the public site.
+
 Run +SPCTR locally: `node apps/spectre/src/server/main.ts`, then open http://localhost:3000 and create a CID with a passkey. Set `ANTHROPIC_API_KEY` to turn on Ask Spectre.
+
+### Cumulus domain
+
+`cumuluscloud.app` is the canonical domain for Cumulus://ID, Cumulus://Cloud and Cumulus://Mail. It is configured with environment variables (see `.env.example`):
+
+| Variable | Default | Use |
+|---|---|---|
+| `CUMULUS_ROOT_DOMAIN` | `cumuluscloud.app` | Mail addresses: `name@cumuluscloud.app` |
+| `CUMULUS_ID_HOST` | `id.cumuluscloud.app` | Host for the Cumulus://ID Keycloak issuer |
+| `CUMULUS_KEYCLOAK_REALM` | `cumulus` | Issuer `https://id.cumuluscloud.app/realms/cumulus`. JWKS `https://id.cumuluscloud.app/realms/cumulus/protocol/openid-connect/certs` |
+| `CUMULUS_CLOUD_HOST` | `cloud.cumuluscloud.app` | Cumulus://Cloud |
+| `CUMULUS_MAIL_HOST` | `mail.cumuluscloud.app` | Cumulus://Mail |
+
+The issuer is derived from the ID host and realm: `https://<CUMULUS_ID_HOST>/realms/<CUMULUS_KEYCLOAK_REALM>`. CORS allows only the exact HTTPS origins of the three hosts. A wildcard origin is rejected, and `Access-Control-Allow-Origin` is never `*`. When `CUMULUS_ROOT_DOMAIN` is overridden on its own, the three hosts follow it (`id.`, `cloud.`, `mail.`). An explicit host must be that root domain or one of its subdomains.
 
 ### Social sign-in
 
@@ -33,7 +60,7 @@ Coming next: AI account research the Spectre agent team, then `$FIRM` and produc
 - `POST /api/query` — plain-language CRM query via agent team
 - `POST /api/agents/:id/run` — run a specific agent (researcher, prospector, deal-coach, query)
 - `POST /api/prospect` — ICP matching suggestions
-- `GET /api/execution/pending` / `POST /api/execution/run` — self-executing deal actions via Conductor (logs activities)
+- `GET /api/execution/pending` / `POST /api/execution/run` — self-executing deal actions via Architect (logs activities)
 - `GET /api/metrics` — workspace counts
 - `GET /api/export` — dump companies, contacts, deals, activities
 - `GET /api/search?q=` — search companies, contacts, deals
@@ -61,3 +88,33 @@ Node.js 22.18 or newer (runs TypeScript directly; no build step).
 pnpm test        # every package
 pnpm typecheck
 ```
+
+### Conjure™ (swarm forecasting, built into every product)
+
+`packages/conjure` (`@infinitum/conjure`): one engine that every Infinitum product imports; its agents run on the SCALVS.ai agent engine. Give it a question and background material; it maps who's involved, creates AI agents with personas, goals, stances and memory, and lets them react to each other on a shared feed over several rounds. Inject "what if" events between rounds, fork a simulation to compare futures, have the report agent investigate and write a forecast, and interview any agent. Runs one round per request (fits serverless limits), estimates AI calls up front and enforces a budget. In +SPCTR: the Conjure page, and "Simulate with Conjure" on any deal (seeded from that deal's records). Original implementation inspired by swarm-simulation research such as MiroFish/OASIS; no third-party code included.
+
+#### @conjure: live prediction in every product
+
+People reach Conjure™ by typing **@conjure** and a question anywhere in a product: `@conjure will Northwind sign by March?`. The product's server passes the text to `handleConjureMention` (`@infinitum/conjure`); the hosted Conjure service runs a live swarm prediction and returns a forecast to post back. Forecasts are metered per product and visible to Infinitum staff on the private Conjure dashboard.
+
+```ts
+import { conjureLiveFromEnv, handleConjureMention } from "@infinitum/conjure";
+const conjure = conjureLiveFromEnv(); // null when not configured
+const out = conjure && await handleConjureMention(conjure, text, { context, user: cid, source: "thread", wait: false });
+```
+
+| Variable | Use |
+|---|---|
+| `CONJURE_URL` | The hosted Conjure service, e.g. `https://app.<host>` |
+| `CONJURE_PRODUCT_KEY` | This product's key (`cjp_<product>_…`), issued on the Conjure staff dashboard. Server secret: never send it to a browser. |
+
+In +SPCTR, `@conjure` in Ask starts a live forecast (seeded from the deal when asked on one) and the answer updates round by round.
+
+### Labyrinth *LBRNTH — private client repositories
+
+`packages/lbrnth` (`@infinitum/lbrnth`) gives client organizations private code and artifact repositories inside Infinitum products: org roles, SHA-256 versions, branches/tags, history, file diffs, audit and per-org encrypted persistence. Access requires a client LBRNTH plan entitlement **and** existing CID `can()` scopes. There is no Git protocol. Nothing in this tree is deployed. See [integration/API guide](packages/lbrnth/README.md), [design](docs/LBRNTH.md) and [run/deploy plan](docs/LBRNTH-RUN-DEPLOY.md).
+
+Labyrinth now has real Cumulus ID session authentication and a browser/Worker-safe
+`@infinitum/lbrnth-client` transport. All website product brands are registered;
+implemented products have explicit artifact adapters, while five unimplemented
+brands remain registry-only. See [product/auth integration matrix](docs/LBRNTH-INTEGRATIONS.md).

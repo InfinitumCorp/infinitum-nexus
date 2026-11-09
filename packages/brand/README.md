@@ -16,8 +16,8 @@ One brand source for every Infinitum Corporation® product UI. It matches https:
 | UI | How it gets the brand |
 |---|---|
 | `apps/spectre` | `public/brand.css`, linked before `app.css` |
-| `apps/veil` (sidebar, wallet) | `brand.css` next to the HTML |
-| `apps/conductor` podium | inlined from this package at startup |
+| `apps/veil` sidebar | `brand.css` next to the HTML |
+| `apps/architect` podium | inlined from this package at startup |
 | `odin` repo console | copy in `src/styles/brand.css`, Tailwind tokens in `src/styles/theme.css` |
 
 Static UIs hold copies. After editing `brand.css`, run:

@@ -102,7 +102,9 @@ const security = {
 writeFileSync(join(out, "config.json"), JSON.stringify({
   version: 3,
   routes: [
-    { src: "/(.*)", headers: security, continue: true },
+    // Public form and booking pages may be embedded on other sites; nothing else may be framed.
+    { src: "/((?!form\\.html$|book\\.html$).*)", headers: security, continue: true },
+    { src: "/(form|book)\\.html", headers: { ...security, "X-Frame-Options": undefined, "Content-Security-Policy": security["Content-Security-Policy"].replace("frame-ancestors 'none'", "frame-ancestors *") }, continue: true },
     { src: "/", headers: { "Cache-Control": "no-cache" }, continue: true },
     { src: "/index.html", headers: { "Cache-Control": "no-cache" }, continue: true },
     { src: "/api/(.*)", dest: "/api" },

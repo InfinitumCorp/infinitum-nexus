@@ -9,3 +9,12 @@ test("privacyFilter redacts email and phone", () => {
   assert.ok(redactions.includes("email"));
   assert.ok(redactions.includes("phone"));
 });
+
+test("privacyFilter redacts spaced and parenthesized phones", () => {
+  const spaced = privacyFilter("Call 555 123 4567 today");
+  const paren = privacyFilter("Call (555) 123-4567 today");
+  assert.equal(spaced.cleaned.includes("555"), false);
+  assert.equal(paren.cleaned.includes("555"), false);
+  assert.ok(spaced.redactions.includes("phone"));
+  assert.ok(paren.redactions.includes("phone"));
+});

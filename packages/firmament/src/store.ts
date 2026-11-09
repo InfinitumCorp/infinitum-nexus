@@ -1,4 +1,4 @@
-import { appendFile, readFile, mkdir } from "node:fs/promises";
+import { appendFile, readFile, writeFile, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { Entry } from "./ledger.ts";
 
@@ -33,7 +33,14 @@ export class FileStore implements LedgerStore {
   private async load(): Promise<Entry[]> {
     if (this.cache) return this.cache;
     try {
-      const text = await readFile(this.path, "utf8");
+      let text = await readFile(this.path, "utf8");
+      // A crash mid-append leaves a partial last line. Drop it, or the next append
+      // would glue onto it and the whole chain would fail to parse.
+      if (text.length > 0 && !text.endsWith("\n")) {
+        const cut = text.lastIndexOf("\n");
+        text = cut === -1 ? "" : text.slice(0, cut + 1);
+        await writeFile(this.path, text);
+      }
       this.cache = text.split("\n").filter(Boolean).map((l) => JSON.parse(l) as Entry);
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;

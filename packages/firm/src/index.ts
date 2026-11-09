@@ -1,3 +1,4 @@
+export { DEFAULT_FIRM_ROOT_DOMAIN, FirmDomainError, firmRootDomain } from "./domain.ts";
 export type { FirmToken, FirmWallet, Settlement } from "./interfaces.ts";
 export type { EvmFirmToken, EvmFirmWallet, EvmSettlement } from "./evm.ts";
 export { createEvmFirmToken, getBalance } from "./evm.ts";
@@ -5,6 +6,8 @@ export { createRpcClient, erc20BalanceOf, getChainId } from "./evm-client.ts";
 export { PROJECT_TOKENS, createProjectToken, createAllProjectTokens } from "./tokens.ts";
 export type { ProjectToken, ProjectTokenSpec } from "./tokens.ts";
 export { createFirmWallet, FirmWalletImpl } from "./wallet.ts";
+export { WalletAccounts, WalletStore, WalletError, WALLET_ASSETS, parseAmount, formatAmount } from "./accounts.ts";
+export type { WalletAccount, WalletAsset, WalletTransfer, WalletAccountsOptions } from "./accounts.ts";
 export type { FirmWalletOptions, SignedMessage } from "./wallet.ts";
 export { createFirmDex } from "./dex.ts";
 export type { FirmDex, SwapQuote, DexPool } from "./dex.ts";
@@ -13,3 +16,5 @@ export { createEvmWalletScaffold } from "./wallet-evm.ts";
 export type { EvmWallet, EvmSignedTx } from "./wallet-evm.ts";
 export { prepareAnchorCall } from "./anchor-client.ts";
 export type { AnchorCall } from "./anchor-client.ts";
+
+export { createFirmLabyrinth, createFirmWalletLabyrinth, createTokensLabyrinth } from "./labyrinth.ts";

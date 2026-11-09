@@ -1,0 +1,27 @@
+{
+  "name": "@infinitum/lbrnth",
+  "version": "0.1.0",
+  "description": "Labyrinth \u2014 private client code and artifact repositories by Infinitum Corporation\u00ae",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./client": "./src/client.ts"
+  },
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "test": "node --test --experimental-strip-types src/*.test.ts",
+    "typecheck": "tsc -p . --noEmit"
+  },
+  "dependencies": {
+    "@infinitum/cid": "workspace:*",
+    "@infinitum/firmament": "workspace:*",
+    "@infinitum/lbrnth-client": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.0",
+    "@types/node": "^22.0.0"
+  }
+}

@@ -45,6 +45,8 @@ const icon = {
   pipeline: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="5" height="16" rx="1.5"/><rect x="10" y="4" width="5" height="11" rx="1.5"/><rect x="17" y="4" width="4" height="7" rx="1.5"/></svg>',
   accounts: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 21V7l8-4 8 4v14"/><path d="M9 21v-6h6v6"/></svg>',
   people: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.5 3.4-5.5 6.5-5.5s5.7 2 6.5 5.5"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.8c1.8.7 3 2.4 3.5 5.2"/></svg>',
+  conjure: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 8c3-3 5-3 7 0M12 6c3-3 5-3 7 0M6 15c3-3 5-3 7 0M15 13c2-2 4-2 6 0"/></svg>',
+  agents: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="7" width="16" height="12" rx="3"/><path d="M12 3v4M9 12h.01M15 12h.01M9 16h6"/></svg>',
   health: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 12h4l3-7 4 14 3-7h4"/></svg>',
   send: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 19V5M5 12l7-7 7 7"/></svg>',
   settings: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>',
@@ -112,7 +114,7 @@ function render() {
     return renderAuth(page === "signin-error" && id ? decodeURIComponent(id) : "");
   }
   renderShell(page);
-  const views = { today: renderToday, pipeline: renderPipeline, accounts: id ? () => renderAccount(id) : renderAccounts, people: renderPeople, health: renderHealth, settings: renderSettings };
+  const views = { today: renderToday, pipeline: renderPipeline, accounts: id ? () => renderAccount(id) : renderAccounts, people: renderPeople, health: renderHealth, agents: renderAgents, conjure: id ? () => renderSimulation(id) : renderConjure, settings: renderSettings };
   (views[page] || renderToday)().catch((e) => { $("main").innerHTML = `<div class="page"><div class="empty">${esc(e.message)}</div></div>`; });
 }
 
@@ -210,12 +212,16 @@ function renderShell(page) {
             <a href="#/accounts" data-p="accounts">${icon.accounts}Accounts</a>
             <a href="#/people" data-p="people">${icon.people}People</a>
             <a href="#/health" data-p="health">${icon.health}Data health</a>
+            <a href="#/agents" data-p="agents">${icon.agents}Agents<span class="badge hidden" id="agents-badge"></span></a>
+            <a href="#/conjure" data-p="conjure">${icon.conjure}<span>CONJURE<sup class="tm">™</sup></span></a>
           </nav>
           <div class="spacer"></div>
           <nav class="nav"><a href="#/settings" data-p="settings">${icon.settings}Settings</a></nav>
           <div class="me">
             <div class="avatar">${esc(initials(state.me.username))}</div>
-            <div class="who"><div>${esc(state.me.username)}</div><div class="faint small">${esc(state.me.mailAddress)}</div></div>
+            <div class="who"><div>${esc(state.me.username)}</div>${state.me.cumulus
+              ? `<a class="faint small" href="${esc(state.me.cumulus.mail.url)}" target="_blank" rel="noopener noreferrer">${esc(state.me.mailAddress)}${state.me.cumulus.mail.unread ? ` · ${state.me.cumulus.mail.unread} unread` : ""}</a>`
+              : `<div class="faint small">${esc(state.me.mailAddress)}</div>`}</div>
           </div>
           <button class="btn ghost small" id="signout">Sign out</button>
         </aside>
@@ -338,8 +344,22 @@ async function ask(question) {
   state.thread.push({ role: "ai", text: "Thinking…", pending: true });
   await renderToday();
   try {
-    const { answer } = await api("POST", "/api/ask", { question });
-    state.thread[state.thread.length - 1] = { role: "ai", text: answer };
+    const { answer, conjure } = await api("POST", "/api/ask", { question });
+    const slot = state.thread.length - 1;
+    state.thread[slot] = { role: "ai", text: answer };
+    // @conjure: follow the live forecast round by round until the report is in.
+    if (conjure && !["done", "failed", "cancelled"].includes(conjure.status)) {
+      (async () => {
+        for (let i = 0; i < 400; i++) {
+          await new Promise((r) => setTimeout(r, 2000));
+          const live = await api("GET", `/api/conjure/live/${encodeURIComponent(conjure.id)}`).catch(() => null);
+          if (!live) return;
+          state.thread[slot] = { role: "ai", text: live.text };
+          await renderToday();
+          if (["done", "failed", "cancelled"].includes(live.prediction.status)) return;
+        }
+      })();
+    }
   } catch (e) {
     state.thread[state.thread.length - 1] = { role: "ai", text: e.message, notice: true };
   }
@@ -417,7 +437,7 @@ async function openDeal(id) {
         ${d.score.factors.map((f) => `<div class="factor"><span>${esc(f.label)}</span><span class="${f.effect >= 1 ? "up" : "down"}">${f.effect >= 1 ? "▲" : "▼"} ×${f.effect}</span></div>`).join("")}
       </div>
       <div class="section"><h2>Next best action</h2><div class="next"><div class="act">${esc(d.next.action)}</div><div class="muted small">${esc(d.next.why)}</div></div>
-        <button class="btn small" id="rehearse">Rehearse with AI</button></div>` : ""}
+        <button class="btn small" id="rehearse">Rehearse with AI</button><button class="btn small" id="simulate">Simulate with CONJURE<sup class="tm">™</sup></button></div>` : ""}
 
       <div class="section"><h2>People</h2>
         ${d.contacts.length ? d.contacts.map((c) => `<div class="factor"><span>${esc(c.name)}<span class="muted"> · ${esc(c.title ?? "")}</span></span><span class="pill">${esc(c.influence ?? "contact")}</span></div>`).join("") : `<div class="muted small">No one linked yet.</div>`}
@@ -443,12 +463,19 @@ async function openDeal(id) {
     </aside>`;
   document.body.appendChild(wrap);
   wrap.id = "drawer";
+  $("#simulate", wrap)?.addEventListener("click", async () => {
+    toast("Building the simulation…");
+    try {
+      const sim = await api("POST", "/api/conjure", { dealId: id, agents: 16, rounds: 4 });
+      closeDrawer();
+      location.hash = `#/conjure/${sim.id}`;
+    } catch (e) { toast(e.message); }
+  });
   $("#rehearse", wrap)?.addEventListener("click", async () => {
     toast("Rehearsing…");
     try {
       const r = await api("POST", "/api/rehearse", { dealId: id });
-      const text = r.output || r.summary || JSON.stringify(r).slice(0, 400);
-      modal(`<h2>Deal Rehearsal</h2><p>${esc(text)}</p>`, () => {});
+      showRunModal("Deal Rehearsal", r);
     } catch (e) { toast(e.message); }
   });
   const close = () => closeDrawer();
@@ -570,9 +597,7 @@ async function renderAccounts() {
     toast("Prospecting…");
     try {
       const result = await api("POST", "/api/prospect", {});
-      toast("Suggestions ready");
-      console.log(result);
-      alert(JSON.stringify(result, null, 2).slice(0, 500));
+      showRunModal("Prospects", result);
     } catch (e) { toast(e.message); }
   };
 }
@@ -776,6 +801,11 @@ boot();
 
 async function renderSettings() {
   const data = await api("GET", "/api/me/identities");
+  const mt = await api("GET", "/api/metatron").catch(() => null);
+  const mtLine = !mt ? "Default on for win probability"
+    : !mt.on ? "Off. Using the baseline scorer"
+    : mt.model === "metatron-logistic-v1" ? `Learned from ${mt.closedDeals} closed deals (${mt.won} won, ${mt.lost} lost)`
+    : `Default model · learns from your history when it has enough closed deals (${esc(mt.learning || "")})`;
   const linked = new Map(data.linked.map((i) => [i.provider, i]));
   const label = Object.fromEntries(data.available.map((p) => [p.id, p.label]));
   for (const i of data.linked) label[i.provider] ??= i.provider;
@@ -789,6 +819,19 @@ async function renderSettings() {
         <div class="list"><div class="item"><div class="avatar">${esc(initials(state.me.username))}</div>
           <div class="main"><div class="title">${esc(state.me.username)}</div><div class="sub">${esc(state.me.mailAddress)} · ${esc(state.me.handle)}</div></div></div></div>
       </div>
+      ${state.me.cumulus ? `<div class="section">
+        <h2>Included with your Cumulus://ID<sup class="tm">™</sup></h2>
+        <div class="list">
+          <div class="item"><div class="main"><div class="title">Cumulus://Mail</div><div class="sub">${esc(state.me.mailAddress)}${state.me.cumulus.mail.unread ? ` · ${state.me.cumulus.mail.unread} unread` : ""}</div></div>
+            <a class="btn small" href="${esc(state.me.cumulus.mail.url)}" target="_blank" rel="noopener noreferrer">Open</a></div>
+          <div class="item"><div class="main"><div class="title">Cumulus://Cloud<sup class="tm">™</sup> storage</div><div class="sub">${esc(state.me.cumulus.storage.label)} · shared by Mail and Cloud</div></div></div>
+        </div>
+        <firm-suite class="mt10" product="spectre metatron" wallet="${esc(JSON.stringify({ address: state.me.cumulus.wallet.address, balances: state.me.cumulus.wallet.balances }))}"></firm-suite>
+        <p class="faint small mt10">${esc(state.me.cumulus.plan)} plan. Sign-in alerts and wallet receipts go to your Cumulus://Mail inbox.</p>
+      </div>` : `<div class="section">
+        <h2>FIRM Wallet<sup class="tm">™</sup></h2>
+        <firm-suite product="spectre metatron"></firm-suite>
+      </div>`}
       <div class="section">
         <h2>Ways to sign in</h2>
         <div class="list">
@@ -810,7 +853,7 @@ async function renderSettings() {
       <div class="section">
         <h2>AI</h2>
         <div class="list">
-          <div class="item"><div class="main"><div class="title">METATRON¹⁰⁰<sup class="tm">™</sup> scoring</div><div class="sub">Default on for win probability</div></div></div>
+          <div class="item"><div class="main"><div class="title">METATRON¹⁰⁰<sup class="tm">™</sup> scoring</div><div class="sub">${mtLine}</div></div></div>
           <div class="item"><div class="main"><div class="title">Research</div><div class="sub">Public web search for account facts</div></div></div>
           <div class="item"><div class="main"><div class="title">Agents</div><div class="sub">Researcher, Prospector, Deal Coach, Query</div></div></div>
         </div>
@@ -834,4 +877,270 @@ async function renderSettings() {
       catch (e) { toast(e.message); }
     };
   });
+}
+
+/* ---------------- Agents (SCALVS.ai) ---------------- */
+
+const TOOL_LABEL = {
+  list_accounts: "Looked at accounts",
+  get_account: "Read an account",
+  list_open_deals: "Looked at open deals",
+  get_deal: "Read a deal",
+  pipeline_forecast: "Checked the forecast",
+  data_health: "Checked data health",
+  web_search: "Searched the web",
+  add_fact: "Proposed saving a fact",
+  add_account: "Proposed a new account",
+  create_task: "Proposed a task",
+  log_note: "Proposed a note",
+  draft_email: "Proposed an email draft",
+  move_deal: "Proposed a stage change",
+};
+const agentState = { selected: "deal-coach", last: null };
+
+function stepsHtml(steps) {
+  if (!steps?.length) return "";
+  return `<details class="steps"><summary>${steps.length} step${steps.length > 1 ? "s" : ""}</summary><ol>${steps.map((st) =>
+    `<li>${esc(TOOL_LABEL[st.tool] || st.tool)}${st.input?.query ? `: “${esc(st.input.query)}”` : ""}${st.error ? ` <span class="faint">(${esc(st.error)})</span>` : ""}</li>`).join("")}</ol></details>`;
+}
+
+function proposalHtml(p) {
+  return `<div class="item proposal" data-prop="${esc(p.id)}"><div class="main"><div class="title">${esc(p.summary)}</div>
+    <div class="sub">${esc(agentName(p.agentId))} · ${date(p.createdAt)}${p.status !== "pending" ? ` · ${esc(p.status)}` : ""}</div></div>
+    ${p.status === "pending" ? `<button class="btn small" data-decide="dismiss">Dismiss</button><button class="btn small primary" data-decide="approve">Approve</button>` : ""}</div>`;
+}
+
+let agentNames = {};
+const agentName = (id) => agentNames[id] || id;
+
+function wireProposals(root, after) {
+  root.querySelectorAll("[data-prop] [data-decide]").forEach((b) => {
+    b.onclick = async () => {
+      const id = b.closest("[data-prop]").dataset.prop;
+      b.disabled = true;
+      try {
+        await api("POST", `/api/agents/proposals/${encodeURIComponent(id)}/${b.dataset.decide}`, {});
+        toast(b.dataset.decide === "approve" ? "Approved and saved" : "Dismissed");
+        after?.();
+      } catch (e) { toast(e.message); b.disabled = false; }
+    };
+  });
+}
+
+function runHtml(r) {
+  const props = (r.proposals || []).filter(Boolean);
+  return `<div class="run">
+    <div class="run-output">${esc(r.run.output || "(no answer)")}</div>
+    ${stepsHtml(r.run.steps)}
+    ${props.length ? `<h3 class="mt10">Waiting for your approval</h3><div class="list">${props.map(proposalHtml).join("")}</div>` : ""}
+  </div>`;
+}
+
+function showRunModal(title, r) {
+  modal(`<h2>${esc(title)}</h2>${runHtml(r)}`, () => {});
+  const form = $("#modal-form");
+  $("#m-ok", form).classList.add("hidden");
+  $("#m-cancel", form).textContent = "Close";
+  wireProposals(form, () => refreshAgentsBadge());
+}
+
+async function refreshAgentsBadge() {
+  try {
+    const n = (await api("GET", "/api/agents/proposals")).length;
+    const b = $("#agents-badge");
+    if (b) { b.textContent = n; b.classList.toggle("hidden", !n); }
+  } catch {}
+}
+
+async function renderAgents() {
+  const [info, pending, runs] = await Promise.all([api("GET", "/api/agents"), api("GET", "/api/agents/proposals"), api("GET", "/api/agents/runs")]);
+  agentNames = Object.fromEntries(info.agents.map((a) => [a.id, a.name]));
+  const sel = info.agents.find((a) => a.id === agentState.selected) || info.agents[0];
+  main().innerHTML = `
+    <div class="page">
+      <div class="page-head"><h1>Agents</h1><span class="faint small">Powered by SCALVS.ai<sup class="tm">™</sup></span></div>
+      ${info.aiConnected ? "" : `<div class="notice">AI isn't connected yet, so agents can't run. Add ANTHROPIC_API_KEY to the server environment.</div>`}
+      ${pending.length ? `<div class="section"><h2>Waiting for your approval</h2><div class="list" id="pending">${pending.map(proposalHtml).join("")}</div></div>` : ""}
+      <div class="agent-grid">${info.agents.map((a) => `<button class="agent-card${a.id === sel.id ? " active" : ""}" data-agent="${esc(a.id)}">
+        <div class="title">${esc(a.name)}</div><div class="sub">${esc(a.role)}</div></button>`).join("")}</div>
+      <div class="section">
+        <div class="composer">
+          <textarea id="agent-q" rows="1" placeholder="Ask the ${esc(sel.name)}" aria-label="Task for the ${esc(sel.name)}"></textarea>
+          <button class="send" id="agent-run" aria-label="Run" ${info.aiConnected ? "" : "disabled"}>${icon.send || "↑"}</button>
+        </div>
+        <div class="suggestions">${sel.starters.map((t) => `<button data-starter>${esc(t)}</button>`).join("")}</div>
+        <p class="faint small mt10">${sel.canPropose.length ? "Changes this agent suggests wait for your approval. Nothing is sent to customers." : "This agent only reads your data."}</p>
+        <div id="agent-out">${agentState.last && agentState.last.run.agentId === sel.id ? runHtml(agentState.last) : ""}</div>
+      </div>
+      ${runs.length ? `<div class="section"><h2>Recent runs</h2><div class="list">${runs.slice(0, 10).map((r) => `<details class="item run-item"><summary><div class="main"><div class="title">${esc(agentName(r.agentId))}: ${esc(r.prompt.slice(0, 90))}</div><div class="sub">${date(r.at)} · ${r.proposalIds.length} proposal${r.proposalIds.length === 1 ? "" : "s"}</div></div></summary><div class="run-output">${esc(r.output)}</div>${stepsHtml(r.steps)}</details>`).join("")}</div></div>` : ""}
+    </div>`;
+  refreshAgentsBadge();
+  wireProposals(main(), () => renderAgents());
+  main().querySelectorAll("[data-agent]").forEach((b) => b.onclick = () => { agentState.selected = b.dataset.agent; renderAgents(); });
+  const q = $("#agent-q");
+  q.oninput = () => { q.style.height = "auto"; q.style.height = Math.min(q.scrollHeight, 200) + "px"; };
+  const run = async () => {
+    const prompt = q.value.trim();
+    if (!prompt || !info.aiConnected) return;
+    const out = $("#agent-out");
+    out.innerHTML = `<div class="faint">${esc(sel.name)} is working…</div>`;
+    $("#agent-run").disabled = true;
+    try {
+      agentState.last = await api("POST", `/api/agents/${encodeURIComponent(sel.id)}/run`, { prompt });
+      renderAgents();
+    } catch (e) {
+      out.innerHTML = `<div class="error">${esc(e.message)}</div>`;
+      $("#agent-run").disabled = false;
+    }
+  };
+  $("#agent-run").onclick = run;
+  q.onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); run(); } };
+  main().querySelectorAll("[data-starter]").forEach((b) => b.onclick = () => { q.value = b.textContent; run(); });
+}
+
+/* ---------------- CONJURE™ swarm forecasting ---------------- */
+
+const stanceLabel = (v) => (v > 0.2 ? "for" : v < -0.2 ? "against" : "undecided");
+
+function stanceChart(stats, poles) {
+  if (!stats?.length) return "";
+  const W = 560, H = 140, P = 24;
+  const x = (i) => P + (stats.length === 1 ? 0 : (i * (W - 2 * P)) / (stats.length - 1));
+  const y = (v) => H / 2 - (v * (H / 2 - P));
+  const pts = stats.map((s, i) => `${x(i).toFixed(1)},${y(s.meanStance).toFixed(1)}`).join(" ");
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Average stance by round">
+    <line x1="${P}" x2="${W - P}" y1="${H / 2}" y2="${H / 2}" class="axis"/>
+    <text x="${P}" y="14" class="lbl">${esc(poles.for)}</text>
+    <text x="${P}" y="${H - 4}" class="lbl">${esc(poles.against)}</text>
+    <polyline points="${pts}" class="line"/>
+    ${stats.map((s, i) => `<circle cx="${x(i)}" cy="${y(s.meanStance)}" r="3" class="dot"><title>Round ${s.round}: ${s.meanStance}</title></circle>`).join("")}
+  </svg>`;
+}
+
+function splitBar(split) {
+  if (!split) return "";
+  return `<div class="split" title="For ${pct(split.for)} · Undecided ${pct(split.undecided)} · Against ${pct(split.against)}">
+    <span class="for" data-w="${split.for}"></span><span class="und" data-w="${split.undecided}"></span><span class="ag" data-w="${split.against}"></span></div>`;
+}
+/** CSP blocks inline styles, so widths are applied from data attributes. */
+function sizeBars(root) {
+  root.querySelectorAll(".split [data-w]").forEach((el) => { el.style.flexGrow = String(Number(el.dataset.w) || 0.0001); });
+}
+
+async function renderConjure() {
+  const data = await api("GET", "/api/conjure");
+  main().innerHTML = `
+    <div class="page narrow">
+      <div class="page-head"><h1>CONJURE<sup class="tm">™</sup></h1><span class="faint small">Swarm forecasting</span></div>
+      <p class="muted">Give CONJURE a question and some background. It builds the people involved as AI agents, lets them react to each other over several rounds, and writes a forecast. You can inject “what if” events, compare futures and interview any agent.</p>
+      ${data.aiConnected ? "" : `<div class="notice">AI isn't connected yet, so simulations can't run. Add ANTHROPIC_API_KEY to the server environment.</div>`}
+      <form id="new-sim" class="section">
+        <label class="field">Question<input class="input" name="question" required maxlength="500" placeholder="Will the city approve the new transit budget this quarter?"></label>
+        <label class="field">Background<textarea class="input" name="seed" rows="5" required maxlength="30000" placeholder="Paste news, a report or your notes. The more specific, the better."></textarea></label>
+        <div class="grid2">
+          <label class="field">Agents<select class="input" name="agents"><option>12</option><option selected>24</option><option>48</option><option>96</option></select></label>
+          <label class="field">Rounds<select class="input" name="rounds"><option>3</option><option selected>5</option><option>8</option><option>12</option></select></label>
+        </div>
+        <p class="faint small" id="estimate"></p>
+        <div class="error" id="sim-err"></div>
+        <button class="btn primary" ${data.aiConnected ? "" : "disabled"}>Build simulation</button>
+      </form>
+      ${data.simulations.length ? `<div class="section"><h2>Simulations</h2><div class="list">${data.simulations.map((s) => `
+        <a class="item" href="#/conjure/${esc(s.id)}"><div class="main"><div class="title">${esc(s.question)}</div>
+        <div class="sub">${s.agents} agents · round ${s.round}/${s.rounds}${s.forkedFrom ? " · fork" : ""}${s.outcome ? ` · ${esc(s.outcome)} (${pct(s.probability)})` : ""}</div></div>
+        ${splitBar(s.latest?.split)}</a>`).join("")}</div></div>` : ""}
+    </div>`;
+  sizeBars(main());
+  const form = $("#new-sim");
+  const est = async () => {
+    try {
+      const e = await api("GET", `/api/conjure/estimate?agents=${form.agents.value}&rounds=${form.rounds.value}`);
+      $("#estimate").textContent = `About ${e.calls} AI calls in total. Rounds run one at a time, so you can stop whenever you like.`;
+    } catch {}
+  };
+  form.agents.onchange = est; form.rounds.onchange = est; est();
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    const btn = form.querySelector("button");
+    btn.disabled = true; btn.textContent = "Building the world…";
+    try {
+      const sim = await api("POST", "/api/conjure", { question: form.question.value, seed: form.seed.value, agents: Number(form.agents.value), rounds: Number(form.rounds.value) });
+      location.hash = `#/conjure/${sim.id}`;
+    } catch (err) { $("#sim-err").textContent = err.message; btn.disabled = false; btn.textContent = "Build simulation"; }
+  };
+}
+
+let simRunning = false;
+
+async function renderSimulation(id) {
+  const s = await api("GET", `/api/conjure/${encodeURIComponent(id)}`);
+  const latest = s.stats.at(-1);
+  const agents = [...s.personas].sort((a, b) => b.influence - a.influence);
+  const r = s.report;
+  main().innerHTML = `
+    <div class="page narrow">
+      <a class="faint small" href="#/conjure">← CONJURE</a>
+      <div class="page-head"><h1 class="sim-q">${esc(s.question)}</h1></div>
+      <p class="muted small">${s.personas.length} agents · round ${s.round} of ${s.rounds} · ${s.calls}/${s.maxCalls} AI calls${s.forkedFrom ? ` · forked from <a href="#/conjure/${esc(s.forkedFrom.id)}">another simulation</a> at round ${s.forkedFrom.round}` : ""}</p>
+      ${stanceChart(s.stats, s.poles)}
+      ${latest ? `<div class="split-row">${splitBar(latest.split)}<div class="faint small">For ${pct(latest.split.for)} · Undecided ${pct(latest.split.undecided)} · Against ${pct(latest.split.against)}</div></div>` : ""}
+      <div class="sim-actions">
+        ${s.status !== "done" ? `<button class="btn primary" id="step">Run next round</button><button class="btn" id="run-all">Run to the end</button>` : ""}
+        ${s.round > 0 ? `<button class="btn" id="report">${r ? "Rewrite report" : "Write forecast"}</button>` : ""}
+        <button class="btn" id="fork">Fork</button>
+      </div>
+      <div class="error" id="sim-err"></div>
+      ${s.status !== "done" ? `<form id="inject" class="inject"><input class="input" name="text" maxlength="1000" placeholder="What if… (e.g. a competitor cuts prices by 20%)"><button class="btn small">Inject</button></form>
+        ${s.injections.length ? `<p class="faint small">${s.injections.map((i) => `Round ${i.round}: ${esc(i.text)}`).join(" · ")}</p>` : ""}` : ""}
+      ${r ? `<div class="section report"><h2>Forecast</h2>
+        <p class="outcome">${esc(r.outcome)} <span class="faint">· ${pct(r.probability)} estimate · ${esc(r.confidence)} confidence</span></p>
+        <p class="run-output">${esc(r.forecast)}</p>
+        ${r.drivers.length ? `<h3>Drivers</h3><ul>${r.drivers.map((d) => `<li>${esc(d)}</li>`).join("")}</ul>` : ""}
+        ${r.signals.length ? `<h3>Signals to watch</h3><ul>${r.signals.map((d) => `<li>${esc(d)}</li>`).join("")}</ul>` : ""}
+        ${r.assumptions.length ? `<h3>Assumptions</h3><ul>${r.assumptions.map((d) => `<li>${esc(d)}</li>`).join("")}</ul>` : ""}
+        <p class="faint small">A simulation is evidence, not proof. The estimate is CONJURE's judgement from ${s.personas.length} simulated agents.</p></div>` : ""}
+      <div class="section"><h2>Feed</h2>${s.feed.length ? `<div class="feed">${[...s.feed].reverse().slice(0, 60).map((x) => `
+        <div class="post${x.authorId === "world" ? " news" : ""}"><div class="sub">${esc(x.author)} · round ${x.round}${x.replyTo ? " · reply" : ""}</div><div>${esc(x.text)}</div>
+        ${x.authorId === "world" ? "" : `<div class="faint small">${x.likes} likes · ${x.reposts} reposts</div>`}</div>`).join("")}</div>` : `<p class="faint">Run a round to see the agents talk.</p>`}</div>
+      <div class="section"><h2>Agents</h2><div class="list">${agents.map((p) => `
+        <div class="item"><div class="main"><div class="title">${esc(p.name)}</div><div class="sub">${esc(p.role)} · influence ${p.influence}/5 · ${stanceLabel(p.stance)} (${p.stance})</div></div>
+        <button class="btn small" data-interview="${esc(p.id)}">Interview</button></div>`).join("")}</div></div>
+    </div>`;
+  sizeBars(main());
+  const err = $("#sim-err");
+  const act = async (fn) => { err.textContent = ""; try { await fn(); } catch (e) { err.textContent = e.message; } };
+  $("#step")?.addEventListener("click", (e) => act(async () => { e.target.disabled = true; e.target.textContent = "Agents are acting…"; await api("POST", `/api/conjure/${id}/step`, {}); renderSimulation(id); }));
+  $("#run-all")?.addEventListener("click", (e) => act(async () => {
+    if (simRunning) return;
+    simRunning = true;
+    e.target.textContent = "Running… (stops if you leave)";
+    try {
+      let cur = s;
+      while (cur.status !== "done" && location.hash === `#/conjure/${id}`) {
+        cur = await api("POST", `/api/conjure/${id}/step`, {});
+        toast(`Round ${cur.round} of ${cur.rounds} done`);
+      }
+    } finally { simRunning = false; }
+    if (location.hash === `#/conjure/${id}`) renderSimulation(id);
+  }));
+  $("#report")?.addEventListener("click", (e) => act(async () => { e.target.disabled = true; e.target.textContent = "Investigating…"; await api("POST", `/api/conjure/${id}/report`, {}); renderSimulation(id); }));
+  $("#fork").onclick = () => act(async () => { const f = await api("POST", `/api/conjure/${id}/fork`, {}); toast("Forked. Inject a different event to compare."); location.hash = `#/conjure/${f.id}`; });
+  const inj = $("#inject");
+  if (inj) inj.onsubmit = (e) => { e.preventDefault(); act(async () => { await api("POST", `/api/conjure/${id}/inject`, { text: inj.text.value }); toast("Event added to the next round"); renderSimulation(id); }); };
+  main().querySelectorAll("[data-interview]").forEach((b) => b.onclick = () => interviewModal(id, s.personas.find((p) => p.id === b.dataset.interview)));
+}
+
+function interviewModal(simId, p) {
+  const history = [];
+  modal(`<h2>${esc(p.name)}</h2><p class="faint small">${esc(p.role)} · simulated agent</p><div id="iv-log" class="iv-log"></div>
+    <label class="field">Ask a question<input class="input" name="q" maxlength="1000" placeholder="What would change your mind?"></label>`, async (fd) => {
+    const q = String(fd.get("q") || "").trim();
+    if (!q) throw new Error("Ask something");
+    const { answer } = await api("POST", `/api/conjure/${simId}/interview`, { agentId: p.id, question: q, history });
+    history.push({ q, a: answer });
+    $("#iv-log").innerHTML = history.map((h) => `<p><b>You:</b> ${esc(h.q)}</p><p>${esc(h.a)}</p>`).join("");
+    $("#modal-form").q.value = "";
+    throw new Error(""); // keep the dialog open for the next question
+  });
+  $("#m-ok").textContent = "Ask";
 }

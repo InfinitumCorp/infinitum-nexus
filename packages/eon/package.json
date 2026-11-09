@@ -1,0 +1,21 @@
+{
+  "name": "@infinitum/eon",
+  "version": "0.1.0",
+  "description": "E(O)N AI wearable: pairing, encrypted voice/text frames, on-device intents, aggregate-only usage.",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "typecheck": "tsc -p . --noEmit",
+    "test": "node --test --experimental-strip-types $(find src -name \"*.test.ts\" 2>/dev/null || true)"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.0",
+    "@types/node": "^22.0.0"
+  },
+  "dependencies": {
+    "@infinitum/lbrnth-client": "workspace:*"
+  }
+}

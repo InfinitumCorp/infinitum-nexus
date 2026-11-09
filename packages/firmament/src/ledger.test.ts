@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync } from "node:fs";
+import { readFile, appendFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -117,8 +118,25 @@ describe("Firmament ledger", () => {
     assert.deepEqual(await second.verify(), { ok: true, length: 3 });
   });
 
+  it("drops a torn last line so the chain still opens", async () => {
+    const path = join(mkdtempSync(join(tmpdir(), "firmament-")), "ledger.jsonl");
+    const signer = generateSigner();
+    const first = new Ledger(new FileStore(path));
+    await first.append(grant("cid:alex"), signer);
+    await first.append(grant("cid:sam"), signer);
+    await appendFile(path, "{\"seq\":2,\"torn\":");
+
+    const second = new Ledger(new FileStore(path));
+    assert.deepEqual(await second.verify(), { ok: true, length: 2 });
+    const onDisk = await readFile(path, "utf8");
+    assert.equal(onDisk.endsWith("\n"), true);
+    assert.equal(onDisk.includes("torn"), false);
+    await second.append(grant("cid:lee"), signer);
+    assert.deepEqual(await second.verify(), { ok: true, length: 3 });
+  });
+
   it("records private data as a commitment, not the data itself", () => {
-    const secret = { email: "alex@cumulusmail.cloud", phone: "+1 202 555 0100" };
+    const secret = { email: "alex@cumuluscloud.app", phone: "+1 202 555 0100" };
     const { digest, salt } = commit(secret);
     assert.ok(!(digest).includes("alex"));
     assert.equal(verifyCommitment(secret, salt, digest), true);

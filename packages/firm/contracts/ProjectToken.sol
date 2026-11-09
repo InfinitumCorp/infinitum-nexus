@@ -2,7 +2,7 @@
 pragma solidity ^0.8.20;
 
 /**
- * Project-specific token (HRVST, CNDT, SPCTR, SCLV).
+ * Project-specific token (HRVST, ARCT, SPCTR, SCLV).
  * Same shape as FirmToken; name/symbol set at deploy.
  */
 contract ProjectToken {

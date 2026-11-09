@@ -1,6 +1,13 @@
-import type { LicenseSale } from "./types.ts";
+import type { LicenseSale, ProductId } from "./types.ts";
 
-/** One owner's share of a sale. 85% by default, paid in USDC, $CMLS, or a product token. */
+export const DEFAULT_REV_SHARE_PCT = 85;
+
+/** Contributor share by product. FABRIC follows infinitum-revenue catalog.ts (contributorShareBps 7000). */
+export const PRODUCT_REV_SHARE_PCT: Partial<Record<ProductId, number>> = {
+  fabric: 70,
+};
+
+/** One owner's share of a sale (PRODUCT_REV_SHARE_PCT; default 85%, FABRIC 70%), paid in USDC, $CMLS, or a product token. */
 export interface Payout {
   saleId: string;
   cid: string;
@@ -11,7 +18,7 @@ export interface Payout {
 
 /**
  * Revenue share calculator and payout tracker.
- * Default: 85% to data owner (user), 15% to platform.
+ * Contributor share per product (PRODUCT_REV_SHARE_PCT; default 85%, FABRIC 70%).
  */
 export class RevShareEngine {
   private payouts: Payout[] = [];
@@ -24,6 +31,13 @@ export class RevShareEngine {
       amountUsd: sale.userShareUsd,
       paid: false,
     });
+    this.changed?.();
+  }
+
+  drop(saleId: string): void {
+    const next = this.payouts.filter((p) => p.saleId !== saleId);
+    if (next.length === this.payouts.length) return;
+    this.payouts = next;
     this.changed?.();
   }
 

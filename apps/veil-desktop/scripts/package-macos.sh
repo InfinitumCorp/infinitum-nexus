@@ -1,15 +1,22 @@
 #!/usr/bin/env bash
-# Wraps the unsigned darwin binaries in .app bundles.
-# A mountable DMG needs hdiutil, which is macOS-only. This script records that
-# and writes a zip of the .app instead of a fake disk image.
+# Wraps the unsigned darwin binaries in .app bundles and reproducible archives.
+# A DMG needs hdiutil and is not hashed: hdiutil is not bit-reproducible here.
 set -euo pipefail
 src="${1:?darwin directory}"
 dest="${2:?artifact directory}"
+root="$(cd "$(dirname "$0")/.." && pwd)"
+repo="$(cd "$root/../.." && pwd)"
+archive="$repo/apps/veil/scripts/archive.js"
+if [[ -z "${SOURCE_DATE_EPOCH:-}" ]]; then
+  echo "SOURCE_DATE_EPOCH is required" >&2
+  exit 1
+fi
 
 make_app() {
   local arch="$1"
   local bin="$2"
-  local app="$dest/VEILDesktop-${arch}-utun.app"
+  local name="VEILDesktop-${arch}-utun.app"
+  local app="$dest/$name"
   mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
   cp "$bin" "$app/Contents/MacOS/veil-desktop"
   chmod 755 "$app/Contents/MacOS/veil-desktop"
@@ -30,14 +37,15 @@ make_app() {
 </dict>
 </plist>
 EOF
+  node "$archive" pack --base "$dest" --out "$dest/VEILDesktop-${arch}-unsigned-app.zip" --format zip --epoch "$SOURCE_DATE_EPOCH" -- "$name"
+  node "$archive" pack --base "$dest" --out "$dest/VEILDesktop-${arch}-unsigned-app.tar" --format tar --epoch "$SOURCE_DATE_EPOCH" -- "$name"
   if command -v hdiutil >/dev/null 2>&1; then
     hdiutil create -volname "VEIL Desktop" -srcfolder "$app" -ov -format UDZO "$dest/VEILDesktop-${arch}-unsigned.dmg"
   fi
-  (cd "$dest" && zip -qr "VEILDesktop-${arch}-unsigned-app.zip" "VEILDesktop-${arch}-utun.app")
 }
 
 make_app amd64 "$src/veil-desktop-amd64"
 make_app arm64 "$src/veil-desktop-arm64"
 if ! command -v hdiutil >/dev/null 2>&1; then
-  echo "unsigned DMG was not produced: hdiutil is not available on this machine" | tee "$dest/logs/dmg.log"
+  echo "unsigned DMG was not produced: hdiutil is not available. DMG bytes are excluded from SHA256SUMS." >&2
 fi

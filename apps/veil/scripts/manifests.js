@@ -20,7 +20,7 @@ const icons = {
 function shared(version) {
   return {
     manifest_version: 3,
-    name: "VEIL</>",
+    name: "VEIL</>™",
     version,
     description: extensionDescription(),
     permissions: ["storage", "tabs", "proxy", "privacy", "browsingData", "alarms", "webRequest",

@@ -1,3 +1,4 @@
+import { serveNodeDroneBackend } from "@infinitum/drone-backend";
 import { serveNodeLabyrinth } from "@infinitum/lbrnth";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { readFile } from "node:fs/promises";
@@ -18,7 +19,7 @@ import {
   dataIssues,
 } from "../core/cleaning.ts";
 import { OPEN_STAGES, STAGES } from "../core/model.ts";
-import { askClaude, AiNotConnected, type AiConfig } from "./ai.ts";
+import { askSpectre, aiConnected, AiNotConnected, type AiConfig } from "./ai.ts";
 import { registerGrowthRoutes, type GrowthEvent } from "./growth-routes.ts";
 import { registerConjureRoutes, dealSeed } from "./conjure-routes.ts";
 import { registerEngageRoutes, RawResponse } from "./engage-routes.ts";
@@ -672,7 +673,7 @@ export function createApp(deps: AppDeps) {
       recentActivity: crm.list("activities", ws).sort((a, b) => b.at.localeCompare(a.at)).slice(0, 80).map((a) => ({ at: a.at.slice(0, 10), kind: a.kind, summary: a.summary, company: a.companyId ? names.get(a.companyId) : undefined, inbound: a.inbound, done: a.done })),
     };
     try {
-      return { answer: await askClaude(deps.ai, String(ctx.body.question).slice(0, 2000), context) };
+      return { answer: await askSpectre(deps.ai, String(ctx.body.question).slice(0, 2000), context) };
     } catch (err) {
       if (err instanceof AiNotConnected) throw new HttpError(503, err.message);
       throw new HttpError(502, (err as Error).message);
@@ -974,13 +975,13 @@ export function createApp(deps: AppDeps) {
 
   /** Run one SCALVS.ai agent on the workspace; store its proposals for approval. */
   async function runTeamAgent(ctx: Ctx, agentId: string, prompt: string) {
-    if (!deps.ai.apiKey) throw new HttpError(503, new AiNotConnected().message);
+    if (!aiConnected(deps.ai)) throw new HttpError(503, new AiNotConnected().message);
     const ws = ctx.user!.workspace;
     const def = agentDefinition(agentId, agentCtx(ctx), crm.now().toISOString().slice(0, 10));
     if (!def) throw new HttpError(404, "No such agent");
     let result;
     try {
-      result = await runLlmAgent({ apiKey: deps.ai.apiKey, model: deps.ai.model, fetchImpl: deps.ai.fetchImpl, newId: newProposalId }, def, prompt);
+      result = await runLlmAgent({ router: deps.ai.router, newId: newProposalId }, def, prompt);
     } catch (err) {
       if (err instanceof LlmError) throw new HttpError(502, err.status === 429 ? "The AI is busy right now. Please try again in a minute." : "The AI service couldn't complete this run. Please try again.");
       throw err;
@@ -1000,7 +1001,7 @@ export function createApp(deps: AppDeps) {
   }
 
   route("GET", "/api/agents", (ctx) => ({
-    aiConnected: Boolean(deps.ai.apiKey),
+    aiConnected: aiConnected(deps.ai),
     agents: AGENT_IDS.map((id) => ({ id, name: AGENTS[id].name, role: AGENTS[id].role, starters: AGENTS[id].starters, canPropose: AGENTS[id].propose })),
     pending: crm.list("proposals", ctx.user!.workspace).filter((p) => p.status === "pending").length,
   }));
@@ -1144,6 +1145,7 @@ export function createApp(deps: AppDeps) {
     }
     try {
       if (url.pathname === "/api/labyrinth") return await serveNodeLabyrinth(req, res, deps.suite?.labyrinth, parseCookies(req.headers.cookie)[COOKIE], deps.onChange);
+      if (url.pathname.startsWith("/api/drones/")) return await serveNodeDroneBackend(req, res, deps.suite?.labyrinth, deps.origin);
       if (url.pathname.startsWith("/api/veil/")) return await serveNodeVeil(req, res, veilControl, deps.origin);
       if (!url.pathname.startsWith("/api/")) {
         if (req.method !== "GET" && req.method !== "HEAD") throw new HttpError(405, "Method not allowed");

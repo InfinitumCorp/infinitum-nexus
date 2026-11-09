@@ -4,6 +4,9 @@ node_modules
 dist
 **/dist
 data
+artifacts
 .env
 .env.*
+**/.env
+**/.env.*
 *.key

@@ -15,7 +15,7 @@ const sourceArgs = ["--experimental-strip-types", "src/server.ts"];
 
 function baseEnv(overrides: Record<string, string | undefined> = {}): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env, PORT: "0" };
-  for (const key of ["SCALVS_ORIGIN", "SCALVS_AUDIENCE", "ANTHROPIC_API_KEY", "ANTHROPIC_MODEL"]) delete env[key];
+  for (const key of ["SCALVS_ORIGIN", "SCALVS_AUDIENCE", "ANTHROPIC_API_KEY", "ANTHROPIC_MODEL", "OMNIROUTE_API_KEY", "OMNIROUTE_BASE_URL", "AI_BASE_URL"]) delete env[key];
   for (const [key, value] of Object.entries(overrides)) {
     if (value === undefined) delete env[key];
     else env[key] = value;

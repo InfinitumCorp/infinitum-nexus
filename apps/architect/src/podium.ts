@@ -1,7 +1,9 @@
 /**
  * Minimal Architect Podium: a single HTML page that lets a user
  * submit a Score intent and see the performance result.
- * Uses the shared Infinitum app shell (packages/ui/app-shell.css).
+ * In production this would be a real UI; this is a self-contained scaffold.
+ * Uses the shared app shell (packages/ui/app-shell.css): Helvetica Neue,
+ * white palette, and the :\ARCHITECT\™ wordmark.
  */
 /** The shared app shell stylesheet, served at /app-shell.css. */
 export { appShellCss } from "./app-shell-css.ts";
@@ -11,7 +13,7 @@ export const podiumHtml = `<!DOCTYPE html>
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>:\\ARCHITECT\\ Podium</title>
+  <title>:\\ARCHITECT\\™ Podium</title>
   <link rel="stylesheet" href="/app-shell.css" />
   <style>
     #intent { min-height: 8rem; }
@@ -44,12 +46,12 @@ export const podiumHtml = `<!DOCTYPE html>
     <pre id="out"></pre>
   </main>
   <script>
-    // Social sign-in (shared Cumulus://ID). Buttons appear when providers are configured on the CID origin.
+    // Social sign-in (shared Cumulus://ID™). Buttons appear when providers are configured on the CID origin.
     const CID_ORIGIN = window.CID_ORIGIN || "http://localhost:3000";
     fetch(CID_ORIGIN + "/api/auth/providers").then(r => r.json()).then(providers => {
       const el = document.getElementById("social");
       if (!providers.length) return;
-      el.innerHTML = "<span class=\\"muted small\\">Sign in</span>" + providers.map(p =>
+      el.innerHTML = "<strong>Sign in:</strong>" + providers.map(p =>
         \`<a class="btn small" href="\${CID_ORIGIN}/api/auth/oauth/\${p.id}/start">Continue with \${p.label}</a>\`
       ).join("");
     }).catch(() => {});

@@ -51,3 +51,9 @@ jobs:
           name: labyrinth-security
           path: ${{ runner.temp }}/labyrinth-security
           if-no-files-found: error
+
+      - name: Build Conductor image
+        run: docker build -f apps/cndctr/Dockerfile -t cndctr:ci .
+
+      - name: Smoke test Conductor
+        run: bash apps/cndctr/scripts/smoke.sh

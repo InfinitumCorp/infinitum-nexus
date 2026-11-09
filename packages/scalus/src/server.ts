@@ -4,8 +4,8 @@
  *   PORT              listen port, default 3020. 0 lets the operating system choose.
  *   SCALVS_ORIGIN     public origin, default https://scalvs.app
  *   SCALVS_AUDIENCE   Cumulus ID token audience, default scalvs
- *   ANTHROPIC_API_KEY enables POST /v1/llm/run. The request body cannot set it.
- *   ANTHROPIC_MODEL   model for /v1/llm/run, default claude-sonnet-4-5
+ *   OMNIROUTE_BASE_URL or OMNIROUTE_API_KEY enables POST /v1/llm/run.
+ *   The request body cannot choose the model host. See packages/ai.
  *
  *   Every route except GET /health requires Authorization: Bearer <Cumulus ID JWT>.
  *   The token issuer is https://id.cumuluscloud.app/realms/cumulus. Signing keys
@@ -30,8 +30,6 @@ const config = readConfig();
 const server = createScalvsServer({
   origin: config.origin,
   audience: config.audience,
-  apiKey: process.env.ANTHROPIC_API_KEY,
-  model: process.env.ANTHROPIC_MODEL,
 });
 server.requestTimeout = 30_000;
 server.headersTimeout = 10_000;

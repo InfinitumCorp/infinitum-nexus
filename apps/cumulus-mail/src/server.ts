@@ -7,7 +7,8 @@ import { labyrinthFromEnvironment } from "@infinitum/lbrnth";
  *   MAIL_ORIGIN      public origin (passkeys are bound to it), default http://localhost:PORT
  *                    Production is https://mail.cumuluscloud.app (CUMULUS_MAIL_ORIGIN).
  *   MAIL_DATA_DIR    default ./data
- *   XAI_API_KEY      turns on SCALVS briefs
+ *   OMNIROUTE_API_KEY turns on SCALVS briefs and Clean suggestions on open-weight models
+ *                    (backup hosts: packages/ai/src/env.ts)
  *   CUMULUS_MAIL_MASTER_KEY  base64 32-byte Cumulus Tunnel master key (otherwise data/tunnel-master.key)
  *   Social sign-in variables, as in +SPCTR (GOOGLE_CLIENT_ID, ...). Callback:
  *   {MAIL_ORIGIN}/api/auth/oauth/{provider}/callback

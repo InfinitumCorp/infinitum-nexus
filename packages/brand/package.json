@@ -1,0 +1,22 @@
+{
+  "name": "@infinitum/brand",
+  "version": "0.1.0",
+  "description": "Infinitum Corporation® brand: Helvetica Neue type, white palette and product wordmarks with ™, matching infinitum-corporation.vercel.app.",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=22.18"
+  },
+  "exports": {
+    ".": "./src/wordmarks.ts",
+    "./brand.css": "./brand.css"
+  },
+  "scripts": {
+    "typecheck": "tsc -p . --noEmit",
+    "test": "node --test --experimental-strip-types src/wordmarks.test.ts"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.0",
+    "@types/node": "^22.0.0"
+  }
+}

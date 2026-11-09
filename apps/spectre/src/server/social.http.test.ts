@@ -34,7 +34,7 @@ describe("+SPCTR social sign-in over HTTP", () => {
       social: { providers: { github: { clientId: "gh-client", clientSecret: "gh-secret" } }, fetchImpl: github },
     });
     const crm = new SpectreCRM({ ledger, signer });
-    const app = createApp({ cid, crm, ai: { model: "m" }, publicDir: join(here, "../../public"), secureCookies: false, origin: "https://spectre.example" });
+    const app = createApp({ cid, crm, ai: {}, publicDir: join(here, "../../public"), secureCookies: false, origin: "https://spectre.example" });
     server = app.server();
     await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
     base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;

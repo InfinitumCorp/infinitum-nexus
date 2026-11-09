@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CNDCTR · Conductor</title>
+  <meta name="description" content="CNDCTR, Conductor by Infinitum Corporation®. Turn an intent into a verified performance.">
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <header>
+    <p class="mark">CNDCTR</p>
+    <h1>Conductor</h1>
+    <p class="brand">Infinitum Corporation®</p>
+  </header>
+  <main>
+    <p id="error" class="error" role="alert" hidden></p>
+    <section id="signed-out">
+      <p>Write an intent and Conductor plans a score, runs it, and records the performance. Sign in with your Cumulus ID. Rehearsal is the default.</p>
+      <a id="sign-in" class="button" href="/api/auth/login">Sign in with Cumulus ID</a>
+    </section>
+    <section id="app" hidden>
+      <div class="who-row">
+        <p>Signed in as <strong id="who"></strong></p>
+        <button id="logout" type="button">Sign out</button>
+      </div>
+      <form id="perform-form">
+        <label for="intent">Intent</label>
+        <textarea id="intent" name="intent" maxlength="16000" required placeholder="Summarize the launch and list the open questions"></textarea>
+        <label for="autonomy">Autonomy</label>
+        <select id="autonomy" name="autonomy">
+          <option value="rehearsal" selected>Rehearsal</option>
+          <option value="accompaniment">Accompaniment</option>
+          <option value="autopilot">Autopilot</option>
+        </select>
+        <button id="perform" type="submit">Perform</button>
+      </form>
+      <pre id="out" aria-live="polite"></pre>
+    </section>
+  </main>
+  <footer>
+    <p>CNDCTR is Conductor, formerly Architect. VEIL Ask posts to <code>/api/perform</code>.</p>
+    <p>Infinitum Corporation®</p>
+  </footer>
+  <noscript>Sign in still works from the link above. Performing a score needs JavaScript.</noscript>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

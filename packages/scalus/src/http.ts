@@ -26,6 +26,7 @@ import { fileURLToPath } from "node:url";
 import { runAgent, type Agent, type Tool } from "./agent.ts";
 import { runAndRecord } from "./architect.ts";
 import { createCumulusAuth, isKeysUnavailable, type CumulusAuth } from "./cumulus-auth.ts";
+import { sharedRouter } from "@infinitum/ai";
 import { LlmError, runLlmAgent, type LlmTool } from "./llm.ts";
 import { FirmamentVault } from "./memory-firmament.ts";
 import { Team } from "./team.ts";
@@ -57,9 +58,6 @@ interface SavedTeam {
 export interface ScalvsServerOptions {
   origin: string;
   vault?: FirmamentVault;
-  /** Enables POST /v1/llm/run. Never accepted from the request body. */
-  apiKey?: string;
-  model?: string;
   /** Cumulus ID token audience. Default scalvs. */
   audience?: string;
   /** Discovery and JWKS fetch. Tests pass a fake so the issuer is never called. */
@@ -80,14 +78,12 @@ class HttpError extends Error {
 export function createScalvsServer(options: ScalvsServerOptions) {
   const vault = options.vault ?? new FirmamentVault();
   const origin = options.origin;
-  const apiKey = options.apiKey?.trim() || undefined;
-  const model = options.model?.trim() || "claude-sonnet-4-5";
   const auth = createCumulusAuth({ audience: options.audience, fetchImpl: options.fetchImpl, now: options.now });
   const agents = new Map<string, SavedAgent>();
   const teams = new Map<string, SavedTeam>();
 
   return createServer((req, res) => {
-    void handle(req, res, { origin, vault, apiKey, model, auth, agents, teams }).catch((err: unknown) => {
+    void handle(req, res, { origin, vault, auth, agents, teams }).catch((err: unknown) => {
       if (!res.headersSent) send(res, 500, { error: "internal error" }, origin);
       console.error(JSON.stringify({ event: "error", message: err instanceof Error ? err.message : "error" }));
     });
@@ -100,8 +96,6 @@ async function handle(
   deps: {
     origin: string;
     vault: FirmamentVault;
-    apiKey?: string;
-    model: string;
     auth: CumulusAuth;
     agents: Map<string, SavedAgent>;
     teams: Map<string, SavedTeam>;
@@ -246,11 +240,12 @@ async function handle(
 
     if (url.pathname === "/v1/llm/run") {
       if (req.method !== "POST") throw new HttpError(405, "method not allowed", { allow: "POST" });
-      if (!deps.apiKey) throw new HttpError(503, "ANTHROPIC_API_KEY is not set");
+      const router = sharedRouter();
+      if (!router.connected) throw new HttpError(503, "Set OMNIROUTE_BASE_URL or OMNIROUTE_API_KEY to turn on SCALVS.");
       const body = asRecord(await readJson(req));
       try {
         const result = await runLlmAgent(
-          { apiKey: deps.apiKey, model: deps.model, maxSteps: readMaxSteps(body.maxSteps) },
+          { router, maxSteps: readMaxSteps(body.maxSteps) },
           { system: requireText(body.system, "system"), tools: llmTools(body.tools) },
           requireText(body.prompt, "prompt"),
         );

@@ -1,0 +1,26 @@
+{
+  "name": "@infinitum/cndctr",
+  "version": "0.1.0",
+  "description": "CNDCTR (Conductor): standalone server and web UI for the former Architect product. Infinitum Corporation®.",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "start": "node dist/server.js",
+    "dev": "node --experimental-strip-types src/server.ts",
+    "typecheck": "tsc -p . --noEmit",
+    "test": "node --test --experimental-strip-types $(find src -name \"*.test.ts\" 2>/dev/null || true)"
+  },
+  "dependencies": {
+    "@infinitum/architect": "workspace:*",
+    "@infinitum/firmament": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "esbuild": "^0.25.11",
+    "typescript": "^5.9.0"
+  }
+}

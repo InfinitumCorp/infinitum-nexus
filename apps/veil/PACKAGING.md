@@ -18,8 +18,17 @@ node scripts/package.js
 
 This writes:
 
-- `dist/chrome/` and `dist/veil-chrome.zip`
-- `dist/firefox/` and `dist/veil-firefox.zip`
+- `dist/chrome/` and `dist/veil-chrome.zip`, plus `dist/veil-chrome.tar`
+- `dist/firefox/` and `dist/veil-firefox.zip`, plus `dist/veil-firefox.tar`
+- `dist/BUILDINFO` and `dist/SHA256SUMS`
+
+The packager pins Node.js in `scripts/toolchain.js`. Archive timestamps come from `SOURCE_DATE_EPOCH`, or from the git commit time when that variable is unset. Zip and tar entries are sorted by name. The archives do not store a host user, a host path, or the current clock. `dist/SHA256SUMS` is a `sha256sum` manifest.
+
+```sh
+bash scripts/repro-check.sh
+```
+
+That packages twice and fails if the manifests or the bytes differ.
 
 Firefox uses `browser.proxy` (per-request SOCKS authentication and remote DNS), `webRequestBlocking`, and the extension id `veil@infinitum.corporation` (strict minimum 128). Chrome uses `chrome.proxy` with SOCKS5 and `webRequestAuthProvider` for the isolation credentials. The zips contain the extension sources, popup, sidebar, and icons. They do not contain the control server, tests, or a Tor executable.
 

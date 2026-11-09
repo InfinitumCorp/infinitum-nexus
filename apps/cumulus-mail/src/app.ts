@@ -1,3 +1,4 @@
+import { AiError, sharedRouter, type AiRouter } from "@infinitum/ai";
 import { serveNodeLabyrinth } from "@infinitum/lbrnth";
 /**
  * Cumulus://Mail HTTP app. Sign-in is Cumulus://ID; every request is scoped to the signed-in CID,
@@ -34,12 +35,14 @@ export interface MailAppDeps {
   /** Parent domain, for example .cumuluscloud.app. Omit on localhost. */
   cookieDomain?: string;
   onChange?: () => void;
+  /** Open-model router for SCALVS; defaults to the shared router built from the environment. */
+  ai?: AiRouter;
   /** Hosted mode: wraps each API request (sync, run, save). See src/vercel.ts. */
   transaction?: <T>(fn: () => Promise<T>) => Promise<T>;
   /** Serverless hosts can't keep a timer running; they call sendDue from a cron route instead. */
   noTimers?: boolean;
-  /** SCALVS briefs; defaults to xAI when XAI_API_KEY is set. */
-  /** SCALVS Clean suggestions; defaults to the SCALVS agent on Claude when ANTHROPIC_API_KEY is set, else the rules. */
+  /** SCALVS briefs; default to the open-model router. */
+  /** SCALVS Clean suggestions; default to the SCALVS agent when a model host is configured, else the rules. */
   cleanAgent?: CleanAgent;
   scalvs?: (mode: "summary" | "draft", owner: string, subject: string, text: string) => Promise<{ ok: true; text: string } | { ok: false; error: string }>;
   /** Attachment contents (R2 on Workers). Without it, attaching files is turned off. */
@@ -126,38 +129,31 @@ const files = (v: unknown) => (Array.isArray(v) ? v : []).slice(0, 10)
   }))
   .filter((f) => f.name && Number.isFinite(f.size) && f.size >= 0 && f.size <= MAX_FILE_BYTES);
 
-async function xaiScalvs(mode: "summary" | "draft", owner: string, subject: string, text: string) {
-  const apiKey = process.env.XAI_API_KEY;
-  if (!apiKey) return { ok: false as const, error: "Set XAI_API_KEY to turn on SCALVS." };
-  const system =
-    mode === "summary"
-      ? "You are SCALVS inside Cumulus://Mail. Three short lines of what matters, then one line that starts with Action:. Plain text. No invented facts."
-      : `You are SCALVS drafting a reply for ${owner}. Reply body only. No subject line. No invented commitments.`;
-  const response = await fetch("https://api.x.ai/v1/chat/completions", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-    body: JSON.stringify({
-      model: "grok-4.5",
-      max_tokens: 220,
-      temperature: 0.3,
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: `Subject: ${subject.slice(0, 200)}\n\n${text.slice(0, 6000)}` },
-      ],
-    }),
-  });
-  if (!response.ok) return { ok: false as const, error: `SCALVS could not read this thread (${response.status}).` };
-  const payload = (await response.json()) as { choices?: { message?: { content?: string } }[] };
-  const reply = payload.choices?.[0]?.message?.content?.trim() ?? "";
-  if (!reply) return { ok: false as const, error: "SCALVS returned an empty brief." };
-  return { ok: true as const, text: reply };
+/** SCALVS briefs and drafts on open-weight models (OmniRoute first, automatic fallback). */
+function routerScalvs(router: AiRouter) {
+  return async (mode: "summary" | "draft", owner: string, subject: string, text: string) => {
+    if (!router.connected) return { ok: false as const, error: "Set OMNIROUTE_API_KEY to turn on SCALVS." };
+    const system =
+      mode === "summary"
+        ? "You are SCALVS inside Cumulus://Mail. Three short lines of what matters, then one line that starts with Action:. Plain text. No invented facts."
+        : `You are SCALVS drafting a reply for ${owner}. Reply body only. No subject line. No invented commitments.`;
+    try {
+      const reply = (await router.complete(system, `Subject: ${subject.slice(0, 200)}\n\n${text.slice(0, 6000)}`, { maxTokens: 400, tier: "fast", temperature: 0.3 })).trim();
+      if (!reply) return { ok: false as const, error: "SCALVS returned an empty brief." };
+      return { ok: true as const, text: reply };
+    } catch (err) {
+      const status = err instanceof AiError ? err.status : undefined;
+      return { ok: false as const, error: `SCALVS could not read this thread${status ? ` (${status})` : ""}.` };
+    }
+  };
 }
 
 export function createMailApp(deps: MailAppDeps) {
   const { suite } = deps;
   const { cid, mail } = suite;
-  const scalvs = deps.scalvs ?? xaiScalvs;
-  const cleanAgent = deps.cleanAgent ?? scalvsCleanAgent({ apiKey: process.env.ANTHROPIC_API_KEY, model: process.env.SCALVS_MODEL || "claude-opus-5-5" });
+  const ai = deps.ai ?? sharedRouter();
+  const scalvs = deps.scalvs ?? routerScalvs(ai);
+  const cleanAgent = deps.cleanAgent ?? scalvsCleanAgent({ router: ai });
   const suggestions = new Map<string, { list: CleanSuggestion[]; note: string }>(); // per CID, in memory until approved
   const routes: { method: string; pattern: RegExp; keys: string[]; auth: boolean; optionalAuth: boolean; csrf: boolean; handler: Handler }[] = [];
   const route = (method: string, path: string, handler: Handler, auth = true, opts: { csrf?: boolean; optionalAuth?: boolean } = {}) => {

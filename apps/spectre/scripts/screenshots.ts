@@ -29,7 +29,7 @@ const cid = new CidService({
   social: { providers: { google: display, apple: { clientId: "screenshot" }, microsoft: display, github: display, chatgpt: { ...display, issuer: "https://issuer.example" } } },
 });
 const crm = new SpectreCRM({ ledger, signer });
-const app = createApp({ cid, crm, ai: { model: "claude-sonnet-5-5" }, publicDir: join(here, "../public"), secureCookies: false, origin: "http://localhost" });
+const app = createApp({ cid, crm, ai: {}, publicDir: join(here, "../public"), secureCookies: false, origin: "http://localhost" });
 
 // Fictional sample workspace.
 const me = await cid.createAccount({ username: "alex" });

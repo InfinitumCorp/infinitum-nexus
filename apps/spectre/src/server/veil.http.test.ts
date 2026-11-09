@@ -30,7 +30,7 @@ describe("VEIL Tor bridges on the Cumulus ID host", () => {
     const app = createApp({
       cid,
       crm: new SpectreCRM({ ledger, signer }),
-      ai: { model: "test-model" },
+      ai: {},
       publicDir: join(here, "../../public"),
       secureCookies: false,
       origin: ORIGIN,

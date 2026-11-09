@@ -2,6 +2,8 @@
 
 Shared foundation for every Infinitum product, by Infinitum Corporation®.
 
+**Repos:** [product delivery](PRODUCT-DELIVERY.md) · [deploy](DEPLOY.md) · [GitHub standards](docs/github/ORG-STANDARDS.md) · [cleanup audit](docs/github/CLEANUP-AUDIT.md) · [security](SECURITY.md)
+
 | Package | What it is |
 |---|---|
 | `packages/firmament` | Firmament Network core: append-only, hash-chained, Ed25519-signed ledger for identity, provenance, licensing, payments and audit. Merkle roots for anchoring to Base. |

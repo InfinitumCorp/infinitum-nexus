@@ -2,9 +2,27 @@ name: VEIL
 
 on:
   pull_request:
+    paths:
+      - "apps/veil/**"
+      - "apps/veil-desktop/**"
+      - "apps/veil-web/**"
+      - "apps/veil-android/**"
+      - "apps/veil-browser-android/**"
+      - "apps/spectre/src/server/veil.http.test.ts"
+      - ".github/workflows/veil.yml"
+      - "pnpm-lock.yaml"
   push:
     branches:
-      - cursor/veil-release-main-ea5d
+      - main
+    paths:
+      - "apps/veil/**"
+      - "apps/veil-desktop/**"
+      - "apps/veil-web/**"
+      - "apps/veil-android/**"
+      - "apps/veil-browser-android/**"
+      - "apps/spectre/src/server/veil.http.test.ts"
+      - ".github/workflows/veil.yml"
+      - "pnpm-lock.yaml"
 
 jobs:
   extension:

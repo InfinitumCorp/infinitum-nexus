@@ -1,0 +1,43 @@
+name: Feature request
+description: Propose work for a product or shared package
+title: "feat: "
+labels: ["enhancement"]
+body:
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Cumulus://ID / CID
+        - Cumulus://Mail
+        - Cumulus://Cloud
+        - VEIL
+        - +SPCTR / Spectre
+        - :\ARCHITECT\
+        - FABRIC
+        - Firmament / FIRM
+        - Labyrinth (LBRNTH)
+        - SCALVS / METATRON
+        - Shared package / monorepo / CI
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: Who is blocked and what they need
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: Concrete change in this monorepo
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance
+      description: How we know it is done

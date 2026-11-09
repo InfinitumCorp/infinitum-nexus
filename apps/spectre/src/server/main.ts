@@ -1,3 +1,4 @@
+import {conjureFromEnvironment} from "@infinitum/conjure-backend";
 import { labyrinthFromEnvironment } from "@infinitum/lbrnth";
 import { existsSync, readFileSync, writeFileSync, mkdirSync, chmodSync } from "node:fs";
 import { join, dirname } from "node:path";
@@ -6,6 +7,7 @@ import { Ledger, FileStore, generateSigner, signerFromPrivateKey } from "@infini
 import { socialFromEnv } from "@infinitum/cid";
 import { createCumulus, emptyCumulusStores, loadCumulusStores, loadOrCreateMasterKey, saveCumulusStores } from "@infinitum/cumulus";
 import { SpectreCRM, emptyStore } from "../core/crm.ts";
+import { veilFromEnv } from "@infinitum/veil/server";
 import { createApp } from "./app.ts";
 import { aiConfigFromEnv } from "./ai.ts";
 import { providersFromEnv } from "../core/messaging.ts";
@@ -80,6 +82,7 @@ const ai = aiConfigFromEnv();
 const app = createApp({
   cid,
   suite,
+  predictionService: conjureFromEnvironment(suite.labyrinth, process.env),
   crm,
   ai,
   publicDir: join(here, "../../public"),
@@ -88,6 +91,7 @@ const app = createApp({
   providers: providersFromEnv(),
   cronSecret: process.env.CRON_SECRET,
   twilioAuthToken: process.env.TWILIO_AUTH_TOKEN,
+  veil: veilFromEnv(process.env),
   onChange: () => {
     saveCumulusStores(dataDir, cumulusStores, { tunnel: suite.tunnel });
     saveSnapshot(join(dataDir, "spectre.json"), spectreStore);

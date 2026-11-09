@@ -1,24 +1,29 @@
 {
   "manifest_version": 3,
   "name": "VEIL</>",
-  "version": "0.5.0",
-  "description": "Tor-first secure browser sidebar: anonymous and signed-in workspaces, Cumulus://ID, Mail and the Infinitum app launcher, and $VEIL rewards.",
-  "minimum_chrome_version": "116",
+  "version": "0.8.0",
+  "description": "VEIL VPN and optional Tor for this browser from Infinitum Corporation®. It is not a device-wide VPN.",
   "permissions": [
-    "sidePanel",
     "storage",
     "tabs",
     "proxy",
     "privacy",
     "browsingData",
-    "alarms"
+    "alarms",
+    "webRequest",
+    "sidePanel",
+    "webRequestAuthProvider"
   ],
   "host_permissions": [
     "https://*/*",
     "http://*/*"
   ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'; worker-src 'self'"
+  },
   "action": {
-    "default_title": "Open VEIL sidebar",
+    "default_title": "VEIL Tor",
+    "default_popup": "popup.html",
     "default_icon": {
       "16": "icons/icon-16.png",
       "32": "icons/icon-32.png",
@@ -31,13 +36,6 @@
     "48": "icons/icon-48.png",
     "128": "icons/icon-128.png"
   },
-  "side_panel": {
-    "default_path": "sidebar.html"
-  },
-  "background": {
-    "service_worker": "background.js",
-    "type": "module"
-  },
   "content_scripts": [
     {
       "matches": [
@@ -49,5 +47,13 @@
       ],
       "run_at": "document_idle"
     }
-  ]
+  ],
+  "minimum_chrome_version": "116",
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "side_panel": {
+    "default_path": "sidebar.html"
+  }
 }

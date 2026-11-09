@@ -6,7 +6,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { chromeManifest } from "./manifests.js";
+import { chromeManifest, extensionDescription } from "./manifests.js";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const problems = [];
@@ -30,6 +30,10 @@ for (const path of js) {
 
 const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
 const manifest = JSON.parse(readFileSync(join(root, "manifest.json"), "utf8"));
+const enMessages = JSON.parse(readFileSync(join(root, "_locales/en/messages.json"), "utf8"));
+if (enMessages.ext_description?.message !== extensionDescription()) {
+  problems.push("_locales/en/messages.json ext_description drifted from scripts/manifests.js extensionDescription()");
+}
 if (JSON.stringify(manifest) !== JSON.stringify(chromeManifest(pkg.version))) {
   problems.push("manifest.json drifted from scripts/manifests.js chromeManifest()");
 }

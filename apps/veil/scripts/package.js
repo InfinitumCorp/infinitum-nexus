@@ -6,7 +6,7 @@
  * timestamp is the current git commit time. Node is pinned in toolchain.js.
  */
 import { spawnSync } from "node:child_process";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -59,6 +59,8 @@ export const EXTENSION_FILES = [
   "icons/icon-32.png",
   "icons/icon-48.png",
   "icons/icon-128.png",
+  // manifest.json description per browser language (_locales/<lang>/messages.json).
+  ...readdirSync(join(root, "_locales")).sort().map((lang) => `_locales/${lang}/messages.json`),
 ];
 
 export function packageExtension(source = root, outDir = join(source, "dist"), options = {}) {

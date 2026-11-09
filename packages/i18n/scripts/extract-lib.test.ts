@@ -29,3 +29,8 @@ test("html text and attributes; jsx text", () => {
 test("mergeCatalog prunes vanished text keys but keeps named keys", () => {
   assert.deepEqual(mergeCatalog({ Old: "Old", "nav.home": "Home" }, ["New"]), { "nav.home": "Home", New: "New" });
 });
+
+test("numeric character references decode to the text the page renders", () => {
+  const found = extractFromSource('<footer><span>AI-powered. Blockchain-governed&#8482;.</span><span>&#169; 2026 Infinitum Corporation</span><span>Next &#x2192;</span></footer>', ".html");
+  assert.deepEqual(found.sort(), ["AI-powered. Blockchain-governed™.", "Next →", "© 2026 Infinitum Corporation"].sort());
+});

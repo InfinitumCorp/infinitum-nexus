@@ -36,7 +36,8 @@ export function isUiText(raw: string, lenient = false): boolean {
 
 const renumber = (s: string) => { let i = 0; const map = new Map<string, string>(); return s.replace(/\{(\d+)\}/g, (_m, n) => { if (!map.has(n)) map.set(n, `{${i++}}`); return map.get(n)!; }); };
 const norm = (s: string) => s.replace(/\s+/g, " ").trim();
-const decode = (s: string) => s.replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&middot;/g, "·").replace(/&rarr;/g, "→").replace(/&hellip;/g, "…").replace(/&mdash;/g, "—").replace(/&ndash;/g, "–");
+const decode = (s: string) => s.replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&middot;/g, "·").replace(/&rarr;/g, "→").replace(/&hellip;/g, "…").replace(/&mdash;/g, "—").replace(/&ndash;/g, "–")
+  .replace(/&#(\d+);/g, (_m, d) => String.fromCodePoint(Number(d))).replace(/&#x([0-9a-f]+);/gi, (_m, h) => String.fromCodePoint(parseInt(h, 16)));
 
 /** Split a markup-ish string into visible text segments and UI attribute values. */
 function fromMarkup(text: string, out: Set<string>, htmlExprs: Set<string> = new Set()) {

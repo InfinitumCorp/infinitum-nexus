@@ -7,9 +7,10 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { Ledger, MemoryStore } from "@infinitum/firmament";
 import { perform } from "./executor.ts";
 import { recordEvidence } from "./firmament.ts";
+import { planScore } from "./plan.ts";
 import { podiumHtml } from "./podium.ts";
 import { registerDefaultInstruments } from "./instruments.ts";
-import type { Score, Autonomy } from "./score.ts";
+import type { Autonomy } from "./score.ts";
 import { config, log } from "./config.ts";
 
 const { port: PORT } = config;
@@ -27,27 +28,6 @@ async function readBody(req: IncomingMessage): Promise<any> {
   for await (const c of req) chunks.push(c as Buffer);
   const raw = Buffer.concat(chunks).toString();
   return raw ? JSON.parse(raw) : {};
-}
-
-/** Very simple intent → Score planner (scaffold). */
-function plan(intent: string, autonomy: Autonomy = "rehearsal"): Score {
-  return {
-    id: `score_${Date.now()}`,
-    title: intent.slice(0, 60),
-    intent,
-    autonomy,
-    steps: [
-      {
-        id: "s1",
-        description: `Research: ${intent}`,
-        instrument: "research",
-        input: { query: intent },
-        permissions: [{ resource: "web", actions: ["read"] }],
-      },
-    ],
-    success: "research completed",
-    createdAt: new Date().toISOString(),
-  };
 }
 
 const server = createServer(async (req, res) => {
@@ -68,7 +48,7 @@ const server = createServer(async (req, res) => {
     if (url.pathname === "/api/perform" && req.method === "POST") {
       const body = await readBody(req);
       const autonomy = (body.autonomy as Autonomy) ?? "rehearsal";
-      const score = plan(String(body.intent ?? ""), autonomy);
+      const score = planScore(String(body.intent ?? ""), autonomy);
       const granted = new Set(["web:read"]);
       const allowed = new Set<Autonomy>(body.allowedAutonomy ?? ["rehearsal", "accompaniment", "autopilot"]);
       const performance = await perform(score, granted, allowed);

@@ -28,7 +28,7 @@ describe("METATRON learned model over HTTP", () => {
     const ledger = new Ledger(undefined, { authorizedSigners: [signer.publicKey] });
     const cid = new CidService({ ledger, signer, rpId: "localhost", origins: [ORIGIN] });
     crm = new SpectreCRM({ ledger, signer, clock: () => new Date(clock) });
-    const ai = { model: "test-model", apiKey: undefined, fetchImpl: (async () => new Response("{}")) as typeof fetch };
+    const ai = {};
     const app = createApp({ cid, crm, ai, publicDir: join(here, "../../public"), secureCookies: false, origin: ORIGIN });
     server = app.server();
     await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));

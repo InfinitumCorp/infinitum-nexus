@@ -16,6 +16,7 @@
  * Built for serverless hosts: the simulation is a plain JSON object and advances one round
  * per call, so each request stays short and progress can be shown live.
  */
+import { sharedRouter, type AiRouter, type Tier } from "@infinitum/ai";
 import { runLlmAgent, type LlmConfig, type LlmTool } from "@infinitum/scalus";
 
 /* ---------------- Types ---------------- */
@@ -438,16 +439,13 @@ export async function interview(complete: Complete, sim: Simulation, agentId: st
   )).trim();
 }
 
-/** A Complete function backed by the Claude Messages API. */
-export function claudeComplete(llm: Pick<LlmConfig, "apiKey" | "model" | "fetchImpl">): Complete {
+/** A Complete function backed by the open-model router (OmniRoute first, then open-model hosts). */
+export function routerComplete(router: AiRouter = sharedRouter(), tier?: Tier): Complete {
   return async (system, user, opts) => {
-    const res = await (llm.fetchImpl ?? fetch)("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-api-key": llm.apiKey, "anthropic-version": "2023-06-01" },
-      body: JSON.stringify({ model: llm.model, max_tokens: opts?.maxTokens ?? 2000, system, messages: [{ role: "user", content: user }] }),
-    });
-    if (!res.ok) throw new ConjureError(`Claude API error ${res.status}`);
-    const body = (await res.json()) as { content?: { type: string; text?: string }[] };
-    return (body.content ?? []).filter((b) => b.type === "text").map((b) => b.text).join("");
+    try {
+      return await router.complete(system, user, { maxTokens: opts?.maxTokens ?? 2000, tier });
+    } catch (err) {
+      throw new ConjureError(`AI error: ${(err as Error).message}`);
+    }
   };
 }

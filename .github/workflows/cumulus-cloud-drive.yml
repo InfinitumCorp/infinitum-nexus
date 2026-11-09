@@ -30,7 +30,7 @@ jobs:
       CUMULUS_CLOUD_DATABASE_URL: postgres://cumulus:cumulus@127.0.0.1:5432/cloud
       CUMULUS_CLOUD_REQUIRE_INTEGRATION: "1"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v4
         with:
           version: 10.28.0

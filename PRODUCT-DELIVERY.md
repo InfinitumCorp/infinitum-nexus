@@ -1,8 +1,21 @@
 # Infinitum Product Delivery
 
-Maps every product advertised on https://infinitum-corporation.vercel.app/#products to current evidence in this monorepo, missing capabilities, and concrete next build steps so each product can perform the tasks as advertised.
+Maps every product advertised on https://infinitumcorporation.ai/#products to current evidence in this monorepo, missing capabilities, and concrete next build steps so each product can perform the tasks as advertised.
 
 **Note:** #THRONE is ignored and will not be built or referenced further.
+
+## Live deployments (2026-11-09)
+
+| Product | URL | What is deployed | Source |
+|---|---|---|---|
+| SCALVS.ai | https://scalvs.app | Full web app: agents and CONJURE forecasts on Workers AI (no provider key), rate-limited API | InfinitumCorp/scalvs-ai (Worker `scalvs-ai`), not `packages/scalus` |
+| :\ARCHITECT\ | https://rchtch.app | Public site | InfinitumCorp/architect |
+| Firmament Network / FIRM Wallet | https://firmnetwork.app, https://firmwallet.app | Public sites | InfinitumCorp/firmament-launch |
+| VEIL</> | https://infinitumveil.app | Static site with browser APK and extension downloads | `apps/veil-web` (PR #52) |
+| Cumulus://Cloud | https://cumuluscloud.app | Landing page only, marked in development | InfinitumCorp/cumulus-exchange `landing/` |
+| FABRIC | https://infinitumfabric.app | Landing page only, marked in development | InfinitumCorp/fabric `landing/` |
+
+Each public domain needs a "(public)" Cloudflare Access bypass app; the account-wide "All Workers" Access app gates every Worker otherwise. Pricing and revenue for each product: InfinitumCorp/infinitum-revenue `MONETIZATION.md`.
 
 **Legend:**  
 - **Foundation** — shared packages that every product depends on  

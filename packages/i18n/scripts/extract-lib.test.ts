@@ -4,7 +4,7 @@ import { extractFromSource, isUiText, mergeCatalog } from "./extract-lib.ts";
 
 test("isUiText keeps copy and drops code-ish strings", () => {
   for (const s of ["New task", "Agents", "Interrupted by a page reload.", "{0} plan · {1} credits left", "Describe an outcome…"]) assert.ok(isUiText(s), s);
-  for (const s of ["btn primary sm", "awaiting_approval", "agentIds", "#/command", "./store.js", "GET", "Content-Type", "color: #000;", "https://scalvs.app", "x", "{0}", "application/json"]) assert.ok(!isUiText(s), s);
+  for (const s of ["btn primary sm", "awaiting_approval", "agentIds", "#/command", "./store.js", "GET", "Content-Type", "color: #000;", "https://scalvs.app", "x", "{0}", "application/json", ": null} {shareUrl ? (", ", body: JSON.stringify(", "M12 2L2 7l10 5 10-5-10-5z", "width=device-width, initial-scale=1", "app-main grid gap-4 lg:grid-cols-[320px_1fr]", "text-xs uppercase tracking-[0.16em] text-muted-foreground", "interface ApiError extends Error", "finally", "Bearer {0}", "button[data-plan], button[data-portal]", "10px ui-monospace, Consolas, monospace", "800 15px ui-monospace, Consolas, monospace", "t a backup: if you forget it, restore.", "; else if (!st.session) body =", "(iso ? new Date(iso).toLocaleDateString(undefined,"]) assert.ok(!isUiText(s), s);
 });
 
 test("template literals become placeholders and markup is split", () => {

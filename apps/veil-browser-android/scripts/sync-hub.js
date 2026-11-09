@@ -19,7 +19,9 @@ rmSync(hub, { recursive: true, force: true });
 mkdirSync(`${hub}lib`, { recursive: true });
 mkdirSync(`${hub}icons`, { recursive: true });
 mkdirSync(`${hub}brand`, { recursive: true });
-for (const f of ["index.html", "app.js", "lib/trackers.js", "icons/icon-192.png", "brand/horizontal-white-bg.png"]) {
+mkdirSync(`${hub}i18n`, { recursive: true });
+for (const f of ["index.html", "app.js", "lib/trackers.js", "icons/icon-192.png", "brand/horizontal-white-bg.png",
+  "i18n/i18n.js", "i18n/i18n.css", "i18n/start.js", "i18n/catalogs.js"]) {
   cpSync(`${web}public/${f}`, `${hub}${f}`);
 }
 

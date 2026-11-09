@@ -12,6 +12,12 @@ export function isUiText(raw: string, lenient = false): boolean {
   if (/[;{}]\s*$|=>|\bfunction\b|\breturn\b|===|!==|&&|\|\||\bconst\b|\bimport\b|\bexport\b/.test(s.replace(/\{\d+\}/g, ""))) return false;
   if (/^[\w$.-]+\(.*\)$/.test(s)) return false;                 // call-like
   if (/^\(.*:|^['")\]]|\.replace\(|\/g\b|[a-z]-\{\d+\}/.test(s)) return false; // media queries, regex/code fragments, class-{0}
+  if (/[{}]/.test(s.replace(/\{\d+\}/g, "")) || /\$$|\(\s*$|^[,:]\s/.test(s)) return false; // JSX/template code: {x ? (, `${`, ", body: f("
+  if (/[\w\]]\[[\w-]+[\]=]|(^|\s)[a-z0-9-]+:[a-z[]|\w-\[|^(interface|class|type|enum|finally|Bearer)\b/.test(s)) return false; // tailwind lg:x / tracking-[..], TS keywords, auth headers
+  if (/^[MmLlHhVvCcZz]\s*-?\d/.test(s) && /\d[\s,]+-?\d/.test(s)) return false; // SVG path data
+  if (/^;|^(s|t|ve|re|ll|d|m)\s|\bundefined\b|\bnew [A-Z]\w*\(/.test(s)) return false; // JSX apostrophe fragments ("can't" -> "t ..."), code
+  if (/^(\d{3}\s+)?\d+(\.\d+)?(px|em|rem|pt)\b/.test(s)) return false;  // canvas/CSS font shorthand: 10px ui-monospace, …
+  if (/^[\w-]+=[^\s]+,/.test(s)) return false;                   // meta content: width=device-width, …
   if (/^[a-z][\w-]*:[^\s]/i.test(s) && !/\s/.test(s)) return false; // scheme:thing, key:value
   if (/\b[\w-]+\s*:\s*[^;]+;/.test(s)) return false;            // css declarations
   const words = s.split(/\s+/);

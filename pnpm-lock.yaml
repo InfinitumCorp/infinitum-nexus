@@ -129,6 +129,9 @@ importers:
       '@infinitum/conjure':
         specifier: workspace:*
         version: link:../../packages/conjure
+      '@infinitum/i18n':
+        specifier: workspace:*
+        version: link:../../packages/i18n
       '@infinitum/metatron':
         specifier: workspace:*
         version: link:../../packages/metatron

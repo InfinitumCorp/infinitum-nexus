@@ -13,7 +13,8 @@ import { APPS, badgeText, launcher, parseSummary, resolveOrigins } from "./lib/n
 import { createRouteProxy, detectPlatform } from "./lib/browser-proxy.js";
 import { bypassHostsFor, CHECK_URL, normalizeTorEndpoint, parseTorCheck } from "./lib/proxy.js";
 import { fetchBridges, fetchSession, postConnect, postDisconnect, VeilApiError } from "./lib/veil-api.js";
-import { BLOCKED_HOSTS, blocklistRules, ruleCategory } from "./lib/blocklist.js";
+import { BLOCKED_HOSTS, GEO_RULE_ID, blocklistRules, ruleCategory } from "./lib/blocklist.js";
+import { blocklistWithGeo, bypassForRoute, extraGeoHosts } from "./lib/geo-dat.js";
 import { assessError, assessRedirect, assessUrl, mergeIssues } from "./lib/safety.js";
 import { assessDownload } from "./lib/downloads.js";
 import { generateFor } from "./lib/passgen.js";
@@ -76,7 +77,13 @@ async function connectVeil(serverId) {
   if (route.mode === "tor") await route.disable();
   const o = await origins();
   const grant = await postConnect(o.veil, serverId);
-  await route.enableVeil(grant.server, grant.auth, bypassHostsFor(o));
+  const geo = await get(["geoRoutingEnabled", "geoBypassCategories", "geoSiteBytes"]);
+  let bypass = bypassHostsFor(o);
+  if (geo.geoRoutingEnabled === true) {
+    const extra = extraGeoHosts(storedGeoBytes(geo.geoSiteBytes), geo.geoBypassCategories ?? [], { bypass: true });
+    bypass = bypassForRoute("veil", true, bypass, extra);
+  }
+  await route.enableVeil(grant.server, grant.auth, bypass);
   await rememberRoute();
   const view = routeView((await get(["veilSession"])).veilSession ?? null, null);
   if (JSON.stringify(view).includes(grant.auth.password)) throw new Error("Refused to retain the proxy password");
@@ -335,6 +342,13 @@ async function claimRewards() {
 const PRIVACY_STATEMENT = "Every check runs inside this browser. VEIL doesn't send your pages, searches, passwords, forms or downloads anywhere, keeps no browsing history, and can't see what you do in other apps or browsers.";
 
 const BLOCK_RULE_IDS = blocklistRules().map((r) => r.id);
+
+function storedGeoBytes(value) {
+  if (!value) return null;
+  if (value instanceof Uint8Array) return value;
+  if (Array.isArray(value)) return Uint8Array.from(value);
+  return null;
+}
 /** Per-tab counts and issues. Kept in memory only, never in storage. */
 const tabs = new Map();
 /** Downloads VEIL paused for the user to decide. */
@@ -355,11 +369,17 @@ async function flagTab(tabId) {
 async function installBlocklist() {
   const dnr = chrome.declarativeNetRequest;
   if (!dnr?.updateDynamicRules) return;
-  const { blockingEnabled } = await get(["blockingEnabled"]);
-  const on = blockingEnabled !== false;
+  const stored = await get(["blockingEnabled", "geoRoutingEnabled", "geoBlockCategories", "geoSiteBytes"]);
+  const on = stored.blockingEnabled !== false;
+  const geoOn = stored.geoRoutingEnabled === true;
+  const rules = on ? blocklistWithGeo({
+    enabled: geoOn,
+    geosite: geoOn ? storedGeoBytes(stored.geoSiteBytes) : null,
+    categories: geoOn ? stored.geoBlockCategories ?? [] : [],
+  }) : [];
   await dnr.updateDynamicRules({
-    removeRuleIds: BLOCK_RULE_IDS,
-    addRules: on ? blocklistRules().map(({ category, ...rule }) => rule) : [],
+    removeRuleIds: [...BLOCK_RULE_IDS, GEO_RULE_ID],
+    addRules: rules.map(({ category, ...rule }) => rule),
   });
 }
 
@@ -442,6 +462,7 @@ async function getProtection(m) {
     host: entry?.host ?? "",
     https,
     blockingEnabled: blockingEnabled !== false,
+    geoRoutingEnabled: (await get(["geoRoutingEnabled"])).geoRoutingEnabled === true,
     listSize: BLOCKED_HOSTS.length,
     blocked: counts.blocked,
     byCategory: counts.byCategory,
@@ -498,13 +519,14 @@ function senderHost(sender) {
 // ---------- Lifecycle & messages ----------
 
 chrome.runtime.onInstalled.addListener(async () => {
-  const s = await get(["workspace", "torEnabled", "torPort", "autoClean", "rewardsLedger"]);
+  const s = await get(["workspace", "torEnabled", "torPort", "autoClean", "rewardsLedger", "geoRoutingEnabled"]);
   const defaults = {};
   if (s.workspace === undefined) defaults.workspace = DEFAULT_WORKSPACE;
   if (s.torEnabled === undefined) defaults.torEnabled = false;
   if (s.torPort === undefined) defaults.torPort = 9050;
   if (s.autoClean === undefined) defaults.autoClean = true;
   if (s.rewardsLedger === undefined) defaults.rewardsLedger = emptyLedger();
+  if (s.geoRoutingEnabled === undefined) defaults.geoRoutingEnabled = false;
   await set(defaults);
   await installBlocklist().catch(() => {});
   await chrome.storage.local.remove(["totalVeil", "rewardLog", "firmBalance", "veilStatus", "veilServerId"]);
@@ -554,6 +576,11 @@ const handlers = {
   getProtection: (m) => getProtection(m),
   fixIssue: (m) => fixIssue(m),
   setBlocking: async (m) => { await set({ blockingEnabled: m.enabled !== false }); await installBlocklist(); return { ok: true }; },
+  setGeoRouting: async (m) => {
+    await set({ geoRoutingEnabled: m.enabled === true });
+    await installBlocklist();
+    return { ok: true, geoRoutingEnabled: m.enabled === true };
+  },
   downloadDecision: (m) => downloadDecision(m),
   // Passwords
   listProtected: async () => ({ protected: publicView(await guardEntries()) }),

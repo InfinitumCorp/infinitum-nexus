@@ -13,7 +13,8 @@
     "test": "node --test --experimental-strip-types $(find src -name \"*.test.ts\" 2>/dev/null || true)"
   },
   "dependencies": {
-    "@infinitum/fabric": "workspace:*"
+    "@infinitum/fabric": "workspace:*",
+    "@infinitum/geo-dat": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.9.0",

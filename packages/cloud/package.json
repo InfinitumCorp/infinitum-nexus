@@ -1,7 +1,7 @@
 {
   "name": "@infinitum/cloud",
   "version": "0.1.0",
-  "description": "Cumulus://Cloud Drive: local file storage and Postgres metadata for Infinitum Corporation®.",
+  "description": "Cumulus://Cloud Drive: local file storage and Postgres metadata for Infinitum Corporation\u00ae.",
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
@@ -19,7 +19,8 @@
     "@infinitum/cid": "workspace:*",
     "@infinitum/firmament": "workspace:*",
     "@infinitum/lbrnth-client": "workspace:*",
-    "pg": "^8.16.3"
+    "pg": "^8.16.3",
+    "@infinitum/geo-dat": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.9.0",

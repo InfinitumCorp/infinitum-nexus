@@ -3,6 +3,11 @@ Infinitum Corporation® — VEIL Tor extension
 This directory is original source written for Infinitum Corporation®.
 No Tor source, Tor binary, or GPL-licensed code is copied here.
 
+Optional v2fly geoip.dat (CC-BY-SA-4.0) and geosite.dat (MIT, published as
+dlc.dat) can be fetched by the repository script. They are not stored in git.
+See THIRD_PARTY_NOTICES.md. The geo routing switch is off unless a person
+turns it on.
+
 Tor itself is published by The Tor Project under the 3-clause BSD license:
 https://gitweb.torproject.org/tor.git/tree/LICENSE
 VEIL does not vendor that code. It speaks SOCKS5 to a Tor client the user

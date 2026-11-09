@@ -37,6 +37,8 @@ export const EXTENSION_FILES = [
   "lib/browser-proxy.js",
   "lib/content-pii.js",
   "lib/downloads.js",
+  "lib/geo-dat.js",
+  "lib/geo-decode.js",
   "lib/labyrinth.js",
   "lib/nexus.js",
   "lib/passgen.js",

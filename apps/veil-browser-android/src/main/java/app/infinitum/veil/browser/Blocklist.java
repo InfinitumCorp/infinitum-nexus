@@ -105,4 +105,34 @@ public final class Blocklist {
         for (String b : HOSTS) if (h.equals(b) || h.endsWith("." + b)) return true;
         return false;
     }
+
+    /** Opt-in geosite hosts. They add to HOSTS and never replace it. */
+    public static boolean matchesExtra(String host, java.util.Collection<String> extra) {
+        if (host == null || extra == null) return false;
+        String h = host.toLowerCase(java.util.Locale.ROOT);
+        if (h.endsWith(".")) h = h.substring(0, h.length() - 1);
+        if (h.isEmpty()) return false;
+        for (String raw : extra) {
+            if (raw == null) continue;
+            String b = raw.toLowerCase(java.util.Locale.ROOT);
+            if (b.endsWith(".")) b = b.substring(0, b.length() - 1);
+            if (b.isEmpty()) continue;
+            if (h.equals(b) || h.endsWith("." + b)) return true;
+        }
+        return false;
+    }
+
+    /** Bypass names from an opt-in category. .onion is never returned. */
+    public static java.util.List<String> bypassHosts(java.util.Collection<String> extra) {
+        java.util.ArrayList<String> out = new java.util.ArrayList<>();
+        if (extra == null) return out;
+        for (String raw : extra) {
+            if (raw == null) continue;
+            String b = raw.toLowerCase(java.util.Locale.ROOT);
+            if (b.endsWith(".")) b = b.substring(0, b.length() - 1);
+            if (b.isEmpty() || b.equals("onion") || b.endsWith(".onion")) continue;
+            out.add(b);
+        }
+        return out;
+    }
 }

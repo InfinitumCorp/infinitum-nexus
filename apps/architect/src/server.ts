@@ -12,6 +12,9 @@ import { planScore } from "./plan.ts";
 import { registerDefaultInstruments } from "./instruments.ts";
 import type { Autonomy } from "./score.ts";
 import { config, log } from "./config.ts";
+import { loadGeoRouting } from "./geo-config.ts";
+
+loadGeoRouting(process.env.DATA_DIR ?? "data");
 
 const { port: PORT } = config;
 const ledger = new Ledger(new MemoryStore());

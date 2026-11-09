@@ -67,6 +67,10 @@ export function blocklistRules() {
   }));
 }
 
+/** One extra dynamic-rule id for opt-in geosite categories. It is not installed unless that switch is on. */
+export const GEO_RULE_ID = RULE_ID_BASE + Object.keys(BLOCKLIST).length;
+
 export function ruleCategory(ruleId) {
+  if (ruleId === GEO_RULE_ID) return "geo";
   return Object.keys(BLOCKLIST)[ruleId - RULE_ID_BASE] ?? null;
 }

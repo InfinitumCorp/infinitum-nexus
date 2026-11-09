@@ -22,7 +22,8 @@
     "@infinitum/lbrnth": "workspace:*",
     "@infinitum/mail": "workspace:*",
     "@infinitum/scalus": "workspace:*",
-    "postal-mime": "2.4.4"
+    "postal-mime": "2.4.4",
+    "@infinitum/geo-dat": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

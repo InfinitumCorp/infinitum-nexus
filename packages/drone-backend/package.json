@@ -14,7 +14,8 @@
     "typecheck": "tsc -p . --noEmit"
   },
   "dependencies": {
-    "@infinitum/lbrnth": "workspace:*"
+    "@infinitum/lbrnth": "workspace:*",
+    "@infinitum/geo-dat": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.9.0",

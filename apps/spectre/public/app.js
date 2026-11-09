@@ -848,6 +848,10 @@ async function renderSettings() {
       </div>
       <div class="section">
         <h2>Data</h2>
+        <div class="list">
+          <div class="item"><div class="main"><div class="title">Geo routing data</div><div class="sub">Off until you turn it on. Country and site lists are not used while this is off.</div></div>
+            <button class="btn small" id="geo-routing" type="button">${localStorage.getItem("infinitum.geoRouting") === "1" ? "On" : "Off"}</button></div>
+        </div>
         <button class="btn" id="export-data">Export workspace JSON</button>
       </div>
       <div class="section">
@@ -860,6 +864,11 @@ async function renderSettings() {
         <p class="faint small mt10">Connect OmniRoute (OMNIROUTE_API_KEY) for Ask +SPCTR<sup class="tm">™</sup>. Research uses public search. Filters available on Pipeline and Accounts.</p>
       </div>
     </div>`;
+  $("#geo-routing")?.addEventListener("click", () => {
+    const on = localStorage.getItem("infinitum.geoRouting") === "1";
+    localStorage.setItem("infinitum.geoRouting", on ? "0" : "1");
+    renderSettings();
+  });
   $("#export-data")?.addEventListener("click", async () => {
     try {
       const data = await api("GET", "/api/export");

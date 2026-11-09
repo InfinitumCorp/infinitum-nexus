@@ -1,10 +1,10 @@
 module github.com/InfinitumCorp/infinitum-nexus/apps/veil-desktop
 
-go 1.25.0
+go 1.26.0
 
 require (
 	golang.org/x/crypto v0.52.0
-	golang.org/x/sys v0.45.0
+	golang.org/x/sys v0.49.0
 	golang.zx2c4.com/wireguard v0.0.0-20250521234502-f333402bd9cb
 )
 

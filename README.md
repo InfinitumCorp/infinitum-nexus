@@ -2,6 +2,8 @@
 
 Shared foundation for every Infinitum product, by Infinitum Corporation®.
 
+**Repos:** [product delivery](PRODUCT-DELIVERY.md) · [deploy](DEPLOY.md) · [GitHub standards](docs/github/ORG-STANDARDS.md) · [cleanup audit](docs/github/CLEANUP-AUDIT.md) · [security](SECURITY.md)
+
 | Package | What it is |
 |---|---|
 | `packages/firmament` | Firmament Network core: append-only, hash-chained, Ed25519-signed ledger for identity, provenance, licensing, payments and audit. Merkle roots for anchoring to Base. |
@@ -90,6 +92,23 @@ pnpm typecheck
 ### Conjure™ (swarm forecasting, built into every product)
 
 `packages/conjure` (`@infinitum/conjure`): one engine that every Infinitum product imports; its agents run on the SCALVS.ai agent engine. Give it a question and background material; it maps who's involved, creates AI agents with personas, goals, stances and memory, and lets them react to each other on a shared feed over several rounds. Inject "what if" events between rounds, fork a simulation to compare futures, have the report agent investigate and write a forecast, and interview any agent. Runs one round per request (fits serverless limits), estimates AI calls up front and enforces a budget. In +SPCTR: the Conjure page, and "Simulate with Conjure" on any deal (seeded from that deal's records). Original implementation inspired by swarm-simulation research such as MiroFish/OASIS; no third-party code included.
+
+#### @conjure: live prediction in every product
+
+People reach Conjure™ by typing **@conjure** and a question anywhere in a product: `@conjure will Northwind sign by March?`. The product's server passes the text to `handleConjureMention` (`@infinitum/conjure`); the hosted Conjure service runs a live swarm prediction and returns a forecast to post back. Forecasts are metered per product and visible to Infinitum staff on the private Conjure dashboard.
+
+```ts
+import { conjureLiveFromEnv, handleConjureMention } from "@infinitum/conjure";
+const conjure = conjureLiveFromEnv(); // null when not configured
+const out = conjure && await handleConjureMention(conjure, text, { context, user: cid, source: "thread", wait: false });
+```
+
+| Variable | Use |
+|---|---|
+| `CONJURE_URL` | The hosted Conjure service, e.g. `https://app.<host>` |
+| `CONJURE_PRODUCT_KEY` | This product's key (`cjp_<product>_…`), issued on the Conjure staff dashboard. Server secret: never send it to a browser. |
+
+In +SPCTR, `@conjure` in Ask starts a live forecast (seeded from the deal when asked on one) and the answer updates round by round.
 
 ### Labyrinth *LBRNTH — private client repositories
 

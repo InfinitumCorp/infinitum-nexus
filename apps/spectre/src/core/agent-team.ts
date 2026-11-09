@@ -8,7 +8,7 @@
 import { randomUUID } from "node:crypto";
 import type { LlmTool, Proposal, Step } from "@infinitum/scalus";
 import type { SpectreCRM } from "./crm.ts";
-import { scoreDealMetatron as scoreDeal } from "./intelligence-metatron.ts";
+import { scoreDealMetatron as scoreDeal, learnedContextFor } from "./intelligence-metatron.ts";
 import { nextBestAction, forecast, riskAlerts, type Score } from "./intelligence.ts";
 import { committeeGaps } from "./relationships.ts";
 import { dataIssues, findDuplicateCompanies, findDuplicateContacts } from "./cleaning.ts";
@@ -52,13 +52,15 @@ const str = (v: unknown, max = 2000) => (typeof v === "string" ? v.trim().slice(
 function scores(ctx: Ctx) {
   const acts = ctx.crm.list("activities", ctx.workspace);
   const now = ctx.crm.now();
-  return new Map<string, Score>(ctx.crm.list("deals", ctx.workspace).map((d) => [d.id, scoreDeal(d, acts, now)]));
+  const deals = ctx.crm.list("deals", ctx.workspace);
+  const learned = learnedContextFor(ctx.workspace, deals, acts, ctx.crm.list("companies", ctx.workspace));
+  return new Map<string, Score>(deals.map((d) => [d.id, scoreDeal(d, acts, now, learned)]));
 }
 
 function dealView(ctx: Ctx, dealId: string, s?: Score) {
   const d = ctx.crm.deal(ctx.workspace, dealId);
   const acts = ctx.crm.list("activities", ctx.workspace);
-  const score = s ?? scoreDeal(d, acts, ctx.crm.now());
+  const score = s ?? scoreDeal(d, acts, ctx.crm.now(), learnedContextFor(ctx.workspace, ctx.crm.list("deals", ctx.workspace), acts, ctx.crm.list("companies", ctx.workspace)));
   const company = ctx.crm.store.companies.get(d.companyId);
   return {
     id: d.id,

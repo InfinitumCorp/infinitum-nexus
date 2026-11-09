@@ -91,7 +91,7 @@ upload. “Runtime relay” adds a concrete repository HTTP route.
 | POLLEN | Hardware/autonomy SDK adapters | Host-selected artifacts only |
 | ORBIS | Hardware/autonomy SDK adapters | Host-selected artifacts only |
 | ODIN | Standalone `odin` SDK + Worker runtime relay | Existing exercise/product auth unchanged; separate CID credential |
-| METATRON | `packages/metatron` SDK adapter | Host-run analytics; CID repository credential |
+| METATRON | `packages/metatron` SDK adapter | Host-run analytics; CID repository credential. Public site `https://mttrn.app`, in the CID CORS allowlist; social sign-in callback `https://mttrn.app/api/auth/oauth/{provider}/callback` |
 | HRVST | `packages/hrvst`, `apps/hrvst` SDK adapters | Host service remains responsible for login |
 | FLOWER | Hardware/autonomy SDK adapters | Host-selected artifacts only |
 | Firmament Network | `packages/firmament` SDK adapter | Ledger signatures are not client login |

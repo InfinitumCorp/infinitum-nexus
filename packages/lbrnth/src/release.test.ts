@@ -73,8 +73,10 @@ test("key lifecycle keeps the master key out of the snapshot, isolates orgs, and
     const repo = service.forProduct(session.token, "spectre").createRepository("release");
     const saved = service.forProduct(session.token, "spectre").save(repo.id, "note.txt", "release-secret", null);
     const raw = readFileSync(path, "utf8");
-    assert.equal(statSync(path).mode & 0o777, 0o600);
-    assert.equal(statSync(join(dir, "private")).mode & 0o777, 0o700);
+    // Windows has no POSIX permission bits (it reports 0o666), so check them only elsewhere.
+    if (process.platform !== "win32") assert.equal(statSync(path).mode & 0o777, 0o600);
+    // Windows has no POSIX permission bits (it reports 0o666), so check them only elsewhere.
+    if (process.platform !== "win32") assert.equal(statSync(join(dir, "private")).mode & 0o777, 0o700);
     for (const secret of ["release-secret", first.env.LBRNTH_MASTER_KEY, session.token, "note.txt"]) assert.equal(raw.includes(secret), false);
 
     const restarted = new CidLabyrinth(session.cid, { ...labyrinthFromEnvironment(first.env, path)!, clock });

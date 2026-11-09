@@ -199,6 +199,8 @@ function renderWallet() {
     cell.append(label, value);
     bal.append(cell);
   }
+  const suite = $("w-suite");
+  if (suite) suite.wallet = w ? { address: w.address, balances: w.balances } : null;
   $("w-note").textContent = w
     ? "The FIRM Wallet account that came with your Cumulus://ID. Self-custody keys on this device arrive with roadmap Phase IV."
     : "Sign in with Cumulus://ID to see the FIRM Wallet account that comes with it. VEIL never creates placeholder addresses or balances.";

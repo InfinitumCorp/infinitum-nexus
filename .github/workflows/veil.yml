@@ -2,9 +2,27 @@ name: VEIL
 
 on:
   pull_request:
+    paths:
+      - "apps/veil/**"
+      - "apps/veil-desktop/**"
+      - "apps/veil-web/**"
+      - "apps/veil-android/**"
+      - "apps/veil-browser-android/**"
+      - "apps/spectre/src/server/veil.http.test.ts"
+      - ".github/workflows/veil.yml"
+      - "pnpm-lock.yaml"
   push:
     branches:
-      - cursor/veil-release-main-ea5d
+      - main
+    paths:
+      - "apps/veil/**"
+      - "apps/veil-desktop/**"
+      - "apps/veil-web/**"
+      - "apps/veil-android/**"
+      - "apps/veil-browser-android/**"
+      - "apps/spectre/src/server/veil.http.test.ts"
+      - ".github/workflows/veil.yml"
+      - "pnpm-lock.yaml"
 
 jobs:
   extension:
@@ -29,13 +47,53 @@ jobs:
       - name: VEIL routes on the Cumulus ID host
         run: node --test --experimental-strip-types apps/spectre/src/server/veil.http.test.ts
 
+  scalus:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.28.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install workspace
+        run: pnpm install --frozen-lockfile
+      - name: SCALVS tests, typecheck, and production build
+        run: |
+          pnpm --filter @infinitum/scalus test
+          pnpm --filter @infinitum/scalus typecheck
+          pnpm --filter @infinitum/scalus build
+      - name: Build the SCALVS image and smoke-test /health
+        run: |
+          set -euo pipefail
+          docker build -f packages/scalus/Dockerfile -t scalvs-runtime:ci .
+          docker rm -f scalvs-smoke >/dev/null 2>&1 || true
+          docker run -d --name scalvs-smoke -p 127.0.0.1:3020:3020 scalvs-runtime:ci
+          trap 'docker rm -f scalvs-smoke >/dev/null 2>&1 || true' EXIT
+          ok=0
+          for _ in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:3020/health | tee /tmp/scalvs-health.json | grep -q '"ok":true'; then
+              ok=1
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ok" != 1 ]; then
+            docker logs scalvs-smoke || true
+            exit 1
+          fi
+          grep -q '"service":"scalvs"' /tmp/scalvs-health.json
+          grep -q 'https://scalvs.app' /tmp/scalvs-health.json
+
   desktop:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.23.1"
+          go-version: "1.25.0"
       - name: Desktop tests
         working-directory: apps/veil-desktop
         run: go test ./...

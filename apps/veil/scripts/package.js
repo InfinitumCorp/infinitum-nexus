@@ -3,7 +3,7 @@
  *   node scripts/package.js
  */
 import { spawnSync } from "node:child_process";
-import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromeManifest, firefoxManifest } from "./manifests.js";
@@ -11,19 +11,29 @@ import { chromeManifest, firefoxManifest } from "./manifests.js";
 const root = fileURLToPath(new URL("../", import.meta.url));
 
 export const EXTENSION_FILES = [
+  "THIRD_PARTY_NOTICES.md",
   "background.js",
   "content.js",
   "popup.html",
   "popup.js",
   "sidebar.html",
   "sidebar.js",
+  "firm-suite.js",
+  "firm-suite.css",
   "lib/ask.js",
   "lib/build.js",
+  "lib/blocklist.js",
   "lib/browser-proxy.js",
+  "lib/content-pii.js",
+  "lib/downloads.js",
   "lib/labyrinth.js",
   "lib/nexus.js",
+  "lib/passgen.js",
+  "lib/password-guard.js",
+  "lib/password-rules.js",
   "lib/privacy.js",
   "lib/proxy.js",
+  "lib/safety.js",
   "lib/rewards.js",
   "lib/veil-api.js",
   "lib/workspace.js",
@@ -52,11 +62,28 @@ export function packageExtension(source = root, outDir = join(source, "dist"), {
     writeFileSync(join(dir, "lib/build.js"), `export const VEIL_DEV = ${dev ? "true" : "false"};\n`);
     writeFileSync(join(dir, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
     const zipPath = join(outDir, zipName);
-    const zip = spawnSync("zip", ["-r", "-X", zipPath, "."], { cwd: dir, encoding: "utf8" });
+    const zip = zipDirectory(dir, zipPath);
     if (zip.status !== 0) throw new Error(zip.stderr || `zip failed for ${name}`);
     zips.push(zipPath);
   }
   return zips;
+}
+
+/** Windows' built-in bsdtar, which reads and writes zip files where Info-ZIP is not installed. */
+export const WINDOWS_TAR = process.platform === "win32" ? join(process.env.SystemRoot ?? "C:\Windows", "System32", "tar.exe") : null;
+
+export function hasCommand(cmd) {
+  const r = spawnSync(cmd, ["-v"], { encoding: "utf8" });
+  return !r.error;
+}
+
+function zipDirectory(dir, zipPath) {
+  if (hasCommand("zip") || !WINDOWS_TAR) return spawnSync("zip", ["-r", "-X", zipPath, "."], { cwd: dir, encoding: "utf8" });
+  const files = readdirSync(dir, { recursive: true })
+    .map((f) => String(f).replaceAll("\\", "/"))
+    .filter((f) => statSync(join(dir, f)).isFile())
+    .sort();
+  return spawnSync(WINDOWS_TAR, ["-a", "-c", "-f", zipPath, ...files], { cwd: dir, encoding: "utf8" });
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

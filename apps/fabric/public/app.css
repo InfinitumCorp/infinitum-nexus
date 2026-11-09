@@ -1,14 +1,15 @@
 :root {
-  color-scheme: dark;
-  --bg: #121612;
-  --panel: #1c2420;
-  --ink: #e8f2e6;
-  --muted: #a8b8a6;
-  --line: #314038;
-  --accent: #b6d7a0;
-  --accent-ink: #172117;
-  --danger: #ffb4a8;
-  font-family: "Segoe UI", ui-sans-serif, system-ui, sans-serif;
+  --brand-accent: #2454dd; /* //RULES// interactive blue */
+  color-scheme: light;
+  --bg: #ffffff;
+  --panel: #ffffff;
+  --ink: #111820;
+  --muted: #52606b;
+  --line: #d6dce1;
+  --accent: #111820;
+  --accent-ink: #ffffff;
+  --danger: #c62828;
+  font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
 }
 
 * { box-sizing: border-box; }
@@ -20,7 +21,8 @@ body {
   color: var(--ink);
 }
 
-header, #signed-out, .layout { width: min(1080px, calc(100% - 2rem)); margin-inline: auto; }
+header, #signed-out, .layout, footer.firm { width: min(1080px, calc(100% - 2rem)); margin-inline: auto; }
+footer.firm { padding: 1.5rem 0 2rem; }
 
 header {
   display: flex;
@@ -30,9 +32,9 @@ header {
   padding: 1.5rem 0 1rem;
 }
 
-.mark, .domain, label, .meta { font-family: ui-monospace, "Cascadia Code", monospace; }
+.domain, .meta { font-family: ui-monospace, "Cascadia Code", monospace; }
 
-.mark { margin: 0; letter-spacing: 0.14em; color: var(--accent); font-size: 0.78rem; }
+.mark { margin: 0; letter-spacing: -0.03em; color: var(--ink); font-size: 1.25rem; }
 
 h1, h2 { font-weight: 560; letter-spacing: -0.03em; }
 
@@ -63,7 +65,7 @@ h2 { margin: 0; font-size: 1.05rem; }
   background: var(--accent);
   color: var(--accent-ink);
   border: 0;
-  border-radius: 999px;
+  border-radius: 0;
   padding: 0.55rem 0.9rem;
   text-decoration: none;
   cursor: pointer;
@@ -100,9 +102,9 @@ label { display: block; margin-bottom: 0.4rem; color: var(--muted); font-size: 0
 
 input, textarea {
   width: 100%;
-  background: #101512;
+  background: var(--bg);
   border: 1px solid var(--line);
-  border-radius: 0.6rem;
+  border-radius: 0;
   padding: 0.55rem 0.7rem;
 }
 
@@ -111,13 +113,13 @@ input, textarea {
 #sessions button {
   width: 100%;
   text-align: left;
-  border-radius: 0.6rem;
+  border-radius: 0;
   background: transparent;
   color: inherit;
   border: 0;
 }
 
-#sessions button[aria-current="true"] { background: #2a382e; }
+#sessions button[aria-current="true"] { background: rgba(17, 24, 32, .06); }
 
 .session-name, .who { display: block; }
 
@@ -144,3 +146,6 @@ input, textarea {
   aside, .thread { min-height: 0; }
   #messages { min-height: 40vh; }
 }
+
+/* //RULES// trademark mark */
+sup.tm { font-size: .38em; vertical-align: super; line-height: 0; margin-left: .08em; letter-spacing: 0; font-weight: 400; }

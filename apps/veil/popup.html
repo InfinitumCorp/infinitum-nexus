@@ -5,9 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>VEIL</title>
   <style>
-    :root { --bg: #0a0a0a; --fg: #f5f5f5; --muted: #8a8a8a; --line: #222; --card: #101010; --good: #4ade80; --warn: #fbbf24; --bad: #f87171; }
+    :root {
+  --brand-accent: #2454dd; /* //RULES// interactive blue */ --bg: #ffffff; --fg: #111820; --muted: #52606b; --line: #d6dce1; --card: #ffffff; --good: #1a7f37; --warn: #9a6700; --bad: #c62828; }
     * { box-sizing: border-box; }
-    body { margin: 0; width: 380px; font-family: system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--fg); font-size: 14px; }
+    body { margin: 0; width: 380px; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background: var(--bg); color: var(--fg); font-size: 14px; }
     header, main, footer { padding: 0.85rem 1rem; }
     header { border-bottom: 1px solid var(--line); }
     h1 { margin: 0; font-size: 1rem; letter-spacing: 0.08em; }
@@ -18,19 +19,29 @@
     .dot.block { background: var(--bad); }
     .dot.warn { background: var(--warn); }
     .modes { display: grid; grid-template-columns: 1.2fr 1fr 0.8fr; gap: 0.35rem; margin-top: 0.75rem; }
-    .modes button { background: transparent; color: var(--fg); border: 1px solid #333; }
-    .modes button.active { background: var(--fg); color: #000; }
-    .card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 0.75rem; margin-bottom: 0.75rem; }
+    .modes button { background: transparent; color: var(--fg); border: 1px solid var(--line); }
+    .modes button.active { background: var(--fg); color: #fff; }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 0; padding: 0.75rem; margin-bottom: 0.75rem; }
     label { display: block; color: var(--muted); font-size: 0.78rem; margin-bottom: 0.35rem; }
     select, button { font: inherit; }
-    select { width: 100%; background: #0c0c0c; color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: 0.4rem; }
+    select { width: 100%; background: #fff; color: var(--fg); border: 1px solid var(--line); border-radius: 0; padding: 0.4rem; }
     .row { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.65rem; }
-    button { background: var(--fg); color: #000; border: none; border-radius: 6px; padding: 0.45rem 0.8rem; cursor: pointer; }
-    button.ghost { background: transparent; color: var(--fg); border: 1px solid #333; }
+    button { background: var(--fg); color: #fff; border: none; border-radius: 0; padding: 0.45rem 0.8rem; cursor: pointer; }
+    button.ghost { background: transparent; color: var(--fg); border: 1px solid var(--line); }
     button:disabled { opacity: 0.45; cursor: not-allowed; }
     .muted { color: var(--muted); font-size: 0.8rem; line-height: 1.4; }
     .err { color: var(--bad); font-size: 0.8rem; min-height: 1rem; }
     footer { padding-top: 0; }
+    .shield { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+    .shield strong { font-size: 0.95rem; }
+    .counts { display: grid; grid-template-columns: 1fr 1fr; gap: 0.4rem; margin-top: 0.55rem; font-variant-numeric: tabular-nums; }
+    .counts div { background: #0c0c0c; border: 1px solid var(--line); border-radius: 6px; padding: 0.4rem 0.5rem; }
+    .counts b { display: block; font-size: 1.1rem; }
+    .issue { border: 1px solid #5a1f1f; background: #1a0b0b; border-radius: 6px; padding: 0.55rem; margin-top: 0.55rem; }
+    .issue b { color: var(--bad); }
+    input[type=text], input[type=password] { width: 100%; background: #0c0c0c; color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: 0.4rem; font: inherit; margin-top: 0.3rem; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-all; }
+    label.check { display: flex; gap: 0.4rem; align-items: center; color: var(--fg); font-size: 0.8rem; margin: 0.5rem 0 0; }
     [hidden] { display: none !important; }
   </style>
 </head>
@@ -46,6 +57,17 @@
     </div>
   </header>
   <main>
+    <div class="card" id="protect-card">
+      <div class="shield"><strong id="shield-title">Protected</strong><span id="shield-host" class="muted"></span></div>
+      <div class="counts">
+        <div><b id="count-blocked">0</b><span class="muted">trackers and ads blocked</span></div>
+        <div><b id="count-stripped">0</b><span class="muted">tracking parameters stripped</span></div>
+      </div>
+      <div id="issues"></div>
+      <div id="downloads"></div>
+      <label class="check"><input id="blocking" type="checkbox" checked /> Block trackers, ad networks and data brokers</label>
+      <p id="statement" class="muted" style="margin:0.55rem 0 0"></p>
+    </div>
     <div class="card" id="veil-card">
       <label for="server">VEIL exit</label>
       <select id="server"></select>
@@ -66,6 +88,25 @@
         <button id="check" class="ghost" type="button">Check Tor</button>
         <button id="circuit" class="ghost" type="button">New circuit</button>
       </div>
+    </div>
+    <div class="card" id="pw-card">
+      <label>Passwords</label>
+      <div class="row" style="margin-top:0">
+        <button id="gen" class="ghost" type="button">Generate for this site</button>
+      </div>
+      <div id="gen-out" hidden>
+        <div id="gen-pass" class="mono" style="margin-top:0.5rem"></div>
+        <div id="gen-rule" class="muted"></div>
+        <div class="row"><button id="gen-copy" class="ghost" type="button">Copy</button><button id="gen-fill" class="ghost" type="button">Fill on page</button></div>
+      </div>
+      <details style="margin-top:0.6rem">
+        <summary class="muted">Warn me if I reuse a password</summary>
+        <input id="pw-value" type="password" placeholder="Password to protect" autocomplete="off" />
+        <input id="pw-hosts" type="text" placeholder="Sites it belongs to, e.g. bank.com" autocomplete="off" />
+        <div class="row"><button id="pw-add" class="ghost" type="button">Protect</button></div>
+        <div id="pw-list" class="muted" style="margin-top:0.4rem"></div>
+        <p class="muted">VEIL keeps only a salted hash in this browser, never the password, and warns you when it's typed on any other site.</p>
+      </details>
     </div>
     <div id="detail" class="muted"></div>
     <div id="error" class="err" role="status"></div>

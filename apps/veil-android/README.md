@@ -18,7 +18,7 @@ live endpoint has been provisioned.
 
 `infinitumveil.app` is the separate browser product. Do not use it for the VPN.
 
-Status of this tree: `lab-only`. Android `VpnService` is not built yet.
+Status of this tree: debug Android app plus the loopback lab. `infinitumveilvpn.app` is still only the product name. No server is provisioned. See BUILD.md. The host `go test` suite is not Android packet-flow proof.
 
 ## What the tests prove
 
@@ -36,14 +36,14 @@ a host interface, route, firewall rule, or device-wide VPN.
   resolvers and hostnames are rejected. Peers must be IPv4 loopback.
 - Logs pass through a redactor. The private key hex is not written.
 
-`VpnService.Builder.establish()` is not called here. A TUN file descriptor
-without this encapsulation is not a VPN. Android wiring waits on the parent
-SDK/NDK pipeline, which is not installed in this environment (`ANDROID_HOME`
-unset).
+The host tests above do not call `VpnService.Builder.establish()`. The debug
+app in `android/` does, and it hands that file descriptor to wireguard-go.
+`establish()` returning non-nil is not, by itself, a passing result. Build
+steps are in BUILD.md.
 
 ## Run
 
-Requires Go 1.23.1 or newer.
+Requires Go 1.25.0 or newer (golang.org/x/crypto v0.52.0 declares Go 1.25).
 
 ```sh
 cd apps/veil-android/tunnel

@@ -1,7 +1,10 @@
 .git
+node_modules
 **/node_modules
-**/data
+dist
 **/dist
+data
+**/data
 **/.vercel
 **/screenshots
 artifacts

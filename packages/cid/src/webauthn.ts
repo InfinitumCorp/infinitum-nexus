@@ -153,7 +153,8 @@ export function verifyAssertion(
   const ok = alg === COSE_ALG.EdDSA
     ? verify(null, signed, key, sig)
     : alg === COSE_ALG.ES256
-      ? verify("sha256", signed, { key, dsaEncoding: "ieee-p1363" }, sig)
+      // DER bytes rather than { key: KeyObject }: Cloudflare Workers accept only the former.
+      ? verify("sha256", signed, { key: key.export({ type: "spki", format: "der" }), format: "der", type: "spki", dsaEncoding: "ieee-p1363" }, sig)
       : verify("sha256", signed, key, sig);
   if (!ok) throw new Error("WebAuthn: signature check failed");
 

@@ -39,7 +39,7 @@ test("starts the server and runs login, conversation, send, and receive", async 
     assert.equal(healthBody.rootDomain, "infinitumfabric.app");
 
     const html = await (await fetch(`${origin}/`)).text();
-    assert.match(html, /Sign in with Cumulus ID/);
+    assert.match(html, /Sign in with Cumulus:\/\/ID/);
     assert.match(html, /id="sessions"/);
     assert.match(html, /id="send"/);
     assert.match(html, /id="text"/);

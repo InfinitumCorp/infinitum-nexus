@@ -21,7 +21,7 @@ These are the product titles as displayed on the website, each with the trademar
 - >_ARGUS™
 - ei·det·ic™
 - [HRVST]™
-- METATRON¹⁰⁰™
+- METATRON¹⁰⁰™ (mttrn.app)
 - +SPCTR™ (Spectre)
 - ODIN°™
 - FIRM Wallet™

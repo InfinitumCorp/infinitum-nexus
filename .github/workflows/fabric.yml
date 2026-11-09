@@ -2,6 +2,19 @@ name: FABRIC
 
 on:
   pull_request:
+    paths:
+      - "apps/fabric/**"
+      - "packages/fabric/**"
+      - ".github/workflows/fabric.yml"
+      - "pnpm-lock.yaml"
+  push:
+    branches:
+      - main
+    paths:
+      - "apps/fabric/**"
+      - "packages/fabric/**"
+      - ".github/workflows/fabric.yml"
+      - "pnpm-lock.yaml"
 
 jobs:
   server:

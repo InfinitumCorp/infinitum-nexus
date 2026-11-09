@@ -22,10 +22,10 @@ Maps every product advertised on https://infinitum-corporation.vercel.app/#produ
 
 | Product | Advertised task | Status | Evidence | Next steps |
 |---------|-----------------|--------|----------|------------|
-| **+SPCTR™ (Spectre)** | AI intelligent CRM. | Partial | Full app.ts + METATRON + research ... | Typecheck, tests, deploy. SpectreCollector ready. |
+| **+SPCTR™ (Spectre)** | AI intelligent CRM. | Partial | Full app.ts + METATRON (learned per-workspace model, GET /api/metatron and /api/metatron/backtest, model shown in Settings) + research ... | Typecheck, tests, deploy. SpectreCollector ready. |
 | **:\ARCHITECT\\** | Intent → Score → perform → verify. | Partial | Score, executor, autonomy | Deploy via Docker/Vercel. ArchitectCollector ready. |
 | **SCALVS.ai** | AI workforce platform. | Scaffolded | Agent + Context Vault + tools + Team + Architect evidence + Firmament vault + NEXT.md | See packages/scalus/NEXT.md. ScalusCollector ready. |
-| **METATRON** | Prediction + analytics. | Partial | Default scorer + learned logistic scorer (explainable odds-ratio factors) + time-ordered backtests (Brier, log loss, AUC, calibration) + series forecasters (naive, last-delta, damped Holt) with rolling-origin error (MAE, RMSE, sMAPE) + Spectre wrapper | Wire learned model + backtest report into Spectre. MetatronCollector ready. |
+| **METATRON** | Prediction + analytics. | Partial | Default scorer + learned logistic scorer (explainable odds-ratio factors) + time-ordered backtests (Brier, log loss, AUC, calibration) + series forecasters (naive, last-delta, damped Holt) with rolling-origin error (MAE, RMSE, sMAPE). Live in Spectre: learned model per workspace once 30+ closed deals (won and lost), retrained when closed deals change. | Stage learned from history (Deal.closedFrom) once deals close after this release; numeric features clamped to ±3σ. MetatronCollector ready. |
 | **HRVST** | Capture → privacy filter → Harvest Packet. | Scaffolded | Packet + privacy filter + licensing + Personal Silo | Production privacy model. HrvstCollector ready. |
 | **ei·det·ic** | Identity-intelligence (authorized use only). | Scaffolded | Service + Spectre integration | Production sources. Restricted. EideticCollector ready. |
 | **FIRM + FIRM Wallet** | Ecosystem token, wallet, DEX. | Partial | EVM client + wallet signing + DEX + router calldata + contracts + deploy scripts + compile.sh + deploy-helper.md | See DEPLOY.md and packages/firm/scripts/deploy-helper.md. Compile and deploy. FirmCollector ready. |

@@ -48,3 +48,6 @@ aside { padding: 20px; border-right: 1px solid var(--line); }
   aside { border-right: 0; border-bottom: 1px solid var(--line); }
   #messages { min-height: 40vh; }
 }
+
+footer.firm { width: min(var(--column), calc(100% - 2rem)); margin-inline: auto; padding: 1.5rem 0 2rem; }
+sup.tm { font-size: .38em; vertical-align: super; line-height: 0; margin-left: .08em; letter-spacing: 0; font-weight: 400; }

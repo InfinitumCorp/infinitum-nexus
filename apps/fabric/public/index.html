@@ -6,6 +6,7 @@
   <title>FABRIC</title>
   <link rel="stylesheet" href="/app-shell.css">
   <link rel="stylesheet" href="/app.css">
+  <link rel="stylesheet" href="/firm-suite.css">
 </head>
 <body>
   <a class="skip-link" href="#main">Skip to content</a>
@@ -23,8 +24,8 @@
     <p id="error" class="notice" role="alert" hidden></p>
     <section id="signed-out" class="empty">
       <h1>Encrypted messages</h1>
-      <p>Sign in with your Cumulus ID. Message bodies are sealed before they are stored.</p>
-      <a id="sign-in" class="btn primary" href="/api/auth/login">Sign in with Cumulus ID</a>
+      <p>Sign in with your Cumulus://ID<sup class="tm">™</sup>. Message bodies are sealed before they are stored.</p>
+      <a id="sign-in" class="btn primary" href="/api/auth/login">Sign in with Cumulus://ID</a>
     </section>
     <section id="app" hidden>
       <div class="layout">
@@ -52,6 +53,8 @@
       </div>
     </section>
   </main>
+  <footer class="firm"><firm-suite product="fabric" compact></firm-suite></footer>
+  <script type="module" src="/firm-suite.js"></script>
   <script type="module" src="/app.js"></script>
 </body>
 </html>

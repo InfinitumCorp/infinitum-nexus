@@ -15,7 +15,7 @@
  */
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { join } from "node:path";
-import { DataExchange } from "@infinitum/data-exchange";
+import { ConsentRequiredError, DataExchange } from "@infinitum/data-exchange";
 import { FileStore, Ledger, generateSigner } from "@infinitum/firmament";
 
 const dataDir = process.env.DATA_DIR ?? join(import.meta.dirname, "..", "data");
@@ -41,10 +41,19 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
   try {
     if (req.method === "POST" && url.pathname === "/datasets") {
       const body = JSON.parse(await readBody(req));
-      const result = await dx.packageDataset(body);
-      dx.catalog.updateStatus(result.dataset.id, "listed");
-      await dx.flush();
-      res.end(JSON.stringify(result));
+      try {
+        const result = await dx.packageDataset(body);
+        dx.catalog.updateStatus(result.dataset.id, "listed");
+        await dx.flush();
+        res.end(JSON.stringify(result));
+      } catch (err) {
+        if (err instanceof ConsentRequiredError) {
+          res.statusCode = 403;
+          res.end(JSON.stringify({ error: err.code }));
+          return;
+        }
+        throw err;
+      }
       return;
     }
 

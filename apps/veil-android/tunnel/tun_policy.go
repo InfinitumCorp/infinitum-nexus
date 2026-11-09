@@ -17,6 +17,7 @@ type policyTUN struct {
 	events  chan tun.Event
 	once    sync.Once
 	dropped atomic.Uint64
+	kept    atomic.Uint64
 }
 
 func newPolicyTUN(inner tun.Device) *policyTUN {
@@ -45,6 +46,7 @@ func (p *policyTUN) Read(bufs [][]byte, sizes []int, offset int) (int, error) {
 				copy(bufs[kept][offset:], pkt)
 				sizes[kept] = sizes[i]
 			}
+			p.kept.Add(1)
 			kept++
 		}
 		if kept > 0 {

@@ -18,6 +18,7 @@ import { QuotaError } from "@infinitum/cloud";
 import { WalletError } from "@infinitum/firm";
 import { MailError, isE2E, threadOf, transcript, type MailMessage } from "@infinitum/mail";
 import type { CumulusSuite } from "@infinitum/cumulus";
+import { MAX_FILE_BYTES, isFileKey, safeType, uploadKey, type FileStore } from "./files.ts";
 
 export const MAIL_SCOPES = ["mail:read", "mail:write"];
 const COOKIE = "cmail_session";
@@ -31,10 +32,16 @@ export interface MailAppDeps {
   origin: string;
   secureCookies: boolean;
   onChange?: () => void;
+  /** Hosted mode: wraps each API request (sync, run, save). See src/vercel.ts. */
+  transaction?: <T>(fn: () => Promise<T>) => Promise<T>;
+  /** Serverless hosts can't keep a timer running; they call sendDue from a cron route instead. */
+  noTimers?: boolean;
   /** SCALVS briefs; defaults to xAI when XAI_API_KEY is set. */
   /** SCALVS Clean suggestions; defaults to the SCALVS agent on Claude when ANTHROPIC_API_KEY is set, else the rules. */
   cleanAgent?: CleanAgent;
   scalvs?: (mode: "summary" | "draft", owner: string, subject: string, text: string) => Promise<{ ok: true; text: string } | { ok: false; error: string }>;
+  /** Attachment contents (R2 on Workers). Without it, attaching files is turned off. */
+  files?: FileStore;
 }
 
 class HttpError extends Error {
@@ -66,6 +73,8 @@ const MIME: Record<string, string> = {
   ".css": "text/css; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
   ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".webmanifest": "application/manifest+json",
   ".txt": "text/plain; charset=utf-8",
 };
 
@@ -108,8 +117,12 @@ const idName = (v: unknown) => {
 };
 /** Drive file references on a message: names and sizes only, at most 10, each under 25 MB. */
 const files = (v: unknown) => (Array.isArray(v) ? v : []).slice(0, 10)
-  .map((f) => ({ name: str(f?.name, 200).trim(), size: Math.floor(Number(f?.size)) }))
-  .filter((f) => f.name && Number.isFinite(f.size) && f.size >= 0 && f.size <= 25 * 1024 * 1024);
+  .map((f) => ({
+    name: str(f?.name, 200).trim(),
+    size: Math.floor(Number(f?.size)),
+    ...(typeof f?.id === "string" && isFileKey(f.id) ? { id: f.id as string, type: safeType(f?.type) } : {}),
+  }))
+  .filter((f) => f.name && Number.isFinite(f.size) && f.size >= 0 && f.size <= MAX_FILE_BYTES);
 
 async function xaiScalvs(mode: "summary" | "draft", owner: string, subject: string, text: string) {
   const apiKey = process.env.XAI_API_KEY;
@@ -164,6 +177,80 @@ export function createMailApp(deps: MailAppDeps) {
     suite.summary(account.cid); // provisions older CIDs on first visit
   };
   const me = (ctx: Ctx) => ctx.user!.account.cid;
+
+  /**
+   * Attachments carry raw bytes, so they skip the JSON routes:
+   *   POST /api/files?name=plan.pdf   body = the file   -> { id, name, size, type }
+   *   GET  /api/files/{id}                              -> the file, if it's on mail you can see
+   */
+  const fileRequest = async (req: IncomingMessage, res: ServerResponse, url: URL) => {
+    const store = deps.files;
+    if (!store) throw new HttpError(503, "Attachments aren't available yet.");
+    // Hosted: sessions live in the shared state, so check them inside a transaction (which loads it).
+    const signedIn = async () => {
+      const token = parseCookies(req.headers.cookie)[COOKIE];
+      const session = token ? cid.authenticate(token) : null;
+      if (!session) throw new HttpError(401, "Please sign in");
+      const scope = req.method === "GET" ? "mail:read" : "mail:write";
+      if (!cid.can(session.account.cid, "cumulus-mail", scope)) throw new HttpError(403, "Mail's access was revoked in your Cumulus://ID permissions");
+      return session.account.cid;
+    };
+    const owner = deps.transaction ? await deps.transaction(signedIn) : await signedIn();
+
+    if (req.method === "POST" && url.pathname === "/api/files") {
+      if (req.headers["x-cumulus"] !== "1") throw new HttpError(403, "Missing request header");
+      const name = str(url.searchParams.get("name"), 200).replace(/[\u0000-\u001f\u007f]/g, "").trim() || "file";
+      const declared = Number(req.headers["content-length"]);
+      if (declared > MAX_FILE_BYTES) throw new HttpError(413, "Files stay under 25 MB. Larger ones belong in Cloud.");
+      const chunks: Buffer[] = [];
+      let size = 0;
+      for await (const c of req) {
+        size += (c as Buffer).length;
+        if (size > MAX_FILE_BYTES) throw new HttpError(413, "Files stay under 25 MB. Larger ones belong in Cloud.");
+        chunks.push(c as Buffer);
+      }
+      const type = safeType(req.headers["content-type"]);
+      const id = uploadKey(owner);
+      await store.put(id, new Uint8Array(Buffer.concat(chunks)), type);
+      res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
+      res.end(JSON.stringify({ id, name, size, type }));
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname.startsWith("/api/files/")) {
+      const key = decodeURIComponent(url.pathname.slice("/api/files/".length));
+      if (!isFileKey(key)) throw new HttpError(404, "Not found");
+      const check = async () => {
+        const found = mail.view(owner).messages.flatMap((m) => m.attachments ?? []).find((a) => a.id === key);
+        return key.startsWith(`u/${owner}/`) || found ? (found ?? { name: "file" }) : null;
+      };
+      const meta = deps.transaction ? await deps.transaction(check) : await check();
+      if (!meta) throw new HttpError(404, "Not found");
+      const file = await store.get(key);
+      if (!file) throw new HttpError(404, "That file is no longer available.");
+      const filename = (meta.name || "file").replace(/["\\\r\n]/g, "_");
+      res.writeHead(200, {
+        "Content-Type": file.type,
+        "Content-Length": String(file.data.byteLength),
+        // Always a download, never rendered on this origin.
+        "Content-Disposition": `attachment; filename="${filename.replace(/[^\x20-\x7e]/g, "_")}"; filename*=UTF-8''${encodeURIComponent(filename)}`,
+        "X-Content-Type-Options": "nosniff",
+        "Content-Security-Policy": "sandbox; default-src 'none'",
+        "Cache-Control": "private, max-age=3600",
+      });
+      res.end(file.data);
+      return;
+    }
+    throw new HttpError(405, "Method not allowed");
+  };
+  /** Stored files this person may use: their own uploads, or files on mail in their mailbox (forwarding). */
+  const canUseFile = (cidValue: string, key: string) =>
+    key.startsWith(`u/${cidValue}/`) || mail.view(cidValue).messages.some((m) => (m.attachments ?? []).some((a) => a.id === key));
+  const ownFiles = (cidValue: string, v: unknown) => {
+    const list = files(v);
+    for (const f of list) if (f.id && !canUseFile(cidValue, f.id)) throw new HttpError(403, "One of the attached files isn't yours to send.");
+    return list;
+  };
 
   const state = (cidValue: string) => {
     mail.autoClean(cidValue); // the Clean rules run on their own, at most once an hour
@@ -256,7 +343,7 @@ export function createMailApp(deps: MailAppDeps) {
     const result = await mail.send(me(ctx), {
       to: str(b.to, 4000), cc: str(b.cc ?? "", 4000), subject: str(b.subject, 300), body: str(b.body),
       threadId: b.threadId ? str(b.threadId, 80) : undefined, draftId: b.draftId ? str(b.draftId, 80) : undefined, payment,
-      attachments: files(b.attachments),
+      attachments: ownFiles(me(ctx), b.attachments),
     });
     return { ...result, ok: true, state: state(me(ctx)) };
   });
@@ -267,7 +354,7 @@ export function createMailApp(deps: MailAppDeps) {
     const result = mail.schedule(me(ctx), {
       to: str(b.to, 4000), cc: str(b.cc ?? "", 4000), subject: str(b.subject, 300), body: str(b.body),
       threadId: b.threadId ? str(b.threadId, 80) : undefined, draftId: b.draftId ? str(b.draftId, 80) : undefined, payment,
-      attachments: files(b.attachments),
+      attachments: ownFiles(me(ctx), b.attachments),
     }, str(b.sendAt, 40));
     return { ...result, state: state(me(ctx)) };
   });
@@ -278,7 +365,7 @@ export function createMailApp(deps: MailAppDeps) {
 
   route("POST", "/api/draft", (ctx) => {
     const b = ctx.body;
-    const saved = mail.saveDraft(me(ctx), { to: str(b.to, 4000), cc: str(b.cc ?? "", 4000), subject: str(b.subject, 300), body: str(b.body), threadId: b.threadId ? str(b.threadId, 80) : undefined, draftId: b.draftId ? str(b.draftId, 80) : undefined, attachments: files(b.attachments) });
+    const saved = mail.saveDraft(me(ctx), { to: str(b.to, 4000), cc: str(b.cc ?? "", 4000), subject: str(b.subject, 300), body: str(b.body), threadId: b.threadId ? str(b.threadId, 80) : undefined, draftId: b.draftId ? str(b.draftId, 80) : undefined, attachments: ownFiles(me(ctx), b.attachments) });
     return { ...saved, state: state(me(ctx)) };
   });
 
@@ -478,12 +565,14 @@ export function createMailApp(deps: MailAppDeps) {
         if (req.method !== "GET" && req.method !== "HEAD") throw new HttpError(405, "Method not allowed");
         return await serveStatic(url.pathname, res);
       }
+      if (url.pathname === "/api/files" || url.pathname.startsWith("/api/files/")) return await fileRequest(req, res, url);
       const r = routes.find((x) => x.method === req.method && x.pattern.test(url.pathname));
       if (!r) throw new HttpError(404, "Not found");
       // CSRF: state-changing calls must come from Mail's own script.
       if (r.csrf && MUTATING.has(req.method!) && req.headers["x-cumulus"] !== "1") throw new HttpError(403, "Missing request header");
       const m = url.pathname.match(r.pattern)!;
       const ctx: Ctx = { req, res, params: Object.fromEntries(r.keys.map((k, i) => [k, decodeURIComponent(m[i + 1]!)])), body: await readBody(req), query: url.searchParams };
+      const run = async () => {
       if (r.auth || r.optionalAuth) {
         const token = parseCookies(req.headers.cookie)[COOKIE];
         const session = token ? cid.authenticate(token) : null;
@@ -494,7 +583,10 @@ export function createMailApp(deps: MailAppDeps) {
           ctx.user = { account: session.account, sessionId: session.session.id };
         }
       }
-      const result = await r.handler(ctx);
+        return r.handler(ctx);
+      };
+      // Hosted (serverless): load the latest state, run, and save atomically in one transaction.
+      const result = deps.transaction ? await deps.transaction(run) : await run();
       if (MUTATING.has(req.method!) || result instanceof Redirect) deps.onChange?.();
       if (result instanceof Redirect) {
         res.writeHead(302, { Location: result.location, "Cache-Control": "no-store" });
@@ -524,7 +616,7 @@ export function createMailApp(deps: MailAppDeps) {
     if (sent) deps.onChange?.();
     return sent;
   };
-  setInterval(() => void sendDue(), 20_000).unref();
+  if (!deps.noTimers) setInterval(() => void sendDue(), 20_000).unref();
 
   return { handle, sendDue, server: () => createServer((req, res) => void handle(req, res)) };
 }

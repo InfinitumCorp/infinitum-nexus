@@ -1,0 +1,38 @@
+import { bindings, defineConfig, triggers } from "cf/config";
+
+/**
+ * Cumulus://Mail on Cloudflare Workers at mail.cumuluscloud.app, with Supabase (nexus-store) as the
+ * back end. Deploy with `cf deploy --secrets-file <file>`; the secrets file holds
+ * FIRMAMENT_SIGNER_KEY, NEXUS_STORE_URL and NEXUS_STORE_KEY.
+ *
+ * Mail to outside addresses goes out through Cloudflare Email Sending: the zone is onboarded
+ * (`wrangler email sending enable cumuluscloud.app`) and the Worker needs a send_email binding
+ * named EMAIL (`"send_email": [{ "name": "EMAIL" }]`). Without it, outside mail stays queued.
+ *
+ * Optional sign-in providers, set as Worker secrets (`wrangler secret put NAME`). Each provider's
+ * "Continue with …" button appears on the sign-in page once its secrets are set; no deploy needed.
+ *   Google: GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
+ *   Apple:  APPLE_CLIENT_ID (the Services ID), APPLE_TEAM_ID, APPLE_KEY_ID, APPLE_PRIVATE_KEY (.p8 contents)
+ * Callback URLs to register with the provider: https://mail.cumuluscloud.app/api/auth/oauth/{google|apple}/callback
+ */
+const host = "mail.cumuluscloud.app";
+
+export default defineConfig({
+  worker: {
+    name: "cumulus-mail",
+    entrypoint: "./src/worker.ts",
+    compatibilityDate: "2026-11-01",
+    compatibilityFlags: ["nodejs_compat"],
+    domains: [host],
+    observability: { enabled: true },
+    triggers: [triggers.scheduled({ schedule: "* * * * *" })], // send scheduled mail that is due
+    env: {
+      MAIL_ORIGIN: bindings.text(`https://${host}`),
+      // Mirror through AWS CloudFront for networks that throttle Cloudflare (Russian ISPs).
+      MAIL_EXTRA_ORIGINS: bindings.text(`https://ru.${host}`),
+      FIRMAMENT_SIGNER_KEY: bindings.secret(),
+      NEXUS_STORE_URL: bindings.secret(),
+      NEXUS_STORE_KEY: bindings.secret(),
+    },
+  },
+});

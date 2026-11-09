@@ -10,7 +10,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { Mailbox, type MailSnapshot, type SendInput } from "./mailbox.ts";
-import type { FolderId, MailMessage, MailPayment, Person } from "./model.ts";
+import type { Attachment, FolderId, MailMessage, MailPayment, Person } from "./model.ts";
 import { MAIL_DOMAIN } from "@infinitum/cid";
 import { isCumulus, parsePeople, tomorrowMorning, validEmail } from "./logic.ts";
 import type { CumulusTunnel } from "./tunnel.ts";
@@ -56,8 +56,45 @@ export interface OutboundMail {
   to: string[];
   subject: string;
   queuedAt: string;
-  status: "queued" | "sent" | "failed";
+  status: "queued" | "sending" | "sent" | "failed";
+  /** The sender's copy in Sent, whose delivery status is updated as the job progresses. */
+  messageId?: string;
+  fromName?: string;
+  /** Outside addresses, as they appeared in To and Cc. */
+  toList?: string[];
+  ccList?: string[];
+  body?: string;
+  /** Stored files to attach (name-only entries can't be sent and are left out). */
+  attachments?: { id: string; name: string; type?: string; size: number }[];
+  attempts?: number;
+  /** Earliest time to try again after a temporary failure. */
+  nextAttemptAt?: string;
+  claimedAt?: string;
+  providerId?: string;
+  error?: string;
 }
+
+/** What a sender (Cloudflare Email Sending) needs to put one job on the wire. */
+export interface OutboundSend {
+  id: string;
+  from: { email: string; name?: string };
+  to: string[];
+  cc: string[];
+  subject: string;
+  text: string;
+  attachments: { id: string; name: string; type?: string; size: number }[];
+}
+
+export type OutboundResult = { ok: true; providerId?: string } | { ok: false; error: string; permanent: boolean };
+
+/** Temporary failures are retried this many times, with growing gaps, before the sender is told. */
+export const OUTBOUND_MAX_ATTEMPTS = 6;
+/**
+ * A job claimed but never finished after this long: the run stopped between taking it and recording
+ * the result, so it may or may not have gone out. It is never sent again (no duplicates); the
+ * sender is told delivery couldn't be confirmed instead.
+ */
+const OUTBOUND_CLAIM_TIMEOUT_MS = 10 * 60_000;
 
 export class PostOfficeStore {
   mailboxes = new Map<string, StoredMailbox>();
@@ -92,8 +129,26 @@ export interface PostOfficeSendInput extends Omit<SendInput, "id" | "now"> {
   payment?: { asset: string; amount: string };
 }
 
-export const messageBytes = (m: Pick<MailMessage, "subject" | "body">) =>
+/** A message from outside Cumulus, already parsed from MIME. `recipients` is the SMTP envelope. */
+export interface InboundMail {
+  from: Person;
+  recipients: string[];
+  to: Person[];
+  cc: Person[];
+  subject: string;
+  body: string;
+  at?: string;
+  attachments?: Attachment[];
+}
+
+/** Longest inbound body kept (characters); the rest is cut. */
+export const MAX_INBOUND_BODY = 512 * 1024;
+
+export const messageBytes =(m: Pick<MailMessage, "subject" | "body">) =>
   Buffer.byteLength(m.subject, "utf8") + Buffer.byteLength(m.body, "utf8") + 512; // headers
+
+/** Storage the files on a message take. */
+export const attachmentBytes = (files?: Attachment[]) => (files ?? []).reduce((n, f) => n + (f.size > 0 ? f.size : 0), 0);
 
 const RESERVED_LOCAL = new Set([
   ...Object.values(SYSTEM_SENDERS).map((s) => s.email.split("@")[0]),
@@ -201,7 +256,7 @@ export class PostOffice {
     if (cc.some((p) => !validEmail(p.email))) throw new MailError("bad_address", "Check the Cc addresses.");
     if (!input.subject.trim() && !input.body.trim()) throw new MailError("empty", "Write a subject or a message.");
 
-    const size = messageBytes({ subject: input.subject, body: input.body });
+    const size = messageBytes({ subject: input.subject, body: input.body }) + attachmentBytes(input.attachments);
     if (this.quota && !this.quota.canFit(cid, size)) {
       throw new MailError("quota_exceeded", "Your Cumulus storage is full. Free up space in Mail or Cloud to send.");
     }
@@ -264,7 +319,13 @@ export class PostOffice {
     }
 
     if (external.length) {
-      const job: OutboundMail = { id: `out-${randomUUID()}`, fromCid: cid, from: sender.owner.email, to: external, subject: sent.subject, queuedAt: at, status: "queued" };
+      const outside = (people: Person[]) => [...new Set(people.map((p) => p.email.toLowerCase()).filter((a) => external.includes(a)))];
+      const job: OutboundMail = {
+        id: `out-${randomUUID()}`, fromCid: cid, from: sender.owner.email, fromName: sender.owner.name, to: external,
+        toList: outside(to), ccList: outside(cc), subject: sent.subject, body: sent.body, messageId: id,
+        attachments: (sent.attachments ?? []).filter((a): a is Attachment & { id: string } => Boolean(a.id)).map(({ id, name, type, size }) => ({ id, name, type, size })),
+        queuedAt: at, status: "queued", attempts: 0,
+      };
       this.store.outbound.set(job.id, job);
     }
     if (bounced.length) {
@@ -343,6 +404,63 @@ export class PostOffice {
     return message;
   }
 
+  /**
+   * Mail arriving from outside Cumulus (Email Routing). Delivered to each Cumulus recipient's inbox;
+   * returns who got it and which recipients don't exist (the caller rejects the message if nobody did).
+   * Mail claiming a Cumulus sender is refused: Cumulus mail never arrives from outside.
+   */
+  receive(input: InboundMail): { delivered: string[]; unknown: string[] } {
+    const sender = input.from.email.trim().toLowerCase();
+    if (!validEmail(sender)) throw new MailError("bad_sender", "The sender address isn't valid.");
+    if (isCumulus(sender)) throw new MailError("spoofed_sender", "Mail from a Cumulus address can't arrive from outside Cumulus.");
+    const subject = input.subject.slice(0, 998);
+    const body = input.body.slice(0, MAX_INBOUND_BODY);
+    const size = messageBytes({ subject, body }) + attachmentBytes(input.attachments);
+    const delivered: string[] = [];
+    const unknown: string[] = [];
+    const seen = new Set<string>();
+    for (const rcpt of input.recipients) {
+      const address = rcpt.trim().toLowerCase();
+      if (seen.has(address)) continue;
+      seen.add(address);
+      const cid = isCumulus(address) ? this.resolve(address) : undefined;
+      if (!cid || (this.quota && !this.quota.canFit(cid, size))) {
+        unknown.push(address);
+        continue;
+      }
+      const box = this.box(cid);
+      const id = `m-${randomUUID()}`;
+      this.deliver(cid, {
+        id,
+        threadId: this.threadFor(box, sender, subject) ?? id,
+        folder: "inbox",
+        from: { name: input.from.name.trim() || sender, email: sender },
+        to: input.to.length ? input.to : [{ ...box.owner }],
+        cc: input.cc,
+        subject,
+        body,
+        at: input.at ?? this.now(),
+        unread: true,
+        starred: false,
+        labels: [],
+        attachments: input.attachments?.length ? input.attachments : undefined,
+      });
+      this.quota?.charge(cid, "mail", size);
+      delivered.push(address);
+    }
+    return { delivered, unknown };
+  }
+
+  /** A reply ("Re: x") from someone joins the thread of the earlier message "x" with that person. */
+  private threadFor(box: StoredMailbox, sender: string, subject: string): string | undefined {
+    const base = subject.replace(/^((re|fwd?|aw|wg)\s*:\s*)+/i, "").trim().toLowerCase();
+    if (!base || base === subject.trim().toLowerCase()) return undefined;
+    const match = box.messages.find((m) =>
+      m.subject.replace(/^((re|fwd?|aw|wg)\s*:\s*)+/i, "").trim().toLowerCase() === base &&
+      [m.from, ...m.to, ...m.cc].some((p) => p.email.toLowerCase() === sender));
+    return match?.threadId;
+  }
+
   /** Queued mail for the outbound relay (SMTP/JMAP bridge) to pick up. */
   outboundQueue(): OutboundMail[] {
     return [...this.store.outbound.values()].filter((m) => m.status === "queued");
@@ -351,6 +469,104 @@ export class PostOffice {
   markOutbound(id: string, status: "sent" | "failed") {
     const job = this.store.outbound.get(id);
     if (job) job.status = status;
+  }
+
+  /**
+   * Take up to `limit` jobs that are due for sending and mark them "sending", so a second sender
+   * running at the same time skips them. Call inside one transaction, send outside it, then report
+   * each outcome with finishOutbound() as soon as it's known. Every job is handed out at most once
+   * per attempt: one left in "sending" is closed as unconfirmed, never re-sent. Jobs from before
+   * outside sending existed carry no body and are closed with a notice instead.
+   */
+  claimOutbound(limit = 20): OutboundSend[] {
+    const now = this.clock().getTime();
+    const claimed: OutboundSend[] = [];
+    for (const job of this.store.outbound.values()) {
+      if (claimed.length >= limit) break;
+      if (job.status === "sending" && Date.parse(job.claimedAt ?? "") < now - OUTBOUND_CLAIM_TIMEOUT_MS) {
+        this.unconfirmedOutbound(job);
+        continue;
+      }
+      if (job.status !== "queued") continue;
+      if (job.nextAttemptAt && Date.parse(job.nextAttemptAt) > now) continue;
+      if (job.body === undefined) {
+        this.closeOutbound(job, "Sending to addresses outside Cumulus wasn't available yet when this was sent. Please send it again.");
+        continue;
+      }
+      job.status = "sending";
+      job.claimedAt = this.now();
+      const to = job.toList?.length ? job.toList : job.to;
+      const cc = job.toList?.length ? (job.ccList ?? []) : [];
+      claimed.push({ id: job.id, from: { email: job.from, name: job.fromName }, to, cc, subject: job.subject, text: job.body, attachments: job.attachments ?? [] });
+    }
+    return claimed;
+  }
+
+  /** Record how a claimed job went: sent, retry later, or (permanent or out of retries) not delivered. */
+  finishOutbound(id: string, result: OutboundResult) {
+    const job = this.store.outbound.get(id);
+    if (!job || job.status !== "sending") return;
+    job.claimedAt = undefined;
+    if (result.ok) {
+      job.status = "sent";
+      job.providerId = result.providerId;
+      job.error = undefined;
+      this.updateHops(job, "outbound", "Sent to the recipient's mail server.");
+      return;
+    }
+    job.attempts = (job.attempts ?? 0) + 1;
+    job.error = result.error;
+    if (result.permanent || job.attempts >= OUTBOUND_MAX_ATTEMPTS) {
+      this.closeOutbound(job, result.error);
+      return;
+    }
+    job.status = "queued";
+    // 1, 2, 4, 8, 16 minutes between tries.
+    job.nextAttemptAt = new Date(this.clock().getTime() + 60_000 * 2 ** (job.attempts - 1)).toISOString();
+    this.updateHops(job, "outbound", "Delayed. Cumulus will keep trying.");
+  }
+
+  private closeOutbound(job: OutboundMail, reason: string) {
+    job.status = "failed";
+    job.error = reason;
+    this.updateHops(job, "bounced", `Not delivered. ${reason}`);
+    const sent = job.messageId ? this.findMessage(job.fromCid, job.messageId) : undefined;
+    this.notify(job.fromCid, "postmaster", {
+      subject: `Not delivered: ${job.subject}`,
+      body: `Your message to ${job.to.join(", ")} wasn't delivered.
+
+${reason}`,
+      threadId: sent?.threadId,
+    });
+  }
+
+  private unconfirmedOutbound(job: OutboundMail) {
+    job.status = "failed";
+    job.claimedAt = undefined;
+    job.error = "unconfirmed";
+    this.updateHops(job, "outbound", "Delivery couldn't be confirmed. It may have arrived.");
+    const sent = job.messageId ? this.findMessage(job.fromCid, job.messageId) : undefined;
+    this.notify(job.fromCid, "postmaster", {
+      subject: `Delivery not confirmed: ${job.subject}`,
+      body: `Cumulus started sending your message to ${job.to.join(", ")} but couldn't confirm it was delivered. It may have arrived. To avoid sending it twice, Cumulus won't retry on its own. If the recipient didn't get it, send it again.`,
+      threadId: sent?.threadId,
+    });
+  }
+
+  private findMessage(cid: string, id: string): MailMessage | undefined {
+    return this.store.mailboxes.get(cid)?.messages.find((m) => m.id === id);
+  }
+
+  /** Show the job's progress on the sender's copy in Sent. */
+  private updateHops(job: OutboundMail, status: "outbound" | "bounced", detail: string) {
+    if (!job.messageId) return;
+    const box = this.store.mailboxes.get(job.fromCid);
+    if (!box) return;
+    const targets = new Set(job.to);
+    for (const m of box.messages) {
+      if (m.id !== job.messageId && m.id !== `${job.messageId}-in`) continue;
+      m.delivery = (m.delivery ?? []).map((hop) => (targets.has(hop.email.toLowerCase()) ? { ...hop, status, detail } : hop));
+    }
   }
 
   /* ---------------- Mailbox actions (scoped to the signed-in CID) ---------------- */

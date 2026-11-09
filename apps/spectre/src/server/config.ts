@@ -7,7 +7,7 @@ export const config = {
   actor: process.env.SPECTRE_ACTOR ?? "cid:demo-user",
   logLevel: process.env.LOG_LEVEL ?? "info",
   /** CNDCTR public host, hosted on Cloudflare. ARCHITECT_URL overrides it. */
-  architectUrl: process.env.ARCHITECT_URL ?? "https://cndctr.app",
+  architectUrl: process.env.ARCHITECT_URL ?? "https://rchtch.app",
   /** SCALVS.ai public host, hosted on Cloudflare. SCALVS_URL overrides it. */
   scalvsUrl: process.env.SCALVS_URL ?? "https://scalvs.app",
 };

@@ -404,6 +404,8 @@ function loadAssets(dir: string): Map<string, { type: string; body: Buffer }> {
     "/app.js": ["app.js", "text/javascript; charset=utf-8"],
     "/app-shell.css": ["app-shell.css", "text/css; charset=utf-8"],
     "/app.css": ["app.css", "text/css; charset=utf-8"],
+    "/firm-suite.js": ["firm-suite.js", "text/javascript; charset=utf-8"],
+    "/firm-suite.css": ["firm-suite.css", "text/css; charset=utf-8"],
   };
   const assets = new Map<string, { type: string; body: Buffer }>();
   for (const [path, [file, type]] of Object.entries(spec)) {

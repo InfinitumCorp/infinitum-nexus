@@ -5,6 +5,7 @@ import type { SmartList, Form, FormSubmission, Calendar, Appointment, Workflow, 
 import type { Ledger, Signer, Entry } from "@infinitum/firmament";
 import {
   STAGES,
+  OPEN_STAGES,
   type Activity,
   type Company,
   type Contact,
@@ -243,7 +244,9 @@ export class SpectreCRM {
     if (stage === "lost" && !lostReason) throw new SpectreError("invalid", "Say why the deal was lost; it improves forecasts");
     const from = d.stage;
     const t = this.stamp();
-    const next: Deal = { ...d, stage, stageEnteredAt: t, updatedAt: t, lostReason: stage === "lost" ? lostReason : undefined };
+    const closing = stage === "won" || stage === "lost";
+    const closedFrom = closing ? (OPEN_STAGES.includes(from) ? from : d.closedFrom) : undefined;
+    const next: Deal = { ...d, stage, stageEnteredAt: t, updatedAt: t, lostReason: stage === "lost" ? lostReason : undefined, closedFrom };
     this.store.deals.set(id, next);
     await this.audit(actor, "deal", id, { event: "stage_changed", from, to: stage, lostReason: lostReason ?? null });
     return next;

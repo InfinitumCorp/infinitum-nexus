@@ -101,7 +101,12 @@ public class MainActivity extends Activity {
     // Tor state. Web pages load only when proxyReady && tor.ready().
     final Tor tor = Tor.get();
     /** True when this APK was built without the Tor binaries (see build.sh VEIL_ABIS). */
+    boolean torMissing;
+    /** True when browsing directly (the default, for speed). Tor is the person's choice. */
     boolean torOff;
+    /** Opt-in data sharing (Cumulus Data Exchange). Off by default; counts nothing while off. */
+    Earn earn;
+    int blockedReported = 0;
     TextView torBox;
     volatile boolean proxyReady = false;
     /** Set when this phone's WebView can't be pointed at Tor; VEIL then refuses to browse. */
@@ -120,16 +125,17 @@ public class MainActivity extends Activity {
         getWindow().setNavigationBarColor(BG);
         // White bars with dark icons, like the other Infinitum apps.
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
-        torOff = !new java.io.File(getApplicationInfo().nativeLibraryDir, "libTor.so").exists();
+        torMissing = !new java.io.File(getApplicationInfo().nativeLibraryDir, "libTor.so").exists();
+        torOff = torMissing || !settings().getBoolean("tor", false);
+        earn = new Earn(this);
         setContentView(wrapWithPanel(buildUi()));
         configureWebView();
 
         Uri data = getIntent() != null ? getIntent().getData() : null;
         if (data != null && Privacy.isWeb(data.toString())) pendingUrl = data.toString();
 
-        // Point every WebView at Tor before anything loads, then start Tor.
+        // Direct by default (fast). With Tor on, point every WebView at Tor before anything loads.
         if (torOff) {
-            // Built without Tor (VEIL_ABIS=""): browse directly, and say so in the Tor box.
             updateTorBox();
             web.loadUrl(HUB);
             if (pendingUrl != null) { String u = pendingUrl; pendingUrl = null; open(u); }
@@ -141,6 +147,48 @@ public class MainActivity extends Activity {
     }
 
     // ---------------- Tor ----------------
+
+    android.content.SharedPreferences settings() {
+        return getSharedPreferences("veil", MODE_PRIVATE);
+    }
+
+    /**
+     * Turn Tor on or off while VEIL runs. Either way VEIL clears cookies, site storage and
+     * cache first, so the direct session and the Tor session can't be linked to each other.
+     */
+    void setTor(boolean on) {
+        if (on == !torOff) return;
+        if (on && torMissing) { torTapped(); return; }
+        settings().edit().putBoolean("tor", on).apply();
+        wipe();
+        pendingUrl = null;
+        pendingPanel = null;
+        torWasReady = false;
+        if (on) {
+            torOff = false;
+            proxyReady = false;
+            proxyProblem = null;
+            web.loadUrl("about:blank");
+            startProxy();
+            tor.setListener(this::onTorState);
+            tor.start(this);
+            Toast.makeText(this, "Tor is on. Connecting…", Toast.LENGTH_SHORT).show();
+        } else {
+            torOff = true;
+            tor.setListener(null);
+            tor.stop();
+            boolean hadProxy = proxyReady;
+            proxyReady = false;
+            proxyProblem = null;
+            updateTorBox();
+            if (hadProxy) {
+                ProxyController.getInstance().clearProxyOverride(getMainExecutor(), () -> web.loadUrl(HUB));
+            } else {
+                web.loadUrl(HUB);
+            }
+            Toast.makeText(this, "Tor is off. Sites can see this phone's IP address.", Toast.LENGTH_LONG).show();
+        }
+    }
 
     void startProxy() {
         if (!WebViewFeature.isFeatureSupported(WebViewFeature.PROXY_OVERRIDE)) {
@@ -174,6 +222,7 @@ public class MainActivity extends Activity {
         if (!torReady()) { torWasReady = false; return; }
         if (!torWasReady) {
             torWasReady = true;
+            if (!torOff) earn.count("tor_session");
             if (pendingUrl != null) { String u = pendingUrl; pendingUrl = null; open(u); }
             if (pendingPanel != null) { String[] p = pendingPanel; pendingPanel = null; openPanel(p[0], p[1]); }
         }
@@ -185,7 +234,7 @@ public class MainActivity extends Activity {
         if (torOff) {
             torBox.setText("Tor off");
             torBox.setTextColor(QUIET);
-            torBox.setContentDescription("This version doesn't use Tor. Tap for details");
+            torBox.setContentDescription(torMissing ? "This version doesn't include Tor. Tap for details" : "Tor is off. Tap to turn it on");
             return;
         }
         String text;
@@ -211,25 +260,43 @@ public class MainActivity extends Activity {
     }
 
     void torTapped() {
-        if (torOff) {
+        if (torMissing) {
             new AlertDialog.Builder(this).setTitle("Tor isn't in this version")
-                .setMessage("This version of VEIL connects directly, not over Tor. Built-in Tor is coming in the next update. You can check this connection on the Tor Project's site.")
+                .setMessage("This version of VEIL connects directly, not over Tor. The version with Tor built in is a larger download. You can check this connection on the Tor Project's site.")
                 .setPositiveButton("Check connection", (d, w) -> open(TOR_CHECK))
                 .setNegativeButton("OK", null).show();
             return;
         }
+        if (torOff) {
+            new AlertDialog.Builder(this).setTitle("Browse over Tor?")
+                .setMessage("VEIL connects directly by default, for speed. Trackers, ads and tracking parameters are blocked either way.\n\n"
+                    + "Tor hides this phone's IP address from sites, and hides the sites you visit from your network. It is slower, and the first connection can take a minute.\n\n"
+                    + "Turning Tor on clears cookies and site data. VEIL over Tor is not Tor Browser: sites can still fingerprint the browser.")
+                .setPositiveButton("Turn on Tor", (d, w) -> setTor(true))
+                .setNegativeButton("Not now", null).show();
+            return;
+        }
         if (proxyProblem != null) {
             new AlertDialog.Builder(this).setTitle("Tor is unavailable").setMessage(proxyProblem)
-                .setPositiveButton("OK", null).show();
+                .setPositiveButton("OK", null)
+                .setNeutralButton("Turn off Tor", (d, w) -> setTor(false)).show();
         } else if (tor.error != null) {
             new AlertDialog.Builder(this).setTitle("Tor isn't connected")
-                .setMessage(tor.error + "\n\nVEIL won't load pages until Tor is back.")
+                .setMessage(tor.error + "\n\nWith Tor on, VEIL won't load pages until Tor is back.")
                 .setPositiveButton("Reconnect", (d, w) -> tor.start(this))
-                .setNegativeButton("Cancel", null).show();
+                .setNegativeButton("Cancel", null)
+                .setNeutralButton("Turn off Tor", (d, w) -> setTor(false)).show();
         } else if (torReady()) {
-            open(TOR_CHECK);
+            new AlertDialog.Builder(this).setTitle("Connected to Tor")
+                .setMessage("Every page goes over Tor" + (tor.bridges ? ", through a bridge." : "."))
+                .setPositiveButton("Check", (d, w) -> open(TOR_CHECK))
+                .setNegativeButton("Close", null)
+                .setNeutralButton("Turn off Tor", (d, w) -> setTor(false)).show();
         } else {
-            Toast.makeText(this, "Connecting to Tor" + (tor.bridges ? " over bridges" : "") + ": " + tor.progress + "% (" + tor.summary + ")", Toast.LENGTH_SHORT).show();
+            new AlertDialog.Builder(this).setTitle("Connecting to Tor")
+                .setMessage(tor.progress + "%" + (tor.bridges ? " over bridges" : "") + ": " + tor.summary + "\n\nPages open when Tor is connected.")
+                .setPositiveButton("OK", null)
+                .setNeutralButton("Turn off Tor", (d, w) -> setTor(false)).show();
         }
     }
 
@@ -299,11 +366,15 @@ public class MainActivity extends Activity {
         m.getMenu().add(0, 1, 0, "Home");
         m.getMenu().add(0, 3, 2, "New identity");
         m.getMenu().add(0, 4, 3, "Privacy");
+        if (!torMissing) m.getMenu().add(0, 5, 4, torOff ? "Turn on Tor" : "Turn off Tor");
+        m.getMenu().add(0, 6, 5, earn.optedIn() ? "Data sharing: on" : "Share data & earn");
         m.setOnMenuItemClickListener(item -> {
             switch (item.getItemId()) {
                 case 1: web.loadUrl(HUB); return true;
                 case 3: confirmNewIdentity(); return true;
                 case 4: showPrivacy(); return true;
+                case 5: if (torOff) torTapped(); else setTor(false); return true;
+                case 6: showEarn(); return true;
             }
             return false;
         });
@@ -428,6 +499,7 @@ public class MainActivity extends Activity {
         panelTitle.setText(title);
         panelHost = String.valueOf(Uri.parse(url).getHost());
         panelWeb.loadUrl(url);
+        earn.count("app_panel");
         if (panelOpen) return;
         panelOpen = true;
         hideKeyboard();
@@ -525,7 +597,7 @@ public class MainActivity extends Activity {
             boolean enter = event != null && event.getKeyCode() == KeyEvent.KEYCODE_ENTER && event.getAction() == KeyEvent.ACTION_DOWN;
             if (actionId == EditorInfo.IME_ACTION_GO || enter) {
                 String url = Privacy.fromInput(address.getText().toString());
-                if (url != null) open(url);
+                if (url != null) { earn.count("address_bar"); open(url); }
                 hideKeyboard();
                 return true;
             }
@@ -757,6 +829,7 @@ public class MainActivity extends Activity {
 
     void open(String url) {
         if (!torGate(url)) { pendingUrl = url; return; }
+        if (url.startsWith("https://duckduckgo.com/?q=")) earn.count("search");
         String cleaned = Privacy.clean(url);
         navHost = String.valueOf(Uri.parse(cleaned).getHost());
         if (!cleaned.equals(url) && !Privacy.stripTrackers(url).equals(url)) stripped++;
@@ -768,12 +841,13 @@ public class MainActivity extends Activity {
     void confirmNewIdentity() {
         new AlertDialog.Builder(this)
             .setTitle("New Identity")
-            .setMessage("Clear cookies, site storage, cache and history, and switch to new Tor circuits?")
+            .setMessage("Clear cookies, site storage, cache and history" + (torOff ? "?" : ", and switch to new Tor circuits?"))
             .setPositiveButton("Clear", (d, w) -> {
                 wipe();
-                tor.newIdentity();
+                if (!torOff) tor.newIdentity();
+                earn.count("new_identity");
                 web.loadUrl(HUB);
-                Toast.makeText(this, "New Identity: everything cleared, new Tor circuits", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, torOff ? "New Identity: everything cleared" : "New Identity: everything cleared, new Tor circuits", Toast.LENGTH_SHORT).show();
             })
             .setNegativeButton("Cancel", null)
             .show();
@@ -787,22 +861,26 @@ public class MainActivity extends Activity {
         web.clearHistory();
         web.clearFormData();
         if (panelWeb != null) resetPanel();
+        reportBlocked();
         stripped = 0;
         blocked = 0;
         blockedSession = 0;
+        blockedReported = 0;
         allowedInsecure.clear();
     }
 
     void showPrivacy() {
+        earn.count("privacy_view");
         boolean insecure = Privacy.isInsecure(web.getUrl());
         String title = insecure ? "Not encrypted" : blocking ? "Protected" : "Blocking is off";
         String msg = (pageHost.isEmpty() ? "" : pageHost + "\n\n")
             + "• Trackers and ads blocked: " + blocked + " on this page, " + blockedSession + " this session\n"
             + "• Tracking parameters stripped: " + stripped + " this session\n"
             + "• HTTPS-first, certificate errors blocked\n"
-            + "• " + (torOff ? "Tor: not in this version (direct connection)" : torReady() ? "Every page goes over Tor (built in)" : "Tor: " + (tor.error != null || proxyProblem != null ? "not connected, pages blocked" : "connecting, " + tor.progress + "%")) + "\n"
+            + "• " + (torOff ? (torMissing ? "Direct connection (Tor isn't in this version)" : "Direct connection, for speed. Tor is off (tap the Tor box)") : torReady() ? "Every page goes over Tor (built in)" : "Tor: " + (tor.error != null || proxyProblem != null ? "not connected, pages blocked" : "connecting, " + tor.progress + "%")) + "\n"
             + "• Third-party cookies off\n"
             + "• Nothing kept after you close VEIL\n"
+            + "• Data sharing: " + (earn.optedIn() ? "on (feature counts only, never sites or searches)" : "off") + "\n"
             + "• Screenshots of pages blocked\n\n"
             + PRIVACY_STATEMENT;
         new AlertDialog.Builder(this).setTitle(title).setMessage(msg)
@@ -813,6 +891,54 @@ public class MainActivity extends Activity {
                 web.reload();
             })
             .show();
+    }
+
+    // ---------------- Data sharing (opt-in) ----------------
+
+    void reportBlocked() {
+        if (earn == null) return;
+        earn.count("trackers_blocked", blockedSession - blockedReported);
+        blockedReported = blockedSession;
+    }
+
+    void showEarn() {
+        if (!earn.optedIn()) {
+            new AlertDialog.Builder(this).setTitle("Share data & earn")
+                .setMessage("Off unless you turn it on.\n\n"
+                    + "If you opt in, VEIL counts how often you use its features (address bar, search, app panel, New Identity, Tor, privacy view, trackers blocked) and how many sessions you have and how long they last.\n\n"
+                    + "Never shared: the sites you visit, your searches, page content, anything you type, or your IP address.\n\n"
+                    + "These counts are pooled with other people's on the Cumulus Data Exchange and licensed for research. You get " + Earn.OWNER_SHARE_PCT + "% of each sale, paid to your Cumulus://ID.\n\n"
+                    + "The exchange isn't open yet, so for now the counts stay on this phone and nothing is sent. You can see them, and turn this off and delete them, at any time.")
+                .setPositiveButton("Opt in", (d, w) -> {
+                    earn.optIn();
+                    Toast.makeText(this, "Data sharing is on. Only feature counts, never sites or searches.", Toast.LENGTH_LONG).show();
+                })
+                .setNegativeButton("Not now", null).show();
+            return;
+        }
+        reportBlocked();
+        earn.sessionEnded();
+        earn.sessionStarted();
+        new AlertDialog.Builder(this).setTitle("Data sharing is on")
+            .setMessage("This is everything VEIL keeps for the Cumulus Data Exchange (" + Earn.OWNER_SHARE_PCT + "% of each sale goes to you). Nothing has been sent: the exchange isn't open yet.\n\n" + earn.report())
+            .setPositiveButton("OK", null)
+            .setNeutralButton("Turn off and delete", (d, w) -> {
+                earn.optOutAndDelete();
+                Toast.makeText(this, "Data sharing is off. Everything it kept is deleted.", Toast.LENGTH_SHORT).show();
+            }).show();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        earn.sessionStarted();
+    }
+
+    @Override
+    protected void onPause() {
+        reportBlocked();
+        earn.sessionEnded();
+        super.onPause();
     }
 
     // ---------------- Lifecycle ----------------

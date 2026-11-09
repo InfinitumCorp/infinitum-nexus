@@ -33,6 +33,8 @@ interface Env {
   EMAIL?: EmailBinding;
   /** R2 bucket for attachment contents. Without it, attaching files is turned off. */
   MAIL_FILES?: R2BucketLike;
+  /** Service binding to the downloads site (Worker cumulus-downloads), served at /download/. */
+  DOWNLOADS_SITE?: { fetch(request: Request): Promise<Response> };
 }
 
 let files: FileStore | undefined;
@@ -46,6 +48,16 @@ function configure(env: Env) {
 
 export default {
   fetch(request: Request, env: Env, ctx: unknown) {
+    // The downloads page (Worker cumulus-downloads) is also served here, at /download/.
+    const url = new URL(request.url);
+    if (env.DOWNLOADS_SITE && (url.pathname === "/download" || url.pathname === "/downloads" || url.pathname === "/downloads/")) {
+      return Response.redirect(`${url.origin}/download/`, 301);
+    }
+    if (env.DOWNLOADS_SITE && url.pathname.startsWith("/download/")) {
+      const inner = new URL(url);
+      inner.pathname = url.pathname.slice("/download".length);
+      return env.DOWNLOADS_SITE.fetch(new Request(inner, request));
+    }
     configure(env);
     return http.fetch(request, env, ctx);
   },

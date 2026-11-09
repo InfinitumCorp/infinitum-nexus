@@ -1,0 +1,43 @@
+# Checks that Cumulus://Mail answers on its main address and on the API Gateway mirror
+# (ru.mail.cumuluscloud.app), from outside our own networks.
+name: Cumulus Mail mirror check
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 */6 * * *"
+  push:
+    paths:
+      - .github/workflows/cumulus-mail-mirror-check.yml
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        origin: [https://mail.cumuluscloud.app, https://ru.mail.cumuluscloud.app]
+    steps:
+      - name: Check ${{ matrix.origin }}
+        env:
+          ORIGIN: ${{ matrix.origin }}
+        run: |
+          set -u
+          fail=0
+          check() {
+            code=$(curl -s -o /dev/null --retry 3 --retry-all-errors --max-time 30 -w '%{http_code}' "$ORIGIN$1") || code=000
+            echo "$1 -> $code (want $2)"
+            [ "$code" = "$2" ] || fail=1
+          }
+          check / 200
+          check /manifest.webmanifest 200
+          check /api/auth/providers 200
+          check /api/state 401
+          check /download/ 200
+          check /download/files/manifest.json 200
+          echo "Certificate:"
+          echo | openssl s_client -connect "${ORIGIN#https://}:443" -servername "${ORIGIN#https://}" 2>/dev/null | openssl x509 -noout -subject -enddate
+          exit $fail

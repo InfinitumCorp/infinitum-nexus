@@ -42,7 +42,9 @@ public class MainActivity extends Activity {
         final String mirror = getString(R.string.mirror_url);
         final Handler ui = new Handler(Looper.getMainLooper());
         new Thread(() -> {
-            String base = mirror.isEmpty() || reachable(main) ? main : mirror;
+            // The main site is the default and needs nothing else. Switch to the mirror only when the
+            // main site is throttled AND the mirror answers, so the app works with no mirror at all.
+            String base = !mirror.isEmpty() && !reachable(main) && reachable(mirror) ? mirror : main;
             ui.post(() -> open(targetFor(intent, base)));
         }).start();
     }

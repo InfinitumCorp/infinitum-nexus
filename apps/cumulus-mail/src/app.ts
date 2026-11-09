@@ -300,6 +300,24 @@ export function createMailApp(deps: MailAppDeps) {
     return { ok: true };
   });
 
+  /*
+   * Signing in the desktop app through the browser. Desktop shells can't always use the
+   * computer's passkeys, so the app opens /?desktop=<challenge> in the browser; once you approve
+   * there, the browser hands the app a one-time code (cumulus-mail://signin), and the app redeems
+   * it with its secret verifier for its own session.
+   */
+  route("POST", "/api/auth/desktop/grant", async (ctx) => {
+    need(ctx, "challenge");
+    return cid.grantDeviceHandoff(me(ctx), str(ctx.body.challenge, 64), "cumulus-mail-desktop");
+  });
+  route("POST", "/api/auth/desktop/redeem", async (ctx) => {
+    need(ctx, "code", "verifier");
+    const { token, session } = await cid.redeemDeviceHandoff(str(ctx.body.code, 64), str(ctx.body.verifier, 128), device(ctx));
+    ctx.res.setHeader("Set-Cookie", sessionCookie(token));
+    await ensureGrant(cid.getAccount(session.cid));
+    return { status: "ok" };
+  }, false);
+
   route("GET", "/api/auth/providers", () => cid.socialProvidersEnabled(), false);
 
   const oauthCookie = (provider: string, value: string, maxAge: number) => {

@@ -11,6 +11,9 @@
     "browsingData",
     "alarms",
     "webRequest",
+    "declarativeNetRequest",
+    "declarativeNetRequestFeedback",
+    "downloads",
     "sidePanel",
     "webRequestAuthProvider"
   ],
@@ -43,6 +46,7 @@
         "http://*/*"
       ],
       "js": [
+        "lib/content-pii.js",
         "content.js"
       ],
       "run_at": "document_idle"

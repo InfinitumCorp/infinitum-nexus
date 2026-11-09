@@ -73,7 +73,7 @@ node scripts/make-icons.js
 
 `cid` and `mail` accept a stored http(s) origin. `torPort` is `9050` or `9150` (or another local port).
 
-Production packages pin `veil`, `architect`, and `scalvs`. A stored value for those keys is ignored. `VEIL_DEV=1 node scripts/package.js` is the dev build: those three keys then accept `http` or `https` on `localhost` or `127.0.0.1` only.
+Production packages pin `veil`, `architect`, `scalvs` and `metatron`. A stored value for those keys is ignored. `VEIL_DEV=1 node scripts/package.js` is the dev build: those keys then accept `http` or `https` on `localhost` or `127.0.0.1` only.
 
 | Key in `origins` | Default | Product |
 | --- | --- | --- |
@@ -82,3 +82,4 @@ Production packages pin `veil`, `architect`, and `scalvs`. A stored value for th
 | `mail` | `http://localhost:3010` | Cumulus://Mail |
 | `architect` | `https://rchtch.app` | :\ARCHITECT\ (CNDCTR) endpoint for Ask. Hosted on Cloudflare. |
 | `scalvs` | `https://scalvs.app` | SCALVS.ai. Hosted on Cloudflare. |
+| `metatron` | `https://mttrn.app` | METATRON¹⁰⁰. |

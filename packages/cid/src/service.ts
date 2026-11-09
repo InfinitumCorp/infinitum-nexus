@@ -44,6 +44,22 @@ export type AppId = (typeof INFINITUM_APPS)[number];
 const LEGACY_APP_IDS: Record<string, AppId> = { architct: "architect", cndctr: "architect", scalus: "scalvs" };
 
 /**
+ * Canonical web origins of apps on their own domains (METATRON¹⁰⁰: https://mttrn.app).
+ * Each one is in the CID CORS allowlist (domains.ts) and registers `cidRedirectUri(app, provider)`
+ * with every social sign-in provider.
+ */
+export const APP_ORIGINS: Readonly<Partial<Record<AppId, string>>> = Object.freeze({
+  metatron: cumulusDomains().productOrigins.metatron,
+});
+
+/** Social sign-in callback for an app: the same path +SPCTR and Cumulus://Mail serve. */
+export function cidRedirectUri(app: AppId, provider: SocialProviderId): string {
+  const origin = APP_ORIGINS[app];
+  if (!origin) throw new Error(`${app} has no registered web origin`);
+  return `${origin}/api/auth/oauth/${provider}/callback`;
+}
+
+/**
  * What every new CID comes with, per the Cumulus://ID page. Like a Google account and Gmail,
  * every CID gets a Cumulus://Mail address, a Cumulus://Cloud drive and a FIRM Wallet on the free tier.
  */

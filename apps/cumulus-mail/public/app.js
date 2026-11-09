@@ -321,6 +321,7 @@ async function scheduleSend(when) {
   clearTimeout(draftTimer);
   if (draftSaving) await draftSaving;
   const form = state.composer;
+  if (stillUploading(form)) { state.error = "Wait for your files to finish uploading."; render(); return; }
   if (form.payment?.amount) { state.error = "Payments go out right away. Send this one now."; render(); return; }
   try {
     form.sent = true;
@@ -449,7 +450,9 @@ function reader(message) {
         ]),
         item.payment ? paymentCard(item) : none(),
         el("p", { class: "letter" }, [item.body]),
-        ...(item.attachments || []).map((file) => el("span", { class: "file" }, [file.name, el("span", { class: "sub" }, [size(file.size)])])),
+        ...(item.attachments || []).map((file) => file.id
+          ? el("a", { class: "file", href: fileUrl(file.id), download: file.name, title: `Download ${file.name}` }, [file.name, el("span", { class: "sub" }, [size(file.size)])])
+          : el("span", { class: "file", title: "This file wasn't stored, so it can't be opened." }, [file.name, el("span", { class: "sub" }, [size(file.size)])])),
       ])),
       state.composer?.inline ? el("div", { class: "inline-composer" }, [composerForm()]) : none(),
     ]),
@@ -500,7 +503,7 @@ function composerForm() {
     ]),
     field("Message", "body"),
     ...(form.attachments || []).map((file, index) => el("span", { class: "file" }, [
-      file.name, el("span", { class: "sub" }, [size(file.size)]),
+      file.name, el("span", { class: "sub" }, [file.uploading ? "Uploading…" : size(file.size)]),
       el("button", { type: "button", "aria-label": `Remove ${file.name}`, onClick: () => { form.attachments.splice(index, 1); render(); } }, ["×"]),
     ])),
     el("div", { class: "actions" }, [
@@ -526,15 +529,44 @@ function composerForm() {
   ]);
 }
 
-const filePicker = el("input", { type: "file", style: "display:none", onChange: (event) => {
-  const file = event.target.files?.[0];
-  event.target.value = "";
-  if (!file || !state.composer) return;
-  if (file.size > 25 * 1024 * 1024) { state.error = "Files stay under 25 MB. Larger ones belong in Cloud."; render(); return; }
-  state.composer.attachments = [...(state.composer.attachments || []), { name: file.name, size: file.size }];
-  state.error = "";
+const fileUrl = (id) => `/api/files/${id.split("/").map(encodeURIComponent).join("/")}`;
+
+/** Upload a picked file to Cumulus storage; the composer keeps only the stored file's reference. */
+async function uploadFile(form, file) {
+  const entry = { name: file.name, size: file.size, uploading: true };
+  form.attachments = [...(form.attachments || []), entry];
   render();
+  try {
+    const response = await fetch(`/api/files?name=${encodeURIComponent(file.name)}`, {
+      method: "POST",
+      headers: { "Content-Type": file.type || "application/octet-stream", "x-cumulus": "1" },
+      body: file,
+      credentials: "same-origin",
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || "Upload failed");
+    const index = form.attachments.indexOf(entry);
+    if (index >= 0) form.attachments.splice(index, 1, payload);
+  } catch (err) {
+    form.attachments = form.attachments.filter((a) => a !== entry);
+    state.error = `${file.name}: ${err.message}`;
+  }
+  render();
+  queueDraftSave();
+}
+
+const filePicker = el("input", { type: "file", multiple: true, style: "display:none", onChange: (event) => {
+  const picked = [...(event.target.files || [])];
+  event.target.value = "";
+  if (!picked.length || !state.composer) return;
+  state.error = "";
+  for (const file of picked) {
+    if (file.size > 25 * 1024 * 1024) { state.error = `${file.name} is over 25 MB. Larger files belong in Cloud.`; render(); continue; }
+    uploadFile(state.composer, file);
+  }
 } });
+
+const stillUploading = (form) => (form.attachments || []).some((a) => a.uploading);
 
 /* Drafts save themselves a moment after you stop typing, like Gmail. */
 let draftTimer;
@@ -593,6 +625,7 @@ async function send() {
   clearTimeout(draftTimer);
   if (draftSaving) await draftSaving;
   const form = state.composer;
+  if (stillUploading(form)) { state.error = "Wait for your files to finish uploading."; render(); return; }
   const paying = Boolean(form.payment?.amount);
   if (paying && !confirm(`Send ${form.payment.amount} ${form.payment.asset} from your FIRM Wallet to ${form.to}?`)) return;
   try {

@@ -344,8 +344,22 @@ async function ask(question) {
   state.thread.push({ role: "ai", text: "Thinking…", pending: true });
   await renderToday();
   try {
-    const { answer } = await api("POST", "/api/ask", { question });
-    state.thread[state.thread.length - 1] = { role: "ai", text: answer };
+    const { answer, conjure } = await api("POST", "/api/ask", { question });
+    const slot = state.thread.length - 1;
+    state.thread[slot] = { role: "ai", text: answer };
+    // @conjure: follow the live forecast round by round until the report is in.
+    if (conjure && !["done", "failed", "cancelled"].includes(conjure.status)) {
+      (async () => {
+        for (let i = 0; i < 400; i++) {
+          await new Promise((r) => setTimeout(r, 2000));
+          const live = await api("GET", `/api/conjure/live/${encodeURIComponent(conjure.id)}`).catch(() => null);
+          if (!live) return;
+          state.thread[slot] = { role: "ai", text: live.text };
+          await renderToday();
+          if (["done", "failed", "cancelled"].includes(live.prediction.status)) return;
+        }
+      })();
+    }
   } catch (e) {
     state.thread[state.thread.length - 1] = { role: "ai", text: e.message, notice: true };
   }

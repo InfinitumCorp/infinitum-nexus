@@ -165,7 +165,8 @@ test("encrypted snapshot round-trip protects full client content and metadata", 
     const s = setup(); first(s); storage.save(s.storage.load());
     const raw = readFileSync(path, "utf8");
     for (const secret of ["private source", "private-code", "src/main.ts", "alice", "Initial code"]) assert.ok(!raw.includes(secret));
-    assert.equal(statSync(path).mode & 0o777, 0o600);
+    // Windows has no POSIX permission bits (it reports 0o666), so check them only elsewhere.
+    if (process.platform !== "win32") assert.equal(statSync(path).mode & 0o777, 0o600);
     const restored = new Labyrinth({ ...s.opts, storage });
     assert.equal(restored.history("alice", "client-a", s.repo.id).length, 1);
     assert.throws(() => new EncryptedFileStorage(path, () => randomBytes(32)).load());

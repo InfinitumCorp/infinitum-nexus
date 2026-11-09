@@ -43,6 +43,15 @@ func publicFrom(private [32]byte) ([32]byte, error) {
 	return pub, nil
 }
 
+// MintHex returns disposable hex keys. Callers must not log or store them.
+func MintHex() (privateHex, publicHex string, err error) {
+	priv, pub, err := generateKey()
+	if err != nil {
+		return "", "", err
+	}
+	return keyHex(priv), keyHex(pub), nil
+}
+
 func generateKey() (private, public [32]byte, err error) {
 	private, err = newPrivateKey(rand.Reader)
 	if err != nil {

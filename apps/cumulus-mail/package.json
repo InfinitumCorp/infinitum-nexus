@@ -20,7 +20,8 @@
     "@infinitum/firmament": "workspace:*",
     "@infinitum/lbrnth": "workspace:*",
     "@infinitum/mail": "workspace:*",
-    "@infinitum/scalus": "workspace:*"
+    "@infinitum/scalus": "workspace:*",
+    "postal-mime": "2.4.4"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

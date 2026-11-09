@@ -2,6 +2,7 @@
 # Builds the Cumulus Mail Android app with the plain SDK tools (no Gradle).
 #
 #   MAIL_URL=https://mail.cumuluscloud.app bash apps/cumulus-mail/android/build-apk.sh
+#   MIRROR_URL (default https://ru.mail.cumuluscloud.app) is opened when the main site is throttled; set it empty to disable.
 #
 # Needs ANDROID_HOME (build-tools 35+ and platform 35+) and a JDK 17+.
 # Signs with KEYSTORE / KEY_ALIAS / KEY_PASS when set, otherwise with the local debug key.
@@ -16,6 +17,7 @@ BT="$SDK/build-tools/$(ls "$SDK/build-tools" | sort -V | tail -1)"
 PLATFORM="$(ls -d "$SDK"/platforms/android-* | sort -V | tail -1)"
 JAR="$PLATFORM/android.jar"
 MAIL_URL="${MAIL_URL:-https://mail.cumuluscloud.app}"
+MIRROR_URL="${MIRROR_URL-https://ru.mail.cumuluscloud.app}"
 OUT="$HERE/build"
 EXE=""; [ -f "$BT/aapt2.exe" ] && EXE=".exe"
 BAT=""; [ -f "$BT/d8.bat" ] && BAT=".bat"
@@ -23,6 +25,7 @@ BAT=""; [ -f "$BT/d8.bat" ] && BAT=".bat"
 rm -rf "$OUT" && mkdir -p "$OUT/res" "$OUT/gen" "$OUT/classes" "$OUT/dex"
 cp -r "$HERE/res/." "$OUT/res/"
 sed -i "s#<string name=\"mail_url\" translatable=\"false\">[^<]*</string>#<string name=\"mail_url\" translatable=\"false\">${MAIL_URL}</string>#" "$OUT/res/values/strings.xml"
+sed -i "s#<string name=\"mirror_url\" translatable=\"false\">[^<]*</string>#<string name=\"mirror_url\" translatable=\"false\">${MIRROR_URL}</string>#" "$OUT/res/values/strings.xml"
 
 "$BT/aapt2$EXE" compile --dir "$OUT/res" -o "$OUT/res.zip"
 "$BT/aapt2$EXE" link -o "$OUT/unsigned.apk" -I "$JAR" --manifest "$HERE/AndroidManifest.xml" --java "$OUT/gen" \

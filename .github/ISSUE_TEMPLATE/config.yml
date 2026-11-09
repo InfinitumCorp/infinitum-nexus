@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Product delivery map
+    url: https://github.com/InfinitumCorp/infinitum-nexus/blob/main/PRODUCT-DELIVERY.md
+    about: Status of every Infinitum product in this monorepo
+  - name: Deploy notes
+    url: https://github.com/InfinitumCorp/infinitum-nexus/blob/main/DEPLOY.md
+    about: How apps in this repo are deployed

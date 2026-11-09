@@ -3,4 +3,6 @@
     <string name="app_name">Cumulus Mail</string>
     <!-- Replaced at build time by build-apk.sh (MAIL_URL). -->
     <string name="mail_url" translatable="false">https://mail.cumuluscloud.app</string>
+    <!-- CloudFront mirror, used when the main site is throttled. Replaced by build-apk.sh (MIRROR_URL); empty disables it. -->
+    <string name="mirror_url" translatable="false">https://ru.mail.cumuluscloud.app</string>
 </resources>

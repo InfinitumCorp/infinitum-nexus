@@ -6,6 +6,7 @@ import { Ledger, generateSigner } from "@infinitum/firmament";
 test("package dataset and sell with rev share and CDAT", async () => {
   const dx = new DataExchange();
 
+  await dx.consent.grant({ cid: "cid_user123", product: "scalus", scopes: ["usage_metrics"], purpose: "data_licensing" });
   const { dataset } = await dx.packageDataset({
     cid: "cid_user123",
     product: "scalus",
@@ -40,6 +41,7 @@ test("package dataset and sell with rev share and CDAT", async () => {
 
 test("a sale needs a positive price and the shares add back up", async () => {
   const dx = new DataExchange();
+  await dx.consent.grant({ cid: "cid_user123", product: "scalus", scopes: ["usage_metrics"], purpose: "data_licensing" });
   const { dataset } = await dx.packageDataset({
     cid: "cid_user123",
     product: "scalus",
@@ -68,6 +70,7 @@ test("Firmament records consent, license, and payment", async () => {
 
   const dx = new DataExchange(ledger, signer);
 
+  await dx.consent.grant({ cid: "cid_firmament", product: "cumulus", scopes: ["usage_metrics"], purpose: "data_licensing" });
   const { dataset, consent } = await dx.packageDataset({
     cid: "cid_firmament",
     product: "cumulus",
@@ -92,7 +95,7 @@ test("Firmament records consent, license, and payment", async () => {
 
   const entries = await ledger.entries();
   assert.deepEqual(entries.map((e) => e.type), ["grant", "license", "payment"]);
-  assert.equal(entries[0].subject, dataset.id);
+  assert.equal(entries[0].subject, "cumulus");
   assert.equal(entries[1].subject, dataset.id);
   assert.equal((await ledger.verify()).ok, true);
 });
@@ -111,6 +114,7 @@ test("a ledger failure during the sale leaves the dataset listed", async () => {
     },
   };
   const dx = new DataExchange(ledger, flaky);
+  await dx.consent.grant({ cid: "cid_user123", product: "scalus", scopes: ["usage_metrics"], purpose: "data_licensing" });
   const { dataset } = await dx.packageDataset({
     cid: "cid_user123",
     product: "scalus",

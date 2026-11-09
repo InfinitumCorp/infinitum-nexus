@@ -3,7 +3,16 @@ import { Ledger, signerFromPrivateKey } from "@infinitum/firmament";
 import { socialFromEnv } from "@infinitum/cid";
 import { createCumulus, emptyCumulusStores } from "@infinitum/cumulus";
 import { RemoteState, HttpGateway } from "../../spectre/src/server/remote.ts";
+import type { InboundMail } from "@infinitum/mail";
 import { createMailApp } from "./app.ts";
+import { deliverOutbound, type Sender } from "./outbound.ts";
+import type { FileStore } from "./files.ts";
+
+/** Attachment storage, set by the Workers entry (R2) before the first request. */
+let fileStore: FileStore | undefined;
+export function useFileStore(store: FileStore) {
+  fileStore = store;
+}
 
 /**
  * Cumulus://Mail on Vercel (serverless). Same state as every hosted Infinitum product: it lives in
@@ -12,6 +21,9 @@ import { createMailApp } from "./app.ts";
  *
  * Required environment variables:
  *   MAIL_ORIGIN            public URL, e.g. https://mail.cumuluscloud.app (passkeys are bound to its host)
+ *   MAIL_EXTRA_ORIGINS     optional, comma-separated mirrors of the same app under the MAIL_ORIGIN host,
+ *                          e.g. https://ru.mail.cumuluscloud.app (served through CloudFront for networks
+ *                          that throttle Cloudflare); passkeys work on them because they share its rpId
  *   FIRMAMENT_SIGNER_KEY   base64 PKCS#8 Ed25519 key that signs ledger entries (keep secret)
  *   NEXUS_STORE_URL        https://<project>.supabase.co/functions/v1/nexus-store
  *   NEXUS_STORE_KEY        gateway key; its SHA-256 is listed in nexus_gateway_keys
@@ -36,8 +48,22 @@ function publicDir(): string {
   }
 }
 
+/** Parses MAIL_EXTRA_ORIGINS. Each mirror must be a subdomain of the rpId host, or its passkeys would not work. */
+export function extraOrigins(value: string | undefined, rpId: string): string[] {
+  return (value ?? "")
+    .split(",")
+    .map((o) => o.trim().replace(/\/$/, ""))
+    .filter(Boolean)
+    .map((o) => {
+      const host = new URL(o).hostname;
+      if (!host.endsWith(`.${rpId}`)) throw new Error(`MAIL_EXTRA_ORIGINS: ${o} is not under ${rpId}`);
+      return o;
+    });
+}
+
 function build() {
   const origin = required("MAIL_ORIGIN").replace(/\/$/, "");
+  const origins = [origin, ...extraOrigins(process.env.MAIL_EXTRA_ORIGINS, new URL(origin).hostname)];
   const signer = signerFromPrivateKey(required("FIRMAMENT_SIGNER_KEY"));
   const stores = emptyCumulusStores();
   const state = new RemoteState(new HttpGateway(required("NEXUS_STORE_URL"), required("NEXUS_STORE_KEY")), {
@@ -49,7 +75,7 @@ function build() {
   });
   const ledger = new Ledger(state.ledgerStore, { authorizedSigners: [signer.publicKey] });
   const suite = createCumulus({
-    ledger, signer, rpId: new URL(origin).hostname, origins: [origin], stores,
+    ledger, signer, rpId: new URL(origin).hostname, origins, stores,
     social: { providers: socialFromEnv() }, mailOrigin: origin,
   });
 
@@ -68,6 +94,7 @@ function build() {
   let app: ReturnType<typeof createMailApp>;
   app = createMailApp({
     suite,
+    files: fileStore,
     publicDir: publicDir(), // static files come from the CDN (Vercel) or static assets (Workers)
     origin,
     secureCookies: origin.startsWith("https://"),
@@ -85,15 +112,37 @@ function build() {
     await verifyOnce();
     return state.transaction(() => suite.mail.sendAllDue());
   };
-  return Object.assign(app, { sendDueNow: sendDue });
+  // For Email Routing: deliver mail that arrived from outside Cumulus.
+  const receive = async (mail: InboundMail) => {
+    await verifyOnce();
+    return state.transaction(async () => suite.mail.receive(mail));
+  };
+  // For the cron trigger: send queued mail to outside addresses.
+  const sendOutbound = async (send: Sender) => {
+    await verifyOnce();
+    return deliverOutbound((fn) => state.transaction(fn), suite.mail, send);
+  };
+  return Object.assign(app, { sendDueNow: sendDue, receive, sendOutbound });
 }
 
 let app: ReturnType<typeof build> | undefined;
+
+/** Delivers mail from outside Cumulus. Called by the Workers email() handler (Email Routing). */
+export async function receiveMail(mail: InboundMail) {
+  app ??= build();
+  return app.receive(mail);
+}
 
 /** Sends scheduled mail that is due. Called by the Workers cron trigger. */
 export async function sendScheduledMail(): Promise<number> {
   app ??= build();
   return app.sendDueNow();
+}
+
+/** Sends queued mail to addresses outside Cumulus. Called by the Workers cron trigger. */
+export async function deliverOutboundMail(send: Sender): Promise<number> {
+  app ??= build();
+  return app.sendOutbound(send);
 }
 
 export default async function handler(req: IncomingMessage, res: ServerResponse) {

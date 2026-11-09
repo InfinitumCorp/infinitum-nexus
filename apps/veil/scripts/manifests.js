@@ -23,7 +23,12 @@ function shared(version) {
     name: "VEIL</>",
     version,
     description: extensionDescription(),
-    permissions: ["storage", "tabs", "proxy", "privacy", "browsingData", "alarms", "webRequest"],
+    permissions: ["storage", "tabs", "proxy", "privacy", "browsingData", "alarms", "webRequest",
+      // Default-on tracker, ad-network and data-broker blocking (lib/blocklist.js)
+      // and the per-site blocked count in the VEIL shield.
+      "declarativeNetRequest", "declarativeNetRequestFeedback",
+      // Pause risky downloads until the user decides (lib/downloads.js).
+      "downloads"],
     // Chrome and Firefox apply proxy.onRequest / chrome.proxy and the content script
     // only to hosts the extension may access. VEIL VPN and Tor must cover every
     // http(s) page in this browser, so these two patterns stay required.
@@ -42,7 +47,7 @@ function shared(version) {
     },
     icons,
     content_scripts: [
-      { matches: ["https://*/*", "http://*/*"], js: ["content.js"], run_at: "document_idle" },
+      { matches: ["https://*/*", "http://*/*"], js: ["lib/content-pii.js", "content.js"], run_at: "document_idle" },
     ],
   };
 }

@@ -22,6 +22,13 @@ test("SCALVS.ai uses the purchased public host by default", () => {
   assert.equal(by.scalvs.url, "https://scalvs.app");
 });
 
+test("METATRON¹⁰⁰ opens its canonical host mttrn.app", () => {
+  assert.equal(DEFAULT_ORIGINS.metatron, "https://mttrn.app");
+  const by = Object.fromEntries(launcher(resolveOrigins({}), null).map((a) => [a.id, a]));
+  assert.equal(by.metatron.url, "https://mttrn.app");
+  assert.equal(resolveOrigins({ metatron: "https://evil.example" }).metatron, "https://mttrn.app");
+});
+
 test("lists the seven free-tier products from the product page", () => {
   assert.deepEqual(APPS.map((a) => a.id), ["cid", "mail", "cloud", "scalvs", "architect", "metatron", "wallet"]);
 });

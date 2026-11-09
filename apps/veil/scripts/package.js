@@ -44,6 +44,8 @@ export const EXTENSION_FILES = [
   "lib/password-rules.js",
   "lib/privacy.js",
   "lib/proxy.js",
+  "lib/region.js",
+  "lib/region-blocks.js",
   "lib/safety.js",
   "lib/rewards.js",
   "lib/veil-api.js",

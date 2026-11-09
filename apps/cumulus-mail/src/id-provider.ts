@@ -115,18 +115,63 @@ export function registerIdProvider(h: Helpers) {
     return new Redirect(to.toString());
   }, false, { optionalAuth: true });
 
-  // Called from product pages with a simple (no-preflight) request: text/plain JSON body.
-  route("POST", "/api/id/token", async (ctx: any) => {
-    cors(ctx);
-    h.need(ctx, "code", "code_verifier", "client_id");
-    const { token, session, app } = await cid.redeemDeviceHandoff(str(ctx.body.code, 64), str(ctx.body.code_verifier, 128), h.device(ctx));
-    if (app !== str(ctx.body.client_id, 40)) {
+  const redeem = async (ctx: any, code: string, verifier: string, clientId: string) => {
+    const { token, session, app } = await cid.redeemDeviceHandoff(str(code, 64), str(verifier, 128), h.device(ctx));
+    if (app !== clientId) {
       await cid.revokeSession(session.cid, session.id);
       throw new HttpError(400, "That sign-in code belongs to another product.");
     }
     const expiresIn = Math.max(0, Math.floor((new Date(session.expiresAt).getTime() - Date.now()) / 1000));
     return { access_token: token, token_type: "Bearer", expires_in: expiresIn, profile: profileOf(cid.getAccount(session.cid)) };
+  };
+
+  // Called from product pages with a simple (no-preflight) request: text/plain JSON body.
+  route("POST", "/api/id/token", async (ctx: any) => {
+    cors(ctx);
+    h.need(ctx, "code", "code_verifier", "client_id");
+    return redeem(ctx, ctx.body.code, ctx.body.code_verifier, str(ctx.body.client_id, 40));
   }, false, { csrf: false });
+
+  /*
+   * Redirect-only variants for product sites whose Content-Security-Policy allows no requests to
+   * other origins (connect-src 'self'). The browser navigates here instead of calling fetch():
+   *   GET /api/id/redeem?client_id&redirect_uri&code&code_verifier&state
+   *     -> redirect_uri#cid_token=..&expires_in=..&state=..&profile=<base64url JSON>
+   *        (or #cid_error=<message>&state=..). The fragment never reaches any server.
+   *   GET /api/id/end?client_id&redirect_uri&token -> ends that session, then back to redirect_uri.
+   */
+  const backTo = (q: URLSearchParams) => {
+    const clientId = str(q.get("client_id"), 40);
+    const redirectUri = str(q.get("redirect_uri"), 500);
+    if (!idClientFor(clientId, redirectUri)) throw new HttpError(400, "This sign-in request didn't come from an Infinitum product.");
+    return { clientId, url: new URL(redirectUri) };
+  };
+  const withFragment = (url: URL, params: Record<string, string>) => {
+    url.hash = new URLSearchParams(params).toString();
+    return new Redirect(url.toString());
+  };
+
+  route("GET", "/api/id/redeem", async (ctx: any) => {
+    const q = ctx.query as URLSearchParams;
+    const { clientId, url } = backTo(q);
+    const state = str(q.get("state"), 200);
+    try {
+      const out = await redeem(ctx, str(q.get("code"), 64), str(q.get("code_verifier"), 128), clientId);
+      const profile = Buffer.from(JSON.stringify(out.profile)).toString("base64url");
+      return withFragment(url, { cid_token: out.access_token, expires_in: String(out.expires_in), state, profile });
+    } catch (e) {
+      return withFragment(url, { cid_error: (e as Error).message || "Sign-in failed. Please try again.", state });
+    }
+  }, false);
+
+  route("GET", "/api/id/end", async (ctx: any) => {
+    const q = ctx.query as URLSearchParams;
+    const { url } = backTo(q);
+    const token = str(q.get("token"), 200);
+    const hit = /^[A-Za-z0-9_-]{20,200}$/.test(token) ? cid.authenticate(token) : null;
+    if (hit) await cid.revokeSession(hit.account.cid, hit.session.id);
+    return new Redirect(url.toString());
+  }, false);
 
   route("GET", "/api/id/userinfo", (ctx: any) => {
     cors(ctx);

@@ -198,4 +198,40 @@ describe("Sign in with Cumulus://ID", () => {
     const code = new URL((await call("GET", `/api/id/authorize?${q}`, me)).headers.get("location")!).searchParams.get("code");
     assert.equal((await call("POST", "/api/id/token", "", { code, code_verifier: verifier, client_id: "metatron" })).status, 400);
   });
+
+  it("redirect-only flow for sites that allow no cross-origin requests", async () => {
+    const me = await signUp("idperson3");
+    const { verifier, challenge } = pkce();
+    const page = "https://mttrn.app/";
+    const q = new URLSearchParams({ client_id: "metatron", redirect_uri: page, code_challenge: challenge, state: "s1" });
+    const code = new URL((await call("GET", `/api/id/authorize?${q}`, me)).headers.get("location")!).searchParams.get("code")!;
+
+    // A wrong verifier comes back as an error in the fragment, never as a token.
+    const wrong = await call("GET", `/api/id/redeem?${new URLSearchParams({ client_id: "metatron", redirect_uri: page, code, code_verifier: "x".repeat(43), state: "s1" })}`);
+    assert.equal(wrong.status, 302);
+    const wrongTo = new URL(wrong.headers.get("location")!);
+    assert.ok(new URLSearchParams(wrongTo.hash.slice(1)).get("cid_error"));
+    assert.equal(new URLSearchParams(wrongTo.hash.slice(1)).get("cid_token"), null);
+
+    // Codes work once, so start again for the good path.
+    const code2 = new URL((await call("GET", `/api/id/authorize?${q}`, me)).headers.get("location")!).searchParams.get("code")!;
+    const ok = await call("GET", `/api/id/redeem?${new URLSearchParams({ client_id: "metatron", redirect_uri: page, code: code2, code_verifier: verifier, state: "s1" })}`);
+    const to = new URL(ok.headers.get("location")!);
+    assert.equal(to.origin + to.pathname, page);
+    assert.equal(to.search, "");
+    const frag = new URLSearchParams(to.hash.slice(1));
+    assert.equal(frag.get("state"), "s1");
+    assert.equal(JSON.parse(Buffer.from(frag.get("profile")!, "base64url").toString()).email, "idperson3@cumuluscloud.app");
+    const token = frag.get("cid_token")!;
+    assert.equal((await call("GET", "/api/id/userinfo", "", undefined, { authorization: `Bearer ${token}` })).status, 200);
+
+    // Redirects only go to the product's own origin.
+    assert.equal((await call("GET", `/api/id/redeem?${new URLSearchParams({ client_id: "metatron", redirect_uri: "https://evil.example/", code: code2, code_verifier: verifier })}`)).status, 400);
+    assert.equal((await call("GET", `/api/id/end?${new URLSearchParams({ client_id: "metatron", redirect_uri: "https://evil.example/", token })}`)).status, 400);
+
+    // Sign out ends that session and returns to the page.
+    const end = await call("GET", `/api/id/end?${new URLSearchParams({ client_id: "metatron", redirect_uri: page, token })}`);
+    assert.equal(end.headers.get("location"), page);
+    assert.equal((await call("GET", "/api/id/userinfo", "", undefined, { authorization: `Bearer ${token}` })).status, 401);
+  });
 });

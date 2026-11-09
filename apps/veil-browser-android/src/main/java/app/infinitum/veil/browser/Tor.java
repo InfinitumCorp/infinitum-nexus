@@ -34,7 +34,9 @@ import org.json.JSONObject;
  * Connection Assist: if a direct start makes no progress for DIRECT_STALL_MS it
  * restarts with Tor Browser's built-in Snowflake, WebTunnel/obfs4 and meek bridges
  * (assets/tor/pt_config.json), carried by lyrebird (lib/<abi>/libLyrebird.so).
- * Once bridges connect, the next launch starts with them.
+ * If those stall too (they are widely blocked in Russia), it asks the Tor Project's
+ * bridge service for bridges that work in this country (Moat.java) and uses them.
+ * Whatever connects is remembered, and the next launch starts with it.
  */
 final class Tor {
     interface Listener {
@@ -46,6 +48,9 @@ final class Tor {
     static final long DIRECT_STALL_MS = 20_000;
     static final long BRIDGE_STALL_MS = 120_000;
     static final String PREFS = "tor";
+    static final int DIRECT = 0, BUILTIN = 1, ASSIST = 2;
+    /** Bridges from Moat older than this are fetched again before use. */
+    static final long ASSIST_MAX_AGE_MS = 7L * 24 * 3600 * 1000;
 
     private static Tor instance;
 
@@ -66,6 +71,9 @@ final class Tor {
     volatile String error;
     /** True while running over bridges. */
     volatile boolean bridges;
+    /** DIRECT, BUILTIN or ASSIST (bridges from Moat). */
+    volatile int mode;
+    private boolean assisted;
     private volatile long lastProgressAt;
     private int attempts;
 
@@ -87,14 +95,27 @@ final class Tor {
         app = c.getApplicationContext();
         if (process != null) return;
         attempts = 0;
-        launch(prefs().getBoolean("bridges", false));
+        assisted = false;
+        int last = prefs().getInt("mode", prefs().getBoolean("bridges", false) ? BUILTIN : DIRECT);
+        if (last == ASSIST && assistBridges().isEmpty()) last = BUILTIN;
+        launch(last);
     }
 
-    private synchronized void launch(boolean useBridges) {
+    /** Bridges Moat gave us, if still fresh. */
+    private java.util.List<String> assistBridges() {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        if (System.currentTimeMillis() - prefs().getLong("assistAt", 0) > ASSIST_MAX_AGE_MS) return out;
+        for (String l : prefs().getString("assist", "").split("\n")) if (!l.trim().isEmpty()) out.add(l.trim());
+        return out;
+    }
+
+    private synchronized void launch(int useMode) {
+        mode = useMode;
+        boolean useBridges = useMode != DIRECT;
         bridges = useBridges;
         error = null;
         progress = 0;
-        summary = useBridges ? "Starting with bridges" : "Starting";
+        summary = useMode == ASSIST ? "Starting with bridges for this network" : useBridges ? "Starting with bridges" : "Starting";
         lastProgressAt = SystemClock.elapsedRealtime();
         notifyListener();
         try {
@@ -111,7 +132,8 @@ final class Tor {
                 .append("ClientOnly 1\n")
                 .append("AvoidDiskWrites 1\n")
                 .append("Log notice stdout\n");
-            if (useBridges) conf.append(bridgeConfig(new File(libs, "libLyrebird.so").getAbsolutePath()));
+            if (useBridges) conf.append(bridgeConfig(new File(libs, "libLyrebird.so").getAbsolutePath(),
+                useMode == ASSIST ? assistBridges() : null));
             File torrc = new File(dir, "torrc");
             try (OutputStream o = new FileOutputStream(torrc)) {
                 o.write(conf.toString().getBytes(StandardCharsets.UTF_8));
@@ -133,8 +155,17 @@ final class Tor {
         }
     }
 
-    /** Tor Browser's built-in bridges: Snowflake first, then WebTunnel/obfs4, then meek. */
-    private String bridgeConfig(String lyrebird) throws IOException, org.json.JSONException {
+    /**
+     * Bridge lines for torrc: the given ones (from Moat), or Tor Browser's built-in
+     * bridges: Snowflake first, then WebTunnel/obfs4, then meek.
+     */
+    private String bridgeConfig(String lyrebird, java.util.List<String> given) throws IOException, org.json.JSONException {
+        StringBuilder sb = new StringBuilder("UseBridges 1\n")
+            .append("ClientTransportPlugin meek_lite,obfs4,webtunnel,snowflake exec ").append(lyrebird).append('\n');
+        if (given != null && !given.isEmpty()) {
+            for (String line : given) sb.append("Bridge ").append(line).append('\n');
+            return sb.toString();
+        }
         JSONObject pt;
         try (InputStream in = app.getAssets().open("tor/pt_config.json")) {
             ByteArrayOutputStream b = new ByteArrayOutputStream();
@@ -142,8 +173,6 @@ final class Tor {
             for (int n; (n = in.read(buf)) > 0; ) b.write(buf, 0, n);
             pt = new JSONObject(b.toString("UTF-8"));
         }
-        StringBuilder sb = new StringBuilder("UseBridges 1\n")
-            .append("ClientTransportPlugin meek_lite,obfs4,webtunnel,snowflake exec ").append(lyrebird).append('\n');
         JSONObject all = pt.getJSONObject("bridges");
         for (String kind : new String[]{"snowflake", "webtunnel", "obfs4", "meek"}) {
             JSONArray lines = all.optJSONArray(kind);
@@ -161,16 +190,70 @@ final class Tor {
             main.postDelayed(this::checkStall, 2_000);
             return;
         }
-        if (++attempts > 3) {
+        if (++attempts > 4) {
             stop();
             fail(bridges ? "Tor couldn't connect, even over bridges. This network may block Tor." : "Tor couldn't connect.");
             return;
         }
-        restart(!bridges);
+        if (mode == DIRECT) {
+            restart(assistBridges().isEmpty() ? BUILTIN : ASSIST);
+        } else if (!assisted) {
+            assist();
+        } else {
+            stop();
+            fail("Tor couldn't connect, even over bridges from the Tor Project. This network may block Tor.");
+        }
     }
 
-    /** Restart Tor, over bridges or direct. */
-    void restart(boolean useBridges) {
+    /** Connection Assist: fetch bridges for this country from Moat, then restart with them. */
+    private void assist() {
+        assisted = true;
+        Process old;
+        synchronized (this) { old = process; process = null; }
+        if (old != null) old.destroy();
+        summary = "Asking the Tor Project for bridges that work here";
+        lastProgressAt = SystemClock.elapsedRealtime();
+        notifyListener();
+        Thread t = new Thread(() -> {
+            String lyrebird = new File(app.getApplicationInfo().nativeLibraryDir, "libLyrebird.so").getAbsolutePath();
+            try {
+                java.util.List<String> got = Moat.fetch(lyrebird, new File(app.getNoBackupFilesDir(), "moat"), country());
+                if (got.isEmpty()) throw new IOException("the Tor Project has no bridges for this network");
+                prefs().edit().putString("assist", String.join("\n", got)).putLong("assistAt", System.currentTimeMillis()).apply();
+                android.util.Log.i("VEIL-Tor", "Connection Assist: " + got.size() + " bridges (" + transports(got) + ")");
+                main.post(() -> launch(ASSIST));
+            } catch (Exception e) {
+                android.util.Log.i("VEIL-Tor", "Connection Assist failed: " + e);
+                main.post(() -> {
+                    stop();
+                    fail("Tor couldn't connect, even over bridges, and VEIL couldn't get new bridges (" + e.getMessage() + ").");
+                });
+            }
+        }, "tor-assist");
+        t.setDaemon(true);
+        t.start();
+    }
+
+    /** Two-letter country of the mobile network or SIM, or null. */
+    private String country() {
+        try {
+            android.telephony.TelephonyManager tm = (android.telephony.TelephonyManager) app.getSystemService(Context.TELEPHONY_SERVICE);
+            String c = tm == null ? "" : tm.getNetworkCountryIso();
+            if ((c == null || c.isEmpty()) && tm != null) c = tm.getSimCountryIso();
+            return c != null && c.matches("[A-Za-z]{2}") ? c.toLowerCase(java.util.Locale.ROOT) : null;
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    static String transports(java.util.List<String> lines) {
+        java.util.TreeSet<String> kinds = new java.util.TreeSet<>();
+        for (String l : lines) kinds.add(l.split(" ", 2)[0]);
+        return String.join(", ", kinds);
+    }
+
+    /** Restart Tor in the given mode. */
+    void restart(int useMode) {
         Thread t = new Thread(() -> {
             Process old;
             synchronized (this) { old = process; process = null; }
@@ -178,7 +261,7 @@ final class Tor {
                 old.destroy();
                 try { old.waitFor(); } catch (InterruptedException ignored) { }
             }
-            main.post(() -> launch(useBridges));
+            main.post(() -> launch(useMode));
         }, "tor-restart");
         t.setDaemon(true);
         t.start();
@@ -195,7 +278,7 @@ final class Tor {
                     if (pct > progress) lastProgressAt = SystemClock.elapsedRealtime();
                     progress = pct;
                     summary = m.group(2).trim().isEmpty() ? "Connecting" : m.group(2).trim();
-                    if (pct >= 100) prefs().edit().putBoolean("bridges", bridges).apply();
+                    if (pct >= 100) prefs().edit().putBoolean("bridges", bridges).putInt("mode", mode).apply();
                     notifyListener();
                 } else if (line.contains("[err]")) {
                     summary = line.substring(line.indexOf("[err]") + 5).trim();

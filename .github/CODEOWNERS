@@ -1,0 +1,15 @@
+# Default reviewers for Infinitum Nexus.
+# Replace the team slug with your real GitHub team once it exists
+# (Settings → Teams), e.g. @InfinitumCorp/engineering.
+* @InfinitumCorp
+
+# Security-sensitive surfaces
+/packages/cid/ @InfinitumCorp
+/packages/firmament/ @InfinitumCorp
+/packages/lbrnth/ @InfinitumCorp
+/packages/mail/ @InfinitumCorp
+/apps/veil/ @InfinitumCorp
+/apps/veil-desktop/ @InfinitumCorp
+/apps/veil-android/ @InfinitumCorp
+/.github/ @InfinitumCorp
+/docs/security/ @InfinitumCorp

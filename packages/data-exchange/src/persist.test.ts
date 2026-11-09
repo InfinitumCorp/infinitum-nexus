@@ -14,6 +14,7 @@ test("snapshot reloads sales, CDAT tokens, and settled payouts", async () => {
   ledger.authorize(signer.publicKey);
 
   const dx = new DataExchange(ledger, signer, file);
+  await dx.consent.grant({ cid: "cid_user123", product: "scalus", scopes: ["usage_metrics"], purpose: "data_licensing" });
   const { dataset } = await dx.packageDataset({
     cid: "cid_user123",
     product: "scalus",

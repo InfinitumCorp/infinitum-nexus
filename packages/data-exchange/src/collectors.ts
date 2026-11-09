@@ -11,6 +11,7 @@
  */
 import type { ProductId } from "./types.ts";
 import type { DataExchange } from "./index.ts";
+import { ConsentRequiredError } from "./index.ts";
 
 export interface CollectorResult {
   datasetId?: string;
@@ -27,14 +28,18 @@ export abstract class ProductCollector {
   abstract collect(cid: string, opts?: Record<string, unknown>): Promise<CollectorResult> | CollectorResult;
 }
 
-function listDataset(
+async function listDataset(
   dx: DataExchange,
   params: Parameters<DataExchange["packageDataset"]>[0],
 ): Promise<CollectorResult> {
-  return dx.packageDataset(params).then(({ dataset }) => {
+  try {
+    const { dataset } = await dx.packageDataset(params);
     dx.catalog.updateStatus(dataset.id, "listed");
     return { datasetId: dataset.id };
-  });
+  } catch (err) {
+    if (err instanceof ConsentRequiredError) return { skippedReason: "consent_required" };
+    throw err;
+  }
 }
 
 /** SCALVS.ai: agent usage metrics, workflow patterns */

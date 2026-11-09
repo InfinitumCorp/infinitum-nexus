@@ -50,10 +50,10 @@ export function verifyIdToken(
   const jwk = config.jwks.find((k) => (header.kid ? k.kid === header.kid : true));
   if (!jwk) throw new Error("SSO: signing key not found");
   const { kid: _kid, ...keyMaterial } = jwk;
-  const key = createPublicKey({ key: keyMaterial, format: "jwk" });
+  const key = createPublicKey({ key: keyMaterial as any, format: "jwk" });
   const sig = Buffer.from(s, "base64url");
   const data = Buffer.from(`${h}.${p}`);
-  const ok = alg.dsa ? verify(alg.hash, data, { key, dsaEncoding: alg.dsa }, sig) : verify(alg.hash, data, key, sig);
+  const ok = alg.dsa ? verify(alg.hash, data, { key: key.export({ type: "spki", format: "der" }), format: "der", type: "spki", dsaEncoding: alg.dsa }, sig) : verify(alg.hash, data, key, sig);
   if (!ok) throw new Error("SSO: signature check failed");
 
   const claims = JSON.parse(Buffer.from(p, "base64url").toString("utf8")) as IdTokenClaims;

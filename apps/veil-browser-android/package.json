@@ -1,0 +1,11 @@
+{
+  "name": "@infinitum/veil-browser-android",
+  "version": "0.6.0",
+  "description": "VEIL</> for Android: private WebView browser. Built with the Android SDK directly (no Gradle).",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "bash scripts/build.sh",
+    "test": "bash scripts/build.sh test"
+  }
+}

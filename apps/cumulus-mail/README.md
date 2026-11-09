@@ -68,3 +68,25 @@ Open http://localhost:3010 and sign in with a passkey.
 
 `scripts/dev-seed.ts` creates two test accounts with a virtual passkey and prints a local session
 cookie, so the signed-in app can be checked without a hardware key. It refuses https origins.
+
+## Install it (web and Android)
+
+**Web app.** Mail is an installable web app: `manifest.webmanifest`, icons and a service worker
+(`public/sw.js`) that caches only the app shell. Mail itself (`/api/*`) is never cached. In Chrome,
+use **Install app**; on Android, **Add to Home screen**. The Compose shortcut opens `/?compose=1`.
+
+**Android app.** `android/` is a small native launcher, `app.cumuluscloud.mail`, that opens Mail in a
+Chrome Custom Tab. That's the full browser engine, so passkey sign-in with Cumulus://ID works the same
+as on the web. It also handles `mailto:` links by opening the composer. It builds with the plain SDK
+tools, so no Gradle is needed:
+
+```bash
+MAIL_URL=https://mail.cumuluscloud.app bash apps/cumulus-mail/android/build-apk.sh
+adb install -r apps/cumulus-mail/android/build/cumulus-mail.apk
+```
+
+To test against a local server, build with `MAIL_URL=http://localhost:3010` and run
+`adb reverse tcp:3010 tcp:3010`. Without `KEYSTORE`, `KEY_ALIAS` and `KEY_PASS`, the APK is signed
+with the local debug key. Use a release key for Play Store builds.
+
+Icons come from `scripts/make-icons.py` (Pillow), which draws the same "://" mark as `public/icon.svg`.

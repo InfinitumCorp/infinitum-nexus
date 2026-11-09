@@ -5,3 +5,5 @@ export type { License } from "./license.ts";
 export { PersonalSilo } from "./silo.ts";
 
 export { createHrvstLabyrinth } from "./labyrinth.ts";
+
+export {createHrvstArchiveClient} from "./ingest.ts";

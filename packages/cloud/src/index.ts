@@ -8,3 +8,5 @@ export { AgentRuntime } from "./runtime.ts";
 export type { RuntimeTask } from "./runtime.ts";
 
 export { createCloudLabyrinth } from "./labyrinth.ts";
+
+export {createCloudArchiveClient} from "./ingest.ts";

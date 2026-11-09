@@ -4,3 +4,5 @@ export { encryptAead, decryptAead } from "./aead.ts";
 export { FabricSession } from "./session.ts";
 
 export { createFabricLabyrinth } from "./labyrinth.ts";
+
+export {createFabricArchiveClient} from "./ingest.ts";

@@ -140,6 +140,9 @@ importers:
 
   packages/aether:
     dependencies:
+      '@infinitum/event-ingest':
+        specifier: workspace:*
+        version: link:../event-ingest
       '@infinitum/lbrnth-client':
         specifier: workspace:*
         version: link:../lbrnth-client
@@ -195,6 +198,9 @@ importers:
 
   packages/cloud:
     dependencies:
+      '@infinitum/event-ingest':
+        specifier: workspace:*
+        version: link:../event-ingest
       '@infinitum/lbrnth-client':
         specifier: workspace:*
         version: link:../lbrnth-client
@@ -271,6 +277,9 @@ importers:
 
   packages/drone-backend:
     dependencies:
+      '@infinitum/event-ingest':
+        specifier: workspace:*
+        version: link:../event-ingest
       '@infinitum/lbrnth':
         specifier: workspace:*
         version: link:../lbrnth
@@ -314,8 +323,30 @@ importers:
         specifier: ^5.9.0
         version: 5.9.3
 
+  packages/event-ingest:
+    dependencies:
+      '@infinitum/lbrnth':
+        specifier: workspace:*
+        version: link:../lbrnth
+    devDependencies:
+      '@infinitum/cid':
+        specifier: workspace:*
+        version: link:../cid
+      '@infinitum/firmament':
+        specifier: workspace:*
+        version: link:../firmament
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.20.5
+      typescript:
+        specifier: ^5.9.0
+        version: 5.9.3
+
   packages/fabric:
     dependencies:
+      '@infinitum/event-ingest':
+        specifier: workspace:*
+        version: link:../event-ingest
       '@infinitum/lbrnth-client':
         specifier: workspace:*
         version: link:../lbrnth-client
@@ -368,6 +399,9 @@ importers:
 
   packages/hrvst:
     dependencies:
+      '@infinitum/event-ingest':
+        specifier: workspace:*
+        version: link:../event-ingest
       '@infinitum/lbrnth-client':
         specifier: workspace:*
         version: link:../lbrnth-client
@@ -422,6 +456,9 @@ importers:
 
   packages/metatron:
     dependencies:
+      '@infinitum/event-ingest':
+        specifier: workspace:*
+        version: link:../event-ingest
       '@infinitum/lbrnth-client':
         specifier: workspace:*
         version: link:../lbrnth-client

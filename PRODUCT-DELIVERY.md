@@ -100,3 +100,13 @@ This is administrative/retrospective software, not flight control or mission
 planning, and does not integrate military editions or change existing autonomy.
 No hardware compatibility, deployment or operational readiness is claimed.
 [API, provenance and remaining gaps](packages/drone-backend/README.md).
+
+### Reliable archive ingestion (public-source backend applications)
+
+`packages/event-ingest` adds mandatory mTLS source binding, CID/plan-gated archive
+receipts, bounded idempotent outbox retry, explicit HTTP/MQTT dispatcher seams and
+fixed-cardinality metrics. Real namespace-pinned clients are exported for the five
+drone inventory products plus Cloud, HRVST, METATRON, FABRIC and AETHER. No vehicle
+control, operational mission features, biometric/person tracking or automatic
+upload is added. [API and limits](packages/event-ingest/README.md);
+[source/license/application matrix](docs/OSS-BACKEND-APPLICATIONS.md).

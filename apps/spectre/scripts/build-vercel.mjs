@@ -97,7 +97,7 @@ const security = {
   "Referrer-Policy": "strict-origin-when-cross-origin",
   "X-Frame-Options": "DENY",
   "Strict-Transport-Security": "max-age=63072000; includeSubDomains",
-  "Content-Security-Policy": "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+  "Content-Security-Policy": "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self' https://api2.amplitude.com https://api.amplitude.com; frame-ancestors 'none'",
 };
 writeFileSync(join(out, "config.json"), JSON.stringify({
   version: 3,

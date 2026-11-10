@@ -23,7 +23,7 @@ const SECURITY = {
   "x-frame-options": "DENY",
   "referrer-policy": "no-referrer",
   "permissions-policy": "camera=(), microphone=(), geolocation=()",
-  "content-security-policy": "default-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+  "content-security-policy": "default-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; connect-src 'self' https://api2.amplitude.com https://api.amplitude.com",
   "cache-control": "no-store",
 };
 

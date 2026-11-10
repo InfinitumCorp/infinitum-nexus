@@ -33,6 +33,7 @@
     "@scure/bip39": "^2.4.0",
     "preact": "^11.2.0",
     "qrcode-generator": "^2.0.4",
-    "viem": "^2.57.16"
+    "viem": "^2.57.16",
+    "@amplitude/analytics-browser": "2.49.2"
   }
 }

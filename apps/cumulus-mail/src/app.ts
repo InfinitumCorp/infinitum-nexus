@@ -680,7 +680,7 @@ export function createMailApp(deps: MailAppDeps) {
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("Referrer-Policy", "no-referrer");
     res.setHeader("X-Frame-Options", "DENY");
-    res.setHeader("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
+    res.setHeader("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self' https://api2.amplitude.com https://api.amplitude.com; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
     const requestOrigin = typeof req.headers.origin === "string" ? req.headers.origin : undefined;
     const cors = cumulusCorsHeaders(requestOrigin);
     for (const [name, value] of Object.entries(cors)) res.setHeader(name, value);

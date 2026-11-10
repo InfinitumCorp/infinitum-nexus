@@ -90,7 +90,7 @@ function staticHeaders(path: string, type: string): Headers {
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "strict-origin-when-cross-origin",
     "Strict-Transport-Security": "max-age=63072000; includeSubDomains",
-    "Content-Security-Policy": `default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors ${frame}`,
+    "Content-Security-Policy": `default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self' https://api2.amplitude.com https://api.amplitude.com; frame-ancestors ${frame}`,
   });
   if (!EMBEDDABLE.has(path)) h.set("X-Frame-Options", "DENY");
   return h;

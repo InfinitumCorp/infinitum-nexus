@@ -103,7 +103,7 @@ test("with no key, or when Brave fails, the Worker answers from Wikipedia", asyn
     let res = await worker.fetch(post({ q: "tor" }), {});
     let data = await res.json();
     assert.equal(res.status, 200);
-    assert.equal(data.source, "wikipedia");
+    assert.deepEqual(data.sources, ["wikipedia"]);
     assert.equal(data.results[0].title, "Tor (network)");
     assert.ok(asked[0].startsWith("https://en.wikipedia.org/w/api.php"));
 
@@ -111,7 +111,7 @@ test("with no key, or when Brave fails, the Worker answers from Wikipedia", asyn
     globalThis.fetch = async (url) => { asked.push(String(url)); return String(url).includes("brave") ? new Response("", { status: 429 }) : Response.json(wiki); };
     res = await worker.fetch(post({ q: "tor" }), { BRAVE_SEARCH_KEY: "k" });
     data = await res.json();
-    assert.equal(data.source, "wikipedia");
+    assert.deepEqual(data.sources, ["wikipedia"]);
     assert.equal(asked.length, 2);
   } finally {
     globalThis.fetch = real;

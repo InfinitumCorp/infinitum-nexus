@@ -50,6 +50,9 @@
     } catch (e) { return href; }
   }
 
+  var NAMES = { yandex: "Yandex", brave: "Brave", mojeek: "Mojeek", wikipedia: "Wikipedia" };
+  function sourceName(s) { return NAMES[s] || s; }
+
   function render(results) {
     var box = $("results");
     results.forEach(function (r) {
@@ -58,7 +61,7 @@
       item.className = "result";
       var site = document.createElement("span");
       site.className = "site";
-      site.textContent = siteLabel(href);
+      site.textContent = siteLabel(href) + (r.sources && r.sources.length ? "  ·  " + r.sources.map(sourceName).join(", ") : "");
       var a = document.createElement("a");
       a.className = "title";
       a.href = href;
@@ -121,9 +124,9 @@
       if (!shown && !data.results.length) { notice("No results for “" + query + "”."); return; }
       render(data.results);
       $("meta").hidden = false;
-      $("meta").textContent = data.source === "wikipedia"
-        ? "Private search · " + shown + " results from Wikipedia (CC BY-SA)"
-        : "Private search · " + shown + " results";
+      var from = (data.sources || []).map(sourceName).join(", ");
+      $("meta").textContent = "Private search · " + shown + " results" + (from ? " from " + from : "") +
+        ((data.sources || []).indexOf("wikipedia") >= 0 ? " (CC BY-SA)" : "");
       next = data.next || null;
       $("more").hidden = !next;
     }).catch(function () {

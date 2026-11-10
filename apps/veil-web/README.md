@@ -17,3 +17,20 @@ A static PWA (no framework) for infinitumveil.app. It is hosted as a Cloudflare 
 Then attach the custom domain `infinitumveil.app` to the Worker (Workers & Pages -> infinitum-veil-web -> Settings -> Domains & Routes). This creates the DNS record in the Cloudflare zone. `/api/veil/*` (the control plane, part of Spectre) isn't served here yet.
 
 Until the cutover, a temporary copy runs on Vercel (https://veil-web-nine.vercel.app). `vercel.json` stays in the repo until the domain is live on Cloudflare.
+
+## Search sources
+
+`/api/search` (`src/worker.js`) asks every search API it has a key for at the same time,
+blends the answers (`src/sources.js`), and shows which source found each result. Keys are
+Worker secrets and never reach the browser:
+
+| Source | Secrets | Get a key |
+|---|---|---|
+| Yandex | `YANDEX_SEARCH_KEY`, `YANDEX_FOLDER_ID` | Yandex Cloud Search API: an API key with the `search-api.webSearch.user` role, and its folder ID |
+| Brave | `BRAVE_SEARCH_KEY` | Brave Search API |
+| Mojeek | `MOJEEK_SEARCH_KEY` | Mojeek Search API |
+
+Set one with `npx wrangler secret put <NAME> --name infinitum-veil-web`. With no keys, or
+when every source fails, results come from Wikipedia's free search API (credited CC BY-SA).
+Google, Bing and DuckDuckGo have no general web search API open to new customers, and VEIL
+does not scrape their result pages.

@@ -5,7 +5,10 @@
  * ES256 (P-256) or EdDSA (Ed25519). When the secret is missing or unusable, callers get
  * null and leave OpenID Connect off. Passkey, Google and Cognito sign-in do not need it.
  */
-import { createHash, createPrivateKey, createPublicKey, sign, verify, type JsonWebKey, type KeyObject } from "node:crypto";
+import { createHash, createPrivateKey, createPublicKey, sign, verify, type KeyObject, type webcrypto } from "node:crypto";
+
+// @types/node 26 exposes JsonWebKey only under webcrypto.
+type JsonWebKey = webcrypto.JsonWebKey;
 
 export type OidcAlg = "ES256" | "EdDSA";
 

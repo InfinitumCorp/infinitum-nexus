@@ -82,7 +82,7 @@ See **DEPLOY.md**, **apps/spectre/src/server/RESTORE-APP.md**, **packages/firm/s
 - FIRM: compile then deploy.  
 - METATRON enabled by default in Spectre.  
 - VEIL: real key management + deploy $VEIL claim.
-- **Data Exchange:** run `apps/data-exchange`; wire the 14 collectors into product runtimes; record sales as Firmament license/payment entries; issue CDAT tokens on Base.
+- **Data Exchange:** run `apps/data-exchange`; wire the 14 collectors into product runtimes; record sales as Firmament license/payment entries; issue CDAT tokens on Solana (all Infinitum tokens are Solana-only as of 9 Nov 2026).
 
 ## Acceptance criteria (for "performs as advertised")
 

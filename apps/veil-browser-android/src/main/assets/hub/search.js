@@ -121,7 +121,9 @@
       if (!shown && !data.results.length) { notice("No results for “" + query + "”."); return; }
       render(data.results);
       $("meta").hidden = false;
-      $("meta").textContent = "Private search · " + shown + " results";
+      $("meta").textContent = data.source === "wikipedia"
+        ? "Private search · " + shown + " results from Wikipedia (CC BY-SA)"
+        : "Private search · " + shown + " results";
       next = data.next || null;
       $("more").hidden = !next;
     }).catch(function () {

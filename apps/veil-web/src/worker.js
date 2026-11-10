@@ -4,11 +4,12 @@
  * web app and the Android app's bundled start page both use.
  *
  * Results come from the Brave Search API. Its key is the Worker secret BRAVE_SEARCH_KEY,
- * never sent to the browser. The query travels in the POST body, so it never appears in a
+ * never sent to the browser. With no key, or when Brave fails, results come from Wikipedia's
+ * search API instead, so search always answers. The query travels in the POST body, so it never appears in a
  * URL or request log, and the Worker keeps nothing. CORS is open because the Android app's
  * start page is a file:// page.
  */
-import { MAX_QUERY, apiUrl, fromBrave, offsetFrom } from "./search.js";
+import { MAX_QUERY, WIKI_UA, apiUrl, fromBrave, fromWikipedia, offsetFrom, wikiUrl } from "./search.js";
 
 const HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -29,14 +30,30 @@ async function search(request, env) {
   try { body = JSON.parse(await request.text()); } catch { return json({ error: "Bad request" }, 400); }
   const q = typeof body?.q === "string" ? body.q.trim().slice(0, MAX_QUERY) : "";
   if (!q) return json({ error: "Type something to search for." }, 400);
-  const key = env?.BRAVE_SEARCH_KEY;
-  if (!key) return json({ error: "VEIL search isn't switched on yet. Try again later." }, 503);
   const offset = offsetFrom(body.next);
+  const key = env?.BRAVE_SEARCH_KEY;
+  if (key) {
+    const brave = await fromBraveApi(q, offset, key);
+    if (brave) return json({ q, source: "brave", ...brave });
+  }
+  return wikipedia(q, offset);
+}
+
+/** Brave results, or null on any failure (the caller falls back to Wikipedia). */
+async function fromBraveApi(q, offset, key) {
+  try {
+    const res = await fetch(apiUrl(q, offset), { headers: { "Accept": "application/json", "X-Subscription-Token": key } });
+    if (!res.ok) return null;
+    return fromBrave(await res.json(), offset);
+  } catch {
+    return null;
+  }
+}
+
+async function wikipedia(q, offset) {
   let res;
   try {
-    res = await fetch(apiUrl(q, offset), {
-      headers: { "Accept": "application/json", "X-Subscription-Token": key },
-    });
+    res = await fetch(wikiUrl(q, offset), { headers: { "Accept": "application/json", "User-Agent": WIKI_UA } });
   } catch {
     return json({ error: "Search is unreachable right now. Try again." }, 502);
   }
@@ -44,7 +61,7 @@ async function search(request, env) {
   if (!res.ok) return json({ error: "Search didn't answer. Try again." }, 502);
   let data;
   try { data = await res.json(); } catch { return json({ error: "Search didn't answer properly. Try again." }, 502); }
-  return json({ q, ...fromBrave(data, offset) });
+  return json({ q, source: "wikipedia", ...fromWikipedia(data, offset) });
 }
 
 export default {

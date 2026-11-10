@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { apiUrl, decodeEntities, fromBrave, offsetFrom, text } from "../src/search.js";
+import { apiUrl, decodeEntities, fromBrave, fromWikipedia, offsetFrom, text, wikiUrl } from "../src/search.js";
 import worker from "../src/worker.js";
 
 // Shape of a Brave Search API web answer (trimmed).
@@ -43,16 +43,13 @@ test("helpers", () => {
 
 const post = (body) => new Request("https://infinitumveil.app/api/search", { method: "POST", body: JSON.stringify(body) });
 
-test("the Worker answers only POST /api/search and needs a query and a key", async () => {
+test("the Worker answers only POST /api/search and needs a query", async () => {
   assert.equal((await worker.fetch(new Request("https://infinitumveil.app/other"), {})).status, 404);
   assert.equal((await worker.fetch(new Request("https://infinitumveil.app/api/search"), {})).status, 405);
   const pre = await worker.fetch(new Request("https://infinitumveil.app/api/search", { method: "OPTIONS" }), {});
   assert.equal(pre.status, 204);
   assert.equal(pre.headers.get("access-control-allow-origin"), "*");
   assert.equal((await worker.fetch(post({ q: "  " }), { BRAVE_SEARCH_KEY: "k" })).status, 400);
-  const noKey = await worker.fetch(post({ q: "tor" }), {});
-  assert.equal(noKey.status, 503);
-  assert.match((await noKey.json()).error, /isn't switched on/);
 });
 
 test("the Worker asks Brave with the secret key and returns VEIL results", async () => {
@@ -77,14 +74,58 @@ test("the Worker asks Brave with the secret key and returns VEIL results", async
   }
 });
 
-test("rate limits and failures become a friendly message", async () => {
+// Shape of a Wikipedia search answer (trimmed).
+const wiki = {
+  continue: { sroffset: 10, continue: "-||" },
+  query: { search: [
+    { title: "Tor (network)", snippet: "free <span class=\"searchmatch\">overlay</span> network &amp; more" },
+    { title: "", snippet: "no title" },
+  ] },
+};
+
+test("turns a Wikipedia answer into VEIL results", () => {
+  assert.deepEqual(fromWikipedia(wiki, 0), {
+    results: [{ title: "Tor (network)", url: "https://en.wikipedia.org/wiki/Tor_(network)", snippet: "free overlay network & more" }],
+    next: { offset: 1 },
+  });
+  assert.equal(fromWikipedia({ query: wiki.query }, 0).next, null);
+  assert.deepEqual(fromWikipedia({}, 0), { results: [], next: null });
+  const u = new URL(wikiUrl("a b", 2));
+  assert.equal(u.searchParams.get("srsearch"), "a b");
+  assert.equal(u.searchParams.get("sroffset"), "20");
+});
+
+test("with no key, or when Brave fails, the Worker answers from Wikipedia", async () => {
+  const real = globalThis.fetch;
+  const asked = [];
+  try {
+    globalThis.fetch = async (url, init) => { asked.push(String(url)); return Response.json(wiki); };
+    let res = await worker.fetch(post({ q: "tor" }), {});
+    let data = await res.json();
+    assert.equal(res.status, 200);
+    assert.equal(data.source, "wikipedia");
+    assert.equal(data.results[0].title, "Tor (network)");
+    assert.ok(asked[0].startsWith("https://en.wikipedia.org/w/api.php"));
+
+    asked.length = 0;
+    globalThis.fetch = async (url) => { asked.push(String(url)); return String(url).includes("brave") ? new Response("", { status: 429 }) : Response.json(wiki); };
+    res = await worker.fetch(post({ q: "tor" }), { BRAVE_SEARCH_KEY: "k" });
+    data = await res.json();
+    assert.equal(data.source, "wikipedia");
+    assert.equal(asked.length, 2);
+  } finally {
+    globalThis.fetch = real;
+  }
+});
+
+test("when every source fails, the person gets a friendly message", async () => {
   const real = globalThis.fetch;
   try {
     globalThis.fetch = async () => new Response("", { status: 429 });
     let res = await worker.fetch(post({ q: "x" }), { BRAVE_SEARCH_KEY: "k" });
     assert.equal(res.status, 503);
     globalThis.fetch = async () => { throw new Error("down"); };
-    res = await worker.fetch(post({ q: "x" }), { BRAVE_SEARCH_KEY: "k" });
+    res = await worker.fetch(post({ q: "x" }), {});
     assert.equal(res.status, 502);
   } finally {
     globalThis.fetch = real;

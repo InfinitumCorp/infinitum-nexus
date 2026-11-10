@@ -2,7 +2,10 @@
 // Build first: node scripts/build-cloudflare.mjs (writes dist/entry.mjs with public/ embedded). Secrets (wrangler secret put NAME):
 //   FIRMAMENT_SIGNER_KEY   base64 PKCS#8 Ed25519 ledger signing key (keep a safe copy)
 //   COGNITO_CLIENT_SECRET  Amazon Cognito app client secret (Cognito stays off until it is set)
-// Other sign-in providers use the variables listed in src/server/main.ts.
+//   GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET   Google sign-in (off until both are set)
+//   CID_OIDC_SIGNING_KEY   ES256 or Ed25519 private JWK. OpenID Connect stays off until it is set.
+//                          node scripts/generate-oidc-key.mjs   (writes a file, does not print the key)
+// Other sign-in providers use the variables listed in src/server/main.ts. See docs/cumulus-id.md.
 {
   "name": "cumulus-id",
   "main": "dist/entry.mjs",

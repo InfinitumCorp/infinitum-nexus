@@ -38,6 +38,9 @@ import { saveSnapshot, loadSnapshot } from "./persist.ts";
  *       Amazon Cognito user pool (Lite or Essentials). Off unless all five are set.
  *       Plus has no free MAU. Leave SMS MFA and SES email disabled; use TOTP if MFA is wanted.
  *   Callback URL to register with each provider: {SPECTRE_ORIGIN}/api/auth/oauth/{provider}/callback
+ *   CID_OIDC_SIGNING_KEY private JWK (ES256 or Ed25519). Unset: OpenID Connect stays off.
+ *                        node apps/spectre/scripts/generate-oidc-key.mjs writes the file and does not print the key.
+ *                        See docs/cumulus-id.md.
  *   Conversations (each optional; without them messages are saved as drafts):
  *     RESEND_API_KEY, MAIL_FROM                         email
  *     TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM  SMS; inbound webhook: {SPECTRE_ORIGIN}/api/hooks/twilio/sms

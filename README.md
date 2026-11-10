@@ -57,6 +57,8 @@ Amazon Cognito is an optional user-pool sign-in (authorization code, PKCE, brows
 
 Use the Lite or Essentials feature plan. Both are Always Free for the first 10,000 monthly active users who sign in directly or with a social identity provider. The Plus tier has no free MAU, so leave Plus off. SMS MFA is not free, and email sent through Amazon SES is not free. Leave SMS MFA and SES-based email disabled on the user pool. When a second factor is wanted, use authenticator-app TOTP: Cognito's own TOTP, or the authenticator-app code Cumulus://ID already asks for after sign-in. Do not turn on Cognito SMS to get that second factor.
 
+Sign in with Cumulus://ID for other products is issued at `id.cumuluscloud.app`. The first Google or Cognito sign-in creates the cid. OpenID Connect (issuer `https://id.cumuluscloud.app/realms/cumulus`) stays off until `CID_OIDC_SIGNING_KEY` is set. Mail's `/api/id/*` routes stay as an alias for buttons that already point at `mail.cumuluscloud.app`. See [docs/cumulus-id.md](docs/cumulus-id.md).
+
 Coming next: AI account research the Spectre agent team, then `$FIRM` and product token contracts.
 
 ### Spectre AI endpoints (current)

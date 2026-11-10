@@ -19,7 +19,8 @@ import { RemoteState, HttpGateway, type NexusGateway } from "./remote.ts";
  *   NEXUS_STORE_KEY        gateway key; its SHA-256 is listed in nexus_gateway_keys
  * Optional: OMNIROUTE_API_KEY (or another open-model host), USE_METATRON, CUMULUS_ROOT_DOMAIN, CUMULUS_ID_HOST,
  * CUMULUS_KEYCLOAK_REALM, CUMULUS_CLOUD_HOST, CUMULUS_MAIL_HOST, CUMULUS_MAIL_ORIGIN,
- * and the social sign-in variables (see main.ts).
+ * and the social sign-in variables (see main.ts). CID_OIDC_SIGNING_KEY is optional; when it is
+ * unset, OpenID Connect stays off and sign-in still works. See docs/cumulus-id.md.
  */
 
 process.env.USE_METATRON ??= "1";

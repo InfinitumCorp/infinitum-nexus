@@ -27,6 +27,7 @@
 - [x] Hosted storage: Supabase (`supabase/migrations`, `supabase/functions/nexus-store`) with atomic per-request saves
 - [x] Vercel build: `node apps/spectre/scripts/build-vercel.mjs` (Build Output API; project root = repo root, install command skipped)
 - [ ] Vercel env: `SPECTRE_ORIGIN`, `FIRMAMENT_SIGNER_KEY`, `NEXUS_STORE_URL`, `NEXUS_STORE_KEY` (+ optional `OMNIROUTE_API_KEY` and `OMNIROUTE_BASE_URL` or a backup open-model host, social sign-in, `CUMULUS_ROOT_DOMAIN`, `CUMULUS_ID_HOST`, `CUMULUS_KEYCLOAK_REALM`, `CUMULUS_CLOUD_HOST`, `CUMULUS_MAIL_HOST`)
+- [ ] Cumulus://ID Worker (`cumulus-id`): see [docs/cumulus-id.md](docs/cumulus-id.md). `CID_OIDC_SIGNING_KEY` is optional; without it OpenID Connect stays off.
 - [ ] Deploy to Vercel
 
 ## Architect (:\ARCHITECT\\)

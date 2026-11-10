@@ -13,8 +13,10 @@ import { initSchema, loadState, commitState, type CommitResult } from "./do-stor
  * Node.js HTTP server support. State (Firmament ledger + CID and
  * Spectre stores) lives in one SQLite-backed Durable Object, NexusStore, with the same
  * all-or-nothing commit rules as the Supabase nexus-store function.
- * Configuration: wrangler.jsonc (vars) and Worker secrets (FIRMAMENT_SIGNER_KEY, sign-in secrets
- * such as COGNITO_CLIENT_SECRET).
+ * Configuration: wrangler.jsonc (vars) and Worker secrets (FIRMAMENT_SIGNER_KEY,
+ * COGNITO_CLIENT_SECRET, optional GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET, and
+ * CID_OIDC_SIGNING_KEY). OpenID Connect stays off when CID_OIDC_SIGNING_KEY is unset.
+ * See docs/cumulus-id.md.
  */
 const PORT = 8080;
 createServer((req, res) => void handler(req, res)).listen(PORT);

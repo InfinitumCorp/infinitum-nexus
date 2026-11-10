@@ -50,7 +50,7 @@
     } catch (e) { return href; }
   }
 
-  var NAMES = { yandex: "Yandex", brave: "Brave", mojeek: "Mojeek", wikipedia: "Wikipedia" };
+  var NAMES = { veil: "VEIL", yandex: "Yandex", brave: "Brave", mojeek: "Mojeek", wikipedia: "Wikipedia" };
   function sourceName(s) { return NAMES[s] || s; }
 
   function render(results) {

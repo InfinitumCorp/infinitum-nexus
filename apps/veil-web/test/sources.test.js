@@ -81,8 +81,27 @@ test("the Worker asks every source with a key and blends; a failing source is sk
     assert.equal(res.status, 200);
     assert.deepEqual(data.sources, ["yandex", "brave"]);
     assert.deepEqual(data.results[0].sources, ["yandex", "brave"]);
-    assert.equal(asked.length, 3);
+    assert.equal(asked.length, 4, "three sources, then Wikipedia fills in (fewer than 10 results)");
     assert.ok(!JSON.stringify(data).includes("yk"));
+  } finally {
+    globalThis.fetch = real;
+  }
+});
+
+test("VEIL's own index is asked first, and Wikipedia fills in when results are few", async () => {
+  const real = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    if (String(url).startsWith("https://en.wikipedia.org/")) return Response.json({ query: { search: [{ title: "Zebra", snippet: "animal" }] } });
+    throw new Error("unexpected " + url);
+  };
+  const index = {
+    prepare: () => ({ bind: () => ({ all: async () => ({ results: [{ url: "https://zoo.example.org/", title: "Zoo zebras", description: "Our zebras", snip: "" }] }) }) }),
+  };
+  try {
+    const data = await (await worker.fetch(post({ q: "zebra" }), { VEIL_INDEX: index })).json();
+    assert.deepEqual(data.sources, ["veil", "wikipedia"]);
+    assert.equal(data.results[0].url, "https://zoo.example.org/");
+    assert.deepEqual(data.results[0].sources, ["veil"]);
   } finally {
     globalThis.fetch = real;
   }

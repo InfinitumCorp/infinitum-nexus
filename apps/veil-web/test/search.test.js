@@ -55,7 +55,7 @@ test("the Worker answers only POST /api/search and needs a query", async () => {
 test("the Worker asks Brave with the secret key and returns VEIL results", async () => {
   const real = globalThis.fetch;
   let sent;
-  globalThis.fetch = async (url, init) => { sent = { url, init }; return Response.json(answer); };
+  globalThis.fetch = async (url, init) => { if (String(url).includes("brave")) sent = { url, init }; return Response.json(String(url).includes("brave") ? answer : {}); };
   try {
     const res = await worker.fetch(post({ q: "tor browser", next: { offset: 2 } }), { BRAVE_SEARCH_KEY: "secret-test-key" });
     const data = await res.json();

@@ -1,4 +1,4 @@
-import { defineConfig } from "cf/config";
+import { bindings, defineConfig } from "cf/config";
 
 export default defineConfig({
   worker: {
@@ -6,6 +6,10 @@ export default defineConfig({
     "compatibilityDate": "2026-11-04",
     // public/ is served first; the Worker answers only POST /api/search (src/worker.js).
     "entrypoint": "./src/worker.js",
+    "env": {
+      // VEIL's own search index, filled by VEILBot (apps/veil-crawler).
+      "VEIL_INDEX": bindings.d1({ name: "veil-index" }),
+    },
     "observability": {
       "enabled": true
     }

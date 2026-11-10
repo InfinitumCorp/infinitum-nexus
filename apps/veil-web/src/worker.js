@@ -3,7 +3,8 @@
  * only answers POST /api/search for VEIL's own results page (public/search.html), which the
  * web app and the Android app's bundled start page both use.
  *
- * Results come from every web search API VEIL has a key for, asked at the same time and
+ * Results come first from VEIL's own index (VEILBot, apps/veil-crawler, D1 binding
+ * VEIL_INDEX), then from every web search API VEIL has a key for, asked at the same time and
  * blended (sources.js): Yandex (YANDEX_SEARCH_KEY + YANDEX_FOLDER_ID), Brave
  * (BRAVE_SEARCH_KEY) and Mojeek (MOJEEK_SEARCH_KEY). Keys are Worker secrets, never sent to
  * the browser. With no keys, or when every source fails, results come from Wikipedia's
@@ -12,6 +13,7 @@
  * start page is a file:// page.
  */
 import { MAX_QUERY, WIKI_UA, apiUrl, fromBrave, fromWikipedia, offsetFrom, wikiUrl } from "./search.js";
+import { searchIndex } from "../../veil-crawler/src/search.js";
 import { YANDEX_API, blend, decodeRaw, fromMojeek, fromYandexXml, mojeekUrl, yandexBody } from "./sources.js";
 
 const HEADERS = {
@@ -38,9 +40,21 @@ async function search(request, env) {
   if (env?.YANDEX_SEARCH_KEY && env?.YANDEX_FOLDER_ID) asks.push(ask("yandex", () => yandex(q, offset, env)));
   if (env?.BRAVE_SEARCH_KEY) asks.push(ask("brave", () => brave(q, offset, env.BRAVE_SEARCH_KEY)));
   if (env?.MOJEEK_SEARCH_KEY) asks.push(ask("mojeek", () => mojeek(q, offset, env.MOJEEK_SEARCH_KEY)));
+  if (env?.VEIL_INDEX) asks.unshift(ask("veil", () => searchIndex(env.VEIL_INDEX, q, offset)));
   const answers = (await Promise.all(asks)).filter((a) => a && a.results.length);
-  if (answers.length) return json({ q, sources: answers.map((a) => a.source), ...blend(answers) });
-  return wikipedia(q, offset);
+  const found = answers.reduce((n, a) => n + a.results.length, 0);
+  if (found < 10) {
+    // Too few results: Wikipedia fills in (and answers alone when nothing else did).
+    const wiki = await ask("wikipedia", () => wikipediaAnswer(q, offset));
+    if (wiki && wiki.results.length) answers.push(wiki);
+    else if (!answers.length) return wikipedia(q, offset);
+  }
+  return json({ q, sources: answers.map((a) => a.source), ...blend(answers) });
+}
+
+async function wikipediaAnswer(q, offset) {
+  const res = await get(wikiUrl(q, offset), { headers: { "Accept": "application/json", "User-Agent": WIKI_UA } });
+  return res && fromWikipedia(await res.json(), offset);
 }
 
 const SOURCE_TIMEOUT_MS = 6000;

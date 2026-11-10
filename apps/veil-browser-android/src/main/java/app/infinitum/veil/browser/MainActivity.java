@@ -185,11 +185,12 @@ public class MainActivity extends Activity {
             torOff = true;
             tor.setListener(null);
             tor.stop();
-            boolean hadProxy = proxyReady;
             proxyReady = false;
             proxyProblem = null;
             updateTorBox();
-            if (hadProxy) {
+            // Always clear: a proxy set while Tor was still starting would otherwise stay
+            // pointed at the stopped Tor, and no page would load.
+            if (WebViewFeature.isFeatureSupported(WebViewFeature.PROXY_OVERRIDE)) {
                 ProxyController.getInstance().clearProxyOverride(getMainExecutor(), () -> web.loadUrl(HUB));
             } else {
                 web.loadUrl(HUB);
@@ -210,6 +211,10 @@ public class MainActivity extends Activity {
             .build();
         try {
             ProxyController.getInstance().setProxyOverride(config, getMainExecutor(), () -> {
+                if (torOff) { // Tor was switched off while the proxy was being set
+                    ProxyController.getInstance().clearProxyOverride(getMainExecutor(), () -> {});
+                    return;
+                }
                 proxyReady = true;
                 web.loadUrl(HUB);
                 onTorState(tor.progress, tor.summary, tor.error);

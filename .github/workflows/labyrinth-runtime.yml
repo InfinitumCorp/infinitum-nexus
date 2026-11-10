@@ -1,0 +1,36 @@
+name: Labyrinth runtime
+on:
+  pull_request:
+    paths:
+      - 'packages/**'
+      - 'apps/veil/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'apps/spectre/**'
+      - 'deploy/labyrinth/**'
+      - 'scripts/test-labyrinth-runtime.ts'
+      - '.dockerignore'
+      - '.github/workflows/labyrinth-runtime.yml'
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  persistent-service:
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.28.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.4
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Build the non-root persistent service
+        run: docker build -f deploy/labyrinth/Dockerfile -t infinitum-labyrinth:local .
+      - name: Verify CID onboarding, entitlement and restart durability
+        run: node --experimental-strip-types scripts/test-labyrinth-runtime.ts

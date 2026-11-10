@@ -10,7 +10,7 @@ export async function serveNodeLabyrinth(req: IncomingMessage, res: ServerRespon
   // An explicitly supplied invalid Authorization header must never fall back to cookies.
   const token = req.headers.authorization !== undefined ? labyrinthToken(req.headers.authorization) : cookieToken;
   if (!token) return respond(401, { error: "Cumulus ID sign-in required" });
-  try { auth.forSession(token); } catch { return respond(401, { error: "Invalid Cumulus ID session or client organization" }); }
+  try { auth.session(token); } catch { return respond(401, { error: "Invalid Cumulus ID session or client organization" }); }
   try {
     const chunks: Buffer[] = []; let size = 0;
     for await (const chunk of req) {
@@ -20,8 +20,8 @@ export async function serveNodeLabyrinth(req: IncomingMessage, res: ServerRespon
     }
     const command = JSON.parse(Buffer.concat(chunks).toString("utf8"));
     const result = await labyrinthCommand(auth, token, command);
-    if (command.action === "consent") onChange?.();
-    respond(200, result);
+    if (command.action === "consent" || command.action === "organization") onChange?.();
+    respond(200, result ?? null);
   } catch (error) {
     const status = labyrinthErrorStatus(error);
     respond(status, { error: status >= 500 ? "Labyrinth unavailable" : "Labyrinth request denied" });

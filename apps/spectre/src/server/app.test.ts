@@ -1,3 +1,4 @@
+import { queuedRouter, scriptedRouter, textReply, toolReply } from "@infinitum/ai/testing";
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { join, dirname } from "node:path";
@@ -27,14 +28,11 @@ describe("+SPCTR app over HTTP", () => {
     ledger = new Ledger(undefined, { authorizedSigners: [signer.publicKey] });
     cid = new CidService({ ledger, signer, rpId: "localhost", origins: [ORIGIN] });
     const crm = new SpectreCRM({ ledger, signer });
-    const ai = {
-      model: "test-model",
-      get apiKey() { return aiKey; },
-      fetchImpl: (async (_url: string, init: RequestInit) => {
-        aiCalls.push({ body: JSON.parse(String(init.body)) });
-        return new Response(JSON.stringify({ content: [{ type: "text", text: "Northwind fleet rollout is most at risk." }] }), { status: 200 });
-      }) as typeof fetch,
-    };
+    const scripted = scriptedRouter((body) => {
+      aiCalls.push({ body });
+      return textReply("Northwind fleet rollout is most at risk.");
+    });
+    const ai = { get router() { return aiKey ? scripted.router : undefined; } };
     const app = createApp({ cid, crm, ai, publicDir: join(here, "../../public"), secureCookies: false, origin: "http://localhost", onChange: () => changes++ });
     server = app.server();
     await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
@@ -171,7 +169,7 @@ describe("+SPCTR app over HTTP", () => {
     assert.equal(on.body.answer, "Northwind fleet rollout is most at risk.");
     const sent = aiCalls[0].body;
     assert.equal(sent.model, "test-model");
-    assert.match(sent.messages[0].content, /Northwind/);
-    assert.ok(!sent.messages[0].content.includes("@"), "contact emails aren't sent to the model");
+    assert.match(sent.messages[1].content, /Northwind/);
+    assert.ok(!sent.messages[1].content.includes("@"), "contact emails aren't sent to the model");
   });
 });

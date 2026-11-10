@@ -1,3 +1,4 @@
+import { queuedRouter, scriptedRouter, textReply, toolReply } from "@infinitum/ai/testing";
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { join, dirname } from "node:path";
@@ -28,14 +29,11 @@ describe("+SPCTR SCALVS.ai agents over HTTP", () => {
     ledger = new Ledger(undefined, { authorizedSigners: [signer.publicKey] });
     const cid = new CidService({ ledger, signer, rpId: "localhost", origins: [ORIGIN] });
     crm = new SpectreCRM({ ledger, signer });
-    const ai = {
-      model: "test-model",
-      get apiKey() { return apiKey; },
-      fetchImpl: (async (_url: string, init: RequestInit) => {
-        requests.push(JSON.parse(String(init.body)));
-        return new Response(JSON.stringify(script.shift() ?? { stop_reason: "end_turn", content: [{ type: "text", text: "done" }] }), { status: 200 });
-      }) as typeof fetch,
-    };
+    const scripted = scriptedRouter((body) => {
+      requests.push(body);
+      return script.shift() ?? textReply("done");
+    });
+    const ai = { get router() { return apiKey ? scripted.router : undefined; } };
     const app = createApp({ cid, crm, ai, publicDir: join(here, "../../public"), secureCookies: false, origin: ORIGIN });
     server = app.server();
     await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
@@ -59,8 +57,8 @@ describe("+SPCTR SCALVS.ai agents over HTTP", () => {
     return { cookie: res.headers.get("set-cookie")!.split(";")[0], cid: s.body.cid as string };
   }
 
-  const toolUse = (name: string, input: Record<string, unknown>) => ({ stop_reason: "tool_use", content: [{ type: "tool_use", id: `t${Math.random()}`, name, input }], usage: { input_tokens: 10, output_tokens: 5 } });
-  const final = (text: string) => ({ stop_reason: "end_turn", content: [{ type: "text", text }], usage: { input_tokens: 10, output_tokens: 5 } });
+  const toolUse = (name: string, input: Record<string, unknown>) => toolReply([{ name, input }]);
+  const final = (text: string) => textReply(text);
 
   let me: { cookie: string; cid: string };
   let dealId: string;
@@ -88,7 +86,7 @@ describe("+SPCTR SCALVS.ai agents over HTTP", () => {
     assert.match(r.body.run.output, /waiting for your approval/);
     assert.deepEqual(r.body.run.steps.map((s: any) => s.tool), ["list_open_deals", "create_task"]);
     // The model saw the real deal, with its score.
-    const seen = JSON.parse(requests.at(-2).messages[2].content[0].content);
+    const seen = JSON.parse(requests.at(-2).messages[3].content);
     assert.equal(seen[0].name, "Fleet rollout");
     assert.equal(typeof seen[0].winProbability, "number");
 
@@ -155,14 +153,14 @@ describe("+SPCTR SCALVS.ai agents over HTTP", () => {
     const r = await call("POST", "/api/rehearse", { dealId }, me.cookie);
     assert.equal(r.status, 200);
     assert.equal(r.body.run.agentId, "deal-coach");
-    assert.match(requests.at(-1).messages[0].content, new RegExp(dealId));
+    assert.match(requests.at(-1).messages[1].content, new RegExp(dealId));
   });
 
   it("says plainly when AI isn't connected instead of faking output", async () => {
     apiKey = undefined;
     const r = await call("POST", "/api/agents/researcher/run", { prompt: "research" }, me.cookie);
     assert.equal(r.status, 503);
-    assert.match(r.body.error, /ANTHROPIC_API_KEY/);
+    assert.match(r.body.error, /OMNIROUTE_API_KEY/);
     assert.equal((await call("GET", "/api/agents", undefined, me.cookie)).body.aiConnected, false);
     apiKey = "test-key";
   });

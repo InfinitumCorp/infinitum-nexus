@@ -36,7 +36,7 @@ describe("+SPCTR @conjure in Ask", () => {
       return new Response(JSON.stringify({ ...p, status: "done", round: 3, report: { outcome: "Northwind signs in January.", probability: 0.64, confidence: "medium", forecast: "", drivers: ["COO backs it"], signals: [], assumptions: [] } }));
     }) as unknown as typeof fetch;
     const conjureLive = createConjureLive({ url: "https://conjure.test", key: "cjp_spectre_test", fetchImpl });
-    const ai = { model: "m", apiKey: undefined };
+    const ai = {};
     const app = createApp({ cid, crm, ai, publicDir: join(here, "../../public"), secureCookies: false, origin: ORIGIN, conjureLive });
     server = app.server();
     await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));

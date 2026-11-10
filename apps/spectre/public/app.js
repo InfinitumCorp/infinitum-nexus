@@ -120,6 +120,26 @@ function render() {
 
 /* ---------------- sign-in ---------------- */
 
+/** Path back to a product sign-in that opened this page, or "". */
+function productReturn() {
+  try {
+    const next = new URLSearchParams(location.search).get("next") || "";
+    if (!(next.startsWith("/api/id/") || next.startsWith("/realms/cumulus/"))) return "";
+    if (next.startsWith("//") || next.includes("\\")) return "";
+    const u = new URL(next, location.origin);
+    if (u.origin !== location.origin) return "";
+    if (!(u.pathname.startsWith("/api/id/") || u.pathname.startsWith("/realms/cumulus/"))) return "";
+    return u.pathname + u.search;
+  } catch { return ""; }
+}
+
+function goAfterSignIn(apiNext) {
+  const next = typeof apiNext === "string" && (apiNext.startsWith("/api/id/") || apiNext.startsWith("/realms/cumulus/")) ? apiNext : productReturn();
+  if (next) { location.assign(next); return; }
+  location.hash = "#/today";
+  render();
+}
+
 function renderAuth(message = "") {
   root.innerHTML = `
     <div class="auth"><div class="auth-card">
@@ -138,7 +158,9 @@ function renderAuth(message = "") {
   const fail = (e) => { err.textContent = e.name === "NotAllowedError" ? "Passkey request was cancelled." : e.message; };
   // Social sign-in buttons for every provider the server has configured.
   api("GET", "/api/auth/providers").then((providers) => {
-    $("#social").innerHTML = providers.map((p) => `<a class="btn" href="/api/auth/oauth/${esc(p.id)}/start">Continue with ${esc(p.label)}</a>`).join("");
+    const back = productReturn();
+    const q = back ? `?next=${encodeURIComponent(back)}` : "";
+    $("#social").innerHTML = providers.map((p) => `<a class="btn" href="/api/auth/oauth/${esc(p.id)}/start${q}">Continue with ${esc(p.label)}</a>`).join("");
   }).catch(() => {});
 
   $("#signin").onclick = async () => {
@@ -169,8 +191,7 @@ async function finishSignIn(response) {
     await api("POST", "/api/auth/mfa", { mfaToken: r.mfaToken, code });
   }
   state.me = await api("GET", "/api/me");
-  location.hash = "#/today";
-  render();
+  goAfterSignIn();
 }
 
 function renderMfa(mfaToken) {
@@ -186,10 +207,9 @@ function renderMfa(mfaToken) {
   $("#code").focus();
   const submit = async () => {
     try {
-      await api("POST", "/api/auth/mfa", { mfaToken, code: $("#code").value.trim() });
+      const done = await api("POST", "/api/auth/mfa", { mfaToken, code: $("#code").value.trim() });
       state.me = await api("GET", "/api/me");
-      location.hash = "#/today";
-      render();
+      goAfterSignIn(done && done.next);
     } catch (e) { $("#err").textContent = e.message; }
   };
   $("#verify").onclick = submit;
@@ -216,7 +236,7 @@ function renderShell(page) {
             <a href="#/conjure" data-p="conjure">${icon.conjure}<span>CONJURE<sup class="tm">™</sup></span></a>
           </nav>
           <div class="spacer"></div>
-          <nav class="nav"><a href="#/settings" data-p="settings">${icon.settings}Settings</a></nav>
+          <nav class="nav"><a href="/labyrinth">Labyrinth *LBRNTH<sup class="tm">™</sup></a><a href="#/settings" data-p="settings">${icon.settings}Settings</a></nav>
           <div class="me">
             <div class="avatar">${esc(initials(state.me.username))}</div>
             <div class="who"><div>${esc(state.me.username)}</div>${state.me.cumulus
@@ -857,7 +877,7 @@ async function renderSettings() {
           <div class="item"><div class="main"><div class="title">Research</div><div class="sub">Public web search for account facts</div></div></div>
           <div class="item"><div class="main"><div class="title">Agents</div><div class="sub">Researcher, Prospector, Deal Coach, Query</div></div></div>
         </div>
-        <p class="faint small mt10">Set ANTHROPIC_API_KEY for Ask +SPCTR<sup class="tm">™</sup>. Research uses public search. Filters available on Pipeline and Accounts.</p>
+        <p class="faint small mt10">Connect OmniRoute (OMNIROUTE_API_KEY) for Ask +SPCTR<sup class="tm">™</sup>. Research uses public search. Filters available on Pipeline and Accounts.</p>
       </div>
     </div>`;
   $("#export-data")?.addEventListener("click", async () => {
@@ -959,7 +979,7 @@ async function renderAgents() {
   main().innerHTML = `
     <div class="page">
       <div class="page-head"><h1>Agents</h1><span class="faint small">Powered by SCALVS.ai<sup class="tm">™</sup></span></div>
-      ${info.aiConnected ? "" : `<div class="notice">AI isn't connected yet, so agents can't run. Add ANTHROPIC_API_KEY to the server environment.</div>`}
+      ${info.aiConnected ? "" : `<div class="notice">AI isn't connected yet, so agents can't run. Set OMNIROUTE_API_KEY on the server.</div>`}
       ${pending.length ? `<div class="section"><h2>Waiting for your approval</h2><div class="list" id="pending">${pending.map(proposalHtml).join("")}</div></div>` : ""}
       <div class="agent-grid">${info.agents.map((a) => `<button class="agent-card${a.id === sel.id ? " active" : ""}" data-agent="${esc(a.id)}">
         <div class="title">${esc(a.name)}</div><div class="sub">${esc(a.role)}</div></button>`).join("")}</div>
@@ -1033,7 +1053,7 @@ async function renderConjure() {
     <div class="page narrow">
       <div class="page-head"><h1>CONJURE<sup class="tm">™</sup></h1><span class="faint small">Swarm forecasting</span></div>
       <p class="muted">Give CONJURE a question and some background. It builds the people involved as AI agents, lets them react to each other over several rounds, and writes a forecast. You can inject “what if” events, compare futures and interview any agent.</p>
-      ${data.aiConnected ? "" : `<div class="notice">AI isn't connected yet, so simulations can't run. Add ANTHROPIC_API_KEY to the server environment.</div>`}
+      ${data.aiConnected ? "" : `<div class="notice">AI isn't connected yet, so simulations can't run. Set OMNIROUTE_API_KEY on the server.</div>`}
       <form id="new-sim" class="section">
         <label class="field">Question<input class="input" name="question" required maxlength="500" placeholder="Will the city approve the new transit budget this quarter?"></label>
         <label class="field">Background<textarea class="input" name="seed" rows="5" required maxlength="30000" placeholder="Paste news, a report or your notes. The more specific, the better."></textarea></label>

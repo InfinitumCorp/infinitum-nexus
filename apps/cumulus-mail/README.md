@@ -25,11 +25,20 @@ Open http://localhost:3010 and sign in with a passkey.
 | `CUMULUS_CLOUD_HOST` | Cumulus://Cloud host, default `cloud.cumuluscloud.app` |
 | `CUMULUS_MAIL_HOST` | Cumulus://Mail host, default `mail.cumuluscloud.app` |
 | `MAIL_DATA_DIR` | Where stores and the Firmament ledger live, default `./data` |
-| `XAI_API_KEY` | Turns on SCALVS briefs |
+| `OMNIROUTE_API_KEY` | Turns on SCALVS briefs and Clean suggestions on open-weight models (see `packages/ai` for backup hosts) |
 | `CUMULUS_MAIL_MASTER_KEY` | Base64 32-byte Cumulus Tunnel master key. Without it, one is created at `MAIL_DATA_DIR/tunnel-master.key`; in production set it from a secrets manager instead |
-| `ANTHROPIC_API_KEY` | Turns on SCALVS Clean suggestions (without it, Clean suggests from its rules) |
 | `SCALVS_MODEL` | Model for SCALVS Clean, default `claude-opus-5-5` |
 | Social sign-in | Same variables as +SPCTR; callback `{MAIL_ORIGIN}/api/auth/oauth/{provider}/callback` |
+
+Mail also serves `/api/id/*`, the original "Sign in with Cumulus://ID" routes. Those stay
+as a compatible alias: a button whose issuer is `https://mail.cumuluscloud.app` keeps
+working, including the copy of `public/id/button.js` hosted here (its default issuer is
+still Mail). The cid those routes see is Mail's own store.
+
+The source of truth for a cid issued at `id.cumuluscloud.app` is that Worker's NexusStore.
+Mail does not read that store. To share one cid with the ID host, point the button at
+`https://id.cumuluscloud.app` and call that host's token and userinfo endpoints.
+See [docs/cumulus-id.md](../../docs/cumulus-id.md).
 
 ## What's in it
 

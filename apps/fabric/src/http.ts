@@ -402,6 +402,7 @@ function loadAssets(dir: string): Map<string, { type: string; body: Buffer }> {
   const spec: Record<string, [string, string]> = {
     "/": ["index.html", "text/html; charset=utf-8"],
     "/app.js": ["app.js", "text/javascript; charset=utf-8"],
+    "/app-shell.css": ["app-shell.css", "text/css; charset=utf-8"],
     "/app.css": ["app.css", "text/css; charset=utf-8"],
     "/firm-suite.js": ["firm-suite.js", "text/javascript; charset=utf-8"],
     "/firm-suite.css": ["firm-suite.css", "text/css; charset=utf-8"],

@@ -1,0 +1,68 @@
+# Cumulus Mail desktop app: test, then build installers for Windows, macOS and Linux.
+# Each runner launches the app against the live service (CUMULUS_SMOKE) before packaging.
+name: cumulus-mail-desktop
+
+on:
+  push:
+    paths:
+      - "apps/cumulus-mail/desktop/**"
+      - ".github/workflows/cumulus-mail-desktop.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            dist: dist:win
+          - os: macos-latest
+            dist: dist:mac
+          - os: ubuntu-latest
+            dist: dist:linux
+    runs-on: ${{ startsWith(matrix.os, 'ubuntu') && (vars.CI_RUNNER || matrix.os) || matrix.os }}
+    defaults:
+      run:
+        working-directory: apps/cumulus-mail/desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/cumulus-mail/desktop/package-lock.json
+      - run: npm ci
+      - run: npm test
+
+      - name: Launch against the live service (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq xvfb libnss3 libgbm1 libasound2t64 > /dev/null
+          CUMULUS_SMOKE=1 CUMULUS_SMOKE_OUT=$PWD/smoke.json xvfb-run -a npx electron . --no-sandbox || true
+          cat smoke.json; node -e 'const r=require("./smoke.json"); if(!r.url||!r.url.startsWith(r.origin)) process.exit(1)'
+      - name: Launch against the live service (Windows, macOS)
+        if: runner.os != 'Linux'
+        shell: bash
+        run: |
+          CUMULUS_SMOKE=1 CUMULUS_SMOKE_OUT=$PWD/smoke.json npx electron . || true
+          cat smoke.json; node -e 'const r=require("./smoke.json"); if(!r.url||!r.url.startsWith(r.origin)) process.exit(1)'
+
+      - name: Build installers
+        run: npm run ${{ matrix.dist }}
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cumulus-mail-desktop-${{ runner.os }}
+          path: |
+            apps/cumulus-mail/desktop/dist/*.exe
+            apps/cumulus-mail/desktop/dist/*.dmg
+            apps/cumulus-mail/desktop/dist/*.zip
+            apps/cumulus-mail/desktop/dist/*.AppImage
+            apps/cumulus-mail/desktop/dist/*.deb
+          if-no-files-found: error
+          retention-days: 30

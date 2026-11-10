@@ -1,10 +1,11 @@
 {
   "name": "@infinitum/cloud",
   "version": "0.1.0",
-  "description": "Cumulus://Cloud store scaffold.",
+  "description": "Cumulus://Cloud Drive: local file storage and Postgres metadata for Infinitum Corporation®.",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./drive": "./src/drive/index.ts"
   },
   "private": true,
   "engines": {
@@ -14,11 +15,15 @@
     "typecheck": "tsc -p . --noEmit",
     "test": "node --test --experimental-strip-types $(find src -name \"*.test.ts\" 2>/dev/null || true)"
   },
+  "dependencies": {
+    "@infinitum/cid": "workspace:*",
+    "@infinitum/firmament": "workspace:*",
+    "@infinitum/lbrnth-client": "workspace:*",
+    "pg": "^8.16.3"
+  },
   "devDependencies": {
     "typescript": "^5.9.0",
-    "@types/node": "^22.0.0"
-  },
-  "dependencies": {
-    "@infinitum/lbrnth-client": "workspace:*"
+    "@types/node": "^22.0.0",
+    "@types/pg": "^8.15.5"
   }
 }

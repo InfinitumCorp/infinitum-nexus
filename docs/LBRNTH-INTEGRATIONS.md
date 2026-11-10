@@ -63,8 +63,9 @@ crypto/key-store or filesystem dependency. Typed clients expose explicit
 central-session clients additionally expose `consent`, `provision` and `sessionToken`.
 Save/load paths are server-namespaced under `products/<canonical-id>/`. CNDCTR and
 ARCHITCT alias ARCHITECT; SCALUS aliases SCALVS. Existing head CAS and role/plan
-checks remain authoritative. HTTP artifacts are UTF-8 text (JSON is suitable);
-use the server SDK for binary artifacts. HTTP bodies are capped at 2 MiB,
+checks remain authoritative. HTTP artifacts support UTF-8 text and explicit canonical base64 for binary bytes,
+plus atomic multi-file commits. The shared `/labyrinth` UI supports text editing
+and file import/download. See [workspace guide](LBRNTH-BUILD.md). HTTP bodies are capped at 2 MiB,
 HTTPS is mandatory except loopback development, redirects are refused and outbound
 requests have a 10-second timeout. Responses are no-store; tokens/claims are not
 forwarded in cookies or Access/product-auth headers. No stored code is executed.
@@ -128,8 +129,9 @@ onboarding and trusted paid-plan provisioning must be completed before Labyrinth
 is usable. Hosted/serverless +SPCTR remains disabled until a transactional durable
 Labyrinth adapter is supplied—do not use local snapshot files on ephemeral Vercel
 storage. All prior single-active-writer, capacity, archival, KMS/backup and
-unanchored-audit limitations still apply. No firmware integration or product GUI
-onboarding is claimed by these library/HTTP capabilities.
+unanchored-audit limitations still apply. No firmware integration is claimed. The shared repository GUI includes explicit
+scope consent and workspace provisioning; trusted CID organization onboarding
+and the paid-plan authority remain host prerequisites.
 
 ## This branch
 

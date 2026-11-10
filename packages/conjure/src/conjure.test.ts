@@ -1,5 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { queuedRouter, textReply, toolReply } from "@infinitum/ai/testing";
 import { createSimulation, step, inject, fork, writeReport, interview, estimateCalls, parseJson, ConjureError, type Complete } from "./conjure.ts";
 
 const SEED = "The central bank meets on Thursday. Inflation fell to 3.1%. Banks and exporters want a cut; pensioners' groups fear it fuels prices. Two board members have hinted at patience.";
@@ -154,18 +155,17 @@ describe("Conjure swarm prediction", () => {
     const m = fakeModel();
     const sim = await createSimulation(m.complete, { id: "s5", question: "Cut?", seed: SEED, agents: 6, rounds: 2 });
     await step(m.complete, sim);
-    const replies = [
-      { stop_reason: "tool_use", content: [{ type: "tool_use", id: "t1", name: "stance_trend", input: {} }] },
-      { stop_reason: "tool_use", content: [{ type: "tool_use", id: "t2", name: "top_posts", input: { limit: 3 } }] },
-      { stop_reason: "end_turn", content: [{ type: "text", text: JSON.stringify({ outcome: "A cut is more likely than not", probability: 1.7, forecast: "Exporters dominated the conversation…", drivers: ["exporter lobbying"], signals: ["board speeches"], assumptions: ["no data surprise"], confidence: "certain" }) }] },
-    ];
-    const seen: any[] = [];
-    const fetchImpl = (async (_u: string, init: RequestInit) => { seen.push(JSON.parse(String(init.body))); return new Response(JSON.stringify(replies.shift())); }) as typeof fetch;
-    const report = await writeReport({ apiKey: "k", model: "m", fetchImpl }, sim);
+    const ai = queuedRouter([
+      toolReply([{ id: "t1", name: "stance_trend", input: {} }]),
+      toolReply([{ id: "t2", name: "top_posts", input: { limit: 3 } }]),
+      textReply(JSON.stringify({ outcome: "A cut is more likely than not", probability: 1.7, forecast: "Exporters dominated the conversation…", drivers: ["exporter lobbying"], signals: ["board speeches"], assumptions: ["no data surprise"], confidence: "certain" })),
+    ]);
+    const seen = ai.requests;
+    const report = await writeReport({ router: ai.router }, sim);
     assert.equal(report.probability, 1, "clamped to 0..1");
     assert.equal(report.confidence, "low", "unknown confidence falls back to low");
     assert.deepEqual(report.steps.map((s) => s.tool), ["stance_trend", "top_posts"]);
-    assert.equal(JSON.parse(seen[1].messages[2].content[0].content).length, 2, "stance trend went back to the model");
+    assert.equal(JSON.parse(seen[1].messages[3].content).length, 2, "stance trend went back to the model");
     assert.equal(sim.report, report);
 
     const answer = await interview(m.complete, sim, "a1", "Why did you post that?");

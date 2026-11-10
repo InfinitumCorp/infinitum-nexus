@@ -24,6 +24,13 @@ export const DEFAULT_ORIGINS = Object.freeze({
   veil: PINNED_ORIGINS.veil, // VEIL browser control plane, hosted on Cloudflare
 });
 
+/** Production hosts. cumuluscloud.app is served by Cloudflare; local defaults stay on localhost. */
+export const PRODUCTION_ORIGINS = Object.freeze({
+  cid: "https://id.cumuluscloud.app",
+  cloud: "https://cloud.cumuluscloud.app",
+  mail: "https://mail.cumuluscloud.app",
+});
+
 /**
  * Free-tier products, in the order the product page lists them.
  * `origin` names a key in DEFAULT_ORIGINS; `panel` opens a VEIL panel instead;
@@ -31,7 +38,7 @@ export const DEFAULT_ORIGINS = Object.freeze({
  */
 export const APPS = Object.freeze([
   { id: "cid", name: "Cumulus://ID", blurb: "Your account and permissions", origin: "cid" },
-  { id: "mail", name: "Cumulus://Mail", blurb: "Free email at you@cumulusmail.cloud", origin: "mail" },
+  { id: "mail", name: "Cumulus://Mail", blurb: "Free email at you@cumuluscloud.app", origin: "mail" },
   { id: "cloud", name: "Cumulus://Cloud", blurb: "15 GB of Drive storage and a free cloud tier" },
   { id: "scalvs", name: "SCALVS.ai", blurb: "Free AI agents beside every page", origin: "scalvs" },
   { id: "architect", name: ":\\ARCHITECT\\", blurb: "Turn a page, an email or an idea into finished work", origin: "architect" },

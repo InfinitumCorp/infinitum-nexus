@@ -1,0 +1,106 @@
+{
+  "name": "cumulus-mail-desktop",
+  "productName": "Cumulus Mail",
+  "version": "1.1.0",
+  "description": "Cumulus://Mail for Windows, macOS and Linux.",
+  "author": {
+    "name": "Infinitum Corporation",
+    "email": "info@theinfinitumcorporation.com"
+  },
+  "homepage": "https://mail.cumuluscloud.app",
+  "license": "UNLICENSED",
+  "private": true,
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test test/*.test.js",
+    "dist:win": "electron-builder --win --x64 --arm64 --publish never",
+    "dist:mac": "electron-builder --mac --universal --publish never",
+    "dist:linux": "electron-builder --linux --x64 --arm64 --publish never"
+  },
+  "devDependencies": {
+    "electron": "45.2.3",
+    "electron-builder": "26.18.0"
+  },
+  "build": {
+    "appId": "app.cumuluscloud.mail.desktop",
+    "productName": "Cumulus Mail",
+    "copyright": "© 2026 Infinitum Corporation",
+    "artifactName": "CumulusMail-${version}-${os}-${arch}.${ext}",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "origins.js",
+      "offline.html",
+      "build/icon.png"
+    ],
+    "protocols": [
+      {
+        "name": "Cumulus Mail sign-in",
+        "schemes": [
+          "cumulus-mail"
+        ]
+      },
+      {
+        "name": "Email link",
+        "schemes": [
+          "mailto"
+        ]
+      }
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "deleteAppDataOnUninstall": false,
+      "shortcutName": "Cumulus Mail"
+    },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "category": "public.app-category.productivity",
+      "icon": "build/icon.png",
+      "identity": "-",
+      "hardenedRuntime": false,
+      "extendInfo": {
+        "NSUserNotificationAlertStyle": "banner"
+      }
+    },
+    "dmg": {
+      "title": "Cumulus Mail"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Office;Email",
+      "icon": "build/icon.png",
+      "maintainer": "Infinitum Corporation <info@theinfinitumcorporation.com>",
+      "synopsis": "Private email for every Cumulus://ID",
+      "mimeTypes": [
+        "x-scheme-handler/mailto",
+        "x-scheme-handler/cumulus-mail"
+      ],
+      "desktop": {
+        "entry": {
+          "StartupWMClass": "Cumulus Mail"
+        }
+      }
+    }
+  },
+  "allowScripts": {
+    "electron-winstaller": false
+  }
+}

@@ -112,6 +112,7 @@ test("browser CID login exchanges for a repository-only token linked to parent r
   const commit = remote.save(repo.id, "selected.json", "selected by client", null);
   assert.equal(Buffer.from(remote.load(repo.id, commit.id, "selected.json")).toString(), "selected by client");
   forbidden(() => s.auth.issueToken(issued.token));
+  await assert.rejects(s.auth.createOrganization(issued.token, "Escalated"), (error: unknown) => error instanceof LabyrinthError && error.code === "forbidden");
   await s.cid.revokeSession(s.account.cid, s.session.id);
   forbidden(() => remote.repositories());
 });

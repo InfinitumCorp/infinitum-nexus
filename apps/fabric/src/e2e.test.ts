@@ -47,6 +47,7 @@ test("starts the server and runs login, conversation, send, and receive", async 
     assert.match(js, /\/api\/sessions/);
     assert.match(js, /messages/);
     assert.equal((await fetch(`${origin}/app.css`)).status, 200);
+    assert.equal((await fetch(`${origin}/app-shell.css`)).status, 200);
 
     const alice = new FabricClient(origin);
     const bob = new FabricClient(origin);

@@ -1,50 +1,25 @@
 #!/usr/bin/env bash
-# Reproducible unsigned builds for VEIL Desktop. No store submission, no signing.
+# Tests and the unsigned reproducible artifact build. No signing and no upload.
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 repo="$(cd "$root/../.." && pwd)"
-dist="$root/artifacts"
-rm -rf "$dist"
-mkdir -p "$dist/logs" "$dist/windows" "$dist/darwin" "$dist/linux"
-export PATH="${HOME}/sdk/go/bin:${PATH}"
-export CGO_ENABLED=0
+# shellcheck disable=SC1091
+source "$root/scripts/reproducible-env.sh"
+veil_prepare "$repo"
 cd "$root"
+mkdir -p "$root/build-logs"
 
 echo "== test =="
-go test ./... | tee "$dist/logs/go-test.log"
+go test ./... | tee "$root/build-logs/go-test.log"
 
 echo "== selftest =="
-go run ./cmd/veil-desktop selftest | tee "$dist/logs/selftest.log"
+go run ./cmd/veil-desktop selftest | tee "$root/build-logs/selftest.log"
 
-echo "== linux =="
-go build -trimpath -ldflags "-s -w" -o "$dist/linux/veil-desktop" ./cmd/veil-desktop
-go build -trimpath -ldflags "-s -w" -o "$dist/linux/veil-exit" ./cmd/veil-exit
-
-echo "== windows =="
-GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o "$dist/windows/veil-desktop.exe" ./cmd/veil-desktop
-GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o "$dist/windows/veil-exit.exe" ./cmd/veil-exit
-bash "$root/scripts/fetch-wintun.sh" "$dist/windows"
-bash "$root/scripts/package-msi.sh" "$dist/windows" "$dist/VEILDesktop-unsigned.msi"
-
-echo "== darwin =="
-GOOS=darwin GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o "$dist/darwin/veil-desktop-amd64" ./cmd/veil-desktop
-GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags "-s -w" -o "$dist/darwin/veil-desktop-arm64" ./cmd/veil-desktop
-bash "$root/scripts/package-macos.sh" "$dist/darwin" "$dist"
+ARTIFACT_DIR="$root/artifacts" bash "$root/scripts/build-reproducible.sh"
 
 if command -v xcodebuild >/dev/null 2>&1; then
-  echo "== macos network extension =="
-  bash "$root/macos/build-macos.sh" | tee "$dist/logs/xcodebuild.log"
+  bash "$root/macos/build-macos.sh" | tee "$root/build-logs/xcodebuild.log"
 else
-  echo "macOS NetworkExtension build skipped: xcodebuild is not available. Apple Developer signing is also required." | tee "$dist/logs/xcodebuild.log"
+  echo "macOS Network Extension build skipped: xcodebuild is not on this machine. Signing it also needs an Apple Developer account." | tee "$root/build-logs/xcodebuild.log"
 fi
-
-{
-  echo "Infinitum Corporation® VEIL Desktop unsigned artifacts"
-  echo "Built $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  file "$dist/linux/veil-desktop" "$dist/windows/veil-desktop.exe" "$dist/darwin/veil-desktop-amd64" "$dist/darwin/veil-desktop-arm64" || true
-  (cd "$dist" && find . -type f ! -path './logs/*' ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum)
-} | tee "$dist/SHA256SUMS"
-
-mkdir -p "$root/build-logs"
-cp "$dist/logs/"*.log "$root/build-logs/"
-echo "artifacts in $dist"
+echo "unsigned artifacts in $root/artifacts"

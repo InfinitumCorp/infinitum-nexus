@@ -5,6 +5,7 @@
  *   GET  /            the SCALVS app (HTML). JSON index still requires a token.
  *   GET  /app.js
  *   GET  /app.css
+ *   GET  /firm-suite.js, /firm-suite.css   (FIRM Suite embed, public)
  *   GET  /v1/agents
  *   POST /v1/agents
  *   GET  /v1/teams
@@ -41,6 +42,8 @@ const publicDir = join(dirname(fileURLToPath(import.meta.url)), "..", "public");
 const indexHtml = readFileSync(join(publicDir, "index.html"), "utf8");
 const appJs = readFileSync(join(publicDir, "app.js"), "utf8");
 const appCss = readFileSync(join(publicDir, "app.css"), "utf8");
+const firmSuiteJs = readFileSync(join(publicDir, "firm-suite.js"), "utf8");
+const firmSuiteCss = readFileSync(join(publicDir, "firm-suite.css"), "utf8");
 
 interface SavedAgent {
   id: string;
@@ -107,6 +110,8 @@ async function handle(
     const publicApp = req.method === "GET" && (
       url.pathname === "/app.js"
       || url.pathname === "/app.css"
+      || url.pathname === "/firm-suite.js"
+      || url.pathname === "/firm-suite.css"
       || (url.pathname === "/" && wantsHtml(req))
     );
     if (!(req.method === "GET" && url.pathname === "/health") && !publicApp) {
@@ -147,6 +152,14 @@ async function handle(
     }
     if (url.pathname === "/app.css" && req.method === "GET") {
       send(res, 200, appCss, origin, "text/css; charset=utf-8");
+      return;
+    }
+    if (url.pathname === "/firm-suite.js" && req.method === "GET") {
+      send(res, 200, firmSuiteJs, origin, "text/javascript; charset=utf-8");
+      return;
+    }
+    if (url.pathname === "/firm-suite.css" && req.method === "GET") {
+      send(res, 200, firmSuiteCss, origin, "text/css; charset=utf-8");
       return;
     }
 

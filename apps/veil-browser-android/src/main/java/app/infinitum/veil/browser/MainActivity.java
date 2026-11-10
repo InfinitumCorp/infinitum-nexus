@@ -58,7 +58,6 @@ import androidx.webkit.WebViewFeature;
  */
 public class MainActivity extends Activity {
     static final String HUB = "file:///android_asset/hub/index.html";
-    static final String TOR_CHECK = "https://check.torproject.org/";
     /** WebRTC can reach the network over UDP outside the proxy and reveal the real IP, so pages don't get it. */
     static final String NO_WEBRTC = "(function(){['RTCPeerConnection','webkitRTCPeerConnection','RTCDataChannel',"
         + "'RTCIceCandidate','RTCSessionDescription','RTCRtpSender','RTCRtpReceiver','RTCRtpTransceiver'].forEach(function(k){"
@@ -262,9 +261,8 @@ public class MainActivity extends Activity {
     void torTapped() {
         if (torMissing) {
             new AlertDialog.Builder(this).setTitle("Tor isn't in this version")
-                .setMessage("This version of VEIL connects directly, not over Tor. The version with Tor built in is a larger download. You can check this connection on the Tor Project's site.")
-                .setPositiveButton("Check connection", (d, w) -> open(TOR_CHECK))
-                .setNegativeButton("OK", null).show();
+                .setMessage("This version of VEIL connects directly, not over Tor. The version with Tor built in is a larger download from infinitumveil.app.")
+                .setPositiveButton("OK", null).show();
             return;
         }
         if (torOff) {
@@ -289,7 +287,7 @@ public class MainActivity extends Activity {
         } else if (torReady()) {
             new AlertDialog.Builder(this).setTitle("Connected to Tor")
                 .setMessage("Every page goes over Tor" + (tor.bridges ? ", through a bridge." : "."))
-                .setPositiveButton("Check", (d, w) -> open(TOR_CHECK))
+                .setPositiveButton("Check", (d, w) -> checkTor())
                 .setNegativeButton("Close", null)
                 .setNeutralButton("Turn off Tor", (d, w) -> setTor(false)).show();
         } else {
@@ -819,7 +817,30 @@ public class MainActivity extends Activity {
             .setMessage("VEIL stopped loading " + (host == null ? "this site" : host) + ". " + why
                 + " Someone may be intercepting the connection, or the site is misconfigured.")
             .setPositiveButton("Go back", (d, w) -> goBackOrHub())
-            .setNeutralButton("Check Tor", (d, w) -> open(TOR_CHECK)));
+            .setNeutralButton(torOff ? null : "Check Tor", torOff ? null : (d, w) -> checkTor()));
+    }
+
+    /** Confirms the Tor connection inside VEIL and says so in a dialog; no page opens. */
+    void checkTor() {
+        if (!torReady() || torOff) { torTapped(); return; }
+        Toast.makeText(this, "Checking the Tor connection…", Toast.LENGTH_SHORT).show();
+        tor.verify((isTor, ip) -> {
+            if (isFinishing()) return;
+            String via = tor.bridges ? " through a bridge" : "";
+            if (isTor == null) {
+                new AlertDialog.Builder(this).setTitle("Couldn't check")
+                    .setMessage("Tor is connected" + via + ", but the check didn't answer. Try again in a moment.")
+                    .setPositiveButton("OK", null).show();
+            } else if (isTor) {
+                new AlertDialog.Builder(this).setTitle("Connected through Tor")
+                    .setMessage("Every page goes over Tor" + via + ". Sites see a Tor exit" + (ip != null ? " (" + ip + ")" : "") + ", not this phone's IP address.")
+                    .setPositiveButton("OK", null).show();
+            } else {
+                new AlertDialog.Builder(this).setTitle("Not confirmed as Tor")
+                    .setMessage("The check didn't see a Tor exit" + (ip != null ? " (it saw " + ip + ")" : "") + ". Use New identity or turn Tor off and on.")
+                    .setPositiveButton("OK", null).show();
+            }
+        });
     }
 
     void showAddress(String url) {

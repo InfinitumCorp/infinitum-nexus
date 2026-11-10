@@ -378,6 +378,52 @@ final class Tor {
         });
     }
 
+    /** The Tor Project's check API: answers whether a request arrived from a Tor exit. */
+    static final String CHECK_API = "https://check.torproject.org/api/ip";
+
+    interface CheckResult {
+        /** isTor is null when the check couldn't be completed. */
+        void onResult(Boolean isTor, String ip);
+    }
+
+    /**
+     * Confirms in the background that traffic leaves through Tor, without opening a page:
+     * asks CHECK_API over this tor's SOCKS port (the host name resolves inside Tor too).
+     */
+    void verify(CheckResult cb) {
+        Thread t = new Thread(() -> {
+            Boolean isTor = null;
+            String ip = null;
+            java.net.HttpURLConnection c = null;
+            try {
+                java.net.Proxy socks = new java.net.Proxy(java.net.Proxy.Type.SOCKS,
+                    InetSocketAddress.createUnresolved("127.0.0.1", socksPort));
+                c = (java.net.HttpURLConnection) new java.net.URL(CHECK_API).openConnection(socks);
+                c.setConnectTimeout(30_000);
+                c.setReadTimeout(30_000);
+                c.setUseCaches(false);
+                c.setRequestProperty("Accept", "application/json");
+                try (InputStream in = c.getInputStream()) {
+                    ByteArrayOutputStream b = new ByteArrayOutputStream();
+                    byte[] buf = new byte[4096];
+                    for (int n; (n = in.read(buf)) > 0; ) b.write(buf, 0, n);
+                    JSONObject o = new JSONObject(b.toString("UTF-8"));
+                    isTor = o.optBoolean("IsTor", false);
+                    ip = o.optString("IP", null);
+                }
+            } catch (IOException | org.json.JSONException e) {
+                android.util.Log.i("VEIL-Tor", "VEIL: Tor check failed: " + e.getClass().getSimpleName());
+            } finally {
+                if (c != null) c.disconnect();
+            }
+            Boolean r = isTor;
+            String a = ip;
+            main.post(() -> cb.onResult(r, a));
+        }, "tor-check");
+        t.setDaemon(true);
+        t.start();
+    }
+
     /** New circuits for new connections (SIGNAL NEWNYM over the cookie-authenticated control port). */
     void newIdentity() {
         if (!ready()) return;

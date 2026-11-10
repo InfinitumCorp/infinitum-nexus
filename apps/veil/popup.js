@@ -109,7 +109,7 @@ $("mode-tor").onclick = async () => {
   try {
     await send("toggleTor", { enabled: true, port: Number($("endpoint").value) });
     const check = await send("checkTor");
-    say(check.isTor ? "Tor check succeeded." : check.status === "unreachable" ? "Tor is not reachable. Traffic is blocked." : "The check did not confirm a Tor exit.");
+    say(check.isTor ? "Connected through Tor." : check.status === "unreachable" ? "Tor is not reachable. Traffic is blocked." : "The check did not confirm a Tor exit.");
     await refresh();
   } catch (err) {
     say(err.message);
@@ -121,7 +121,7 @@ $("check").onclick = async () => {
   say("");
   try {
     const check = await send("checkTor");
-    say(check.isTor ? "check.torproject.org says this browser is using Tor." : check.status === "off" ? "Choose Tor first." : "Not confirmed as Tor. Traffic stays blocked.");
+    say(check.isTor ? "Connected: this browser is using Tor." : check.status === "off" ? "Choose Tor first." : "Not confirmed as Tor. Traffic stays blocked.");
     await refresh();
   } catch (err) {
     say(err.message);

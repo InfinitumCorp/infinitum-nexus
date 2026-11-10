@@ -103,7 +103,7 @@ $("tor-toggle").onclick = async () => {
   } catch (err) { say(`Tor: ${err.message}`); }
 };
 $("check-tor").onclick = async () => {
-  say("Checking with check.torproject.org…");
+  say("Checking the Tor connection…");
   const r = await send("checkTor");
   say(r.isTor ? "Confirmed: this browser is exiting through Tor" : r.status === "unreachable" ? "Tor is unreachable. Traffic stays blocked." : `Not a Tor exit${r.error ? ` (${r.error})` : ""}`);
   await refresh();

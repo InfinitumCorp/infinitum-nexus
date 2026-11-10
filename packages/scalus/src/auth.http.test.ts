@@ -7,7 +7,7 @@ import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
 import { after, describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { CUMULUS_ISSUER } from "./cumulus-auth.ts";
+import { CUMULUS_ISSUER, createCumulusAuth } from "./cumulus-auth.ts";
 import { createScalvsServer } from "./http.ts";
 
 const ISSUER = CUMULUS_ISSUER;
@@ -252,5 +252,19 @@ describe("audience configuration and JWKS guards", () => {
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()));
     }
+  });
+});
+
+describe("ES256 access tokens", () => {
+  it("accepts an ES256 token signed by a key from discovery", async () => {
+    const { privateKey, publicKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
+    const jwk = { ...publicKey.export({ format: "jwk" }), kid: "ec1", alg: "ES256", use: "sig" };
+    const enc = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64url");
+    const header = { alg: "ES256", kid: "ec1" };
+    const body = `${enc(header)}.${enc(claims())}`;
+    const token = `${body}.${sign("sha256", Buffer.from(body), { key: privateKey, dsaEncoding: "ieee-p1363" }).toString("base64url")}`;
+    const { fetchImpl } = mockFetch([jwk]);
+    const auth = createCumulusAuth({ fetchImpl, now: () => NOW });
+    await auth.authenticate(`Bearer ${token}`);
   });
 });

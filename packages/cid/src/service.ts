@@ -87,7 +87,7 @@ export interface Account {
   orgId?: string;
   /** Link to the organization identity provider, for SSO members. */
   federated?: { issuer: string; subject: string };
-  /** Google, GitHub, Microsoft, Apple or ChatGPT accounts linked for sign-in. */
+  /** Google, GitHub, Microsoft, Apple, ChatGPT or Amazon Cognito accounts linked for sign-in. */
   identities?: LinkedIdentity[];
   createdAt: string;
   entitlements: typeof FREE_ENTITLEMENTS;
@@ -171,6 +171,12 @@ interface DeviceHandoff {
   challenge: string;
   app: string;
   expiresAt: number;
+  /** How the browser session was created: google, cognito, passkey, or another provider id. */
+  idp?: string;
+  /** OpenID Connect nonce, returned on the ID token when the product sent one. */
+  nonce?: string;
+  /** Checked when the token request repeats it (the OpenID Connect token endpoint does). */
+  redirectUri?: string;
 }
 
 /** How long a browser-to-app sign-in code stays valid. */
@@ -592,13 +598,16 @@ export class CidService {
    * Browser side of signing in a native app: someone already signed in approves the app, and gets a
    * one-time code to hand it. `challenge` is base64url(SHA-256(verifier)) from the app.
    */
-  async grantDeviceHandoff(cid: string, challenge: string, app: string) {
+  async grantDeviceHandoff(cid: string, challenge: string, app: string, meta?: { idp?: string; nonce?: string; redirectUri?: string }) {
     this.account(cid);
     if (!/^[A-Za-z0-9_-]{43}$/.test(challenge)) throw new CidError("invalid_request", "The app's sign-in request isn't valid. Start again from the app.");
     const now = this.now().getTime();
     for (const [k, h] of this.store.deviceHandoffs) if (h.expiresAt < now) this.store.deviceHandoffs.delete(k);
     const code = randomBytes(32).toString("base64url");
-    this.store.deviceHandoffs.set(hashToken(code), { cid, challenge, app, expiresAt: now + DEVICE_HANDOFF_TTL_MS });
+    const idp = meta?.idp && /^[a-z0-9_-]{1,32}$/.test(meta.idp) ? meta.idp : undefined;
+    this.store.deviceHandoffs.set(hashToken(code), {
+      cid, challenge, app, expiresAt: now + DEVICE_HANDOFF_TTL_MS, idp, nonce: meta?.nonce, redirectUri: meta?.redirectUri,
+    });
     await this.record("audit", cid, cid, { event: "device_handoff.granted", app });
     return { code };
   }
@@ -614,7 +623,7 @@ export class CidService {
       throw new CidError("challenge_expired", "That sign-in link expired. Start again from the app.");
     }
     const issued = await this.issueSession(handoff.cid, device, "device-handoff");
-    return { ...issued, app: handoff.app };
+    return { ...issued, app: handoff.app, idp: handoff.idp ?? "passkey", nonce: handoff.nonce, redirectUri: handoff.redirectUri };
   }
 
   /** Called by every Infinitum product on each request. Returns null for unknown, expired or revoked tokens. */
@@ -658,7 +667,7 @@ export class CidService {
 
   /** Providers with credentials configured, in display order. */
   socialProvidersEnabled(): { id: SocialProviderId; label: string }[] {
-    const order: SocialProviderId[] = ["google", "apple", "microsoft", "github", "chatgpt"];
+    const order: SocialProviderId[] = ["google", "apple", "microsoft", "github", "chatgpt", "cognito"];
     return order.filter((id) => this.socialProviders[id]).map((id) => ({ id, label: PROVIDERS[id].label }));
   }
 

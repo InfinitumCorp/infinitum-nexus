@@ -7,7 +7,7 @@ Shared foundation for every Infinitum product, by Infinitum Corporation®.
 | Package | What it is |
 |---|---|
 | `packages/firmament` | Firmament Network core: append-only, hash-chained, Ed25519-signed ledger for identity, provenance, licensing, payments and audit. Merkle roots for anchoring to Base. |
-| `packages/cid` | Cumulus://ID (CID): one account for every product. Passkeys and security keys (WebAuthn), authenticator-app MFA, session revocation, app-by-app permissions recorded on Firmament, organization SSO (OIDC), and social sign-in with Google, Apple, Microsoft, GitHub and ChatGPT (PKCE, state bound to the browser, nonce, issuer checks; accounts are never joined by email). Canonical host `id.cumuluscloud.app`. |
+| `packages/cid` | Cumulus://ID (CID): one account for every product. Passkeys and security keys (WebAuthn), authenticator-app MFA, session revocation, app-by-app permissions recorded on Firmament, organization SSO (OIDC), and social sign-in with Google, Apple, Microsoft, GitHub, ChatGPT and Amazon Cognito (PKCE, state bound to the browser, nonce, issuer checks; accounts are never joined by email). Canonical host `id.cumuluscloud.app`. |
 | `packages/aether` | ÆTHER™ mesh protocol core: Ed25519 node addresses, signed packets, flooding with TTL and ttl upgrades, store-and-forward, delivery receipts, rate limits, and a radio simulator. 100 nodes with 20% churn deliver 100% of messages across 6–13 hops (19 passing tests). Not encrypted yet. |
 
 | `apps/spectre` | +SPCTR™ (Spectre) intelligent CRM. Core so far: companies, contacts, deals, activities and relationships with a Firmament audit trail and source provenance; opt-out handling; predictive pipeline with explained win probability, risk alerts, next best action and monthly forecast; warmest-path relationship map and buying-committee gaps; duplicate detection, merging and stale-data flags (17 passing tests). |
@@ -40,7 +40,7 @@ The issuer is derived from the ID host and realm: `https://<CUMULUS_ID_HOST>/rea
 
 ### Social sign-in
 
-CID supports Continue with Google, Apple, Microsoft, GitHub and ChatGPT. Any product that uses Cumulus://ID can enable the same providers by calling socialFromEnv() and passing the result to CidService. Each button appears only when its credentials are set:
+CID supports Continue with Google, Apple, Microsoft, GitHub, ChatGPT and Amazon Cognito. Any product that uses Cumulus://ID can enable the same providers by calling socialFromEnv() and passing the result to CidService. Each button appears only when its credentials are set:
 
 | Provider | Environment variables | Register at |
 |---|---|---|
@@ -49,8 +49,15 @@ CID supports Continue with Google, Apple, Microsoft, GitHub and ChatGPT. Any pro
 | Microsoft | `MICROSOFT_CLIENT_ID`, `MICROSOFT_CLIENT_SECRET` | Microsoft Entra admin center → App registrations |
 | GitHub | `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | GitHub → Settings → Developer settings → OAuth Apps |
 | ChatGPT | `CHATGPT_CLIENT_ID`, `CHATGPT_CLIENT_SECRET`, `CHATGPT_ISSUER` | OpenAI's Sign in with ChatGPT partner program (beta) |
+| Amazon Cognito | `COGNITO_DOMAIN`, `COGNITO_CLIENT_ID`, `COGNITO_CLIENT_SECRET`, `COGNITO_REGION`, `COGNITO_USER_POOL_ID` | Cognito console → User pool → App client. All five are required. |
 
-Callback URL for each: `{SPECTRE_ORIGIN}/api/auth/oauth/{provider}/callback`. Data is stored in `apps/spectre/data/`.
+Callback URL for each: `{SPECTRE_ORIGIN}/api/auth/oauth/{provider}/callback` (Cognito's provider id is `cognito`). Data is stored in `apps/spectre/data/`.
+
+Amazon Cognito is an optional user-pool sign-in (authorization code, PKCE, browser-bound state, nonce, JWKS). It sits beside Google and the other providers and does not replace the Keycloak issuer at `https://<CUMULUS_ID_HOST>/realms/<CUMULUS_KEYCLOAK_REALM>`. It stays off unless every `COGNITO_*` variable above is set and valid, so existing sign-in is unchanged when they are absent. `COGNITO_DOMAIN` is the hosted UI (`<prefix>.auth.<region>.amazoncognito.com`, region matching `COGNITO_REGION`) or a custom https hostname. The app client uses the authorization-code grant, scopes `openid email profile`, the callback above, and the default `client_secret_basic` token authentication. A Cognito subject always gets its own CID: accounts are never joined by email.
+
+Use the Lite or Essentials feature plan. Both are Always Free for the first 10,000 monthly active users who sign in directly or with a social identity provider. The Plus tier has no free MAU, so leave Plus off. SMS MFA is not free, and email sent through Amazon SES is not free. Leave SMS MFA and SES-based email disabled on the user pool. When a second factor is wanted, use authenticator-app TOTP: Cognito's own TOTP, or the authenticator-app code Cumulus://ID already asks for after sign-in. Do not turn on Cognito SMS to get that second factor.
+
+Sign in with Cumulus://ID for other products is issued at `id.cumuluscloud.app`. The first Google or Cognito sign-in creates the cid. OpenID Connect (issuer `https://id.cumuluscloud.app/realms/cumulus`) stays off until `CID_OIDC_SIGNING_KEY` is set. Mail's `/api/id/*` routes stay as an alias for buttons that already point at `mail.cumuluscloud.app`. See [docs/cumulus-id.md](docs/cumulus-id.md).
 
 Coming next: AI account research the Spectre agent team, then `$FIRM` and product token contracts.
 

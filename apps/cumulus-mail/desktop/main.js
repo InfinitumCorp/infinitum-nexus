@@ -173,16 +173,26 @@ async function finishBrowserSignIn(code) {
 function buildMenu() {
   const isMac = process.platform === "darwin";
   const compose = () => win && win.loadURL(`${origin}/?compose=1`);
+  const go = (path) => () => win && win.loadURL(`${origin}${path}`);
   const template = [
     ...(isMac ? [{ role: "appMenu" }] : []),
     { label: "File", submenu: [
       { label: "New Message", accelerator: "CmdOrCtrl+N", click: compose },
+      { label: "New Document", click: go("/drive/#/new/dox") },
+      { label: "New Spreadsheet", click: go("/drive/#/new/spreads") },
+      { label: "New Presentation", click: go("/drive/#/new/podium") },
       { type: "separator" },
       { label: "Open in Browser", click: () => shell.openExternal(`${origin}/`) },
       { type: "separator" },
       isMac ? { role: "close" } : { role: "quit" },
     ] },
     { role: "editMenu" },
+    { label: "Go", submenu: [
+      { label: "Mail", accelerator: "CmdOrCtrl+1", click: go("/") },
+      { label: "Drive", accelerator: "CmdOrCtrl+2", click: go("/drive/") },
+      { label: "Shared with me", click: go("/drive/#/shared") },
+      { label: "Recent", click: go("/drive/#/recent") },
+    ] },
     { label: "View", submenu: [
       { role: "reload" }, { type: "separator" },
       { role: "resetZoom" }, { role: "zoomIn" }, { role: "zoomOut" }, { type: "separator" },

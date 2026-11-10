@@ -44,8 +44,25 @@ final class Tor {
 
     static final Pattern BOOTSTRAP = Pattern.compile("Bootstrapped (\\d+)%(?: \\([^)]*\\))?:? ?(.*)");
     static final long DIRECT_STALL_MS = 20_000;
-    /** A bridge type that hasn't completed a handshake by now is blocked here: try the next type. */
-    static final long BRIDGE_CONNECT_MS = 60_000;
+    /**
+     * A bridge type with no handshake and no sign of life from its transport for this long is
+     * blocked here: try the next type. On a slow link Snowflake's broker alone can take 40 s.
+     */
+    static final long BRIDGE_CONNECT_MS = 90_000;
+    /** However busy its transport looks, a bridge type gets this long to reach a handshake. */
+    static final long BRIDGE_ATTEMPT_MAX_MS = 240_000;
+    /**
+     * Lyrebird messages (relayed by tor as 'Managed proxy "...": msg') that show Snowflake still
+     * working: asking the broker, getting a volunteer proxy, or moving on to another proxy.
+     */
+    /**
+     * Snowflake's broker answers within a few seconds or not at all: a request still unanswered
+     * after this long has hung, and a fresh start gets an answer at once. Retried at most
+     * BROKER_RETRIES times per bridge type before moving on.
+     */
+    static final long BROKER_WAIT_MS = 20_000;
+    static final int BROKER_RETRIES = 2;
+    static final Pattern PT_ACTIVITY = Pattern.compile("Managed proxy .*: (offer created|broker rendezvous peer received|trying a new proxy|connected)");
     /**
      * Bridges still short of CONN_DONE (10%) by now can't be reached at all: obfs4 bridges this
      * network blocks fail within a second ("general SOCKS server failure") and keep retrying.
@@ -89,6 +106,11 @@ final class Tor {
     /** The bridge type in use (one of TRANSPORTS), or null when direct. */
     volatile String transport;
     private volatile long lastProgressAt;
+    /** When the current way was launched (for BRIDGE_ATTEMPT_MAX_MS). */
+    private volatile long attemptStartedAt;
+    /** When Snowflake asked its broker and is still waiting for an answer, else 0. */
+    private volatile long offerAt;
+    private int brokerRetries;
     /** True once this connection attempt got past a handshake: keep that way from then on. */
     private volatile boolean pathWorks;
     /** True once a direct start stalled during this attempt: the network blocks Tor, stay on bridges. */
@@ -120,6 +142,7 @@ final class Tor {
         app = c.getApplicationContext();
         if (process != null || restarting) return;
         attempts = 0;
+        brokerRetries = 0;
         pathWorks = false;
         directBlocked = false;
         java.util.List<String> avail = available();
@@ -141,6 +164,8 @@ final class Tor {
         progress = 0;
         summary = kind == null ? "Starting" : "Starting with " + label(kind) + " bridges";
         lastProgressAt = SystemClock.elapsedRealtime();
+        attemptStartedAt = lastProgressAt;
+        offerAt = 0;
         trafficSeen = 0;
         notifyListener();
         try {
@@ -244,11 +269,19 @@ final class Tor {
     private synchronized void checkStall(int g) {
         if (g != gen || process == null || error != null || progress >= 100) return;
         long limit = stallLimit(pathWorks, bridges, progress);
-        if (SystemClock.elapsedRealtime() - lastProgressAt < limit) {
+        long now = SystemClock.elapsedRealtime();
+        boolean overdue = bridges && !pathWorks && now - attemptStartedAt >= BRIDGE_ATTEMPT_MAX_MS;
+        if (bridges && !pathWorks && offerAt > 0 && now - offerAt >= BROKER_WAIT_MS && brokerRetries < BROKER_RETRIES) {
+            brokerRetries++;
+            android.util.Log.i("VEIL-Tor", "VEIL: no broker answer in " + (BROKER_WAIT_MS / 1000) + " s, asking again (" + brokerRetries + "/" + BROKER_RETRIES + ")");
+            restart(transport);
+            return;
+        }
+        if (now - lastProgressAt < limit && !overdue) {
             main.postDelayed(() -> checkStall(g), 2_000);
             return;
         }
-        android.util.Log.i("VEIL-Tor", "VEIL: no progress for " + (limit / 1000) + " s " + (bridges ? "over " + transport + " bridges" : "direct") + " at " + progress + "%, attempt " + (attempts + 1));
+        android.util.Log.i("VEIL-Tor", (overdue ? "VEIL: no handshake in " + (BRIDGE_ATTEMPT_MAX_MS / 1000) + " s " : "VEIL: no progress for " + (limit / 1000) + " s ") + (bridges ? "over " + transport + " bridges" : "direct") + " at " + progress + "%, attempt " + (attempts + 1));
         if (++attempts > MAX_ATTEMPTS) {
             stop();
             fail(bridges ? "Tor couldn't connect, even over bridges. This network may block Tor." : "Tor couldn't connect.");
@@ -261,6 +294,7 @@ final class Tor {
             directBlocked = true;
             if (!avail.isEmpty()) prefs().edit().putBoolean("bridges", true).putString("transport", avail.get(0)).apply();
         }
+        brokerRetries = 0;
         restart(next(transport, pathWorks, directBlocked, avail));
     }
 
@@ -364,6 +398,11 @@ final class Tor {
                         prefs().edit().putBoolean("bridges", bridges).putString("transport", transport).apply();
                     }
                     notifyListener();
+                } else if (bridges && !pathWorks && PT_ACTIVITY.matcher(line).find()) {
+                    long now = SystemClock.elapsedRealtime();
+                    lastProgressAt = now; // the transport is still working
+                    if (line.contains("offer created")) { if (offerAt == 0) offerAt = now; }
+                    else offerAt = 0;
                 } else if (line.contains("[err]")) {
                     summary = line.substring(line.indexOf("[err]") + 5).trim();
                 }

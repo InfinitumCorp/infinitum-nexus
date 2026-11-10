@@ -845,12 +845,22 @@ public class MainActivity extends Activity {
 
     void showAddress(String url) {
         if (url == null || address.hasFocus()) return;
+        if (url.startsWith(Privacy.SEARCH)) {
+            // VEIL's own results page: show what was searched, not the page's address.
+            String q = Uri.parse(url).getQueryParameter("q");
+            address.setText(q != null ? q : "");
+            return;
+        }
         address.setText(url.startsWith(HUB) ? "" : url);
     }
 
     void open(String url) {
         if (!torGate(url)) { pendingUrl = url; return; }
-        if (url.startsWith("https://duckduckgo.com/?q=")) earn.count("search");
+        if (url.startsWith(Privacy.SEARCH)) {
+            earn.count("search");
+            web.loadUrl(url); // bundled page: nothing to clean, and it fetches results over Tor
+            return;
+        }
         String cleaned = Privacy.clean(url);
         navHost = String.valueOf(Uri.parse(cleaned).getHost());
         if (!cleaned.equals(url) && !Privacy.stripTrackers(url).equals(url)) stripped++;

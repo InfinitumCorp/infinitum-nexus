@@ -60,7 +60,7 @@
   document.addEventListener("keydown", function (e) { if (e.key === "Escape") closeMenus(); });
   $("search-form").addEventListener("submit", function (e) { e.preventDefault(); });
 
-  // Search box: an address opens with trackers removed; anything else searches DuckDuckGo.
+  // Search box: an address opens with trackers removed; anything else shows VEIL's own results (search.html).
   // Navigates from script because the CSP sets form-action 'none'.
   function looksLikeAddress(s) {
     return /^[a-z][a-z0-9+.-]*:\/\//i.test(s) || (/^[^\s]+\.[a-z]{2,}(?:[:/?#][^\s]*)?$/i.test(s));
@@ -79,7 +79,7 @@
         }
       } catch (err) { /* not a URL: search it */ }
     }
-    location.href = "https://duckduckgo.com/?q=" + encodeURIComponent(q);
+    location.href = "search.html?q=" + encodeURIComponent(q);
   });
 
   if (window.VEIL_BUILD) $("build").textContent = window.VEIL_BUILD;

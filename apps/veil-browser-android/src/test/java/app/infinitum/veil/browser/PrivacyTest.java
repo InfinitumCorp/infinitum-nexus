@@ -32,7 +32,7 @@ public final class PrivacyTest {
         eq("localhost stays http", "http://localhost:3000/", Privacy.httpsFirst("http://localhost:3000/"));
 
         eq("bare host becomes https", "https://example.com", Privacy.fromInput("example.com"));
-        eq("words become a private search", "https://duckduckgo.com/?q=tor+browser", Privacy.fromInput("tor browser"));
+        eq("words become a VEIL search", "file:///android_asset/hub/search.html?q=tor+browser", Privacy.fromInput("tor browser"));
         eq("typed URL is cleaned", "https://example.com/?a=1", Privacy.fromInput("http://example.com/?a=1&utm_medium=x"));
         eq("empty input", null, Privacy.fromInput("   "));
 

@@ -1,6 +1,6 @@
 /* VEIL web app service worker: offline shell only. Downloads are never cached. */
-const CACHE = "veil-shell-v12";
-const SHELL = ["./", "index.html", "app.js", "lib/trackers.js", "manifest.webmanifest", "icons/icon-192.png", "icons/icon-512.png"];
+const CACHE = "veil-shell-v13";
+const SHELL = ["./", "index.html", "app.js", "search.html", "search.js", "lib/trackers.js", "manifest.webmanifest", "icons/icon-192.png", "icons/icon-512.png"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));

@@ -21,7 +21,8 @@ public final class Privacy {
         "igshid", "li_fat_id", "mc_cid", "mc_eid", "_hsenc", "_hsmi", "oly_enc_id",
         "oly_anon_id", "vero_id", "wickedid", "s_cid", "_ga", "_gl"));
 
-    public static final String SEARCH = "https://duckduckgo.com/?q=";
+    /** VEIL's own results page, bundled with the app: searches never show a search engine's page. */
+    public static final String SEARCH = "file:///android_asset/hub/search.html?q=";
 
     /** Remove tracking parameters. Returns the input unchanged when nothing matched. */
     public static String stripTrackers(String url) {

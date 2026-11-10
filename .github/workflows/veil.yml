@@ -24,14 +24,19 @@ on:
       - ".github/workflows/veil.yml"
       - "pnpm-lock.yaml"
 
+# A newer push to the same PR cancels the older run, so minutes are not spent on stale commits.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: read
 
 jobs:
   extension:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v4
         with:
           version: "10.28.0"
@@ -51,9 +56,9 @@ jobs:
         run: node --test --experimental-strip-types apps/spectre/src/server/veil.http.test.ts
 
   scalus:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v4
         with:
           version: 10.28.0
@@ -91,9 +96,9 @@ jobs:
           grep -q 'https://scalvs.app' /tmp/scalvs-health.json
 
   desktop:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-go@v5
         with:
           go-version: "1.26.0"
@@ -105,14 +110,14 @@ jobs:
         run: go test ./...
 
   reproducible:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     env:
       GOTOOLCHAIN: go1.26.0
       CGO_ENABLED: "0"
       TZ: UTC
       LC_ALL: C
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v4
         with:
           version: "10.28.0"

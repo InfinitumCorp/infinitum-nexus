@@ -23,6 +23,8 @@ import type { CumulusSuite } from "@infinitum/cumulus";
 import { MAX_FILE_BYTES, isFileKey, safeType, uploadKey, type FileStore } from "./files.ts";
 import { DriveError, MAX_UPLOAD_BYTES, Workspace, WorkspaceStore, type DocKind } from "./workspace.ts";
 import { registerIdProvider } from "./id-provider.ts";
+import { registerBilling } from "./billing.ts";
+import { BillingLinkStore, RevenueClient } from "@infinitum/billing";
 
 export const MAIL_SCOPES = ["mail:read", "mail:write"];
 /** Drive and the office apps (Dox, Spreads, Podium) use the Cumulus://Cloud grant, so it can be revoked apart from Mail. */
@@ -55,6 +57,10 @@ export interface MailAppDeps {
   files?: FileStore;
   /** Drive metadata, saved with the rest of the shared state. Defaults to an in-memory store. */
   workspaceStore?: WorkspaceStore;
+  /** CID -> billing org links, saved with the rest of the shared state. Defaults to an in-memory store. */
+  billingStore?: BillingLinkStore;
+  /** Infinitum revenue API (Stripe Checkout, portal, entitlements). Defaults to the production API. */
+  revenue?: RevenueClient;
 }
 
 class HttpError extends Error {
@@ -287,6 +293,14 @@ export function createMailApp(deps: MailAppDeps) {
   /* ---------------- "Sign in with Cumulus://ID" for every Infinitum product ---------------- */
 
   registerIdProvider({ route, cid, origin: deps.origin, sessionCookie, device, need, str, Redirect, HttpError });
+
+  /* ---------------- Buying Infinitum products with a Cumulus://ID (see billing.ts) ---------------- */
+
+  registerBilling({
+    route, cid, origin: deps.origin, str, Redirect, HttpError,
+    store: deps.billingStore ?? new BillingLinkStore(),
+    revenue: deps.revenue ?? new RevenueClient(),
+  });
 
   /**
    * Attachments carry raw bytes, so they skip the JSON routes:

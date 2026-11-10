@@ -120,6 +120,26 @@ function render() {
 
 /* ---------------- sign-in ---------------- */
 
+/** Path back to a product sign-in that opened this page, or "". */
+function productReturn() {
+  try {
+    const next = new URLSearchParams(location.search).get("next") || "";
+    if (!(next.startsWith("/api/id/") || next.startsWith("/realms/cumulus/"))) return "";
+    if (next.startsWith("//") || next.includes("\\")) return "";
+    const u = new URL(next, location.origin);
+    if (u.origin !== location.origin) return "";
+    if (!(u.pathname.startsWith("/api/id/") || u.pathname.startsWith("/realms/cumulus/"))) return "";
+    return u.pathname + u.search;
+  } catch { return ""; }
+}
+
+function goAfterSignIn(apiNext) {
+  const next = typeof apiNext === "string" && (apiNext.startsWith("/api/id/") || apiNext.startsWith("/realms/cumulus/")) ? apiNext : productReturn();
+  if (next) { location.assign(next); return; }
+  location.hash = "#/today";
+  render();
+}
+
 function renderAuth(message = "") {
   root.innerHTML = `
     <div class="auth"><div class="auth-card">
@@ -138,7 +158,9 @@ function renderAuth(message = "") {
   const fail = (e) => { err.textContent = e.name === "NotAllowedError" ? "Passkey request was cancelled." : e.message; };
   // Social sign-in buttons for every provider the server has configured.
   api("GET", "/api/auth/providers").then((providers) => {
-    $("#social").innerHTML = providers.map((p) => `<a class="btn" href="/api/auth/oauth/${esc(p.id)}/start">Continue with ${esc(p.label)}</a>`).join("");
+    const back = productReturn();
+    const q = back ? `?next=${encodeURIComponent(back)}` : "";
+    $("#social").innerHTML = providers.map((p) => `<a class="btn" href="/api/auth/oauth/${esc(p.id)}/start${q}">Continue with ${esc(p.label)}</a>`).join("");
   }).catch(() => {});
 
   $("#signin").onclick = async () => {
@@ -169,8 +191,7 @@ async function finishSignIn(response) {
     await api("POST", "/api/auth/mfa", { mfaToken: r.mfaToken, code });
   }
   state.me = await api("GET", "/api/me");
-  location.hash = "#/today";
-  render();
+  goAfterSignIn();
 }
 
 function renderMfa(mfaToken) {
@@ -186,10 +207,9 @@ function renderMfa(mfaToken) {
   $("#code").focus();
   const submit = async () => {
     try {
-      await api("POST", "/api/auth/mfa", { mfaToken, code: $("#code").value.trim() });
+      const done = await api("POST", "/api/auth/mfa", { mfaToken, code: $("#code").value.trim() });
       state.me = await api("GET", "/api/me");
-      location.hash = "#/today";
-      render();
+      goAfterSignIn(done && done.next);
     } catch (e) { $("#err").textContent = e.message; }
   };
   $("#verify").onclick = submit;

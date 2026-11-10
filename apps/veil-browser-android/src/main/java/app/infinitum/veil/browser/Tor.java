@@ -45,6 +45,11 @@ final class Tor {
     static final Pattern BOOTSTRAP = Pattern.compile("Bootstrapped (\\d+)%(?: \\([^)]*\\))?:? ?(.*)");
     static final long DIRECT_STALL_MS = 20_000;
     static final long BRIDGE_STALL_MS = 120_000;
+    /** Bootstrap % at which a relay or bridge has completed a handshake: this way works here. */
+    static final int HANDSHAKE_DONE = 15;
+    /** Bytes Tor must read between stall checks to count as still downloading. */
+    static final long TRAFFIC_PROGRESS_BYTES = 16 * 1024;
+    static final long TRAFFIC_POLL_MS = 5_000;
     static final String PREFS = "tor";
 
     private static Tor instance;
@@ -67,6 +72,9 @@ final class Tor {
     /** True while running over bridges. */
     volatile boolean bridges;
     private volatile long lastProgressAt;
+    /** True once this run got past a handshake: never fall back to the other way after that. */
+    private volatile boolean pathWorks;
+    private long trafficSeen;
     private int attempts;
     /** Bumped by every start, restart and stop; stale relaunches and stall checks compare against it. */
     private int gen;
@@ -91,17 +99,21 @@ final class Tor {
         app = c.getApplicationContext();
         if (process != null || restarting) return;
         attempts = 0;
+        android.util.Log.i("VEIL-Tor", "VEIL: start (gen " + (gen + 1) + ")");
         launch(prefs().getBoolean("bridges", false), ++gen);
     }
 
     private synchronized void launch(boolean useBridges, int g) {
         if (g != gen) return; // stopped or superseded while a restart was waiting
         restarting = false;
+        android.util.Log.i("VEIL-Tor", "VEIL: launch gen " + g + (useBridges ? " with bridges" : " direct"));
         bridges = useBridges;
         error = null;
         progress = 0;
         summary = useBridges ? "Starting with bridges" : "Starting";
         lastProgressAt = SystemClock.elapsedRealtime();
+        pathWorks = false;
+        trafficSeen = 0;
         notifyListener();
         try {
             dir = new File(app.getNoBackupFilesDir(), "tor");
@@ -133,6 +145,9 @@ final class Tor {
             t.setDaemon(true);
             t.start();
             main.postDelayed(() -> checkStall(g), 2_000);
+            Thread poll = new Thread(() -> pollTraffic(g), "tor-traffic");
+            poll.setDaemon(true);
+            poll.start();
         } catch (IOException | org.json.JSONException e) {
             process = null;
             fail("Tor couldn't start: " + e.getMessage());
@@ -159,20 +174,71 @@ final class Tor {
         return sb.toString();
     }
 
-    /** No bootstrap progress for a while: switch between direct and bridges. */
+    /**
+     * No progress for a while: switch between direct and bridges. Progress means a higher
+     * bootstrap % or data still arriving (see pollTraffic): over meek the consensus download
+     * sits at 25% for minutes while bytes flow, and must not be cut off.
+     */
     private synchronized void checkStall(int g) {
         if (g != gen || process == null || error != null || progress >= 100) return;
-        long limit = bridges ? BRIDGE_STALL_MS : DIRECT_STALL_MS;
+        long limit = bridges || pathWorks ? BRIDGE_STALL_MS : DIRECT_STALL_MS;
         if (SystemClock.elapsedRealtime() - lastProgressAt < limit) {
             main.postDelayed(() -> checkStall(g), 2_000);
             return;
         }
+        android.util.Log.i("VEIL-Tor", "VEIL: no progress for " + (limit / 1000) + " s " + (bridges ? "over bridges" : "direct") + " at " + progress + "%, attempt " + (attempts + 1));
         if (++attempts > 3) {
             stop();
             fail(bridges ? "Tor couldn't connect, even over bridges. This network may block Tor." : "Tor couldn't connect.");
             return;
         }
-        restart(!bridges);
+        // A way that got past a handshake works on this network: retry it, don't swap back to
+        // the other (a direct start on a network that blocks Tor only ever reaches 10%).
+        restart(pathWorks ? bridges : !bridges);
+    }
+
+    /** Counts bytes Tor reads (GETINFO traffic/read); steady downloading counts as progress. */
+    private void pollTraffic(int g) {
+        while (true) {
+            try { Thread.sleep(TRAFFIC_POLL_MS); } catch (InterruptedException e) { return; }
+            synchronized (this) {
+                if (g != gen || process == null || progress >= 100) return;
+            }
+            String v = control("GETINFO traffic/read", "250-traffic/read=");
+            if (v == null) continue;
+            long read;
+            try { read = Long.parseLong(v.trim()); } catch (NumberFormatException e) { continue; }
+            synchronized (this) {
+                if (g != gen) return;
+                if (read - trafficSeen >= TRAFFIC_PROGRESS_BYTES) {
+                    trafficSeen = read;
+                    lastProgressAt = SystemClock.elapsedRealtime();
+                }
+            }
+        }
+    }
+
+    /**
+     * Sends one command over the cookie-authenticated control port and returns the rest of
+     * the first reply line that starts with prefix, or null.
+     */
+    private String control(String command, String prefix) {
+        try (Socket s = new Socket()) {
+            s.connect(new InetSocketAddress(InetAddress.getLoopbackAddress(), controlPort), 3000);
+            s.setSoTimeout(5000);
+            byte[] cookie = readAll(new File(dir, "control_auth_cookie"));
+            OutputStream o = s.getOutputStream();
+            o.write(("AUTHENTICATE " + hex(cookie) + "\r\n" + command + "\r\nQUIT\r\n").getBytes(StandardCharsets.US_ASCII));
+            o.flush();
+            BufferedReader r = new BufferedReader(new InputStreamReader(s.getInputStream(), StandardCharsets.US_ASCII));
+            String found = null;
+            for (String line; (line = r.readLine()) != null; ) {
+                if (found == null && line.startsWith(prefix)) found = line.substring(prefix.length());
+            }
+            return found;
+        } catch (IOException e) {
+            return null; // control port not up yet, or tor restarting
+        }
     }
 
     /**
@@ -210,7 +276,12 @@ final class Tor {
                     if (pct > progress) lastProgressAt = SystemClock.elapsedRealtime();
                     progress = pct;
                     summary = m.group(2).trim().isEmpty() ? "Connecting" : m.group(2).trim();
-                    if (pct >= 100) prefs().edit().putBoolean("bridges", bridges).apply();
+                    if (pct >= HANDSHAKE_DONE && !pathWorks) {
+                        // Remember the way that reached a relay now, not only at 100%, so the
+                        // next launch skips a direct start that stalls at 10% here.
+                        pathWorks = true;
+                        prefs().edit().putBoolean("bridges", bridges).apply();
+                    }
                     notifyListener();
                 } else if (line.contains("[err]")) {
                     summary = line.substring(line.indexOf("[err]") + 5).trim();
@@ -243,20 +314,8 @@ final class Tor {
     /** New circuits for new connections (SIGNAL NEWNYM over the cookie-authenticated control port). */
     void newIdentity() {
         if (!ready()) return;
-        Thread t = new Thread(() -> {
-            try (Socket s = new Socket()) {
-                s.connect(new InetSocketAddress(InetAddress.getLoopbackAddress(), controlPort), 3000);
-                s.setSoTimeout(5000);
-                byte[] cookie = readAll(new File(dir, "control_auth_cookie"));
-                OutputStream o = s.getOutputStream();
-                o.write(("AUTHENTICATE " + hex(cookie) + "\r\nSIGNAL NEWNYM\r\nQUIT\r\n").getBytes(StandardCharsets.US_ASCII));
-                o.flush();
-                BufferedReader r = new BufferedReader(new InputStreamReader(s.getInputStream(), StandardCharsets.US_ASCII));
-                while (r.readLine() != null) { /* 250 OK x3 */ }
-            } catch (IOException ignored) {
-                // Tor rate-limits NEWNYM; a missed one only means circuits are reused a little longer.
-            }
-        }, "tor-newnym");
+        // Tor rate-limits NEWNYM; a missed one only means circuits are reused a little longer.
+        Thread t = new Thread(() -> control("SIGNAL NEWNYM", "250"), "tor-newnym");
         t.setDaemon(true);
         t.start();
     }

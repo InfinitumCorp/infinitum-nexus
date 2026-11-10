@@ -1,0 +1,11 @@
+{
+  "idOrigin": "https://id.cumuluscloud.app",
+  "issuer": "https://id.cumuluscloud.app/realms/cumulus",
+  "clientID": "cumulus-apple",
+  "redirectURI": "cumulus://oauth/callback",
+  "scopes": ["openid", "email", "profile"],
+  "mailAPI": "https://mail.cumuluscloud.app",
+  "cloudAPI": "https://cloud.cumuluscloud.app",
+  "exchangeAPI": "https://cloud.cumuluscloud.app",
+  "downloadPage": "https://cumuluscloud.app"
+}

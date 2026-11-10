@@ -46,16 +46,20 @@ public struct CumulusConfiguration: Codable, Equatable, Sendable {
         try validate()
     }
 
+    /// Live Cumulus://ID is the public Cognito user pool. These identifiers are not secrets.
     public static let production = try! CumulusConfiguration(
         idOrigin: URL(string: "https://id.cumuluscloud.app")!,
-        issuer: URL(string: "https://id.cumuluscloud.app/realms/cumulus")!,
-        clientID: "cumulus-apple",
+        issuer: URL(string: "https://cognito-idp.us-east-1.amazonaws.com/us-east-1_fRlMO7dna")!,
+        clientID: "60bejetr2agt2l6n5gk3v9tmd2",
         redirectURI: URL(string: "cumulus://oauth/callback")!,
         scopes: ["openid", "email", "profile"],
         mailAPI: URL(string: "https://mail.cumuluscloud.app")!,
         cloudAPI: URL(string: "https://cloud.cumuluscloud.app")!,
         exchangeAPI: URL(string: "https://cloud.cumuluscloud.app")!,
-        downloadPage: URL(string: "https://cumuluscloud.app")!
+        downloadPage: URL(string: "https://cumuluscloud.app")!,
+        cognitoDomain: "cumulus-id.auth.us-east-1.amazoncognito.com",
+        cognitoRegion: "us-east-1",
+        cognitoUserPoolID: "us-east-1_fRlMO7dna"
     )
 
     public var usesCognito: Bool {
@@ -86,6 +90,14 @@ public struct CumulusConfiguration: Codable, Equatable, Sendable {
     private func endpoint(_ path: String) -> URL {
         let base = issuer.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         return URL(string: base + "/" + path)!
+    }
+
+    /// Cognito publishes RSA keys here. The native client checks ID tokens against this set.
+    public var jwksURL: URL {
+        if usesCognito {
+            return URL(string: expectedIssuer + "/.well-known/jwks.json")!
+        }
+        return URL(string: expectedIssuer + "/protocol/openid-connect/certs")!
     }
 
     /// Cognito's issuer is the user-pool URL, not the hosted UI.
@@ -130,10 +142,15 @@ public struct CumulusConfiguration: Codable, Equatable, Sendable {
             cloudAPI: try url(value("CUMULUS_CLOUD_API", base.cloudAPI.absoluteString), name: "CUMULUS_CLOUD_API"),
             exchangeAPI: try url(value("CUMULUS_EXCHANGE_API", base.exchangeAPI.absoluteString), name: "CUMULUS_EXCHANGE_API"),
             downloadPage: try url(value("CUMULUS_DOWNLOAD_PAGE", base.downloadPage.absoluteString), name: "CUMULUS_DOWNLOAD_PAGE"),
-            cognitoDomain: environment["CUMULUS_COGNITO_DOMAIN"],
-            cognitoRegion: environment["CUMULUS_COGNITO_REGION"],
-            cognitoUserPoolID: environment["CUMULUS_COGNITO_USER_POOL_ID"]
+            cognitoDomain: optional(environment, "CUMULUS_COGNITO_DOMAIN", base.cognitoDomain),
+            cognitoRegion: optional(environment, "CUMULUS_COGNITO_REGION", base.cognitoRegion),
+            cognitoUserPoolID: optional(environment, "CUMULUS_COGNITO_USER_POOL_ID", base.cognitoUserPoolID)
         )
+    }
+
+    private static func optional(_ environment: [String: String], _ key: String, _ fallback: String?) -> String? {
+        let raw = environment[key]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return raw.isEmpty ? fallback : raw
     }
 
     private func validate() throws {

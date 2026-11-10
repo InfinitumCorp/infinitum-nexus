@@ -8,7 +8,16 @@ final class ConfigurationTests: XCTestCase {
         XCTAssertEqual(configuration.mailAPI.host, "mail.cumuluscloud.app")
         XCTAssertEqual(configuration.cloudAPI.host, "cloud.cumuluscloud.app")
         XCTAssertEqual(configuration.downloadPage.host, "cumuluscloud.app")
-        XCTAssertFalse(configuration.usesCognito)
+        XCTAssertTrue(configuration.usesCognito)
+        XCTAssertEqual(configuration.clientID, "60bejetr2agt2l6n5gk3v9tmd2")
+        XCTAssertEqual(configuration.cognitoRegion, "us-east-1")
+        XCTAssertEqual(configuration.cognitoUserPoolID, "us-east-1_fRlMO7dna")
+        XCTAssertEqual(configuration.cognitoDomain, "cumulus-id.auth.us-east-1.amazoncognito.com")
+        XCTAssertEqual(configuration.redirectURI.absoluteString, "cumulus://oauth/callback")
+        XCTAssertEqual(
+            configuration.jwksURL.absoluteString,
+            "https://cognito-idp.us-east-1.amazonaws.com/us-east-1_fRlMO7dna/.well-known/jwks.json"
+        )
         let text = [
             configuration.idOrigin, configuration.issuer, configuration.mailAPI,
             configuration.cloudAPI, configuration.exchangeAPI, configuration.downloadPage, configuration.redirectURI,
@@ -46,7 +55,10 @@ final class ConfigurationTests: XCTestCase {
         ])
         XCTAssertEqual(configuration.mailAPI.host, "mail.example.test")
         XCTAssertEqual(configuration.cloudAPI.host, "cloud.cumuluscloud.app")
-        XCTAssertTrue(configuration.usesCognito)
+        XCTAssertEqual(configuration.cognitoUserPoolID, "us-east-1_pool")
+        let kept = try CumulusConfiguration.load(environment: ["CUMULUS_MAIL_API": "https://mail.example.test"])
+        XCTAssertEqual(kept.cognitoUserPoolID, CumulusConfiguration.production.cognitoUserPoolID)
+        XCTAssertEqual(kept.clientID, "60bejetr2agt2l6n5gk3v9tmd2")
     }
 
     func testJSONFile() throws {
@@ -58,6 +70,28 @@ final class ConfigurationTests: XCTestCase {
     }
 
     func testPartialCognitoIsRejected() {
-        XCTAssertThrowsError(try CumulusConfiguration.load(environment: ["CUMULUS_COGNITO_DOMAIN": "auth.example.test"]))
+        XCTAssertThrowsError(try CumulusConfiguration(
+            idOrigin: URL(string: "https://id.cumuluscloud.app")!,
+            issuer: URL(string: "https://cognito-idp.us-east-1.amazonaws.com/us-east-1_fRlMO7dna")!,
+            clientID: "60bejetr2agt2l6n5gk3v9tmd2",
+            redirectURI: URL(string: "cumulus://oauth/callback")!,
+            scopes: ["openid"],
+            mailAPI: URL(string: "https://mail.cumuluscloud.app")!,
+            cloudAPI: URL(string: "https://cloud.cumuluscloud.app")!,
+            exchangeAPI: URL(string: "https://cloud.cumuluscloud.app")!,
+            downloadPage: URL(string: "https://cumuluscloud.app")!,
+            cognitoDomain: "auth.example.test"
+        ))
+    }
+
+    func testBundledConfigurationMatchesProduction() throws {
+        let file = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("App/Resources/CumulusConfiguration.json")
+        let data = try Data(contentsOf: file)
+        let loaded = try CumulusConfiguration.load(data: data)
+        XCTAssertEqual(loaded, .production)
     }
 }

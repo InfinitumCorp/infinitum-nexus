@@ -19,6 +19,8 @@ struct ShellView: View {
         .background(CumulusColor.paper)
         .task {
             guard session.signedIn, !session.isPreview else { return }
+            await session.restore()
+            guard session.signedIn else { return }
             try? await session.reload()
         }
     }

@@ -2,14 +2,14 @@ import XCTest
 @testable import CumulusKit
 
 final class OIDCTests: XCTestCase {
-    func testKeycloakAuthorizationURL() throws {
+    func testProductionAuthorizationURL() throws {
         let request = try OIDC.authorizationRequest(configuration: .production, pkce: try PKCE(verifier: String(repeating: "b", count: 50)))
         let parts = URLComponents(url: request.url, resolvingAgainstBaseURL: false)
         XCTAssertEqual(parts?.scheme, "https")
-        XCTAssertEqual(parts?.host, "id.cumuluscloud.app")
-        XCTAssertEqual(parts?.path, "/realms/cumulus/protocol/openid-connect/auth")
+        XCTAssertEqual(parts?.host, "cumulus-id.auth.us-east-1.amazoncognito.com")
+        XCTAssertEqual(parts?.path, "/oauth2/authorize")
         let query = Dictionary(uniqueKeysWithValues: (parts?.queryItems ?? []).map { ($0.name, $0.value ?? "") })
-        XCTAssertEqual(query["client_id"], "cumulus-apple")
+        XCTAssertEqual(query["client_id"], "60bejetr2agt2l6n5gk3v9tmd2")
         XCTAssertEqual(query["response_type"], "code")
         XCTAssertEqual(query["code_challenge_method"], "S256")
         XCTAssertEqual(query["redirect_uri"], "cumulus://oauth/callback")
@@ -71,22 +71,23 @@ final class OIDCTests: XCTestCase {
     func testClaimChecks() throws {
         let now = Date(timeIntervalSince1970: 1_700_000_000)
         let token = jwt(alg: "RS256", payload: [
-            "iss": "https://id.cumuluscloud.app/realms/cumulus",
+            "iss": "https://cognito-idp.us-east-1.amazonaws.com/us-east-1_fRlMO7dna",
             "sub": "cid:alex",
-            "aud": "cumulus-apple",
+            "aud": "60bejetr2agt2l6n5gk3v9tmd2",
             "exp": 1_700_000_600,
             "iat": 1_700_000_000,
             "nonce": "nonce-1",
             "email": "alex@cumuluscloud.app",
             "name": "Alex Reid",
+            "token_use": "id",
         ])
         let claims = try OIDC.checkClaims(idToken: token, configuration: .production, nonce: "nonce-1", now: now)
         XCTAssertEqual(claims.subject, "cid:alex")
         XCTAssertEqual(claims.email, "alex@cumuluscloud.app")
         XCTAssertThrowsError(try OIDC.checkClaims(idToken: token, configuration: .production, nonce: "other", now: now))
-        let none = jwt(alg: "none", payload: ["iss": "https://id.cumuluscloud.app/realms/cumulus", "sub": "x", "aud": "cumulus-apple", "exp": 1_700_000_600])
+        let none = jwt(alg: "none", payload: ["iss": "https://cognito-idp.us-east-1.amazonaws.com/us-east-1_fRlMO7dna", "sub": "x", "aud": "60bejetr2agt2l6n5gk3v9tmd2", "exp": 1_700_000_600, "token_use": "id"])
         XCTAssertThrowsError(try OIDC.checkClaims(idToken: none, configuration: .production, nonce: nil, now: now))
-        let expired = jwt(alg: "RS256", payload: ["iss": "https://id.cumuluscloud.app/realms/cumulus", "sub": "x", "aud": "cumulus-apple", "exp": 1_600_000_000])
+        let expired = jwt(alg: "RS256", payload: ["iss": "https://cognito-idp.us-east-1.amazonaws.com/us-east-1_fRlMO7dna", "sub": "x", "aud": "60bejetr2agt2l6n5gk3v9tmd2", "exp": 1_600_000_000, "token_use": "id"])
         XCTAssertThrowsError(try OIDC.checkClaims(idToken: expired, configuration: .production, nonce: nil, now: now))
     }
 

@@ -15,11 +15,9 @@ The layout follows the web apps already in this repo: white paper, ink `#111820`
 
 Sign-in is OAuth 2.0 authorization code with PKCE (S256). The system browser is `ASWebAuthenticationSession`, and the callback is `cumulus://oauth/callback`. Tokens are stored in the Keychain (`app.cumuluscloud.suite` / `oidc`). The app is a public client. It does not contain a client secret.
 
-The default issuer is the Cumulus://ID Keycloak realm:
+The default issuer is the live Cognito user pool behind `id.cumuluscloud.app`. The public identifiers are region `us-east-1`, pool `us-east-1_fRlMO7dna`, app client `60bejetr2agt2l6n5gk3v9tmd2`, and hosted UI `cumulus-id.auth.us-east-1.amazoncognito.com`. ID tokens are checked with RS256 against `https://cognito-idp.us-east-1.amazonaws.com/us-east-1_fRlMO7dna/.well-known/jwks.json`. There is no client secret in the app.
 
-`https://id.cumuluscloud.app/realms/cumulus`
-
-Amazon Cognito is used when all three public settings are present: `cognitoDomain`, `cognitoRegion`, and `cognitoUserPoolID`. Register a public app client (authorization code, PKCE, no secret) with that callback. Do not put `COGNITO_CLIENT_SECRET` in the app or in git.
+Before a real sign-in works, `cumulus://oauth/callback` has to be on that app client's allowed callback URLs. That is an owner step in the Cognito console. It is not done in this repository.
 
 ## Configuration
 
@@ -28,16 +26,16 @@ Amazon Cognito is used when all three public settings are present: `cognitoDomai
 | Variable | Default |
 |---|---|
 | `CUMULUS_ID_ORIGIN` | `https://id.cumuluscloud.app` |
-| `CUMULUS_ISSUER` | `https://id.cumuluscloud.app/realms/cumulus` |
-| `CUMULUS_CLIENT_ID` | `cumulus-apple` |
+| `CUMULUS_ISSUER` | `https://cognito-idp.us-east-1.amazonaws.com/us-east-1_fRlMO7dna` |
+| `CUMULUS_CLIENT_ID` | `60bejetr2agt2l6n5gk3v9tmd2` |
 | `CUMULUS_REDIRECT_URI` | `cumulus://oauth/callback` |
 | `CUMULUS_MAIL_API` | `https://mail.cumuluscloud.app` |
 | `CUMULUS_CLOUD_API` | `https://cloud.cumuluscloud.app` |
 | `CUMULUS_EXCHANGE_API` | `https://cloud.cumuluscloud.app` |
 | `CUMULUS_DOWNLOAD_PAGE` | `https://cumuluscloud.app` |
-| `CUMULUS_COGNITO_DOMAIN` | unset |
-| `CUMULUS_COGNITO_REGION` | unset |
-| `CUMULUS_COGNITO_USER_POOL_ID` | unset |
+| `CUMULUS_COGNITO_DOMAIN` | `cumulus-id.auth.us-east-1.amazoncognito.com` |
+| `CUMULUS_COGNITO_REGION` | `us-east-1` |
+| `CUMULUS_COGNITO_USER_POOL_ID` | `us-east-1_fRlMO7dna` |
 
 Mail calls send the access token as `Authorization: Bearer` and as the `cmail_session` cookie, plus `X-Cumulus: 1` on changes. Drive calls `https://cloud.cumuluscloud.app/v1`. Exchange calls `/v1/exchange/consents` and `/v1/exchange/licenses` on the exchange origin.
 

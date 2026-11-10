@@ -21,12 +21,26 @@ public final class CumulusAPI {
         return token
     }
 
-    public func exchange(code: String, verifier: String, now: Date = Date()) async throws -> TokenSet {
+    /// Exchanges the code, checks the ID token against the issuer JWKS, then stores the tokens.
+    public func exchange(code: String, verifier: String, nonce: String, now: Date = Date()) async throws -> (tokens: TokenSet, claims: IDTokenClaims) {
         let request = OIDC.tokenRequest(configuration: configuration, code: code, verifier: verifier)
         let result = try await http.send(request)
         let tokens = try OIDC.parseTokenResponse(result.data, now: now)
+        guard let idToken = tokens.idToken, !idToken.isEmpty else {
+            throw CumulusError.oidc("The token response did not include an ID token.")
+        }
+        let claims = try OIDC.validateIDToken(idToken: idToken, configuration: configuration, nonce: nonce, jwks: try await fetchJWKS(), now: now)
         try self.tokens.save(tokens)
-        return tokens
+        return (tokens, claims)
+    }
+
+    /// Public JWKS. No access token is sent.
+    public func fetchJWKS() async throws -> JWKS {
+        var request = URLRequest(url: configuration.jwksURL)
+        request.httpMethod = "GET"
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        let result = try await http.send(request)
+        return try JWKS.parse(result.data)
     }
 
     public func refresh(now: Date = Date()) async throws -> TokenSet {

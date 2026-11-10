@@ -1,11 +1,14 @@
 {
   "idOrigin": "https://id.cumuluscloud.app",
-  "issuer": "https://id.cumuluscloud.app/realms/cumulus",
-  "clientID": "cumulus-apple",
+  "issuer": "https://cognito-idp.us-east-1.amazonaws.com/us-east-1_fRlMO7dna",
+  "clientID": "60bejetr2agt2l6n5gk3v9tmd2",
   "redirectURI": "cumulus://oauth/callback",
   "scopes": ["openid", "email", "profile"],
   "mailAPI": "https://mail.cumuluscloud.app",
   "cloudAPI": "https://cloud.cumuluscloud.app",
   "exchangeAPI": "https://cloud.cumuluscloud.app",
-  "downloadPage": "https://cumuluscloud.app"
+  "downloadPage": "https://cumuluscloud.app",
+  "cognitoDomain": "cumulus-id.auth.us-east-1.amazoncognito.com",
+  "cognitoRegion": "us-east-1",
+  "cognitoUserPoolID": "us-east-1_fRlMO7dna"
 }

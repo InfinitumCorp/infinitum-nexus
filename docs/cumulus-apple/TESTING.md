@@ -13,7 +13,7 @@ cd apps/cumulus-apple
 swift test
 ```
 
-This compiles `CumulusKit` and runs `CumulusKitTests`: SHA-256 and PKCE, OIDC authorize and token requests, ID-token claim checks, configuration hosts, mailbox folders and labels, and the mail, drive, and exchange clients against a fake HTTP transport.
+This compiles `CumulusKit` and runs `CumulusKitTests`: SHA-256 and PKCE, the Cognito authorize URL, ID-token claim checks, RS256 checks against a JWKS, configuration hosts, mailbox folders and labels, and the mail, drive, and exchange clients against a fake HTTP transport.
 
 You should see each `Test Case` reported as passed, and the suite summary `CumulusKitTests` passed.
 
@@ -28,7 +28,9 @@ You should see each `Test Case` reported as passed, and the suite summary `Cumul
    - **iPhone** or **iPad** simulator, iOS 17 or later
 6. Press **Run** (⌘R).
 
-The first screen is Cumulus://Mail™, signed out, with **Sign in with your browser**. The top bar switches to Cumulus://ID™, Cumulus://Cloud™, and Download. Signing in opens the system browser at the issuer in `App/Resources/CumulusConfiguration.json` and returns to `cumulus://oauth/callback`. The tokens are written to the Keychain. There is no client secret in the project.
+The first screen is Cumulus://Mail™, signed out, with **Sign in with your browser**. The top bar switches to Cumulus://ID™, Cumulus://Cloud™, and Download. Signing in opens the Cognito hosted UI and returns to `cumulus://oauth/callback`. The ID token is checked against the pool's JWKS before it is stored. The tokens are written to the Keychain. There is no client secret in the project.
+
+The default pool is `us-east-1_fRlMO7dna`, app client `60bejetr2agt2l6n5gk3v9tmd2`, hosted domain `cumulus-id.auth.us-east-1.amazoncognito.com`. Before sign-in works, add `cumulus://oauth/callback` to that app client's allowed callback URLs in the Cognito console. That step is for the owner. It is not done in this repository.
 
 To look at the mailbox, drive, and exchange screens without a network, edit the scheme (**Product → Scheme → Edit Scheme → Run → Arguments**) and add:
 

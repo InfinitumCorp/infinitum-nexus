@@ -79,10 +79,7 @@ final class CumulusSession: ObservableObject {
         if CommandLine.arguments.contains("-CumulusPreview") {
             loadPreview()
         } else {
-            tokens = try? store.load()
-            if let idToken = tokens?.idToken {
-                claims = try? OIDC.checkClaims(idToken: idToken, configuration: configuration, nonce: nil)
-            }
+        tokens = try? store.load()
         }
     }
 
@@ -101,6 +98,22 @@ final class CumulusSession: ObservableObject {
         return MailboxIndex.thread(mailbox.messages, threadID: selectedMessage.threadId)
     }
 
+    /// Re-checks a stored ID token against the Cognito JWKS. A bad signature signs the app out.
+    func restore() async {
+        guard !isPreview, let idToken = tokens?.idToken else { return }
+        do {
+            let jwks = try await api.fetchJWKS()
+            claims = try OIDC.validateIDToken(idToken: idToken, configuration: configuration, nonce: nil, jwks: jwks)
+        } catch let error as CumulusError {
+            if case .oidc = error {
+                signOut()
+                self.error = String(describing: error)
+            }
+        } catch {
+            return
+        }
+    }
+
     func signIn() async {
         error = ""
         busy = true
@@ -109,11 +122,9 @@ final class CumulusSession: ObservableObject {
             let request = try OIDC.authorizationRequest(configuration: configuration)
             let callback = try await BrowserSignIn.start(url: request.url, scheme: "cumulus")
             let code = try OIDC.parseCallback(callback, expectedState: request.state)
-            let set = try await api.exchange(code: code, verifier: request.verifier)
-            tokens = set
-            if let idToken = set.idToken {
-                claims = try OIDC.checkClaims(idToken: idToken, configuration: configuration, nonce: request.nonce)
-            }
+            let signedIn = try await api.exchange(code: code, verifier: request.verifier, nonce: request.nonce)
+            tokens = signedIn.tokens
+            claims = signedIn.claims
             try await reload()
         } catch {
             self.error = String(describing: error)

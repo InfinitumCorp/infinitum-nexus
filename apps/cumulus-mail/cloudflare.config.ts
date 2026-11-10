@@ -38,6 +38,12 @@ export default defineConfig({
       FIRMAMENT_SIGNER_KEY: bindings.secret(),
       NEXUS_STORE_URL: bindings.secret(),
       NEXUS_STORE_KEY: bindings.secret(),
+      // Bindings the live Worker carries; a deploy that leaves one out removes it.
+      DOWNLOADS_SITE: bindings.worker({ worker: "cumulus-downloads" }), // serves /download/
+      MAIL_FILES: bindings.r2({ name: "cumulus-mail-files" }), // attachments
+      EMAIL: bindings.sendEmail(), // outside mail through Cloudflare Email Sending
+      GOOGLE_CLIENT_ID: bindings.secret(),
+      GOOGLE_CLIENT_SECRET: bindings.secret(),
     },
   },
 });

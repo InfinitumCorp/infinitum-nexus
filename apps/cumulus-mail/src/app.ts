@@ -21,8 +21,13 @@ import { WalletError } from "@infinitum/firm";
 import { MailError, isE2E, threadOf, transcript, type MailMessage } from "@infinitum/mail";
 import type { CumulusSuite } from "@infinitum/cumulus";
 import { MAX_FILE_BYTES, isFileKey, safeType, uploadKey, type FileStore } from "./files.ts";
+import { DriveError, MAX_UPLOAD_BYTES, Workspace, WorkspaceStore, type DocKind } from "./workspace.ts";
+import { registerIdProvider } from "./id-provider.ts";
 
 export const MAIL_SCOPES = ["mail:read", "mail:write"];
+/** Drive and the office apps (Dox, Spreads, Podium) use the Cumulus://Cloud grant, so it can be revoked apart from Mail. */
+export const DRIVE_APP = "cumulus-cloud";
+export const DRIVE_SCOPES = ["drive:read", "drive:write"];
 const COOKIE = "cmail_session";
 const OAUTH_COOKIE = "cmail_oauth";
 const MAX_BODY = 25_000_000;
@@ -48,6 +53,8 @@ export interface MailAppDeps {
   scalvs?: (mode: "summary" | "draft", owner: string, subject: string, text: string) => Promise<{ ok: true; text: string } | { ok: false; error: string }>;
   /** Attachment contents (R2 on Workers). Without it, attaching files is turned off. */
   files?: FileStore;
+  /** Drive metadata, saved with the rest of the shared state. Defaults to an in-memory store. */
+  workspaceStore?: WorkspaceStore;
 }
 
 class HttpError extends Error {
@@ -156,11 +163,11 @@ export function createMailApp(deps: MailAppDeps) {
   const scalvs = deps.scalvs ?? routerScalvs(ai);
   const cleanAgent = deps.cleanAgent ?? scalvsCleanAgent({ router: ai });
   const suggestions = new Map<string, { list: CleanSuggestion[]; note: string }>(); // per CID, in memory until approved
-  const routes: { method: string; pattern: RegExp; keys: string[]; auth: boolean; optionalAuth: boolean; csrf: boolean; handler: Handler }[] = [];
-  const route = (method: string, path: string, handler: Handler, auth = true, opts: { csrf?: boolean; optionalAuth?: boolean } = {}) => {
+  const routes: { method: string; pattern: RegExp; keys: string[]; auth: boolean; optionalAuth: boolean; csrf: boolean; drive: boolean; handler: Handler }[] = [];
+  const route = (method: string, path: string, handler: Handler, auth = true, opts: { csrf?: boolean; optionalAuth?: boolean; drive?: boolean } = {}) => {
     const keys: string[] = [];
     const pattern = new RegExp("^" + path.replace(/:(\w+)/g, (_, k) => { keys.push(k); return "([^/]+)"; }) + "$");
-    routes.push({ method, pattern, keys, auth, handler, csrf: opts.csrf ?? true, optionalAuth: opts.optionalAuth ?? false });
+    routes.push({ method, pattern, keys, auth, handler, csrf: opts.csrf ?? true, optionalAuth: opts.optionalAuth ?? false, drive: opts.drive ?? false });
   };
   const briefs = new Map<string, string>(); // `${cid}|${messageIds}` -> brief, kept in memory only
 
@@ -177,6 +184,109 @@ export function createMailApp(deps: MailAppDeps) {
     suite.summary(account.cid); // provisions older CIDs on first visit
   };
   const me = (ctx: Ctx) => ctx.user!.account.cid;
+
+  /* ---------------- Cumulus://Drive, Dox, Spreads and Podium ---------------- */
+
+  const workspace = new Workspace({
+    store: deps.workspaceStore ?? new WorkspaceStore(),
+    quota: suite.quota,
+    files: deps.files,
+    resolve: (who) => suite.stores.cid.byUsername.get(idName(who)),
+    label: (c) => suite.stores.cid.accounts.get(c)?.mailAddress ?? "a Cumulus user",
+  });
+  /** Drive turns on the first time someone opens it; after that the CID permissions dashboard decides. */
+  const driveAccess = async (cidValue: string, write: boolean) => {
+    if (workspace.firstVisit(cidValue)) await cid.grant(cidValue, DRIVE_APP, DRIVE_SCOPES);
+    if (!cid.can(cidValue, DRIVE_APP, write ? "drive:write" : "drive:read")) throw new HttpError(403, "Drive's access was revoked in your Cumulus://ID permissions");
+  };
+  const KIND_LABEL: Record<string, string> = { folder: "a folder", file: "a file", dox: "a document", spreads: "a spreadsheet", podium: "a presentation" };
+  const itemLink = (kind: string, id: string) => `${deps.origin}/drive/#/${kind}/${id}`;
+  const INLINE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp", "application/pdf", "text/plain", "video/mp4", "video/webm", "audio/mpeg", "audio/mp4", "audio/ogg", "audio/wav"]);
+
+  /**
+   * Drive uploads and downloads carry raw bytes, so they skip the JSON routes:
+   *   POST /api/drive/upload?name=plan.pdf&parent={folder}   body = the file
+   *   GET  /api/drive/items/{id}/download[?inline=1]
+   */
+  const driveRaw = async (req: IncomingMessage, res: ServerResponse, url: URL) => {
+    const write = req.method !== "GET" && req.method !== "HEAD";
+    const signedIn = async () => {
+      const token = parseCookies(req.headers.cookie)[COOKIE];
+      const session = token ? cid.authenticate(token) : null;
+      if (!session) throw new HttpError(401, "Please sign in");
+      await driveAccess(session.account.cid, write);
+      return session.account.cid;
+    };
+    const inTx = <T>(fn: () => Promise<T>) => (deps.transaction ? deps.transaction(fn) : fn());
+    if (req.method === "POST" && url.pathname === "/api/drive/upload") {
+      if (req.headers["x-cumulus"] !== "1") throw new HttpError(403, "Missing request header");
+      if (Number(req.headers["content-length"]) > MAX_UPLOAD_BYTES) throw new HttpError(413, "Files up to 50 MB can be uploaded here.");
+      const chunks: Buffer[] = [];
+      let size = 0;
+      for await (const c of req) {
+        size += (c as Buffer).length;
+        if (size > MAX_UPLOAD_BYTES) throw new HttpError(413, "Files up to 50 MB can be uploaded here.");
+        chunks.push(c as Buffer);
+      }
+      const data = new Uint8Array(Buffer.concat(chunks));
+      const item = await inTx(async () => workspace.upload(await signedIn(), url.searchParams.get("name"), url.searchParams.get("parent"), data, safeType(req.headers["content-type"])));
+      deps.onChange?.();
+      res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
+      res.end(JSON.stringify(item));
+      return;
+    }
+    const m = /^\/api\/drive\/items\/([0-9a-f-]{36})\/download$/.exec(url.pathname);
+    if ((req.method === "GET" || req.method === "HEAD") && m) {
+      const { item, data, type } = await inTx(async () => workspace.download(await signedIn(), m[1]!));
+      const inline = url.searchParams.get("inline") === "1" && INLINE_TYPES.has(type);
+      const filename = item.kind === "file" ? item.name : `${item.name}.${item.kind}.json`;
+      res.writeHead(200, {
+        "Content-Type": type,
+        "Content-Length": String(data.byteLength),
+        "Content-Disposition": `${inline ? "inline" : "attachment"}; filename="${filename.replace(/[^\x20-\x7e]/g, "_").replace(/["\\]/g, "_")}"; filename*=UTF-8''${encodeURIComponent(filename)}`,
+        "X-Content-Type-Options": "nosniff",
+        // Never runs as this origin, even when shown inline.
+        "Content-Security-Policy": "sandbox; default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'",
+        "Cache-Control": "private, no-cache",
+      });
+      res.end(req.method === "HEAD" ? undefined : data);
+      return;
+    }
+    throw new HttpError(405, "Method not allowed");
+  };
+
+  const drive = { drive: true };
+  route("GET", "/api/drive", (ctx) => workspace.list(me(ctx), { folder: ctx.query.get("folder"), view: ctx.query.get("view") ?? undefined, q: ctx.query.get("q") ?? undefined }), true, drive);
+  route("GET", "/api/drive/items/:id", (ctx) => workspace.get(me(ctx), ctx.params.id), true, drive);
+  route("POST", "/api/drive/folders", (ctx) => workspace.createFolder(me(ctx), ctx.body.name, ctx.body.parent ?? null), true, drive);
+  route("POST", "/api/drive/docs", (ctx) => {
+    need(ctx, "kind");
+    return workspace.createDoc(me(ctx), str(ctx.body.kind, 10) as DocKind, ctx.body.name, ctx.body.parent ?? null, ctx.body.content);
+  }, true, drive);
+  route("PATCH", "/api/drive/items/:id", (ctx) => workspace.update(me(ctx), ctx.params.id, { name: ctx.body.name, parent: ctx.body.parent, starred: ctx.body.starred, trashed: ctx.body.trashed }), true, drive);
+  route("DELETE", "/api/drive/items/:id", (ctx) => workspace.remove(me(ctx), ctx.params.id), true, drive);
+  route("POST", "/api/drive/trash/empty", (ctx) => workspace.emptyTrash(me(ctx)), true, drive);
+  route("GET", "/api/drive/items/:id/doc", (ctx) => workspace.readDoc(me(ctx), ctx.params.id), true, drive);
+  route("PUT", "/api/drive/items/:id/doc", (ctx) => {
+    need(ctx, "doc", "version");
+    return workspace.saveDoc(me(ctx), ctx.params.id, ctx.body.doc, Number(ctx.body.version));
+  }, true, drive);
+  route("POST", "/api/drive/items/:id/share", (ctx) => {
+    need(ctx, "with");
+    const { item, target } = workspace.share(me(ctx), ctx.params.id, idName(ctx.body.with));
+    const from = ctx.user!.account;
+    mail.notify(target, "cloud", {
+      subject: `${from.username} shared “${item.name}” with you`,
+      body: [`${from.mailAddress} shared ${KIND_LABEL[item.kind] ?? "a file"} with you in Cumulus://Drive:`, "", item.name, itemLink(item.kind, item.id), "", "You can open and edit it. It also appears under Shared with me in Drive.", "", "Cumulus://Cloud"].join("\n"),
+    });
+    return item;
+  }, true, drive);
+  route("DELETE", "/api/drive/items/:id/share/:who", (ctx) => workspace.unshare(me(ctx), ctx.params.id, idName(ctx.params.who)), true, drive);
+  route("POST", "/api/drive/items/:id/leave", (ctx) => workspace.leave(me(ctx), ctx.params.id), true, drive);
+
+  /* ---------------- "Sign in with Cumulus://ID" for every Infinitum product ---------------- */
+
+  registerIdProvider({ route, cid, origin: deps.origin, sessionCookie, device, need, str, Redirect, HttpError });
 
   /**
    * Attachments carry raw bytes, so they skip the JSON routes:
@@ -299,6 +409,24 @@ export function createMailApp(deps: MailAppDeps) {
     ctx.res.setHeader("Set-Cookie", sessionCookie("", 0));
     return { ok: true };
   });
+
+  /*
+   * Signing in the desktop app through the browser. Desktop shells can't always use the
+   * computer's passkeys, so the app opens /?desktop=<challenge> in the browser; once you approve
+   * there, the browser hands the app a one-time code (cumulus-mail://signin), and the app redeems
+   * it with its secret verifier for its own session.
+   */
+  route("POST", "/api/auth/desktop/grant", async (ctx) => {
+    need(ctx, "challenge");
+    return cid.grantDeviceHandoff(me(ctx), str(ctx.body.challenge, 64), "cumulus-mail-desktop");
+  });
+  route("POST", "/api/auth/desktop/redeem", async (ctx) => {
+    need(ctx, "code", "verifier");
+    const { token, session } = await cid.redeemDeviceHandoff(str(ctx.body.code, 64), str(ctx.body.verifier, 128), device(ctx));
+    ctx.res.setHeader("Set-Cookie", sessionCookie(token));
+    await ensureGrant(cid.getAccount(session.cid));
+    return { status: "ok" };
+  }, false);
 
   route("GET", "/api/auth/providers", () => cid.socialProvidersEnabled(), false);
 
@@ -517,7 +645,7 @@ export function createMailApp(deps: MailAppDeps) {
   /* ---------------- HTTP plumbing ---------------- */
 
   async function serveStatic(path: string, res: ServerResponse) {
-    const rel = normalize(path === "/" ? "index.html" : path.replace(/^\/+/, ""));
+    const rel = normalize(path === "/" ? "index.html" : path.replace(/^\/+/, "") + (path.endsWith("/") ? "index.html" : ""));
     if (rel.startsWith("..") || rel.includes("\0")) throw new HttpError(404, "Not found");
     const full = join(deps.publicDir, rel);
     const root = deps.publicDir.endsWith(sep) ? deps.publicDir : deps.publicDir + sep;
@@ -567,6 +695,7 @@ export function createMailApp(deps: MailAppDeps) {
         return await serveStatic(url.pathname, res);
       }
       if (url.pathname === "/api/files" || url.pathname.startsWith("/api/files/")) return await fileRequest(req, res, url);
+      if (url.pathname === "/api/drive/upload" || /^\/api\/drive\/items\/[^/]+\/download$/.test(url.pathname)) return await driveRaw(req, res, url);
       const r = routes.find((x) => x.method === req.method && x.pattern.test(url.pathname));
       if (!r) throw new HttpError(404, "Not found");
       // CSRF: state-changing calls must come from Mail's own script.
@@ -578,7 +707,10 @@ export function createMailApp(deps: MailAppDeps) {
         const token = parseCookies(req.headers.cookie)[COOKIE];
         const session = token ? cid.authenticate(token) : null;
         if (!session && r.auth) throw new HttpError(401, "Please sign in");
-        if (session) {
+        if (session && r.drive) {
+          await driveAccess(session.account.cid, MUTATING.has(req.method!));
+          ctx.user = { account: session.account, sessionId: session.session.id };
+        } else if (session) {
           const scope = MUTATING.has(req.method!) ? "mail:write" : "mail:read";
           if (r.auth && !cid.can(session.account.cid, "cumulus-mail", scope)) throw new HttpError(403, "Mail's access was revoked in your Cumulus://ID permissions");
           ctx.user = { account: session.account, sessionId: session.session.id };
@@ -598,12 +730,12 @@ export function createMailApp(deps: MailAppDeps) {
       res.end(JSON.stringify(result ?? { ok: true }));
     } catch (err) {
       const status =
-        err instanceof HttpError ? err.status
+        err instanceof HttpError || err instanceof DriveError ? err.status
         : err instanceof CidError ? (err.code === "not_found" ? 404 : err.code === "forbidden" ? 403 : 400)
         : err instanceof MailError || err instanceof WalletError || err instanceof QuotaError ? 400
         : 500;
       if (status === 500) console.error(err);
-      const code = err instanceof CidError || err instanceof MailError || err instanceof WalletError || err instanceof QuotaError ? err.code : undefined;
+      const code = err instanceof DriveError || err instanceof CidError || err instanceof MailError || err instanceof WalletError || err instanceof QuotaError ? err.code : undefined;
       if (!res.headersSent) {
         res.writeHead(status, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
         res.end(JSON.stringify({ error: status === 500 ? "Something went wrong" : (err as Error).message, code }));

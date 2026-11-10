@@ -2,8 +2,9 @@
  * Cumulus://ID access tokens for the SCALVS runtime.
  *
  * The issuer is fixed. Signing keys come from that issuer's discovery
- * document (jwks_uri), and the JWKS URL must stay on the issuer. Callers
- * can pass fetchImpl so tests never contact the real issuer.
+ * document (jwks_uri), and the JWKS URL must stay on the issuer. Access tokens
+ * may be RS256, ES256 or EdDSA. Callers can pass fetchImpl so tests never
+ * contact the real issuer.
  */
 import { createPublicKey, verify, type webcrypto } from "node:crypto";
 
@@ -29,7 +30,7 @@ export interface CumulusAuthOptions {
   now?: () => Date;
 }
 
-interface RsaJwk extends JsonWebKey {
+interface SigningJwk extends JsonWebKey {
   kid?: string;
 }
 
@@ -45,10 +46,10 @@ export function createCumulusAuth(options: CumulusAuthOptions = {}): CumulusAuth
   const audience = options.audience ?? DEFAULT_AUDIENCE;
   const fetchImpl = options.fetchImpl ?? fetch;
   const now = options.now ?? (() => new Date());
-  let cached: RsaJwk[] | undefined;
-  let loading: Promise<RsaJwk[]> | undefined;
+  let cached: SigningJwk[] | undefined;
+  let loading: Promise<SigningJwk[]> | undefined;
 
-  function loadKeys(refresh: boolean): Promise<RsaJwk[]> {
+  function loadKeys(refresh: boolean): Promise<SigningJwk[]> {
     if (!refresh && cached) return Promise.resolve(cached);
     if (!refresh && loading) return loading;
     const run = discover(fetchImpl).then((keys) => {
@@ -76,9 +77,9 @@ export function createCumulusAuth(options: CumulusAuthOptions = {}): CumulusAuth
       } catch {
         throw new TokenRejected();
       }
-      if (header.alg !== "RS256") throw new TokenRejected();
+      if (header.alg !== "RS256" && header.alg !== "ES256" && header.alg !== "EdDSA") throw new TokenRejected();
       const kid = typeof header.kid === "string" ? header.kid : undefined;
-      let keys: RsaJwk[];
+      let keys: SigningJwk[];
       try {
         keys = await loadKeys(false);
       } catch {
@@ -127,35 +128,60 @@ function decodePart(segment: string): unknown {
   return JSON.parse(Buffer.from(segment, "base64url").toString("utf8"));
 }
 
-function selectKey(keys: RsaJwk[], kid: string | undefined): RsaJwk | undefined {
+function selectKey(keys: SigningJwk[], kid: string | undefined): SigningJwk | undefined {
   if (kid) return keys.find((key) => key.kid === kid);
   return keys.length === 1 ? keys[0] : undefined;
 }
 
-function signatureMatches(header: string, claims: string, signature: string, jwk: RsaJwk): boolean {
-  if (typeof jwk.n !== "string" || typeof jwk.e !== "string") return false;
+function signatureMatches(header: string, claims: string, signature: string, jwk: SigningJwk): boolean {
+  let alg = "";
   try {
-    const key = createPublicKey({ key: { kty: "RSA", n: jwk.n, e: jwk.e }, format: "jwk" });
-    return verify("sha256", Buffer.from(`${header}.${claims}`), key, Buffer.from(signature, "base64url"));
+    alg = String((JSON.parse(Buffer.from(header, "base64url").toString("utf8")) as { alg?: unknown }).alg ?? "");
+  } catch {
+    return false;
+  }
+  const data = Buffer.from(`${header}.${claims}`);
+  const sig = Buffer.from(signature, "base64url");
+  try {
+    if (alg === "RS256") {
+      if (jwk.kty !== "RSA" || typeof jwk.n !== "string" || typeof jwk.e !== "string") return false;
+      const key = createPublicKey({ key: { kty: "RSA", n: jwk.n, e: jwk.e }, format: "jwk" });
+      return verify("sha256", data, key, sig);
+    }
+    if (alg === "ES256") {
+      if (jwk.kty !== "EC" || jwk.crv !== "P-256" || typeof jwk.x !== "string" || typeof jwk.y !== "string") return false;
+      const key = createPublicKey({ key: { kty: "EC", crv: "P-256", x: jwk.x, y: jwk.y }, format: "jwk" });
+      return verify("sha256", data, { key, dsaEncoding: "ieee-p1363" }, sig);
+    }
+    if (alg === "EdDSA") {
+      if (jwk.kty !== "OKP" || jwk.crv !== "Ed25519" || typeof jwk.x !== "string") return false;
+      const key = createPublicKey({ key: { kty: "OKP", crv: "Ed25519", x: jwk.x }, format: "jwk" });
+      return verify(null, data, key, sig);
+    }
+    return false;
   } catch {
     return false;
   }
 }
 
-async function discover(fetchImpl: typeof fetch): Promise<RsaJwk[]> {
+async function discover(fetchImpl: typeof fetch): Promise<SigningJwk[]> {
   const document = await getJson(fetchImpl, DISCOVERY_URL);
   const jwksUri = document && typeof document === "object" ? (document as { jwks_uri?: unknown }).jwks_uri : undefined;
   if (typeof jwksUri !== "string" || !jwksUrlAllowed(jwksUri)) throw new KeysUnavailable();
   const body = await getJson(fetchImpl, jwksUri);
   const keys = body && typeof body === "object" ? (body as { keys?: unknown }).keys : undefined;
   if (!Array.isArray(keys)) throw new KeysUnavailable();
-  const rsa = keys.filter((key): key is RsaJwk => {
+  const usable = keys.filter((key): key is SigningJwk => {
     if (!key || typeof key !== "object") return false;
-    const jwk = key as RsaJwk;
-    return jwk.kty === "RSA" && typeof jwk.n === "string" && typeof jwk.e === "string" && (jwk.use === undefined || jwk.use === "sig");
+    const jwk = key as SigningJwk;
+    if (jwk.use !== undefined && jwk.use !== "sig") return false;
+    if (jwk.kty === "RSA") return typeof jwk.n === "string" && typeof jwk.e === "string";
+    if (jwk.kty === "EC") return jwk.crv === "P-256" && typeof jwk.x === "string" && typeof jwk.y === "string";
+    if (jwk.kty === "OKP") return jwk.crv === "Ed25519" && typeof jwk.x === "string";
+    return false;
   });
-  if (rsa.length === 0) throw new KeysUnavailable();
-  return rsa;
+  if (usable.length === 0) throw new KeysUnavailable();
+  return usable;
 }
 
 function jwksUrlAllowed(value: string): boolean {

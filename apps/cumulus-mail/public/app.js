@@ -218,6 +218,11 @@ function sidebar(data) {
     el("hr"),
     ...views.map(([id, label]) => navButton(state.view === id, label, () => go(id))),
     el("button", { onClick: () => { location.href = "/labyrinth"; } }, ["Labyrinth *LBRNTH", el("sup", { class: "tm" }, ["™"])]),
+    el("hr"),
+    el("button", { onClick: () => { location.href = "/drive/"; } }, ["Drive"]),
+    el("button", { onClick: () => { location.href = "/drive/#/new/dox"; } }, ["Dox"]),
+    el("button", { onClick: () => { location.href = "/drive/#/new/spreads"; } }, ["Spreads"]),
+    el("button", { onClick: () => { location.href = "/drive/#/new/podium"; } }, ["Podium"]),
     el("button", { class: "mobile-only", "aria-current": state.view === "account", onClick: () => go("account") }, ["Account"]),
     el("button", { class: "me", onClick: () => go("account") }, [
       el("div", { class: "meter" }, [el("span", { style: `width:${Math.max(1, data.quota.pct)}%` })]),
@@ -875,7 +880,7 @@ function renderAuth(message = "") {
     .catch(() => {});
   root.replaceChildren(el("div", { class: "auth" }, [el("div", { class: "auth-card" }, [
     el("div", { class: "mark" }, ["Cumulus://Mail", el("sup", { class: "tm" }, ["™"])]),
-    el("p", { class: "muted" }, ["Sign in with your Cumulus://ID"]),
+    el("p", { class: "muted" }, [state.signInFor ? `Sign in with your Cumulus://ID to continue to ${state.signInFor}` : "Sign in with your Cumulus://ID"]),
     el("button", { class: "primary", onClick: async () => {
       err.textContent = "";
       try {
@@ -883,6 +888,11 @@ function renderAuth(message = "") {
         await finishSignIn(await usePasskey(options));
       } catch (e) { fail(e); }
     } }, ["Continue with passkey"]),
+    window.cumulusDesktop ? el("button", { class: "outline", onClick: () => {
+      err.textContent = "";
+      window.cumulusDesktop.signInWithBrowser().catch(fail);
+      err.textContent = "Finish signing in in your browser, then come back here.";
+    } }, ["Sign in with your browser"]) : null,
     social,
     el("p", { class: "muted divider" }, ["New here? Pick your address. It's your Cumulus://ID."]),
     username,
@@ -968,7 +978,63 @@ async function refresh(manual = false) {
 setInterval(() => refresh(), 30_000);
 document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
 
+/* Signing in the desktop app: the app opens /?desktop=<challenge> here; you approve, and the app gets a one-time code. */
+const DESKTOP_KEY = "cumulus-desktop-challenge";
+function takeDesktopChallenge() {
+  const params = new URLSearchParams(location.search);
+  const c = params.get("desktop");
+  if (c && /^[A-Za-z0-9_-]{43}$/.test(c)) {
+    try { sessionStorage.setItem(DESKTOP_KEY, c); } catch {}
+    history.replaceState(null, "", "/");
+  }
+  try { return sessionStorage.getItem(DESKTOP_KEY); } catch { return null; }
+}
+
+function renderDesktopApprove(challenge) {
+  const root = document.querySelector("#app");
+  const err = el("p", { class: "error", role: "alert" }, []);
+  const done = () => { try { sessionStorage.removeItem(DESKTOP_KEY); } catch {} };
+  root.replaceChildren(el("div", { class: "auth" }, [el("div", { class: "auth-card" }, [
+    el("div", { class: "mark" }, ["Cumulus://Mail", el("sup", { class: "tm" }, ["™"])]),
+    el("p", {}, [`Sign in to the Cumulus://Mail desktop app as ${state.data?.me?.email ?? "you"}?`]),
+    el("p", { class: "muted small" }, ["Only continue if you just clicked “Sign in with your browser” in the app on this computer."]),
+    el("button", { class: "primary", onClick: async () => {
+      err.textContent = "";
+      try {
+        const { code } = await api("/api/auth/desktop/grant", { challenge });
+        done();
+        location.href = `cumulus-mail://signin?code=${encodeURIComponent(code)}`;
+        root.replaceChildren(el("div", { class: "auth" }, [el("div", { class: "auth-card" }, [
+          el("div", { class: "mark" }, ["You're signed in"]),
+          el("p", { class: "muted" }, ["Go back to the Cumulus://Mail app. You can close this tab."]),
+          el("a", { class: "outline", href: "/" }, ["Open mail here instead"]),
+        ])]));
+      } catch (e) { err.textContent = e.message; }
+    } }, ["Open the app"]),
+    el("button", { class: "outline", onClick: () => { done(); render(); } }, ["Cancel"]),
+    err,
+  ])]));
+}
+
+/*
+ * Coming from another Infinitum product ("Sign in with Cumulus://ID") or from Drive: /?next=<path>.
+ * Only paths on this site are kept, and only the sign-in request and the Drive pages.
+ */
+const NEXT_KEY = "cumulus-next";
+function takeNext() {
+  const params = new URLSearchParams(location.search);
+  const next = params.get("next");
+  if (next && /^\/(api\/id\/authorize\?|drive\/)/.test(next) && !next.startsWith("//")) {
+    try { sessionStorage.setItem(NEXT_KEY, JSON.stringify({ next, for: (params.get("for") || "").slice(0, 60) })); } catch {}
+    history.replaceState(null, "", "/");
+  }
+  try { return JSON.parse(sessionStorage.getItem(NEXT_KEY) || "null"); } catch { return null; }
+}
+
 async function boot() {
+  const desktopChallenge = takeDesktopChallenge();
+  const pending = takeNext();
+  state.signInFor = pending?.for || "";
   const [page, arg] = location.hash.replace(/^#\/?/, "").split("/");
   if (page === "signin-error") return renderAuth(decodeURIComponent(arg || ""));
   if (page === "mfa" && arg) {
@@ -980,9 +1046,15 @@ async function boot() {
   }
   try {
     state.data = await api("/api/state");
+    if (pending) {
+      try { sessionStorage.removeItem(NEXT_KEY); } catch {}
+      location.replace(pending.next);
+      return;
+    }
     const params = new URLSearchParams(location.search);
-    if (params.get("compose") === "1") state.composer = blankComposer({ to: params.get("to") || "" });
+    if (params.get("compose") === "1") state.composer = blankComposer({ to: (params.get("to") || "").slice(0, 2000), subject: (params.get("subject") || "").slice(0, 500), body: (params.get("body") || "").slice(0, 20000) });
     if (params.has("compose") || params.has("source")) history.replaceState(null, "", "/");
+    if (desktopChallenge) return renderDesktopApprove(desktopChallenge);
     render();
   } catch {
     // Not signed in: renderAuth() has already been shown.

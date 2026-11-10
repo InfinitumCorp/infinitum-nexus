@@ -15,7 +15,7 @@ permissions:
 jobs:
   test:
     name: Local filesystem and PostgreSQL
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     services:
       postgres:
         image: postgres:16

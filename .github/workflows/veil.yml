@@ -34,7 +34,7 @@ permissions:
 
 jobs:
   extension:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -56,7 +56,7 @@ jobs:
         run: node --test --experimental-strip-types apps/spectre/src/server/veil.http.test.ts
 
   scalus:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -96,7 +96,7 @@ jobs:
           grep -q 'https://scalvs.app' /tmp/scalvs-health.json
 
   desktop:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -110,7 +110,7 @@ jobs:
         run: go test ./...
 
   reproducible:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     env:
       GOTOOLCHAIN: go1.26.0
       CGO_ENABLED: "0"

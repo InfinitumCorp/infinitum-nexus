@@ -4,12 +4,13 @@ import { verifyIdToken, type IdTokenClaims } from "./oidc.ts";
 type JsonWebKey = webcrypto.JsonWebKey;
 
 /**
- * Social sign-in for Cumulus://ID: Google, Microsoft, Apple and Sign in with ChatGPT
- * (OpenID Connect) and GitHub (OAuth 2.0). Every flow uses the authorization-code grant
- * with PKCE, a single-use state and (for OIDC) a nonce bound into the ID token.
+ * Social sign-in for Cumulus://ID: Google, Microsoft, Apple, Sign in with ChatGPT and
+ * Amazon Cognito (OpenID Connect) and GitHub (OAuth 2.0). Every flow uses the
+ * authorization-code grant with PKCE, a single-use state and (for OIDC) a nonce bound
+ * into the ID token. Cognito is a user-pool hosted UI; it does not replace Keycloak.
  */
 
-export type SocialProviderId = "google" | "github" | "microsoft" | "apple" | "chatgpt";
+export type SocialProviderId = "google" | "github" | "microsoft" | "apple" | "chatgpt" | "cognito";
 
 export interface SocialCredentials {
   clientId: string;
@@ -19,6 +20,12 @@ export interface SocialCredentials {
   apple?: { teamId: string; keyId: string; privateKeyPem: string };
   /** OIDC providers whose endpoints come from discovery (Sign in with ChatGPT). */
   issuer?: string;
+  /**
+   * Amazon Cognito user pool. `domain` is the hosted UI origin
+   * (`https://<prefix>.auth.<region>.amazoncognito.com` or a custom https host).
+   * The issuer and JWKS are derived from `region` and `userPoolId`.
+   */
+  cognito?: { domain: string; region: string; userPoolId: string };
 }
 
 export interface ProviderSpec {
@@ -87,6 +94,13 @@ export const PROVIDERS: Record<SocialProviderId, ProviderSpec> = {
     authorizeUrl: "https://github.com/login/oauth/authorize",
     tokenUrl: "https://github.com/login/oauth/access_token",
   },
+  cognito: {
+    id: "cognito",
+    label: "Amazon Cognito",
+    kind: "oidc",
+    scopes: ["openid", "email", "profile"],
+    // Authorize and token live on the hosted UI domain; the issuer and JWKS live on the user pool.
+  },
 };
 
 export interface SocialProfile {
@@ -131,6 +145,80 @@ export function appleClientSecret(creds: SocialCredentials, now: Date): string {
 
 const issuerKey = (issuer: string) => issuer.replace(/\/$/, "");
 
+/** Commercial AWS region name, including GovCloud (`us-gov-west-1`). */
+const AWS_REGION = /^[a-z]{2}(?:-[a-z]+)+-\d+$/;
+const POOL_SUFFIX = /^[A-Za-z0-9]{1,128}$/;
+const DNS_NAME = /^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/;
+const COGNITO_HOSTED_UI = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.auth\.([a-z0-9-]+)\.amazoncognito\.com$/;
+
+function formEncode(value: string): string {
+  return encodeURIComponent(value).replace(/%20/g, "+");
+}
+
+/** HTTP Basic for Cognito's default confidential-client token authentication (`client_secret_basic`). */
+function cognitoBasic(clientId: string, clientSecret: string): string {
+  return `Basic ${Buffer.from(`${formEncode(clientId)}:${formEncode(clientSecret)}`).toString("base64")}`;
+}
+
+/**
+ * Hosted UI origin, or undefined when the domain is not safe to send a browser to
+ * or to call from the server. A standard `*.auth.<region>.amazoncognito.com` host
+ * must name the same region as the user pool. Custom hosts are allowed; the user-pool
+ * issuer host is not, because authorize and token do not live there.
+ */
+function cognitoHostedOrigin(domain: string, region: string): string | undefined {
+  const raw = domain.trim().toLowerCase();
+  let host: string;
+  if (raw.includes("://") || raw.startsWith("//")) {
+    let url: URL;
+    try {
+      url = new URL(raw);
+    } catch {
+      return undefined;
+    }
+    if (url.protocol !== "https:" || url.username || url.password || url.port || url.search || url.hash) return undefined;
+    if (url.pathname !== "/" && url.pathname !== "") return undefined;
+    host = url.hostname;
+  } else {
+    if (raw.includes("/") || raw.includes("?") || raw.includes("#") || raw.includes("@")) return undefined;
+    host = raw.replace(/\.$/, "");
+  }
+  if (!DNS_NAME.test(host) || /^\d{1,3}(?:\.\d{1,3}){3}$/.test(host)) return undefined;
+  if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local") || host.endsWith(".internal")) return undefined;
+  const hosted = COGNITO_HOSTED_UI.exec(host);
+  if (hosted) return hosted[1] === region ? `https://${host}` : undefined;
+  if (host.endsWith(".amazoncognito.com") || host.endsWith(".amazonaws.com") || host.endsWith(".amazonaws.com.cn")) return undefined;
+  return `https://${host}`;
+}
+
+function cognitoPoolOk(region: string, userPoolId: string): boolean {
+  if (!AWS_REGION.test(region) || !userPoolId.startsWith(`${region}_`)) return false;
+  return POOL_SUFFIX.test(userPoolId.slice(region.length + 1));
+}
+
+function cognitoEndpoints(creds: SocialCredentials): { authorize: string; token: string; jwks: string; issuer: string } {
+  const pool = creds.cognito;
+  if (!pool || !cognitoPoolOk(pool.region, pool.userPoolId)) throw new Error("Amazon Cognito sign-in needs its hosted UI domain, region and user pool");
+  const origin = cognitoHostedOrigin(pool.domain, pool.region);
+  if (!origin) throw new Error("Amazon Cognito hosted UI domain is not valid");
+  const issuer = `https://cognito-idp.${pool.region}.amazonaws.com/${pool.userPoolId}`;
+  return { authorize: `${origin}/oauth2/authorize`, token: `${origin}/oauth2/token`, jwks: `${issuer}/.well-known/jwks.json`, issuer };
+}
+
+/** Cognito stays off unless every setting is present and valid. A partial or bad set changes nothing. */
+function cognitoFromEnv(env: NodeJS.ProcessEnv): SocialCredentials | undefined {
+  const clientId = env.COGNITO_CLIENT_ID?.trim();
+  const clientSecret = env.COGNITO_CLIENT_SECRET?.trim();
+  const region = env.COGNITO_REGION?.trim().toLowerCase();
+  const userPoolId = env.COGNITO_USER_POOL_ID?.trim();
+  const domain = env.COGNITO_DOMAIN?.trim();
+  if (!clientId || !clientSecret || !region || !userPoolId || !domain) return undefined;
+  if (!cognitoPoolOk(region, userPoolId)) return undefined;
+  const origin = cognitoHostedOrigin(domain, region);
+  if (!origin) return undefined;
+  return { clientId, clientSecret, cognito: { domain: origin, region, userPoolId } };
+}
+
 export class SocialClient {
   private readonly fetchImpl: typeof fetch;
   private readonly jwksCache = new Map<string, { keys: (JsonWebKey & { kid?: string })[]; at: number }>();
@@ -152,6 +240,7 @@ export class SocialClient {
   }
 
   async endpoints(spec: ProviderSpec, creds: SocialCredentials) {
+    if (spec.id === "cognito") return cognitoEndpoints(creds);
     if (!spec.discover) {
       return { authorize: spec.authorizeUrl!, token: spec.tokenUrl!, jwks: spec.jwksUrl, issuer: spec.issuer };
     }
@@ -204,10 +293,17 @@ export class SocialClient {
       code_verifier: pending.codeVerifier,
     });
     const secret = spec.id === "apple" ? appleClientSecret(creds, now) : creds.clientSecret;
-    if (secret) form.set("client_secret", secret);
+    const headers: Record<string, string> = { "content-type": "application/x-www-form-urlencoded", accept: "application/json" };
+    if (spec.id === "cognito") {
+      if (!secret) throw new Error("Amazon Cognito sign-in needs a client secret");
+      // Default Cognito app clients authenticate the token call with HTTP Basic, not a form secret.
+      headers.authorization = cognitoBasic(creds.clientId, secret);
+    } else if (secret) {
+      form.set("client_secret", secret);
+    }
     const tokens = await this.json<{ id_token?: string; access_token?: string; error?: string; error_description?: string }>(ep.token, {
       method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json" },
+      headers,
       body: form.toString(),
     });
     if (tokens.error) throw new Error(`${spec.label}: ${tokens.error_description ?? tokens.error}`);
@@ -228,6 +324,8 @@ export class SocialClient {
     const claims = verifyIdToken(tokens.id_token, { issuer: "*", audience: creds.clientId, jwks: keys }, { now, nonce: pending.nonce, skipIssuer: true });
     const issuerOk = spec.issuerCheck ? spec.issuerCheck(claims.iss, claims) : claims.iss === (ep.issuer ?? spec.issuer);
     if (!issuerOk) throw new Error(`${spec.label}: token issuer not accepted`);
+    // Cognito access tokens are signed by the same pool keys. Only an ID token may sign someone in.
+    if (spec.id === "cognito" && claims.token_use !== "id") throw new Error(`${spec.label}: token is not an ID token`);
     const emailVerified = claims.email_verified === true || (claims.email_verified as unknown) === "true";
     return {
       provider: spec.id,
@@ -254,5 +352,7 @@ export function socialFromEnv(env: NodeJS.ProcessEnv = process.env): Partial<Rec
   if (env.CHATGPT_CLIENT_ID && env.CHATGPT_ISSUER) {
     social.chatgpt = { clientId: env.CHATGPT_CLIENT_ID, clientSecret: env.CHATGPT_CLIENT_SECRET, issuer: env.CHATGPT_ISSUER };
   }
+  const cognito = cognitoFromEnv(env);
+  if (cognito) social.cognito = cognito;
   return social;
 }

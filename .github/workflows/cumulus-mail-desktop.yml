@@ -26,7 +26,7 @@ jobs:
             dist: dist:mac
           - os: ubuntu-latest
             dist: dist:linux
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ startsWith(matrix.os, 'ubuntu') && (vars.CI_RUNNER || matrix.os) || matrix.os }}
     defaults:
       run:
         working-directory: apps/cumulus-mail/desktop

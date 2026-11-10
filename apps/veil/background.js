@@ -15,6 +15,7 @@ import { bypassHostsFor, CHECK_URL, normalizeTorEndpoint, parseTorCheck } from "
 import { fetchBridges, fetchSession, postConnect, postDisconnect, VeilApiError } from "./lib/veil-api.js";
 import { BLOCKED_HOSTS, blocklistRules, ruleCategory } from "./lib/blocklist.js";
 import { assessError, assessRedirect, assessUrl, mergeIssues } from "./lib/safety.js";
+import { assessRegionBlock } from "./lib/region.js";
 import { assessDownload } from "./lib/downloads.js";
 import { generateFor } from "./lib/passgen.js";
 import { check as checkPassword, protect, publicView, trust } from "./lib/password-guard.js";
@@ -396,7 +397,7 @@ chrome.webRequest?.onBeforeRedirect?.addListener?.((d) => {
   if (issue && d.tabId >= 0) tabEntry(d.tabId).pending.push({ at: Date.now(), issue });
 }, { urls: ["<all_urls>"], types: ["main_frame"] });
 chrome.webRequest?.onErrorOccurred?.addListener?.((d) => {
-  const issue = assessError(d.url, d.error);
+  const issue = assessError(d.url, d.error) ?? assessRegionBlock(d.url, d.error, route.mode);
   if (!issue || d.tabId < 0) return;
   const entry = tabEntry(d.tabId);
   entry.issues = mergeIssues(entry.issues, [issue]);

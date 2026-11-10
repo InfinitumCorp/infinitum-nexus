@@ -6,6 +6,11 @@ on:
     branches:
       - main
 
+# A newer push to the same PR cancels the older run, so minutes are not spent on stale commits.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: read
 

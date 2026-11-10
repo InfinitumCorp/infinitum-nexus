@@ -4,6 +4,8 @@ name: cumulus-mail-desktop
 
 on:
   push:
+    branches:
+      - main
     paths:
       - "apps/cumulus-mail/desktop/**"
       - ".github/workflows/cumulus-mail-desktop.yml"

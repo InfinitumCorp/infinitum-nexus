@@ -81,7 +81,15 @@ public class MainActivity extends Activity {
     /** What VEIL can't see. Same statement as the extension and the web app. */
     static final String PRIVACY_STATEMENT = "Every check runs on this phone. VEIL doesn't send your pages, searches, passwords, forms or downloads anywhere, keeps no browsing history, and can't see what you do in other apps.";
 
+    /** The tab on screen. Every tab is its own WebView with the same settings (see createTab). */
     WebView web;
+    /** Open tabs, like Chrome. Closed tabs are destroyed; nothing about them is kept. */
+    final java.util.ArrayList<WebView> tabs = new java.util.ArrayList<>();
+    /** Each tab's page host, read on WebView's network thread for third-party blocking. */
+    final java.util.Map<WebView, String> tabHost = new java.util.concurrent.ConcurrentHashMap<>();
+    static final int MAX_TABS = 20;
+    FrameLayout webHolder;
+    TextView tabButton;
     EditText address;
     ProgressBar progress;
     TextView shield;
@@ -159,6 +167,7 @@ public class MainActivity extends Activity {
         if (on == !torOff) return;
         if (on && torMissing) { torTapped(); return; }
         settings().edit().putBoolean("tor", on).apply();
+        closeOtherTabs();
         wipe();
         pendingUrl = null;
         pendingPanel = null;
@@ -361,13 +370,21 @@ public class MainActivity extends Activity {
 
     void showMenu(View anchor) {
         android.widget.PopupMenu m = new android.widget.PopupMenu(this, anchor);
-        m.getMenu().add(0, 1, 0, "Home");
+        m.getMenu().add(0, 7, 0, "New tab");
+        m.getMenu().add(0, 8, 0, "Tabs (" + tabs.size() + ")");
+        if (web.canGoForward()) m.getMenu().add(0, 9, 0, "Forward");
+        m.getMenu().add(0, 10, 0, "Reload");
+        m.getMenu().add(0, 1, 1, "Home");
         m.getMenu().add(0, 3, 2, "New identity");
         m.getMenu().add(0, 4, 3, "Privacy");
         if (!torMissing) m.getMenu().add(0, 5, 4, torOff ? "Turn on Tor" : "Turn off Tor");
         m.getMenu().add(0, 6, 5, earn.optedIn() ? "Data sharing: on" : "Share data & earn");
         m.setOnMenuItemClickListener(item -> {
             switch (item.getItemId()) {
+                case 7: newTab(null); return true;
+                case 8: showTabs(); return true;
+                case 9: if (web.canGoForward()) web.goForward(); return true;
+                case 10: web.reload(); return true;
                 case 1: web.loadUrl(HUB); return true;
                 case 3: confirmNewIdentity(); return true;
                 case 4: showPrivacy(); return true;
@@ -539,15 +556,13 @@ public class MainActivity extends Activity {
         root.setBackgroundColor(BG);
         root.setFitsSystemWindows(true);
 
-        // Chrome-style toolbar: back, forward, reload, the omnibox (grey pill with the
-        // white "Anonymous" chip), then the overflow menu.
+        // Chrome-style toolbar: the omnibox (grey pill with the white "Anonymous" chip), the
+        // Tor box, the tab counter and the overflow menu. Back is the phone's back gesture;
+        // forward and reload are in the menu, as in Chrome for Android.
         LinearLayout top = new LinearLayout(this);
         top.setOrientation(LinearLayout.HORIZONTAL);
         top.setGravity(Gravity.CENTER_VERTICAL);
-        top.setPadding(dp(4), dp(6), dp(2), dp(6));
-        top.addView(iconButton("‹", "Back", v -> { if (web.canGoBack()) web.goBack(); }));
-        top.addView(iconButton("›", "Forward", v -> { if (web.canGoForward()) web.goForward(); }));
-        top.addView(iconButton("↻", "Reload", v -> web.reload()));
+        top.setPadding(dp(8), dp(6), dp(2), dp(6));
 
         LinearLayout omni = new LinearLayout(this);
         omni.setOrientation(LinearLayout.HORIZONTAL);
@@ -622,6 +637,21 @@ public class MainActivity extends Activity {
         tlp.leftMargin = dp(4);
         tor.setLayoutParams(tlp);
         top.addView(tor);
+        // Tab counter, as in Chrome: a small rounded square with the number of open tabs.
+        tabButton = new TextView(this);
+        tabButton.setText("1");
+        tabButton.setTextColor(FG);
+        tabButton.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        tabButton.setTypeface(Typeface.DEFAULT_BOLD);
+        tabButton.setGravity(Gravity.CENTER);
+        tabButton.setBackground(rounded(BG, FG, 4));
+        tabButton.setClickable(true);
+        tabButton.setOnClickListener(v -> showTabs());
+        LinearLayout.LayoutParams tblp = new LinearLayout.LayoutParams(dp(24), dp(24));
+        tblp.leftMargin = dp(8);
+        tblp.rightMargin = dp(2);
+        tabButton.setLayoutParams(tblp);
+        top.addView(tabButton);
         View menuButton = iconButton("⋮", "More options", null);
         menuButton.setOnClickListener(v -> showMenu(menuButton));
         top.addView(menuButton);
@@ -636,10 +666,10 @@ public class MainActivity extends Activity {
         progress.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(2)));
         root.addView(progress);
 
-        web = new WebView(this);
-        web.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
-        web.setBackgroundColor(BG);
-        root.addView(web);
+        webHolder = new FrameLayout(this);
+        webHolder.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+        webHolder.setBackgroundColor(BG);
+        root.addView(webHolder);
 
         return root;
     }
@@ -665,8 +695,15 @@ public class MainActivity extends Activity {
     }
 
     void configureWebView() {
-        blockWebRtc(web);
         blockWebRtc(panelWeb);
+        showTab(createTab());
+    }
+
+    /** A new tab: its own WebView with VEIL's settings. Not shown until showTab(). */
+    WebView createTab() {
+        WebView web = new WebView(this);
+        web.setBackgroundColor(BG);
+        blockWebRtc(web);
         WebSettings s = web.getSettings();
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);           // wiped on exit and on New Identity
@@ -675,7 +712,7 @@ public class MainActivity extends Activity {
         s.setGeolocationEnabled(false);
         s.setSaveFormData(false);
         s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
-        s.setSupportMultipleWindows(false);
+        s.setSupportMultipleWindows(true);       // links that open a new window become a tab (user taps only)
         s.setJavaScriptCanOpenWindowsAutomatically(false);
         s.setSafeBrowsingEnabled(false);        // no URL lookups sent to Google
         s.setMediaPlaybackRequiresUserGesture(true);
@@ -692,13 +729,13 @@ public class MainActivity extends Activity {
                 String url = request.getUrl().toString();
                 if (handlePanelLink(view, url)) return true;
                 if (url.startsWith("file:///android_asset/")) return false;
-                if (request.isForMainFrame()) navHost = String.valueOf(request.getUrl().getHost());
+                if (request.isForMainFrame() && view == MainActivity.this.web) navHost = String.valueOf(request.getUrl().getHost());
                 if (!Privacy.isWeb(url)) {
                     Toast.makeText(MainActivity.this, "VEIL only opens web pages", Toast.LENGTH_SHORT).show();
                     return true;
                 }
                 if (!torReady()) {
-                    if (request.isForMainFrame()) { pendingUrl = url; torGate(url); }
+                    if (request.isForMainFrame() && view == MainActivity.this.web) { pendingUrl = url; torGate(url); }
                     return true;
                 }
                 String cleaned = Privacy.clean(url);
@@ -717,8 +754,9 @@ public class MainActivity extends Activity {
                 // Ad networks, trackers and data brokers, as third-party subresources only.
                 if (!blocking || request.isForMainFrame()) return null;
                 String host = request.getUrl().getHost();
-                if (!Blocklist.isBlocked(host) || !Privacy.isThirdParty(host, pageHost)) return null;
-                blocked++;
+                String page = tabHost.get(view);
+                if (!Blocklist.isBlocked(host) || !Privacy.isThirdParty(host, page == null ? "" : page)) return null;
+                if (view == MainActivity.this.web) blocked++;
                 blockedSession++;
                 return new WebResourceResponse("text/plain", "utf-8", new ByteArrayInputStream(new byte[0]));
             }
@@ -726,6 +764,8 @@ public class MainActivity extends Activity {
             @Override
             public void onPageStarted(WebView view, String url, Bitmap favicon) {
                 String host = Uri.parse(url).getHost();
+                tabHost.put(view, host == null ? "" : host);
+                if (view != MainActivity.this.web) return;
                 pageHost = host == null ? "" : host;
                 blocked = 0;
                 showAddress(url);
@@ -734,6 +774,7 @@ public class MainActivity extends Activity {
 
             @Override
             public void onPageFinished(WebView view, String url) {
+                if (view != MainActivity.this.web) return;
                 showAddress(url);
                 showShield();
                 progress.setVisibility(View.INVISIBLE);
@@ -743,6 +784,7 @@ public class MainActivity extends Activity {
             @Override
             public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {
                 handler.cancel(); // never proceed past a certificate error
+                if (view != MainActivity.this.web) return;
                 // Alert for the page itself; a broken subresource just doesn't load.
                 String host = Uri.parse(error.getUrl()).getHost();
                 if (host != null && (host.equals(navHost) || host.equals(pageHost))) certificateAlert(error);
@@ -751,10 +793,215 @@ public class MainActivity extends Activity {
         web.setWebChromeClient(new WebChromeClient() {
             @Override
             public void onProgressChanged(WebView view, int p) {
+                if (view != MainActivity.this.web) return;
                 progress.setVisibility(p < 100 ? View.VISIBLE : View.INVISIBLE);
                 progress.setProgress(p);
             }
+
+            @Override
+            public boolean onCreateWindow(WebView view, boolean isDialog, boolean isUserGesture, android.os.Message resultMsg) {
+                // A link that opens a new window, tapped by the person: open it in a new tab.
+                if (!isUserGesture || isDialog || tabs.size() >= MAX_TABS) return false;
+                WebView t = createTab();
+                showTab(t);
+                ((WebView.WebViewTransport) resultMsg.obj).setWebView(t);
+                resultMsg.sendToTarget();
+                return true;
+            }
+
+            @Override
+            public void onCloseWindow(WebView window) {
+                closeTab(window);
+            }
+
+            @Override
+            public void onReceivedTitle(WebView view, String title) {
+                if (view == MainActivity.this.web) updateTabButton();
+            }
         });
+        // Long-press a link: open it in a new tab, like Chrome.
+        web.setOnLongClickListener(v -> {
+            WebView.HitTestResult hit = ((WebView) v).getHitTestResult();
+            if (hit == null || hit.getType() != WebView.HitTestResult.SRC_ANCHOR_TYPE) return false;
+            String link = hit.getExtra();
+            if (link == null || !Privacy.isWeb(link)) return false;
+            linkMenu(link);
+            return true;
+        });
+        tabs.add(web);
+        updateTabButton();
+        return web;
+    }
+
+    // ---------------- Tabs ----------------
+
+    /** Put a tab on screen. */
+    void showTab(WebView t) {
+        if (t == null) return;
+        if (t.getParent() != webHolder) {
+            webHolder.removeAllViews();
+            if (t.getParent() instanceof ViewGroup) ((ViewGroup) t.getParent()).removeView(t);
+            webHolder.addView(t, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        }
+        web = t;
+        String host = tabHost.get(t);
+        pageHost = host == null ? "" : host;
+        blocked = 0;
+        String u = t.getUrl();
+        if (address != null && !address.hasFocus()) address.setText("");
+        if (u != null) showAddress(u);
+        if (shield != null) showShield();
+        if (progress != null) progress.setVisibility(t.getProgress() < 100 && u != null ? View.VISIBLE : View.INVISIBLE);
+        updateTabButton();
+    }
+
+    /** Open a new tab on VEIL's start page, or at a link. */
+    void newTab(String url) {
+        if (tabs.size() >= MAX_TABS) {
+            Toast.makeText(this, "Close a tab first: VEIL keeps up to " + MAX_TABS + " open.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        WebView t = createTab();
+        showTab(t);
+        t.loadUrl(HUB);
+        if (url != null) open(url);
+    }
+
+    void closeTab(WebView t) {
+        int i = tabs.indexOf(t);
+        if (i < 0) return;
+        tabs.remove(i);
+        tabHost.remove(t);
+        if (t == web) {
+            if (tabs.isEmpty()) {
+                WebView fresh = createTab();
+                showTab(fresh);
+                fresh.loadUrl(HUB);
+            } else {
+                showTab(tabs.get(Math.max(0, i - 1)));
+            }
+        }
+        webHolder.removeView(t);
+        t.stopLoading();
+        t.destroy();
+        updateTabButton();
+    }
+
+    /** Keep only the tab on screen (Tor on/off and New Identity: nothing carries over). */
+    void closeOtherTabs() {
+        for (WebView t : new java.util.ArrayList<>(tabs)) if (t != web) closeTab(t);
+    }
+
+    void updateTabButton() {
+        if (tabButton == null) return;
+        int n = tabs.size();
+        tabButton.setText(n > 99 ? ":D" : String.valueOf(n));
+        tabButton.setContentDescription(n + (n == 1 ? " open tab" : " open tabs") + ". Tap to switch tabs");
+    }
+
+    /** A tab's name in the switcher. */
+    String tabName(WebView t) {
+        String u = t.getUrl();
+        if (u == null || u.startsWith(HUB) || u.equals("about:blank")) return "New tab";
+        if (u.startsWith(Privacy.SEARCH)) {
+            String q = Uri.parse(u).getQueryParameter("q");
+            return "Search: " + (q == null ? "" : q);
+        }
+        String title = t.getTitle();
+        return isBlank(title) || title.equals(u) ? String.valueOf(Uri.parse(u).getHost()) : title;
+    }
+
+    String tabHostLabel(WebView t) {
+        String u = t.getUrl();
+        if (u == null || u.startsWith("file:") || u.equals("about:blank")) return "VEIL";
+        String h = Uri.parse(u).getHost();
+        return h == null ? u : h.replaceFirst("^www\\.", "");
+    }
+
+    /** Tab switcher: every open tab, tap to switch, ✕ to close, and New tab. */
+    void showTabs() {
+        hideKeyboard();
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        list.setPadding(dp(8), dp(4), dp(8), dp(4));
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+        scroll.addView(list);
+        AlertDialog[] dialog = new AlertDialog[1];
+        Runnable[] fill = new Runnable[1];
+        fill[0] = () -> {
+            list.removeAllViews();
+            for (WebView t : tabs) {
+                LinearLayout row = new LinearLayout(this);
+                row.setOrientation(LinearLayout.HORIZONTAL);
+                row.setGravity(Gravity.CENTER_VERTICAL);
+                row.setPadding(dp(12), dp(10), dp(4), dp(10));
+                row.setBackground(rounded(t == web ? HOVER : BG, RULE, 6));
+                LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                rlp.topMargin = rlp.bottomMargin = dp(4);
+                row.setLayoutParams(rlp);
+                LinearLayout text = new LinearLayout(this);
+                text.setOrientation(LinearLayout.VERTICAL);
+                text.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+                TextView name = new TextView(this);
+                name.setText(tabName(t));
+                name.setTextColor(FG);
+                name.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+                name.setSingleLine(true);
+                name.setEllipsize(TextUtils.TruncateAt.END);
+                if (t == web) name.setTypeface(Typeface.DEFAULT_BOLD);
+                TextView host = new TextView(this);
+                host.setText(tabHostLabel(t));
+                host.setTextColor(QUIET);
+                host.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+                host.setSingleLine(true);
+                host.setEllipsize(TextUtils.TruncateAt.END);
+                text.addView(name);
+                text.addView(host);
+                row.addView(text);
+                TextView close = new TextView(this);
+                close.setText("✕");
+                close.setTextColor(QUIET);
+                close.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
+                close.setGravity(Gravity.CENTER);
+                close.setContentDescription("Close " + tabName(t));
+                close.setLayoutParams(new LinearLayout.LayoutParams(dp(40), dp(40)));
+                close.setOnClickListener(v -> { closeTab(t); fill[0].run(); });
+                row.addView(close);
+                row.setContentDescription(tabName(t) + (t == web ? ", current tab" : ""));
+                row.setOnClickListener(v -> { showTab(t); if (dialog[0] != null) dialog[0].dismiss(); });
+                list.addView(row);
+            }
+            if (dialog[0] != null) dialog[0].setTitle(tabs.size() == 1 ? "1 tab" : tabs.size() + " tabs");
+        };
+        fill[0].run();
+        dialog[0] = new AlertDialog.Builder(this)
+            .setTitle(tabs.size() == 1 ? "1 tab" : tabs.size() + " tabs")
+            .setView(scroll)
+            .setPositiveButton("+ New tab", (d, w) -> newTab(null))
+            .setNegativeButton("Done", null)
+            .setNeutralButton("Close all", (d, w) -> {
+                for (WebView t : new java.util.ArrayList<>(tabs)) closeTab(t);
+            })
+            .show();
+    }
+
+    /** Long-press on a link. */
+    void linkMenu(String link) {
+        new AlertDialog.Builder(this)
+            .setTitle(link)
+            .setItems(new CharSequence[]{"Open in new tab", "Open", "Copy link"}, (d, which) -> {
+                if (which == 0) {
+                    newTab(link);
+                    Toast.makeText(this, "Opened in a new tab (" + tabs.size() + " open)", Toast.LENGTH_SHORT).show();
+                } else if (which == 1) {
+                    open(link);
+                } else {
+                    android.content.ClipboardManager cm = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+                    if (cm != null) cm.setPrimaryClip(android.content.ClipData.newPlainText("Link", Privacy.clean(link)));
+                    Toast.makeText(this, "Link copied", Toast.LENGTH_SHORT).show();
+                }
+            })
+            .show();
     }
 
     void showShield() {
@@ -844,7 +1091,7 @@ public class MainActivity extends Activity {
     }
 
     void showAddress(String url) {
-        if (url == null || address.hasFocus()) return;
+        if (url == null || address == null || address.hasFocus()) return;
         if (url.startsWith(Privacy.SEARCH)) {
             // VEIL's own results page: show what was searched, not the page's address.
             String q = Uri.parse(url).getQueryParameter("q");
@@ -874,6 +1121,7 @@ public class MainActivity extends Activity {
             .setTitle("New Identity")
             .setMessage("Clear cookies, site storage, cache and history" + (torOff ? "?" : ", and switch to new Tor circuits?"))
             .setPositiveButton("Clear", (d, w) -> {
+                closeOtherTabs();
                 wipe();
                 if (!torOff) tor.newIdentity();
                 earn.count("new_identity");
@@ -888,9 +1136,11 @@ public class MainActivity extends Activity {
         CookieManager.getInstance().removeAllCookies(null);
         CookieManager.getInstance().flush();
         WebStorage.getInstance().deleteAllData();
-        web.clearCache(true);
-        web.clearHistory();
-        web.clearFormData();
+        for (WebView t : tabs) {
+            t.clearCache(true);
+            t.clearHistory();
+            t.clearFormData();
+        }
         if (panelWeb != null) resetPanel();
         reportBlocked();
         stripped = 0;
@@ -988,6 +1238,7 @@ public class MainActivity extends Activity {
             return;
         }
         if (web.canGoBack()) web.goBack();
+        else if (tabs.size() > 1) closeTab(web);
         else super.onBackPressed();
     }
 
@@ -998,7 +1249,8 @@ public class MainActivity extends Activity {
             tor.setListener(null);
             tor.stop();
         }
-        web.destroy();
+        for (WebView t : new java.util.ArrayList<>(tabs)) t.destroy();
+        tabs.clear();
         super.onDestroy();
     }
 

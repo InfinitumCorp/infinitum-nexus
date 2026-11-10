@@ -2,7 +2,8 @@
 
 Package `app.infinitum.veil.browser`, v0.8.0, minSdk 26 / targetSdk 35. A private WebView browser that shares its URL rules with the VEIL extension.
 
-- **Address bar:** strips tracking parameters (same 27-entry list as `apps/veil/lib/privacy.js`), upgrades to HTTPS (except `.onion` and localhost), and sends anything that isn't a URL to a DuckDuckGo search.
+- **Address bar:** strips tracking parameters (same 27-entry list as `apps/veil/lib/privacy.js`), upgrades to HTTPS (except `.onion` and localhost), and sends anything that isn't a URL to VEIL's own results page (`hub/search.html`, from `apps/veil-web`). That page asks infinitumveil.app/api/search, which calls the Brave Search API server-side, so no search engine page is ever shown.
+- **Tabs (Chrome-style):** the counter button next to ⋮ opens the tab list (switch, ✕ to close, + New tab, Close all). Long-press a link for Open in new tab. Up to 20 tabs; Back closes a tab with no history. Switching Tor or New Identity closes the other tabs and wipes all of them.
 - **Privacy defaults:** third-party cookies off, no file/content access, no geolocation, no form data, mixed content blocked, SSL errors refused, non-web schemes blocked, FLAG_SECURE (no screenshots), `allowBackup=false`.
 - **Identity:** wipes cookies, web storage, cache, history and form data. The same wipe runs on exit.
 - **Fast by default:** VEIL connects directly, with trackers, ads and tracking parameters blocked. No proxy and no Tor unless the person turns it on.

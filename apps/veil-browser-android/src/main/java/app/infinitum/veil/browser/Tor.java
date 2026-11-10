@@ -68,6 +68,10 @@ final class Tor {
     volatile boolean bridges;
     private volatile long lastProgressAt;
     private int attempts;
+    /** Bumped by every start, restart and stop; stale relaunches and stall checks compare against it. */
+    private int gen;
+    /** True between a restart's kill and its relaunch, when process is briefly null. */
+    private boolean restarting;
 
     boolean ready() {
         return process != null && error == null && progress >= 100;
@@ -85,12 +89,14 @@ final class Tor {
     /** Start Tor the way that last worked here (direct, or bridges). */
     synchronized void start(Context c) {
         app = c.getApplicationContext();
-        if (process != null) return;
+        if (process != null || restarting) return;
         attempts = 0;
-        launch(prefs().getBoolean("bridges", false));
+        launch(prefs().getBoolean("bridges", false), ++gen);
     }
 
-    private synchronized void launch(boolean useBridges) {
+    private synchronized void launch(boolean useBridges, int g) {
+        if (g != gen) return; // stopped or superseded while a restart was waiting
+        restarting = false;
         bridges = useBridges;
         error = null;
         progress = 0;
@@ -126,7 +132,7 @@ final class Tor {
             Thread t = new Thread(() -> watch(p), "tor-log");
             t.setDaemon(true);
             t.start();
-            main.postDelayed(this::checkStall, 2_000);
+            main.postDelayed(() -> checkStall(g), 2_000);
         } catch (IOException | org.json.JSONException e) {
             process = null;
             fail("Tor couldn't start: " + e.getMessage());
@@ -154,11 +160,11 @@ final class Tor {
     }
 
     /** No bootstrap progress for a while: switch between direct and bridges. */
-    private void checkStall() {
-        if (process == null || error != null || progress >= 100) return;
+    private synchronized void checkStall(int g) {
+        if (g != gen || process == null || error != null || progress >= 100) return;
         long limit = bridges ? BRIDGE_STALL_MS : DIRECT_STALL_MS;
         if (SystemClock.elapsedRealtime() - lastProgressAt < limit) {
-            main.postDelayed(this::checkStall, 2_000);
+            main.postDelayed(() -> checkStall(g), 2_000);
             return;
         }
         if (++attempts > 3) {
@@ -169,16 +175,24 @@ final class Tor {
         restart(!bridges);
     }
 
-    /** Restart Tor, over bridges or direct. */
-    void restart(boolean useBridges) {
+    /**
+     * Restart Tor, over bridges or direct. The old tor must be gone before the new one
+     * binds the same SOCKS and control ports, so the wait happens off the main thread.
+     */
+    private synchronized void restart(boolean useBridges) {
+        int g = ++gen;
+        Process old = process;
+        process = null;
+        restarting = true;
+        progress = 0;
+        summary = useBridges ? "Switching to bridges" : "Trying a direct connection";
+        notifyListener();
         Thread t = new Thread(() -> {
-            Process old;
-            synchronized (this) { old = process; process = null; }
             if (old != null) {
                 old.destroy();
                 try { old.waitFor(); } catch (InterruptedException ignored) { }
             }
-            main.post(() -> launch(useBridges));
+            main.post(() -> launch(useBridges, g));
         }, "tor-restart");
         t.setDaemon(true);
         t.start();
@@ -189,6 +203,7 @@ final class Tor {
             String line;
             while ((line = r.readLine()) != null) {
                 android.util.Log.i("VEIL-Tor", line); // notice level, SafeLogging on: no destinations
+                if (process != p) continue; // a replaced tor still flushing its log: don't touch the new one's state
                 Matcher m = BOOTSTRAP.matcher(line);
                 if (m.find()) {
                     int pct = Integer.parseInt(m.group(1));
@@ -247,6 +262,8 @@ final class Tor {
     }
 
     synchronized void stop() {
+        gen++;
+        restarting = false;
         if (process != null) {
             Process p = process;
             process = null;

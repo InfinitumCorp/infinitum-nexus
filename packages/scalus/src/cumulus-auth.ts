@@ -5,7 +5,10 @@
  * document (jwks_uri), and the JWKS URL must stay on the issuer. Callers
  * can pass fetchImpl so tests never contact the real issuer.
  */
-import { createPublicKey, verify, type JsonWebKey } from "node:crypto";
+import { createPublicKey, verify, type webcrypto } from "node:crypto";
+
+// @types/node 26 exposes JsonWebKey only under webcrypto.
+type JsonWebKey = webcrypto.JsonWebKey;
 
 export const CUMULUS_ISSUER = "https://id.cumuluscloud.app/realms/cumulus";
 export const DEFAULT_AUDIENCE = "scalvs";

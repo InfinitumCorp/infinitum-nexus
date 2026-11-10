@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 // @ts-ignore plain browser module
-import { PRODUCTS, esc, links, loadWallet, normaliseWallet, render } from "./firm-suite.js";
+import { PRODUCTS, acceptConnect, connectUrl, esc, links, loadWallet, newNonce, normaliseWallet, render } from "./firm-suite.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -87,4 +87,35 @@ test("METATRON¹⁰⁰ links to its canonical site, mttrn.app", () => {
   const html = render({ product: "spectre metatron" });
   assert.match(html, /<a href="https:\/\/mttrn\.app" target="_blank" rel="noopener">METATRON¹⁰⁰<sup class="tm">™<\/sup><\/a>/);
   assert.doesNotMatch(render({ product: "scalvs" }), /<span><a /);
+});
+
+test("connect: popup URL matches the wallet's #/connect contract", () => {
+  const nonce = newNonce();
+  assert.match(nonce, /^[0-9a-f]{32}$/);
+  assert.equal(
+    connectUrl("https://app.firmwallet.app/", "https://veil.infinitumcorporation.ai", nonce),
+    `https://app.firmwallet.app/#/connect?origin=https%3A%2F%2Fveil.infinitumcorporation.ai&nonce=${nonce}`,
+  );
+});
+
+test("connect: only the wallet's exact origin with our nonce is accepted", () => {
+  const app = "https://app.firmwallet.app";
+  const address = "0x" + "ab".repeat(20);
+  const data = { source: "firm-wallet", type: "connect", address, message: "x wants you to sign in\n\nNonce: abc12345\nIssued At: now", signature: "0xsig" };
+  assert.deepEqual(acceptConnect({ origin: app, data }, app, "abc12345"), { address, message: data.message, signature: "0xsig" });
+  assert.equal(acceptConnect({ origin: "https://evil.example", data }, app, "abc12345"), null);
+  assert.equal(acceptConnect({ origin: app, data }, app, "other999"), null);
+  assert.equal(acceptConnect({ origin: app, data: { ...data, type: "pay" } }, app, "abc12345"), null);
+  assert.equal(acceptConnect({ origin: app, data: { ...data, address: "<b>" } }, app, "abc12345"), null);
+  assert.equal(acceptConnect({ origin: app, data }, "not a url", "abc12345"), null);
+});
+
+test("connect: button replaces early access; connected state shows the address", () => {
+  const early = render({ product: "veil", connect: true });
+  assert.match(early, /<button type="button" class="fs-btn fs-solid" data-fs-connect>Connect FIRM Wallet/);
+  assert.doesNotMatch(early, /Get early access/);
+  const connected = render({ product: "veil", state: "connected", wallet: { address: "0x" + "cd".repeat(20), balances: {} }, connect: true });
+  assert.match(connected, /Connected · <span class="fs-addr"/);
+  assert.doesNotMatch(connected, /data-fs-connect/);
+  assert.doesNotMatch(render({ product: "veil" }), /data-fs-connect/);
 });

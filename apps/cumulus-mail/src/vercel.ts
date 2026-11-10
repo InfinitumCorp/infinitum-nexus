@@ -8,6 +8,7 @@ import { createMailApp } from "./app.ts";
 import { deliverOutbound, type Sender } from "./outbound.ts";
 import type { FileStore } from "./files.ts";
 import { WorkspaceStore } from "./workspace.ts";
+import { BillingLinkStore } from "@infinitum/billing";
 
 /** Attachment storage, set by the Workers entry (R2) before the first request. */
 let fileStore: FileStore | undefined;
@@ -68,6 +69,7 @@ function build() {
   const signer = signerFromPrivateKey(required("FIRMAMENT_SIGNER_KEY"));
   const stores = emptyCumulusStores();
   const workspaceStore = new WorkspaceStore(); // Cumulus://Drive, Dox, Spreads and Podium (metadata; contents in R2)
+  const billingStore = new BillingLinkStore(); // CID -> billing org (holds org API keys; server-side only)
   const state = new RemoteState(new HttpGateway(required("NEXUS_STORE_URL"), required("NEXUS_STORE_KEY")), {
     cid: stores.cid,
     "cumulus-mail": stores.mail,
@@ -75,6 +77,7 @@ function build() {
     "cumulus-quota": stores.quota,
     "cumulus-suite": stores.suite,
     "cumulus-workspace": workspaceStore,
+    "cumulus-billing": billingStore,
   });
   const ledger = new Ledger(state.ledgerStore, { authorizedSigners: [signer.publicKey] });
   const suite = createCumulus({
@@ -99,6 +102,7 @@ function build() {
     suite,
     files: fileStore,
     workspaceStore,
+    billingStore,
     publicDir: publicDir(), // static files come from the CDN (Vercel) or static assets (Workers)
     origin,
     secureCookies: origin.startsWith("https://"),

@@ -51,6 +51,9 @@ importers:
       '@infinitum/ai':
         specifier: workspace:*
         version: link:../../packages/ai
+      '@infinitum/billing':
+        specifier: workspace:*
+        version: link:../../packages/billing
       '@infinitum/cid':
         specifier: workspace:*
         version: link:../../packages/cid

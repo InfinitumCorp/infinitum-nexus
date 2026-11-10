@@ -19,7 +19,7 @@ rmSync(hub, { recursive: true, force: true });
 mkdirSync(`${hub}lib`, { recursive: true });
 mkdirSync(`${hub}icons`, { recursive: true });
 mkdirSync(`${hub}brand`, { recursive: true });
-for (const f of ["index.html", "app.js", "lib/trackers.js", "icons/icon-192.png", "brand/horizontal-white-bg.png"]) {
+for (const f of ["index.html", "app.js", "lib/trackers.js", "firm-suite.js", "firm-suite.css", "icons/icon-192.png", "brand/horizontal-white-bg.png"]) {
   cpSync(`${web}public/${f}`, `${hub}${f}`);
 }
 

@@ -16,11 +16,16 @@ on:
       - ".github/workflows/fabric.yml"
       - "pnpm-lock.yaml"
 
+# A newer push to the same PR cancels the older run, so minutes are not spent on stale commits.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   server:
     runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v4
         with:
           version: 10.28.0

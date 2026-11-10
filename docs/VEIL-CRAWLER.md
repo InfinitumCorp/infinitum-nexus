@@ -132,6 +132,34 @@ Pages that change often (news front pages) are revisited daily; most pages every
 pages that never change, less often. Use `ETag` and `Last-Modified` with conditional requests
 so unchanged pages cost almost nothing to us and to the site.
 
+## Free building blocks (checked 2026-11-11)
+
+All open source with permissive licences, no fees, and robots.txt support built in. Check
+each project's repository for the current licence before shipping.
+
+| Tool | What it is | Licence | Fit for VEIL |
+|---|---|---|---|
+| `robots-parser` (npm) | RFC 9309 robots.txt parser | MIT | **Use now** inside the Workers fetcher; keeps the Cloudflare-only design |
+| Crawlee | Crawler framework for Node.js/TypeScript (also Python); queues, retries, robots.txt option | Apache-2.0 | Best fit if we run crawl workers in Node containers instead of Workers |
+| Apache StormCrawler | Distributed crawler SDK (Java), built for continuous crawling at scale | Apache-2.0 | Phase 3, when one machine is not enough |
+| Apache Nutch | Mature web-scale crawler (Java, Hadoop) | Apache-2.0 | Alternative to StormCrawler for big batch crawls |
+| Heritrix | The Internet Archive's archival crawler | Apache-2.0 | Only if we want archive-quality WARC copies |
+| Scrapy | Python crawling framework; new projects obey robots.txt by default | BSD-3-Clause | Good for one-off or focused crawls |
+| Meilisearch / OpenSearch | Free search engines to hold the index if D1 FTS5 runs out | MIT / Apache-2.0 | Self-hosted index option |
+
+Free data instead of crawling everything ourselves:
+- **Common Crawl:** free monthly crawls of billions of pages and a URL index. Its Terms of
+  Use allow commercial use but forbid reselling or republishing the raw data; read the
+  current terms before use. Best use: seeds and a head start for the index.
+- **Wikipedia:** already live as VEIL's keyless fallback.
+
+Not used, and why:
+- Marginalia's free API: results licensed CC BY-NC-SA (no commercial use).
+- SearXNG and scraper APIs that copy Google, Bing or DuckDuckGo result pages: against those
+  engines' terms, and they get blocked.
+- Free tiers of paid search APIs come and go (Brave and Parallel dropped theirs in 2026), so
+  VEIL treats them as optional extras, never as the base.
+
 ## Where to start (seeds)
 
 1. External links from Wikipedia articles (high quality, many languages).

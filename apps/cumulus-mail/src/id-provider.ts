@@ -38,6 +38,8 @@ export const ID_CLIENTS: Record<string, IdClient> = {
   firmament: { name: "$Firmament Network", app: "firmament", origins: ["https://firmnetwork.app", "https://www.firmnetwork.app"] },
   spectre: { name: "+SPCTR", app: "spectre", origins: ["https://spectre.infinitumcorporation.ai"] },
   defense: { name: "Infinitum Defense", app: "cumulus", origins: ["https://infinitumdefense.com", "https://www.infinitumdefense.com"] },
+  // developer.infinitumcorporation.ai: where Infinitum developers sign in.
+  developer: { name: "Infinitum Developer", app: "cumulus", origins: ["https://developer.infinitumcorporation.ai"] },
 };
 
 /** The client a redirect may go to, or null when it isn't one of ours. */

@@ -46,6 +46,13 @@ final class Tor {
     static final long DIRECT_STALL_MS = 20_000;
     /** A bridge type that hasn't completed a handshake by now is blocked here: try the next type. */
     static final long BRIDGE_CONNECT_MS = 60_000;
+    /**
+     * Bridges still short of CONN_DONE (10%) by now can't be reached at all: obfs4 bridges this
+     * network blocks fail within a second ("general SOCKS server failure") and keep retrying.
+     */
+    static final long BRIDGE_UNREACHABLE_MS = 20_000;
+    /** Bootstrap % once tor reached a bridge or relay (for snowflake/meek, the transport). */
+    static final int CONN_DONE = 10;
     /** After a handshake, no progress and no data for this long counts as a stall. */
     static final long BRIDGE_STALL_MS = 120_000;
     /**
@@ -222,6 +229,13 @@ final class Tor {
         }
     }
 
+    /** How long the current way may go without progress before VEIL tries the next one. */
+    static long stallLimit(boolean pathWorks, boolean bridges, int progress) {
+        if (pathWorks) return BRIDGE_STALL_MS;
+        if (!bridges) return DIRECT_STALL_MS;
+        return progress < CONN_DONE ? BRIDGE_UNREACHABLE_MS : BRIDGE_CONNECT_MS;
+    }
+
     /**
      * No progress for a while: try the next way. Progress means a higher bootstrap % or data
      * still arriving (see pollTraffic): over meek the consensus download sits at 25% for
@@ -229,7 +243,7 @@ final class Tor {
      */
     private synchronized void checkStall(int g) {
         if (g != gen || process == null || error != null || progress >= 100) return;
-        long limit = pathWorks ? BRIDGE_STALL_MS : bridges ? BRIDGE_CONNECT_MS : DIRECT_STALL_MS;
+        long limit = stallLimit(pathWorks, bridges, progress);
         if (SystemClock.elapsedRealtime() - lastProgressAt < limit) {
             main.postDelayed(() -> checkStall(g), 2_000);
             return;

@@ -156,8 +156,16 @@ public final class VeilVpnService extends VpnService {
         builder.setMtu(1280);
         builder.setBlocking(true);
         builder.addAddress(cidr[0], prefix);
-        builder.addRoute("0.0.0.0", 0);
-        builder.addRoute("::", 0);
+        // Off, and on with no saved countries, both keep the full capture.
+        // tunnel.CaptureWithExclusions applies the same rule.
+        boolean geoRouting = getSharedPreferences("veil", MODE_PRIVATE).getBoolean("geo_routing", false);
+        if (geoRouting) {
+            builder.addRoute("0.0.0.0", 0);
+            builder.addRoute("::", 0);
+        } else {
+            builder.addRoute("0.0.0.0", 0);
+            builder.addRoute("::", 0);
+        }
         ParcelFileDescriptor established = builder.establish();
         if (established == null) {
             code = "establish-failed";

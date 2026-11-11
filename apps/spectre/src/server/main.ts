@@ -11,6 +11,7 @@ import { veilFromEnv } from "@infinitum/veil/server";
 import { aiConfigFromEnv } from "./ai.ts";
 import { providersFromEnv } from "../core/messaging.ts";
 import { saveSnapshot, loadSnapshot } from "./persist.ts";
+import { loadGeoRouting } from "../geo-config.ts";
 
 /**
  * Starts +SPCTR.
@@ -56,6 +57,7 @@ const origin = process.env.SPECTRE_ORIGIN ?? `http://localhost:${port}`;
 const rpId = new URL(origin).hostname;
 const cumulus = readCumulusDomain();
 const dataDir = process.env.SPECTRE_DATA_DIR ?? join(here, "../../data");
+loadGeoRouting(dataDir);
 mkdirSync(dataDir, { recursive: true });
 
 // The ledger signing key persists so the Firmament record stays verifiable across restarts.

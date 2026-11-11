@@ -1,7 +1,7 @@
 {
   "name": "@infinitum/firm-wallet",
   "version": "0.1.0",
-  "description": "$FIRM Wallet™: self-custody wallet for Ethereum, Base and Solana with a built-in Infinitum Nexus™ swap, rewards inbox and VEIL Nexus connections.",
+  "description": "$FIRM Wallet\u2122: self-custody wallet for Ethereum, Base and Solana with a built-in Infinitum Nexus\u2122 swap, rewards inbox and VEIL Nexus connections.",
   "type": "module",
   "private": true,
   "license": "UNLICENSED",
@@ -33,6 +33,7 @@
     "@scure/bip39": "^2.4.0",
     "preact": "^11.2.0",
     "qrcode-generator": "^2.0.4",
-    "viem": "^2.57.16"
+    "viem": "^2.57.16",
+    "@infinitum/geo-dat": "workspace:*"
   }
 }

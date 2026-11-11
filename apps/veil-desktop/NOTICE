@@ -14,6 +14,14 @@ macOS NetworkExtension source links WireGuardKit from wireguard-apple (MIT).
 That project is not copied into git. macos/build-macos.sh pins tag 1.0.16-27.
 
 No GPL-licensed source is copied here.
+
+Optional v2fly geoip.dat is CC-BY-SA-4.0:
+https://github.com/v2fly/geoip/releases/tag/202611080027
+https://creativecommons.org/licenses/by-sa/4.0/
+The file is downloaded by scripts/fetch-geo-dat.mjs and is not stored in git.
+Country prefix exclusions are off unless geo routing is turned on. Off keeps
+the full 0.0.0.0/0 and ::/0 capture, the fail-closed kill switch, and DNS
+inside the tunnel.
 Tor is not bundled. The client speaks to a Tor the user installs.
 Tor is published by The Tor Project under a permissive license.
 That interoperability is not a grant of Tor's license and not an endorsement

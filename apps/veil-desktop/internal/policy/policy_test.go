@@ -76,6 +76,29 @@ func TestNftSyntaxWhenAvailable(t *testing.T) {
 	}
 }
 
+func TestDisabledGeoExclusionDoesNotOpenTheKillSwitch(t *testing.T) {
+	up := veilState(true)
+	up.ExcludedPrefixes = []netip.Prefix{netip.MustParsePrefix("203.0.113.0/24")}
+	pkt := Packet{OutIface: "eth0", Proto: "tcp", Dst: netip.MustParseAddr("203.0.113.9"), DstPort: 443}
+	if Decide(up, pkt) != Drop {
+		t.Fatal("a saved exclusion was allowed while geo routing was off")
+	}
+	up.GeoExclude = true
+	if Decide(up, pkt) != Allow {
+		t.Fatal("an enabled exclusion stayed inside the kill switch")
+	}
+	dns := Packet{OutIface: "eth0", Proto: "udp", Dst: netip.MustParseAddr("203.0.113.9"), DstPort: 53}
+	if Decide(up, dns) != Drop {
+		t.Fatal("geo routing allowed DNS to leave the tunnel")
+	}
+	if !strings.Contains(RenderNft(up), "203.0.113.0/24") {
+		t.Fatal("enabled exclusion was missing from nft")
+	}
+	if strings.Contains(RenderNft(veilState(true)), "203.0.113.0/24") {
+		t.Fatal("default nft rules gained an exclusion")
+	}
+}
+
 func TestWindowsAndDarwinRenderersDoNotAllowPublicDNS(t *testing.T) {
 	for _, cmd := range WindowsDNSBlocks() {
 		line := strings.Join(cmd, " ")

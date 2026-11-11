@@ -24,11 +24,13 @@ export interface Prefs {
   predictionAlerts: PriceAlert[];
   /** Data exchange opt-ins by product id (all off unless chosen; GPC overrides). */
   dataSharing: Record<string, boolean>;
+  /** Opt-in v2fly geo routing data. Off leaves every route unchanged. */
+  geoRouting: boolean;
 }
 
 const DEFAULT_PREFS: Prefs = {
   mode: DEFAULT_MODE, marketsAcknowledged: false, connections: [], customTokens: [], autoLockMinutes: 10, slippageBps: 50,
-  predictionWatch: [], predictionAlerts: [], dataSharing: {},
+  predictionWatch: [], predictionAlerts: [], dataSharing: {}, geoRouting: false,
 };
 
 export interface Session {

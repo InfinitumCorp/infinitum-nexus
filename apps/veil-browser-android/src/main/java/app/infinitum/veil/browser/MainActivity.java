@@ -94,6 +94,7 @@ public class MainActivity extends Activity {
     /** Host of the page being opened, before it starts loading. */
     String navHost = "";
     volatile boolean blocking = true;
+    volatile boolean geoRouting = false;
     /** Hosts the person chose to keep on plain HTTP this session. */
     final Set<String> allowedInsecure = new HashSet<>();
     AlertDialog alert;
@@ -121,6 +122,7 @@ public class MainActivity extends Activity {
         // White bars with dark icons, like the other Infinitum apps.
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
         torOff = !new java.io.File(getApplicationInfo().nativeLibraryDir, "libTor.so").exists();
+        geoRouting = getSharedPreferences("veil", MODE_PRIVATE).getBoolean("geo_routing", false);
         setContentView(wrapWithPanel(buildUi()));
         configureWebView();
 
@@ -299,11 +301,16 @@ public class MainActivity extends Activity {
         m.getMenu().add(0, 1, 0, "Home");
         m.getMenu().add(0, 3, 2, "New identity");
         m.getMenu().add(0, 4, 3, "Privacy");
+        m.getMenu().add(0, 5, 4, geoRouting ? "Geo routing: on" : "Geo routing: off");
         m.setOnMenuItemClickListener(item -> {
             switch (item.getItemId()) {
                 case 1: web.loadUrl(HUB); return true;
                 case 3: confirmNewIdentity(); return true;
                 case 4: showPrivacy(); return true;
+                case 5:
+                    geoRouting = !geoRouting;
+                    getSharedPreferences("veil", MODE_PRIVATE).edit().putBoolean("geo_routing", geoRouting).apply();
+                    return true;
             }
             return false;
         });
@@ -393,7 +400,7 @@ public class MainActivity extends Activity {
             public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
                 if (!torReady() && isNetwork(request)) return new WebResourceResponse("text/plain", "utf-8", new java.io.ByteArrayInputStream(new byte[0]));
                 String host = request.getUrl().getHost();
-                if (blocking && host != null && Blocklist.isBlocked(host) && Privacy.isThirdParty(host, panelHost)) {
+                if (blocking && host != null && blockedHost(host) && Privacy.isThirdParty(host, panelHost)) {
                     return new WebResourceResponse("text/plain", "utf-8", new java.io.ByteArrayInputStream(new byte[0]));
                 }
                 return null;
@@ -648,7 +655,7 @@ public class MainActivity extends Activity {
                 // Ad networks, trackers and data brokers, as third-party subresources only.
                 if (!blocking || request.isForMainFrame()) return null;
                 String host = request.getUrl().getHost();
-                if (!Blocklist.isBlocked(host) || !Privacy.isThirdParty(host, pageHost)) return null;
+                if (!blockedHost(host) || !Privacy.isThirdParty(host, pageHost)) return null;
                 blocked++;
                 blockedSession++;
                 return new WebResourceResponse("text/plain", "utf-8", new ByteArrayInputStream(new byte[0]));
@@ -792,6 +799,12 @@ public class MainActivity extends Activity {
         blocked = 0;
         blockedSession = 0;
         allowedInsecure.clear();
+    }
+
+    boolean blockedHost(String host) {
+        if (Blocklist.isBlocked(host)) return true;
+        if (!geoRouting) return false;
+        return Blocklist.matchesExtra(host, java.util.Collections.emptyList());
     }
 
     void showPrivacy() {

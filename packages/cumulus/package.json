@@ -20,7 +20,8 @@
     "@infinitum/firm": "workspace:*",
     "@infinitum/firmament": "workspace:*",
     "@infinitum/mail": "workspace:*",
-    "@infinitum/lbrnth": "workspace:*"
+    "@infinitum/lbrnth": "workspace:*",
+    "@infinitum/geo-dat": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.9.0",

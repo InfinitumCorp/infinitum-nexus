@@ -9,6 +9,7 @@
     <string name="endpoint_hint">IPv4:port</string>
     <string name="public_hint">64 hex characters</string>
     <string name="private_hint">64 hex characters, not saved</string>
+    <string name="geo_routing">Geo routing data</string>
     <string name="connect">Connect</string>
     <string name="disconnect">Disconnect</string>
     <string name="status_label">Tunnel status</string>

@@ -13,6 +13,9 @@ importers:
       '@infinitum/firmament':
         specifier: workspace:*
         version: link:../../packages/firmament
+      '@infinitum/geo-dat':
+        specifier: workspace:*
+        version: link:../../packages/geo-dat
       '@infinitum/lbrnth':
         specifier: workspace:*
         version: link:../../packages/lbrnth
@@ -35,6 +38,9 @@ importers:
       '@infinitum/firmament':
         specifier: workspace:*
         version: link:../../packages/firmament
+      '@infinitum/geo-dat':
+        specifier: workspace:*
+        version: link:../../packages/geo-dat
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -69,6 +75,9 @@ importers:
       '@infinitum/firmament':
         specifier: workspace:*
         version: link:../../packages/firmament
+      '@infinitum/geo-dat':
+        specifier: workspace:*
+        version: link:../../packages/geo-dat
       '@infinitum/lbrnth':
         specifier: workspace:*
         version: link:../../packages/lbrnth
@@ -103,6 +112,9 @@ importers:
       '@infinitum/firmament':
         specifier: workspace:*
         version: link:../../packages/firmament
+      '@infinitum/geo-dat':
+        specifier: workspace:*
+        version: link:../../packages/geo-dat
       '@infinitum/lbrnth-client':
         specifier: workspace:*
         version: link:../../packages/lbrnth-client
@@ -119,6 +131,9 @@ importers:
       '@infinitum/fabric':
         specifier: workspace:*
         version: link:../../packages/fabric
+      '@infinitum/geo-dat':
+        specifier: workspace:*
+        version: link:../../packages/geo-dat
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -132,6 +147,9 @@ importers:
       '@infinitum/conjure':
         specifier: workspace:*
         version: link:../../packages/conjure
+      '@infinitum/geo-dat':
+        specifier: workspace:*
+        version: link:../../packages/geo-dat
       '@infinitum/metatron':
         specifier: workspace:*
         version: link:../../packages/metatron
@@ -187,6 +205,9 @@ importers:
       '@infinitum/firmament':
         specifier: workspace:*
         version: link:../../packages/firmament
+      '@infinitum/geo-dat':
+        specifier: workspace:*
+        version: link:../../packages/geo-dat
       '@infinitum/lbrnth-client':
         specifier: workspace:*
         version: link:../../packages/lbrnth-client
@@ -221,6 +242,9 @@ importers:
       '@infinitum/firmament':
         specifier: workspace:*
         version: link:../../packages/firmament
+      '@infinitum/geo-dat':
+        specifier: workspace:*
+        version: link:../../packages/geo-dat
       '@infinitum/lbrnth':
         specifier: workspace:*
         version: link:../../packages/lbrnth
@@ -275,6 +299,9 @@ importers:
 
   packages/aether:
     dependencies:
+      '@infinitum/geo-dat':
+        specifier: workspace:*
+        version: link:../geo-dat
       '@infinitum/lbrnth-client':
         specifier: workspace:*
         version: link:../lbrnth-client
@@ -287,6 +314,10 @@ importers:
         version: 5.9.3
 
   packages/ai:
+    dependencies:
+      '@infinitum/geo-dat':
+        specifier: workspace:*
+        version: link:../geo-dat
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -297,6 +328,9 @@ importers:
 
   packages/argus:
     dependencies:
+      '@infinitum/geo-dat':
+        specifier: workspace:*
+        version: link:../geo-dat
       '@infinitum/lbrnth-client':
         specifier: workspace:*
         version: link:../lbrnth-client
@@ -310,6 +344,9 @@ importers:
 
   packages/autonomy:
     dependencies:
+      '@infinitum/geo-dat':
+        specifier: workspace:*
+        version: link:../geo-dat
       '@infinitum/hardware':
         specifier: workspace:*
         version: link:../hardware
@@ -325,6 +362,10 @@ importers:
         version: 5.9.3
 
   packages/billing:
+    dependencies:
+      '@infinitum/geo-dat':
+        specifier: workspace:*
+        version: link:../geo-dat
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -334,6 +375,10 @@ importers:
         version: 5.9.3
 
   packages/brand:
+    dependencies:
+      '@infinitum/geo-dat':
+        specifier: workspace:*
+        version: link:../geo-dat
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -347,6 +392,9 @@ importers:
       '@infinitum/firmament':
         specifier: workspace:*
         version: link:../firmament
+      '@infinitum/geo-dat':
+        specifier: workspace:*
+        version: link:../geo-dat
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -363,6 +411,9 @@ importers:
       '@infinitum/firmament':
         specifier: workspace:*
         version: link:../firmament
+      '@infinitum/geo-dat':
+        specifier: workspace:*
+        version: link:../geo-dat
       '@infinitum/lbrnth-client':
         specifier: workspace:*
         version: link:../lbrnth-client
@@ -385,6 +436,9 @@ importers:
       '@infinitum/ai':
         specifier: workspace:*
         version: link:../ai
+      '@infinitum/geo-dat':
+        specifier: workspace:*
+        version: link:../geo-dat
       '@infinitum/lbrnth-client':
         specifier: workspace:*
         version: link:../lbrnth-client
@@ -416,6 +470,9 @@ importers:
       '@infinitum/firmament':
         specifier: workspace:*
         version: link:../firmament
+      '@infinitum/geo-dat':
+        specifier: workspace:*
+        version: link:../geo-dat
       '@infinitum/lbrnth':
         specifier: workspace:*
         version: link:../lbrnth
@@ -438,6 +495,9 @@ importers:
       '@infinitum/firmament':
         specifier: workspace:*
         version: link:../firmament
+      '@infinitum/geo-dat':
+        specifier: workspace:*
+        version: link:../geo-dat
       '@infinitum/lbrnth-client':
         specifier: workspace:*
         version: link:../lbrnth-client
@@ -451,6 +511,9 @@ importers:
 
   packages/drone-backend:
     dependencies:
+      '@infinitum/geo-dat':
+        specifier: workspace:*
+        version: link:../geo-dat
       '@infinitum/lbrnth':
         specifier: workspace:*
         version: link:../lbrnth
@@ -470,6 +533,9 @@ importers:
 
   packages/eidetic:
     dependencies:
+      '@infinitum/geo-dat':
+        specifier: workspace:*
+        version: link:../geo-dat
       '@infinitum/lbrnth-client':
         specifier: workspace:*
         version: link:../lbrnth-client
@@ -483,6 +549,9 @@ importers:
 
   packages/eon:
     dependencies:
+      '@infinitum/geo-dat':
+        specifier: workspace:*
+        version: link:../geo-dat
       '@infinitum/lbrnth-client':
         specifier: workspace:*
         version: link:../lbrnth-client
@@ -496,6 +565,9 @@ importers:
 
   packages/fabric:
     dependencies:
+      '@infinitum/geo-dat':
+        specifier: workspace:*
+        version: link:../geo-dat
       '@infinitum/lbrnth-client':
         specifier: workspace:*
         version: link:../lbrnth-client
@@ -509,6 +581,9 @@ importers:
 
   packages/firm:
     dependencies:
+      '@infinitum/geo-dat':
+        specifier: workspace:*
+        version: link:../geo-dat
       '@infinitum/lbrnth-client':
         specifier: workspace:*
         version: link:../lbrnth-client
@@ -522,6 +597,9 @@ importers:
 
   packages/firmament:
     dependencies:
+      '@infinitum/geo-dat':
+        specifier: workspace:*
+        version: link:../geo-dat
       '@infinitum/lbrnth-client':
         specifier: workspace:*
         version: link:../lbrnth-client
@@ -533,8 +611,20 @@ importers:
         specifier: ^5.9.0
         version: 5.9.3
 
+  packages/geo-dat:
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.20.5
+      typescript:
+        specifier: ^5.9.0
+        version: 5.9.3
+
   packages/hardware:
     dependencies:
+      '@infinitum/geo-dat':
+        specifier: workspace:*
+        version: link:../geo-dat
       '@infinitum/lbrnth-client':
         specifier: workspace:*
         version: link:../lbrnth-client
@@ -548,6 +638,9 @@ importers:
 
   packages/hrvst:
     dependencies:
+      '@infinitum/geo-dat':
+        specifier: workspace:*
+        version: link:../geo-dat
       '@infinitum/lbrnth-client':
         specifier: workspace:*
         version: link:../lbrnth-client
@@ -567,6 +660,9 @@ importers:
       '@infinitum/firmament':
         specifier: workspace:*
         version: link:../firmament
+      '@infinitum/geo-dat':
+        specifier: workspace:*
+        version: link:../geo-dat
       '@infinitum/lbrnth-client':
         specifier: workspace:*
         version: link:../lbrnth-client
@@ -579,6 +675,10 @@ importers:
         version: 5.9.3
 
   packages/lbrnth-client:
+    dependencies:
+      '@infinitum/geo-dat':
+        specifier: workspace:*
+        version: link:../geo-dat
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -592,6 +692,9 @@ importers:
       '@infinitum/cid':
         specifier: workspace:*
         version: link:../cid
+      '@infinitum/geo-dat':
+        specifier: workspace:*
+        version: link:../geo-dat
       '@infinitum/lbrnth-client':
         specifier: workspace:*
         version: link:../lbrnth-client
@@ -605,6 +708,9 @@ importers:
 
   packages/metatron:
     dependencies:
+      '@infinitum/geo-dat':
+        specifier: workspace:*
+        version: link:../geo-dat
       '@infinitum/lbrnth-client':
         specifier: workspace:*
         version: link:../lbrnth-client
@@ -621,6 +727,9 @@ importers:
       '@infinitum/ai':
         specifier: workspace:*
         version: link:../ai
+      '@infinitum/geo-dat':
+        specifier: workspace:*
+        version: link:../geo-dat
       '@infinitum/lbrnth-client':
         specifier: workspace:*
         version: link:../lbrnth-client
@@ -632,7 +741,11 @@ importers:
         specifier: ^5.9.0
         version: 5.9.3
 
-  packages/ui: {}
+  packages/ui:
+    dependencies:
+      '@infinitum/geo-dat':
+        specifier: workspace:*
+        version: link:../geo-dat
 
 packages:
 

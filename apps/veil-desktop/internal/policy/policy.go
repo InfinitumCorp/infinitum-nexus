@@ -41,6 +41,10 @@ type State struct {
 	TorSOCKSPort uint16
 	TransPort    uint16
 	DNSPort      uint16
+	// GeoExclude is opt-in. When it is false, ExcludedPrefixes are ignored and
+	// physical egress stays dropped.
+	GeoExclude       bool
+	ExcludedPrefixes []netip.Prefix
 }
 
 // Decide is the kill switch. Off allows the packet. Every other mode drops it
@@ -78,7 +82,22 @@ func Decide(state State, pkt Packet) Decision {
 		}
 		return Allow
 	}
+	if state.GeoExclude && excludedDestination(state, pkt) {
+		return Allow
+	}
 	return Drop
+}
+
+func excludedDestination(state State, pkt Packet) bool {
+	if pkt.DstPort == 53 || pkt.DstPort == 853 {
+		return false
+	}
+	for _, prefix := range state.ExcludedPrefixes {
+		if prefix.Contains(pkt.Dst) {
+			return true
+		}
+	}
+	return false
 }
 
 // RenderNft renders the same policy as nftables syntax for the inet family.
@@ -100,6 +119,9 @@ func RenderNft(state State) string {
 		}
 		if state.Mode == ModeVeil && state.TunnelUp && state.TunnelIface != "" {
 			fmt.Fprintf(&b, "    oifname %q accept\n", state.TunnelIface)
+		}
+		if state.Mode == ModeVeil && state.GeoExclude {
+			writeExcluded(&b, state.ExcludedPrefixes)
 		}
 		if state.Mode == ModeTor {
 			if state.TorSOCKSPort > 0 {
@@ -168,5 +190,21 @@ func DarwinPf(state State) string {
 	if state.Mode == ModeVeil && state.TunnelUp && state.TunnelIface != "" {
 		fmt.Fprintf(&b, "pass out on %s all\n", state.TunnelIface)
 	}
+	if state.Mode == ModeVeil && state.GeoExclude {
+		for _, prefix := range state.ExcludedPrefixes {
+			fmt.Fprintf(&b, "pass out inet proto { tcp, udp } to %s port != 53\n", prefix)
+		}
+	}
 	return b.String()
+}
+
+func writeExcluded(b *strings.Builder, prefixes []netip.Prefix) {
+	for _, prefix := range prefixes {
+		family := "ip"
+		if prefix.Addr().Is6() {
+			family = "ip6"
+		}
+		fmt.Fprintf(b, "    %s daddr %s tcp dport != { 53, 853 } accept\n", family, prefix)
+		fmt.Fprintf(b, "    %s daddr %s udp dport != { 53, 853 } accept\n", family, prefix)
+	}
 }

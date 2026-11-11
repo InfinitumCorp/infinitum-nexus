@@ -33,6 +33,12 @@ export function SettingsScreen() {
               {[10, 50, 100, 300].map((b) => <option value={String(b)}>{(b / 100).toFixed(1)}%</option>)}
             </select>
           </Field>
+          <Field label="Geo routing">
+            <select value={prefs.geoRouting ? "on" : "off"} onChange={(e) => savePrefs({ geoRouting: (e.target as HTMLSelectElement).value === "on" })}>
+              <option value="off">Off</option>
+              <option value="on">On</option>
+            </select>
+          </Field>
           <Field label="Auto-lock">
             <select value={String(prefs.autoLockMinutes)} onChange={(e) => savePrefs({ autoLockMinutes: Number((e.target as HTMLSelectElement).value) })}>
               {[1, 5, 10, 30].map((m) => <option value={String(m)}>After {m} minute{m === 1 ? "" : "s"} idle</option>)}

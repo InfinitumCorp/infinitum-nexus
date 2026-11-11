@@ -15,6 +15,7 @@ import (
 
 	"github.com/InfinitumCorp/infinitum-nexus/apps/veil-desktop/internal/app"
 	"github.com/InfinitumCorp/infinitum-nexus/apps/veil-desktop/internal/controlclient"
+	"github.com/InfinitumCorp/infinitum-nexus/apps/veil-desktop/internal/geosetting"
 	"github.com/InfinitumCorp/infinitum-nexus/apps/veil-desktop/internal/localapi"
 	"github.com/InfinitumCorp/infinitum-nexus/apps/veil-desktop/internal/system"
 	"github.com/InfinitumCorp/infinitum-nexus/apps/veil-desktop/internal/tor"
@@ -54,8 +55,10 @@ func usage() {
   veil-desktop daemon --control https://infinitumveil.app --token-file session
   veil-desktop status
   veil-desktop mode veil|tor|off
+  veil-desktop run --geo-routing
 
 Default mode is VEIL VPN. Tor uses a local Tor client and does not call Infinitum.
+Geo routing is off unless --geo-routing or INFINITUM_GEO_ENABLED is set. The choice is saved. Off keeps the full tunnel and the fail-closed kill switch.
 The browser extension remains browser-only. This process is the device-wide client.
 `)
 }
@@ -66,6 +69,7 @@ type options struct {
 	tokenFile string
 	server    string
 	socks     string
+	geo       bool
 }
 
 func parseOptions(args []string) options {
@@ -77,6 +81,7 @@ func parseOptions(args []string) options {
 	fs.StringVar(&opt.tokenFile, "token-file", os.Getenv("VEIL_CID_TOKEN_FILE"), "file containing the Cumulus ID session token")
 	fs.StringVar(&opt.server, "server", "iad-1", "VEIL exit id")
 	fs.StringVar(&opt.socks, "tor-socks", tor.DefaultSOCKS, "local Tor SOCKS address")
+	fs.BoolVar(&opt.geo, "geo-routing", false, "opt-in country prefix exclusions")
 	_ = fs.Parse(args)
 	if opt.token == "" {
 		opt.token = os.Getenv("VEIL_CID_TOKEN")
@@ -92,6 +97,10 @@ func parseOptions(args []string) options {
 
 func run(command string, args []string) int {
 	opt := parseOptions(args)
+	if path, err := geosetting.DefaultPath(); err == nil {
+		_, _ = geosetting.Resolve(path, args, os.Getenv("INFINITUM_GEO_ENABLED"))
+	}
+	_ = opt.geo
 	controller := app.New(system.New(), controlclient.Client{BaseURL: opt.control, Token: opt.token}, torInspector{socks: opt.socks}, opt.server)
 	api, err := localapi.New(controller)
 	if err != nil {

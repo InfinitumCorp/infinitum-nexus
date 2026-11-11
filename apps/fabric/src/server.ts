@@ -18,7 +18,10 @@ import { createHandler } from "./http.ts";
 import { FabricService } from "./service.ts";
 import { FabricStore } from "./store.ts";
 
+import { loadGeoRouting } from "./geo-config.ts";
+
 const config = loadConfig(process.env);
+loadGeoRouting(config.dataDir);
 mkdirSync(config.dataDir, { recursive: true });
 const masterKey = loadMasterKey(config.dataDir);
 const store = new FabricStore(config.databasePath);

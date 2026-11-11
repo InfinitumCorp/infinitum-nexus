@@ -10,6 +10,9 @@ test("configuration fails closed and never invents a secret", () => {
   const ok = hostConfigFromEnv({ ...base, LBRNTH_ENTITLED_ORGS: " org_a, ,org_b " });
   assert.equal(ok.config?.directoryUrl, "https://id.cumuluscloud.app/api/id/labyrinth-directory");
   assert.deepEqual(ok.config?.entitledOrgs(), ["org_a", "org_b"]);
+  assert.equal(ok.config?.databaseCa, undefined);
+  const supabase = hostConfigFromEnv({ ...base, DATABASE_URL: "postgresql://u@aws-1-eu-west-1.pooler.supabase.com:5432/postgres" });
+  assert.match(supabase.config?.databaseCa ?? "", /BEGIN CERTIFICATE/);
   assert.throws(() => hostConfigFromEnv({ ...base, LBRNTH_MASTER_KEY: Buffer.alloc(31, 1).toString("base64") }), /32-byte/);
   assert.throws(() => hostConfigFromEnv({ ...base, DATABASE_URL: "mysql://x" }), /postgres/);
   assert.throws(() => hostConfigFromEnv({ ...base, CID_DIRECTORY_KEY: "short" }), /32-512/);

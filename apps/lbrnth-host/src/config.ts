@@ -1,10 +1,16 @@
+import { readFileSync } from "node:fs";
+
+/** Public Supabase Root 2021 CA (sha256 80:70:25:AD:…:CA:FA), from Supabase's published download. */
+const SUPABASE_ROOT_CA = new URL("../certs/supabase-root-2021.crt", import.meta.url);
+
 /**
  * Labyrinth host configuration, read from the environment (Cloud Run secrets and variables).
  * Nothing here has a default secret, and a missing value keeps /api/labyrinth at 503.
  *
  *   LBRNTH_MASTER_KEY     canonical base64, exactly 32 bytes (Secret Manager)
  *   DATABASE_URL          Supabase Postgres connection string (Secret Manager)
- *   DATABASE_CA_PEM       optional PEM of the database CA; when unset, system CAs are used
+ *   DATABASE_CA_PEM       optional PEM of the database CA. Unset: Supabase hosts use the bundled
+ *                         Supabase Root 2021 CA (certs/), other hosts the system CAs
  *   CID_DIRECTORY_KEY     service key for id.cumuluscloud.app's labyrinth directory (Secret Manager)
  *   CID_DIRECTORY_URL     default https://id.cumuluscloud.app/api/id/labyrinth-directory
  *   LBRNTH_ENTITLED_ORGS  optional comma-separated operator allowlist of CID org ids
@@ -34,7 +40,7 @@ export function hostConfigFromEnv(env: Record<string, string | undefined>): { co
     config: {
       masterKey: new Uint8Array(masterKey),
       databaseUrl,
-      databaseCa: env.DATABASE_CA_PEM || undefined,
+      databaseCa: env.DATABASE_CA_PEM || (new URL(databaseUrl).hostname.endsWith(".supabase.com") ? readFileSync(SUPABASE_ROOT_CA, "utf8") : undefined),
       directoryUrl: env.CID_DIRECTORY_URL || "https://id.cumuluscloud.app/api/id/labyrinth-directory",
       directoryKey,
       // Read on every request so an operator change takes effect on the next revision.

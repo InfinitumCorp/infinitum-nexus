@@ -1,0 +1,447 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		C4B000000000000000000001 /* CumulusApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4F000000000000000000001 /* CumulusApp.swift */; };
+		C4B000000000000000000002 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4F000000000000000000002 /* Theme.swift */; };
+		C4B000000000000000000003 /* AppleServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4F000000000000000000003 /* AppleServices.swift */; };
+		C4B000000000000000000004 /* SessionModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4F000000000000000000004 /* SessionModel.swift */; };
+		C4B000000000000000000005 /* SignInView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4F000000000000000000005 /* SignInView.swift */; };
+		C4B000000000000000000006 /* IDView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4F000000000000000000006 /* IDView.swift */; };
+		C4B000000000000000000007 /* MailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4F000000000000000000007 /* MailView.swift */; };
+		C4B000000000000000000008 /* CloudView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4F000000000000000000008 /* CloudView.swift */; };
+		C4B000000000000000000009 /* DownloadView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4F000000000000000000009 /* DownloadView.swift */; };
+		C4B00000000000000000000A /* ShellView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4F00000000000000000000A /* ShellView.swift */; };
+		C4B00000000000000000000B /* CumulusConfiguration.json in Resources */ = {isa = PBXBuildFile; fileRef = C4F00000000000000000000B /* CumulusConfiguration.json */; };
+		C4B00000000000000000000C /* CumulusUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4F00000000000000000000C /* CumulusUITests.swift */; };
+		C4B00000000000000000000D /* CumulusKit in Frameworks */ = {isa = PBXBuildFile; productRef = C4D000000000000000000002 /* CumulusKit */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		C4E000000000000000000001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = C4E000000000000000000003 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = C4E000000000000000000004;
+			remoteInfo = Cumulus;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		C4F000000000000000000001 /* CumulusApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CumulusApp.swift; sourceTree = "<group>"; };
+		C4F000000000000000000002 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
+		C4F000000000000000000003 /* AppleServices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleServices.swift; sourceTree = "<group>"; };
+		C4F000000000000000000004 /* SessionModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionModel.swift; sourceTree = "<group>"; };
+		C4F000000000000000000005 /* SignInView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignInView.swift; sourceTree = "<group>"; };
+		C4F000000000000000000006 /* IDView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IDView.swift; sourceTree = "<group>"; };
+		C4F000000000000000000007 /* MailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MailView.swift; sourceTree = "<group>"; };
+		C4F000000000000000000008 /* CloudView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudView.swift; sourceTree = "<group>"; };
+		C4F000000000000000000009 /* DownloadView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadView.swift; sourceTree = "<group>"; };
+		C4F00000000000000000000A /* ShellView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellView.swift; sourceTree = "<group>"; };
+		C4F00000000000000000000B /* CumulusConfiguration.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = CumulusConfiguration.json; sourceTree = "<group>"; };
+		C4F00000000000000000000C /* CumulusUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CumulusUITests.swift; sourceTree = "<group>"; };
+		C4F00000000000000000000D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		C4F00000000000000000000E /* Cumulus.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Cumulus.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		C4F00000000000000000000F /* CumulusUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CumulusUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		C4P000000000000000000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C4B00000000000000000000D /* CumulusKit in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C4P000000000000000000002 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		C4G000000000000000000001 = {
+			isa = PBXGroup;
+			children = (
+				C4G000000000000000000002 /* App */,
+				C4G000000000000000000004 /* UITests */,
+				C4G000000000000000000005 /* Config */,
+				C4G000000000000000000006 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		C4G000000000000000000002 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				C4F000000000000000000001 /* CumulusApp.swift */,
+				C4F000000000000000000002 /* Theme.swift */,
+				C4F000000000000000000003 /* AppleServices.swift */,
+				C4F000000000000000000004 /* SessionModel.swift */,
+				C4F000000000000000000005 /* SignInView.swift */,
+				C4F000000000000000000006 /* IDView.swift */,
+				C4F000000000000000000007 /* MailView.swift */,
+				C4F000000000000000000008 /* CloudView.swift */,
+				C4F000000000000000000009 /* DownloadView.swift */,
+				C4F00000000000000000000A /* ShellView.swift */,
+				C4G000000000000000000003 /* Resources */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		C4G000000000000000000003 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				C4F00000000000000000000B /* CumulusConfiguration.json */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		C4G000000000000000000004 /* UITests */ = {
+			isa = PBXGroup;
+			children = (
+				C4F00000000000000000000C /* CumulusUITests.swift */,
+			);
+			path = UITests;
+			sourceTree = "<group>";
+		};
+		C4G000000000000000000005 /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				C4F00000000000000000000D /* Info.plist */,
+			);
+			path = Config;
+			sourceTree = "<group>";
+		};
+		C4G000000000000000000006 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				C4F00000000000000000000E /* Cumulus.app */,
+				C4F00000000000000000000F /* CumulusUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		C4E000000000000000000004 /* Cumulus */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C4L000000000000000000003 /* Build configuration list for PBXNativeTarget "Cumulus" */;
+			buildPhases = (
+				C4P000000000000000000003 /* Sources */,
+				C4P000000000000000000001 /* Frameworks */,
+				C4P000000000000000000004 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = Cumulus;
+			packageProductDependencies = (
+				C4D000000000000000000002 /* CumulusKit */,
+			);
+			productName = Cumulus;
+			productReference = C4F00000000000000000000E /* Cumulus.app */;
+			productType = "com.apple.product-type.application";
+		};
+		C4E000000000000000000005 /* CumulusUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C4L000000000000000000004 /* Build configuration list for PBXNativeTarget "CumulusUITests" */;
+			buildPhases = (
+				C4P000000000000000000005 /* Sources */,
+				C4P000000000000000000002 /* Frameworks */,
+				C4P000000000000000000006 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				C4E000000000000000000002 /* PBXTargetDependency */,
+			);
+			name = CumulusUITests;
+			packageProductDependencies = (
+			);
+			productName = CumulusUITests;
+			productReference = C4F00000000000000000000F /* CumulusUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		C4E000000000000000000003 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastUpgradeCheck = 1600;
+				TargetAttributes = {
+					C4E000000000000000000004 = {
+						CreatedOnToolsVersion = 16.0;
+					};
+					C4E000000000000000000005 = {
+						CreatedOnToolsVersion = 16.0;
+						TestTargetID = C4E000000000000000000004;
+					};
+				};
+			};
+			buildConfigurationList = C4L000000000000000000001 /* Build configuration list for PBXProject "Cumulus" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = C4G000000000000000000001;
+			packageReferences = (
+				C4D000000000000000000001 /* XCLocalSwiftPackageReference "." */,
+			);
+			productRefGroup = C4G000000000000000000006 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				C4E000000000000000000004 /* Cumulus */,
+				C4E000000000000000000005 /* CumulusUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		C4P000000000000000000004 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C4B00000000000000000000B /* CumulusConfiguration.json in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C4P000000000000000000006 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		C4P000000000000000000003 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C4B000000000000000000001 /* CumulusApp.swift in Sources */,
+				C4B000000000000000000002 /* Theme.swift in Sources */,
+				C4B000000000000000000003 /* AppleServices.swift in Sources */,
+				C4B000000000000000000004 /* SessionModel.swift in Sources */,
+				C4B000000000000000000005 /* SignInView.swift in Sources */,
+				C4B000000000000000000006 /* IDView.swift in Sources */,
+				C4B000000000000000000007 /* MailView.swift in Sources */,
+				C4B000000000000000000008 /* CloudView.swift in Sources */,
+				C4B000000000000000000009 /* DownloadView.swift in Sources */,
+				C4B00000000000000000000A /* ShellView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C4P000000000000000000005 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C4B00000000000000000000C /* CumulusUITests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		C4E000000000000000000002 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = C4E000000000000000000004 /* Cumulus */;
+			targetProxy = C4E000000000000000000001 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		C4C000000000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = auto;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		C4C000000000000000000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				SDKROOT = auto;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_VERSION = 5.0;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		C4C000000000000000000003 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "";
+				CODE_SIGNING_ALLOWED = NO;
+				CODE_SIGNING_REQUIRED = NO;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = NO;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Config/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @executable_path/../Frameworks";
+				PRODUCT_BUNDLE_IDENTIFIER = app.cumuluscloud.suite;
+				PRODUCT_NAME = Cumulus;
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		C4C000000000000000000004 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "";
+				CODE_SIGNING_ALLOWED = NO;
+				CODE_SIGNING_REQUIRED = NO;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = NO;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Config/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @executable_path/../Frameworks";
+				PRODUCT_BUNDLE_IDENTIFIER = app.cumuluscloud.suite;
+				PRODUCT_NAME = Cumulus;
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		C4C000000000000000000005 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "";
+				CODE_SIGNING_ALLOWED = NO;
+				CODE_SIGNING_REQUIRED = NO;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = app.cumuluscloud.suite.uitests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SUPPORTS_MACCATALYST = NO;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Cumulus.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Cumulus";
+				TEST_TARGET_NAME = Cumulus;
+			};
+			name = Debug;
+		};
+		C4C000000000000000000006 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "";
+				CODE_SIGNING_ALLOWED = NO;
+				CODE_SIGNING_REQUIRED = NO;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = app.cumuluscloud.suite.uitests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SUPPORTS_MACCATALYST = NO;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Cumulus.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Cumulus";
+				TEST_TARGET_NAME = Cumulus;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		C4L000000000000000000001 /* Build configuration list for PBXProject "Cumulus" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C4C000000000000000000001 /* Debug */,
+				C4C000000000000000000002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		C4L000000000000000000003 /* Build configuration list for PBXNativeTarget "Cumulus" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C4C000000000000000000003 /* Debug */,
+				C4C000000000000000000004 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		C4L000000000000000000004 /* Build configuration list for PBXNativeTarget "CumulusUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C4C000000000000000000005 /* Debug */,
+				C4C000000000000000000006 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		C4D000000000000000000001 /* XCLocalSwiftPackageReference "." */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ".";
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		C4D000000000000000000002 /* CumulusKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C4D000000000000000000001 /* XCLocalSwiftPackageReference "." */;
+			productName = CumulusKit;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = C4E000000000000000000003 /* Project object */;
+}

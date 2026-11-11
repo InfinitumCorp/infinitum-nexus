@@ -6,6 +6,9 @@
 
 export const VEIL_GECKO_ID = "veil@infinitum.corporation";
 
+/** Store and browser-UI description, translated through _locales (scripts/translate.ts --chrome). */
+export const DESCRIPTION_MESSAGE = "__MSG_ext_description__";
+
 export function extensionDescription() {
   return "VEIL VPN and optional Tor for this browser from Infinitum Corporation®. It is not a device-wide VPN.";
 }
@@ -22,7 +25,8 @@ function shared(version) {
     manifest_version: 3,
     name: "VEIL</>™",
     version,
-    description: extensionDescription(),
+    description: DESCRIPTION_MESSAGE,
+    default_locale: "en",
     permissions: ["storage", "tabs", "proxy", "privacy", "browsingData", "alarms", "webRequest",
       // Default-on tracker, ad-network and data-broker blocking (lib/blocklist.js)
       // and the per-site blocked count in the VEIL shield.

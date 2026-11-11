@@ -1,0 +1,26 @@
+{
+  "name": "@infinitum/i18n",
+  "version": "0.1.0",
+  "description": "UI localization for every Infinitum app: language detection with a remembered manual choice, build-time catalogs translated by open-weight models, English fallback, RTL.",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./src/i18n.js",
+    "./react": "./src/react.js",
+    "./content": "./src/content.ts",
+    "./i18n.css": "./src/i18n.css"
+  },
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "translate": "node --experimental-strip-types scripts/translate.ts",
+    "sync": "node scripts/sync.mjs",
+    "typecheck": "tsc -p . --noEmit",
+    "test": "node --test --experimental-strip-types $(find src scripts -name \"*.test.ts\" 2>/dev/null || true)"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.0",
+    "@types/node": "^22.0.0"
+  }
+}

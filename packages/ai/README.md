@@ -56,3 +56,7 @@ Nothing here needs a paid plan.
 
 - **Local:** OmniRoute routes to Ollama on the same machine. The `infinitum-open` combo lists the local models (qwen3:8b, gpt-oss:20b). Set `OMNIROUTE_BASE_URL=http://localhost:20128/v1` and `OMNIROUTE_SMART_MODEL=infinitum-open`. A local gateway needs no key.
 - **Deployed on Cloudflare Workers:** declare the AI binding (`"ai": { "binding": "AI" }`) and add `workersAiProvider(env.AI)` to the router's providers. It runs Workers AI open models inside Cloudflare's free daily allowance with no token. When the allowance runs out, the router cools the host down and moves to the next one.
+
+## OpenClaw (`@infinitum/ai/openclaw`)
+
+`@openclaw <task>` in any product's chat, Ask or compose box hands the task to the person's [OpenClaw](https://openclaw.ai) agent gateway and shows the answer, the same way `@conjure` works. It is off until `OPENCLAW_GATEWAY_URL` and `OPENCLAW_GATEWAY_TOKEN` are set on the product's server. The client is one dependency-free file, `src/openclaw/openclaw.mjs`, so products outside this monorepo get a synced copy (`node packages/ai/scripts/sync-openclaw.mjs <dest>`). Setup, routes and safety notes: [src/openclaw/README.md](src/openclaw/README.md).

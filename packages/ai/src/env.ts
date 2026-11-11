@@ -9,7 +9,10 @@
  *                                            OmniRoute gateway, default http://localhost:20128/v1,
  *                                            model "auto" (OmniRoute picks) unless a combo is named
  *   GROQ_API_KEY, CEREBRAS_API_KEY, TOGETHER_API_KEY, FIREWORKS_API_KEY,
- *   DEEPINFRA_API_KEY, OPENROUTER_API_KEY, AI21_API_KEY
+ *   DEEPINFRA_API_KEY, OPENROUTER_API_KEY, AI21_API_KEY,
+ *   DEEPSEEK_API_KEY, SILICONFLOW_API_KEY
+ *   DeepSeek's own API is https://api.deepseek.com (deepseek-v4-pro, deepseek-flash).
+ *   SiliconFlow is https://api.siliconflow.cn/v1.
  *   AI21 serves chat/completions at https://api.ai21.com/studio/v1.
  *   Its Jamba models are not OSI, so map a catalog id with AI_MODEL_MAP.
  *   CLOUDFLARE_ACCOUNT_ID + CLOUDFLARE_AI_TOKEN   Workers AI

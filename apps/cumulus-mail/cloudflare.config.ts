@@ -33,8 +33,9 @@ export default defineConfig({
     triggers: [triggers.scheduled({ schedule: "* * * * *" })], // send scheduled mail that is due
     env: {
       MAIL_ORIGIN: bindings.text(`https://${host}`),
-      // Mirror through AWS CloudFront for networks that throttle Cloudflare (Russian ISPs).
-      MAIL_EXTRA_ORIGINS: bindings.text(`https://ru.${host}`),
+      // Mirrors for networks that throttle Cloudflare (Russian ISPs): ru. is AWS (also throttled in
+      // Russia since 2026-11); ru2. is Firebase Hosting -> Cloud Run (mirror/), which gets through.
+      MAIL_EXTRA_ORIGINS: bindings.text(`https://ru.${host},https://ru2.${host}`),
       FIRMAMENT_SIGNER_KEY: bindings.secret(),
       NEXUS_STORE_URL: bindings.secret(),
       NEXUS_STORE_KEY: bindings.secret(),

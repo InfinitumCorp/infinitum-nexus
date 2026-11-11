@@ -1,0 +1,7 @@
+{
+  "hosting": {
+    "site": "cumulus-mail-ru",
+    "public": "empty",
+    "rewrites": [{ "source": "**", "run": { "serviceId": "cumulus-mail-mirror", "region": "europe-north1" } }]
+  }
+}

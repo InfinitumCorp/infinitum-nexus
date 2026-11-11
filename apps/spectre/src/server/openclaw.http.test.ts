@@ -79,6 +79,9 @@ describe("+SPCTR @scalvs in Ask", () => {
     const me = await signUp(base, "casey");
     const res = await call(base, "POST", "/api/ask", { question: "@scalus" }, me.cookie);
     assert.equal(res.status, 400);
+    const ok = await call(base, "POST", "/api/ask", { question: "@Scalus what is at risk?" }, me.cookie);
+    assert.equal(ok.status, 200);
+    assert.equal(sent.at(-1).messages.at(-1).content, "what is at risk?");
   });
 
   it("says how to connect OpenClaw when it isn't set up", async () => {

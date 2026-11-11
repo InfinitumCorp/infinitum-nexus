@@ -24,6 +24,11 @@ export default defineConfig({
     compatibilityDate: "2026-11-01",
     compatibilityFlags: ["nodejs_compat"],
     domains: [host],
+    // The web app (public/: index.html, app.js, manifest, sw.js…) is served as static assets; the
+    // directory comes from wrangler.config.ts. Without this block a `cf deploy` uploads only the
+    // Worker code and / answers 404 (as happened on 2026-11-10). Same settings the wrangler
+    // deploys used: files first, then the Worker; no SPA fallback.
+    assets: { htmlHandling: "auto-trailing-slash", notFoundHandling: "none" },
     observability: { enabled: true },
     triggers: [triggers.scheduled({ schedule: "* * * * *" })], // send scheduled mail that is due
     env: {
@@ -33,6 +38,12 @@ export default defineConfig({
       FIRMAMENT_SIGNER_KEY: bindings.secret(),
       NEXUS_STORE_URL: bindings.secret(),
       NEXUS_STORE_KEY: bindings.secret(),
+      // Already on the live Worker; declared here so a deploy keeps them.
+      EMAIL: bindings.sendEmail(),
+      MAIL_FILES: bindings.r2({ name: "cumulus-mail-files" }),
+      DOWNLOADS_SITE: bindings.worker({ worker: "cumulus-downloads" }),
+      GOOGLE_CLIENT_ID: bindings.secret(),
+      GOOGLE_CLIENT_SECRET: bindings.secret(),
     },
   },
 });

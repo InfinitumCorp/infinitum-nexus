@@ -36,6 +36,9 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
+        // A visible white window: some OEM power managers (TECNO Hiber) freeze an app whose only
+        // window is translucent and empty, which would stop the probe below.
+        getWindow().getDecorView().setBackgroundColor(0xFFFFFFFF);
         final String main = getString(R.string.spctr_url);
         final String mirror = getString(R.string.mirror_url);
         if (mirror.isEmpty()) {
@@ -44,7 +47,18 @@ public class MainActivity extends Activity {
         }
         final Handler ui = new Handler(Looper.getMainLooper());
         new Thread(() -> {
-            String base = !reachable(main) && reachable(mirror) ? mirror : main;
+            // Probe both at once so the wait is one PROBE_MS at most.
+            final boolean[] ok = new boolean[2];
+            Thread a = new Thread(() -> ok[0] = reachable(main));
+            Thread b = new Thread(() -> ok[1] = reachable(mirror));
+            a.start();
+            b.start();
+            try {
+                a.join(PROBE_MS + 500);
+                b.join(500);
+            } catch (InterruptedException ignored) {
+            }
+            String base = !ok[0] && ok[1] ? mirror : main;
             ui.post(() -> open(target(base)));
         }).start();
     }

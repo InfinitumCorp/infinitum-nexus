@@ -4,5 +4,5 @@
     <!-- Replaced at build time by build-apk.sh (SPCTR_URL). -->
     <string name="spctr_url" translatable="false">https://id.cumuluscloud.app</string>
     <!-- Mirror for networks that throttle Cloudflare. Replaced by build-apk.sh (MIRROR_URL); empty disables it. -->
-    <string name="mirror_url" translatable="false"></string>
+    <string name="mirror_url" translatable="false">https://ru.id.cumuluscloud.app</string>
 </resources>

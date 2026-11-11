@@ -338,6 +338,9 @@ importers:
       '@infinitum/lbrnth-client':
         specifier: workspace:*
         version: link:../lbrnth-client
+      '@infinitum/sense':
+        specifier: workspace:*
+        version: link:../sense
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -560,6 +563,9 @@ importers:
       '@infinitum/lbrnth-client':
         specifier: workspace:*
         version: link:../lbrnth-client
+      '@infinitum/sense':
+        specifier: workspace:*
+        version: link:../sense
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -573,6 +579,9 @@ importers:
       '@infinitum/lbrnth-client':
         specifier: workspace:*
         version: link:../lbrnth-client
+      '@infinitum/sense':
+        specifier: workspace:*
+        version: link:../sense
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -649,6 +658,15 @@ importers:
       '@infinitum/lbrnth-client':
         specifier: workspace:*
         version: link:../lbrnth-client
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.20.5
+      typescript:
+        specifier: ^5.9.0
+        version: 5.9.3
+
+  packages/sense:
     devDependencies:
       '@types/node':
         specifier: ^22.0.0

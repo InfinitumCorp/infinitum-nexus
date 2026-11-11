@@ -9,6 +9,8 @@ Public repositories were checked on 2026-11-11. A repo is in this tree only when
 | [yandex/speechkitcloud](https://github.com/yandex/speechkitcloud) | Apache-2.0 | `third_party/yandex-speechkit` | Browser voice client and speech protocol. The upstream OSX binary is not included. |
 | [google/open-location-code](https://github.com/google/open-location-code) | Apache-2.0 | `third_party/google-open-location-code` | Plus Codes. HRVST calls this for every consented location sample. |
 | [open-dis/open-dis-javascript](https://github.com/open-dis/open-dis-javascript) | BSD-2-Clause | `third_party/open-dis` | IEEE 1278.1 simulation protocol. Autonomy writes entity-state position reports. It does not call fire, detonation, minefield, or designator PDUs. |
+| [nasa/cFE](https://github.com/nasa/cFE) | Apache-2.0 | `third_party/nasa-cfe` | Primary header. Autonomy writes the six bytes from `CFE_MSG_CMD_HDR_INIT`. The rest of cFE is not compiled. |
+| [cyberark/conjur-api-python3](https://github.com/cyberark/conjur-api-python3) | Apache-2.0 | `third_party/cyberark-conjur` | Resource id parser. `@infinitum/cloud` follows `Resource.from_full_id`. |
 
 ## Used through our own adapters
 
@@ -73,13 +75,13 @@ Public repo counts are from GitHub on 2026-11-11. None of these trees are copied
 | JFrog | jfrog | 311 | Supply-chain product. Not a sensing library. |
 | Snyk | snyk | 240 | CLI has no SPDX id on the repo. Not copied. |
 | Redis | redis, RedisLabs, redis-developer | 85 + 144 + 395 | Current Redis is not an OSI license. Not copied. |
-| CyberArk | cyberark | 196 | Conjur and Summon are their vault. Secrets stay in our own store. |
+| CyberArk | cyberark | 196 | The Conjur resource-id rule is what `@infinitum/cloud` runs. Summon and the vault are not copied. |
 | Check Point | CheckPointSW | 146 | The small MIT repos are malware unpackers, evasion notes, and a tracer that spoofs a machine so malware will run. Those are not product code and are not imported. |
 | Aqua | aquasecurity | 215 | Trivy is Apache-2.0 and about 950 MB. It stays upstream. |
 | Cloudinary | cloudinary | 140 | Media pipeline. Not copied. |
 | StarkWare | starkware-libs | 78 | Cairo is Apache-2.0 and about 278 MB. Not copied. |
 | Fireblocks | fireblocks | 70 | Custody SDK. Not a sensing library. |
-| AI21 | AI21Labs | 31 | The Python SDK and tokenizer are Apache-2.0. Jamba weights use a separate license, so the model is not added next to the OSI models. |
+| AI21 | AI21Labs | 31 | Chat completions are a provider in `@infinitum/ai` when `AI21_API_KEY` and `AI_MODEL_MAP` are set. Jamba weights are not an OSI license and are not in `MODELS`. |
 | Elementor | elementor | 66 | GPL-3.0. Not merged into these apps. |
 | Hailo | hailo-ai | 47 | Model zoo and apps are large. Drivers are GPL. Not copied. |
 | Habana | HabanaAI | 48 | Accelerator stack. Not copied. |
@@ -94,11 +96,11 @@ Checked on 2026-11-11. Applied only where the license allows a copy and the Type
 | Upstream | License | Decision |
 |---|---|---|
 | open-dis/open-dis-javascript | BSD-2-Clause | Vendored. `@infinitum/autonomy` encodes an entity-state PDU for a platform's own position. |
-| nasa/cFS and nasa/cFE | Apache-2.0 | Not copied. cFS is a superproject of C submodules, and cFE is about 53 MB of flight software. These apps do not compile it. |
+| nasa/cFS and nasa/cFE | Apache-2.0 | The primary header is vendored and written by `@infinitum/autonomy`. The rest of cFE is about 53 MB of C and is not compiled. |
 | nasa/fprime | Apache-2.0 | Not copied. About 800 MB. |
-| PX4/PX4-Autopilot | BSD-3-Clause | Not copied. About 600 MB, and it is a flight controller. The drone backend does not take control, planning, navigation, or targeting. |
+| PX4/PX4-Autopilot | BSD-3-Clause | Not copied. About 600 MB, and it is a flight controller. A heartbeat with autopilot id 12 is labeled `px4`. The drone backend still does not command the vehicle. |
 | cisagov/cset | MIT | Not copied. A desktop evaluation app of about 2 GB. |
-| ArduPilot, GNU Radio | GPL-3.0 | Not copied. |
+| ArduPilot, GNU Radio | GPL-3.0 | Not copied. A heartbeat with autopilot id 3 is labeled `ardupilot`. The GPL tree is not linked. |
 | JSBSim | LGPL-2.1 | Not copied into this proprietary tree. |
 | defenseunicorns/uds-core | AGPL-3.0 | Not copied. |
 | deptofdefense/AndroidTacticalAssaultKit-CIV | No SPDX license | Not copied. |

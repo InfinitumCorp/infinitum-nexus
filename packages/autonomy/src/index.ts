@@ -10,6 +10,7 @@ export { planCoverage, scheduleDocking } from "./swarm.ts";
 export type { CoveragePlan, DockSlot, SurveyArea } from "./swarm.ts";
 export { entityState, readEntityState } from "./dis.ts";
 export type { EntityFix } from "./dis.ts";
+export { cfsPrimaryHeader } from "./cfs.ts";
 
 export { parseSafetyCommand, wgsToLocal, haversineM } from "@infinitum/sense";
 export type { LatLon, SafetyCommand } from "@infinitum/sense";

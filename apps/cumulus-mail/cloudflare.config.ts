@@ -38,12 +38,14 @@ export default defineConfig({
       FIRMAMENT_SIGNER_KEY: bindings.secret(),
       NEXUS_STORE_URL: bindings.secret(),
       NEXUS_STORE_KEY: bindings.secret(),
-      // Bindings the live Worker carries; a deploy that leaves one out removes it.
-      DOWNLOADS_SITE: bindings.worker({ worker: "cumulus-downloads" }), // serves /download/
-      MAIL_FILES: bindings.r2({ name: "cumulus-mail-files" }), // attachments
-      EMAIL: bindings.sendEmail(), // outside mail through Cloudflare Email Sending
+      // Already on the live Worker; declared here so a deploy keeps them.
+      EMAIL: bindings.sendEmail(),
+      MAIL_FILES: bindings.r2({ name: "cumulus-mail-files" }),
+      DOWNLOADS_SITE: bindings.worker({ worker: "cumulus-downloads" }),
       GOOGLE_CLIENT_ID: bindings.secret(),
       GOOGLE_CLIENT_SECRET: bindings.secret(),
+      // Hosted Labyrinth relay target (https://<cloud-run-host>/api/labyrinth), set with wrangler secret put.
+      LBRNTH_ENDPOINT: bindings.secret(),
     },
   },
 });

@@ -26,6 +26,18 @@ describe("shared product clients", () => {
     assert.equal(idClientFor("infinitum", "https://developer.infinitumcorporation.ai/"), null);
   });
 
+  it("lets internal tools return to a loopback port, and nobody else", () => {
+    assert.ok(idClientFor("1mind", "http://127.0.0.1:4400/auth/cid/callback"));
+    assert.ok(idClientFor("conjure", "http://localhost:4317/auth/cid/callback"));
+    assert.ok(idClientFor("eidetic-admin", "http://127.0.0.1:43112/"));
+    assert.ok(idClientFor("eidetic-reviewer", "http://localhost:43111/"));
+    assert.equal(idClientFor("1mind", "http://127.0.0.1/auth/cid/callback"), null, "a port is required");
+    assert.equal(idClientFor("1mind", "http://evil.example:4400/"), null);
+    assert.equal(idClientFor("1mind", "https://127.0.0.1:4400/"), null);
+    assert.equal(idClientFor("scalvs", "http://127.0.0.1:8080/"), null, "public products never return to loopback");
+    assert.ok(idClientFor("architect", "https://ldhkkbpfacheloapjlgnalmbaciameec.chromiumapp.org/"));
+  });
+
   it("allows a product return that carries an https redirect in the query", () => {
     const next = "/api/id/authorize?redirect_uri=" + encodeURIComponent("https://scalvs.app/signed-in");
     assert.equal(safeProductReturn(next), next);

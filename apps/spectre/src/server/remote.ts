@@ -34,11 +34,11 @@ export class HttpGateway implements NexusGateway {
   private readonly url: string;
   private readonly key: string;
   private readonly fetchImpl: typeof fetch;
-  // The default wraps fetch: Workers reject fetch called as a method of another object.
-  constructor(url: string, key: string, fetchImpl: typeof fetch = (input, init) => fetch(input, init)) {
+  constructor(url: string, key: string, fetchImpl: typeof fetch = fetch) {
     this.url = url;
     this.key = key;
-    this.fetchImpl = fetchImpl;
+    // Call fetch as a plain function: Workers throw "Illegal invocation" when it runs with this = HttpGateway.
+    this.fetchImpl = (input, init) => fetchImpl(input, init);
   }
   private async call<T>(body: unknown): Promise<T> {
     const res = await this.fetchImpl(this.url, {

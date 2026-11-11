@@ -134,4 +134,11 @@ test("env: OmniRoute defaults to its auto model; order override works", () => {
   assert.deepEqual(local.map((p) => [p.name, p.apiKey]), [["omniroute", undefined]]);
   const p = providersFromEnv({ GROQ_API_KEY: "a", TOGETHER_API_KEY: "b", AI_PROVIDER_ORDER: "together,groq" });
   assert.deepEqual(p.map((x) => x.name), ["together", "groq"]);
+  assert.equal(providersFromEnv({ AI21_API_KEY: "k" }).some((item) => item.name === "ai21"), false);
+  const ai21 = providersFromEnv({
+    AI21_API_KEY: "k",
+    AI_MODEL_MAP: JSON.stringify({ ai21: { "gpt-oss-20b": "jamba-mini" } }),
+  }).find((item) => item.name === "ai21");
+  assert.equal(ai21?.baseUrl, "https://api.ai21.com/studio/v1");
+  assert.equal(ai21?.models["gpt-oss-20b"], "jamba-mini");
 });

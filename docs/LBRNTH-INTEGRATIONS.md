@@ -126,9 +126,9 @@ No universal identity federation between independently deployed CID stores is
 invented. Point product relays at the authoritative CID deployment; do not assume
 separate +SPCTR/Mail data directories share sessions. Existing CID directory/org
 onboarding and trusted paid-plan provisioning must be completed before Labyrinth
-is usable. Hosted/serverless +SPCTR remains disabled until a transactional durable
-Labyrinth adapter is supplied—do not use local snapshot files on ephemeral Vercel
-storage. All prior single-active-writer, capacity, archival, KMS/backup and
+is usable. Hosted/serverless hosts must not use local snapshot files on ephemeral
+storage; they relay to the transactional Postgres-backed service in
+[LBRNTH-HOSTED.md](./LBRNTH-HOSTED.md) via `LBRNTH_ENDPOINT`. All prior single-active-writer, capacity, archival, KMS/backup and
 unanchored-audit limitations still apply. No firmware integration is claimed. The shared repository GUI includes explicit
 scope consent and workspace provisioning; trusted CID organization onboarding
 and the paid-plan authority remain host prerequisites.

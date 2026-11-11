@@ -10,7 +10,7 @@ export interface ParsedEmail {
   date?: string;
   text?: string;
   html?: string;
-  attachments?: { filename?: string | null; mimeType?: string; content: ArrayBuffer | string }[];
+  attachments?: { filename?: string | null; mimeType?: string; content: ArrayBuffer | Uint8Array | string }[];
 }
 
 const people = (list: ParsedEmail["to"]) =>

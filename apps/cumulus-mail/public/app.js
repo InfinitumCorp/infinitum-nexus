@@ -189,7 +189,7 @@ function render() {
     el("button", { class: "x", "aria-label": "Dismiss", onClick: () => { state.toast = null; render(); } }, ["×"]),
   ]));
   if (state.help) root.append(helpDialog());
-  document.title = data.unread ? `Inbox (${data.unread}) · Cumulus://Mail` : "Cumulus://Mail";
+  document.title = data.unread ? `Inbox (${data.unread}) · Cumulus://Mail™` : "Cumulus://Mail™";
 }
 
 const SHORTCUTS = [
@@ -247,7 +247,7 @@ function list() {
       message.payment ? el("span", { class: "tag" }, [`${message.payment.amount} ${message.payment.asset}`]) : none(),
       message.attachments?.length ? el("span", { class: "tag" }, ["File"]) : none(),
       el("b", {}, [message.subject || "(no subject)"]),
-      el("span", { class: "snip" }, [` — ${message.body.replace(/\s+/g, " ").slice(0, 160)}`]),
+      el("span", { class: "snip", translate: "no" }, [` — ${message.body.replace(/\s+/g, " ").slice(0, 160)}`]),
     ]),
     el("span", { class: "when" }, [shortDate(message.at)]),
   ]));
@@ -366,7 +366,7 @@ function scheduledView(message) {
       el("h1", {}, [message.subject || "(no subject)"]),
       el("p", { class: "scheduled-note" }, [`🕒 Sends ${longDate(message.sendAt)}`]),
       el("p", { class: "sub" }, [`To ${message.to.map((p) => p.name || p.email).join(", ")}${message.cc.length ? ` · Cc ${message.cc.map((p) => p.name || p.email).join(", ")}` : ""}`]),
-      el("div", { class: "scheduled-body" }, [message.body]),
+      el("div", { class: "scheduled-body", translate: "no" }, [message.body]),
     ]),
   ]);
 }
@@ -455,7 +455,7 @@ function reader(message) {
           el("span", { class: "sub" }, [shortDate(item.at)]),
         ]),
         item.payment ? paymentCard(item) : none(),
-        el("p", { class: "letter" }, [item.body]),
+        el("p", { class: "letter", translate: "no" }, [item.body]),
         ...(item.attachments || []).map((file) => file.id
           ? el("a", { class: "file", href: fileUrl(file.id), download: file.name, title: `Download ${file.name}` }, [file.name, el("span", { class: "sub" }, [size(file.size)])])
           : el("span", { class: "file", title: "This file wasn't stored, so it can't be opened." }, [file.name, el("span", { class: "sub" }, [size(file.size)])])),

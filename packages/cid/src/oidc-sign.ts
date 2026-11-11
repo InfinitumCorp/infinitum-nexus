@@ -37,6 +37,7 @@ function publicMaterial(jwk: OidcPublicJwk): JsonWebKey {
 }
 
 function signer(alg: OidcAlg, kid: string, privateKey: KeyObject, publicJwk: OidcPublicJwk): OidcSigner {
+  const der = privateKey.export({ format: "der", type: "pkcs8" });
   return {
     alg,
     kid,
@@ -44,9 +45,11 @@ function signer(alg: OidcAlg, kid: string, privateKey: KeyObject, publicJwk: Oid
     sign(claims) {
       const header = { alg, kid, typ: "JWT" };
       const data = `${b64u(Buffer.from(JSON.stringify(header)))}.${b64u(Buffer.from(JSON.stringify(claims)))}`;
+      // DER bytes rather than a KeyObject: Cloudflare Workers reject { key: KeyObject } in sign().
+      const key = { key: der, format: "der" as const, type: "pkcs8" as const };
       const sig = alg === "ES256"
-        ? sign("sha256", Buffer.from(data), { key: privateKey, dsaEncoding: "ieee-p1363" })
-        : sign(null, Buffer.from(data), privateKey);
+        ? sign("sha256", Buffer.from(data), { ...key, dsaEncoding: "ieee-p1363" })
+        : sign(null, Buffer.from(data), key);
       return `${data}.${b64u(sig)}`;
     },
   };

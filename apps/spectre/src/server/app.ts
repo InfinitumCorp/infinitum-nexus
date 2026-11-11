@@ -54,6 +54,11 @@ export interface AppDeps {
   cookieDomain?: string;
   /** Public origin, e.g. https://spectre.infinitum.example; used for sign-in callback URLs. */
   origin: string;
+  /**
+   * Mirrors of `origin` (for example https://ru.id.cumuluscloud.app for Russian networks). A mirror
+   * names itself in the x-spctr-mirror header, and social sign-in started there returns there.
+   */
+  mirrorOrigins?: string[];
   /** Called after any request that changed data (persistence hook). */
   onChange?: () => void;
   /**
@@ -264,7 +269,9 @@ export function createApp(deps: AppDeps) {
   route("GET", "/api/auth/oauth/:provider/start", async (ctx) => {
     const linking = ctx.query.get("link") === "1";
     if (linking && !ctx.user) throw new HttpError(401, "Please sign in");
-    const redirectUri = `${deps.origin}/api/auth/oauth/${ctx.params.provider}/callback`;
+    const mirror = ctx.req.headers["x-spctr-mirror"];
+    const base = typeof mirror === "string" && deps.mirrorOrigins?.includes(mirror) ? mirror : deps.origin;
+    const redirectUri = `${base}/api/auth/oauth/${ctx.params.provider}/callback`;
     const { url, state } = await cid.startSocialSignIn(ctx.params.provider, redirectUri, linking ? ctx.user!.account.cid : undefined);
     const next = linking ? null : safeProductReturn(ctx.query.get("next"));
     const cookies = [oauthCookie(ctx.params.provider, state, 600)];

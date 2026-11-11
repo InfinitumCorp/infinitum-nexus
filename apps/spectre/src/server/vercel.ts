@@ -110,6 +110,7 @@ function build() {
     publicDir: publicDir(), // static files are served by the CDN (Vercel) or Workers static assets
     secureCookies: origin.startsWith("https://"),
     origin,
+    mirrorOrigins: origins.slice(1),
     providers: providersFromEnv(),
     cronSecret: process.env.CRON_SECRET,
     twilioAuthToken: process.env.TWILIO_AUTH_TOKEN,

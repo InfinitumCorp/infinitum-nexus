@@ -15,6 +15,7 @@ createServer(async (req, res) => {
     const headers = {};
     for (const [k, v] of Object.entries(req.headers)) if (!HOP.has(k) && !k.startsWith("x-forwarded") && v !== undefined) headers[k] = v;
     if (headers.origin === self) headers.origin = UPSTREAM;
+    headers["x-spctr-mirror"] = self; // so sign-in with Google returns here, not to the throttled host
     const body = req.method === "GET" || req.method === "HEAD" ? undefined : Readable.toWeb(req);
     const up = await fetch(UPSTREAM + req.url, { method: req.method, headers, body, duplex: "half", redirect: "manual" });
     const out = {};

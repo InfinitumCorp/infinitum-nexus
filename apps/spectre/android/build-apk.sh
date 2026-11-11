@@ -2,7 +2,7 @@
 # Builds the +SPCTR Android app with the plain SDK tools (no Gradle).
 #
 #   SPCTR_URL=https://id.cumuluscloud.app bash apps/spectre/android/build-apk.sh
-#   MIRROR_URL (default https://ru.id.cumuluscloud.app, AWS API Gateway; set it empty to disable) is opened when the main site is throttled and the mirror answers.
+#   MIRROR_URL (default: the Cloud Run mirror, which Russian networks do not throttle; set it empty to disable) is opened when the main site is throttled and the mirror answers.
 #
 # Needs ANDROID_HOME (build-tools 35+ and platform 35+) and a JDK 17+.
 # Signs with KEYSTORE / KEY_ALIAS / KEY_PASS when set, otherwise with the local debug key.
@@ -16,7 +16,7 @@ BT="$SDK/build-tools/$(ls "$SDK/build-tools" | sort -V | tail -1)"
 PLATFORM="$(ls -d "$SDK"/platforms/android-* | sort -V | tail -1)"
 JAR="$PLATFORM/android.jar"
 SPCTR_URL="${SPCTR_URL:-https://id.cumuluscloud.app}"
-MIRROR_URL="${MIRROR_URL-https://ru.id.cumuluscloud.app}"
+MIRROR_URL="${MIRROR_URL-https://spctr-mirror-325535919239.europe-north1.run.app}"
 OUT="$HERE/build"
 EXE=""; [ -f "$BT/aapt2.exe" ] && EXE=".exe"
 BAT=""; [ -f "$BT/d8.bat" ] && BAT=".bat"

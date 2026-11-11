@@ -24,6 +24,6 @@
   "devDependencies": {
     "@infinitum/firmament": "workspace:*",
     "@types/node": "^26.6.6",
-    "typescript": "^5.9.0"
+    "typescript": "^7.0.2"
   }
 }

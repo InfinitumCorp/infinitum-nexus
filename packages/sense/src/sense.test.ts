@@ -4,6 +4,7 @@ import { consentedSample } from "./gather.ts";
 import { faceIdentity, redactFaces } from "./vision.ts";
 import { parseSafetyCommand } from "./voice.ts";
 import { geohash, haversineM, wgsToLocal } from "./wgs.ts";
+import { plusCode } from "./pluscode.ts";
 
 test("haversine matches the London to Paris distance", () => {
   const metres = haversineM({ lat: 51.5074, lon: -0.1278 }, { lat: 48.8566, lon: 2.3522 });
@@ -20,6 +21,10 @@ test("local frame points east and north", () => {
 
 test("geohash of the published example", () => {
   assert.equal(geohash({ lat: 57.64911, lon: 10.40744 }, 8), "u4pruydq");
+});
+
+test("Google plus code of the published example", () => {
+  assert.equal(plusCode(47.36559, 8.524997), "8FVC9G8F+6X");
 });
 
 test("voice only accepts a safer command", () => {

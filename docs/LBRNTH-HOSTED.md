@@ -66,7 +66,7 @@ Generate secrets by piping, never printing or typing them, for example
    `--allow-unauthenticated` only opens the Labyrinth API itself, which demands a CID bearer.
 4. Redeploy `cumulus-id` with this change and `LBRNTH_ENDPOINT`. Set `LBRNTH_ENDPOINT` on Mail
    and on the ARCHITECT Worker (rchtch.app).
-5. Add the client org's entitlement row, then check: `/healthz` says configured, `POST
+5. Add the client org's entitlement row, then check: `/health` says configured, `POST
    /api/labyrinth` without a bearer is 401, and Save to Labyrinth plus the Saved tab work.
 
 No DNS change is needed: relays call the `run.app` URL server to server.

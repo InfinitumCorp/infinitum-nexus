@@ -15,7 +15,7 @@ const SECURITY_HEADERS = {
 /**
  * The Cloud Run service. Only three paths exist:
  *   POST /api/labyrinth   the authoritative Labyrinth API (bearer only, no cookies, no CORS)
- *   GET  /healthz         liveness; says whether the API is configured, never why not
+ *   GET  /health          liveness (Cloud Run reserves /healthz); says whether the API is configured, never why not
  *   everything else       404
  * Product relays (ARCHITECT, Cumulus ID, Mail) call it server to server, so no browser
  * origin is ever allowed.
@@ -28,7 +28,7 @@ export function labyrinthHostServer(host: LabyrinthHost | undefined): Server {
       res.writeHead(status, { "content-type": "application/json", "cache-control": "no-store" });
       res.end(JSON.stringify(body));
     };
-    if (path === "/healthz" && (req.method === "GET" || req.method === "HEAD")) return send(200, { ok: true, configured: Boolean(host) });
+    if (path === "/health" && (req.method === "GET" || req.method === "HEAD")) return send(200, { ok: true, configured: Boolean(host) });
     if (path === "/api/labyrinth") {
       serveLabyrinthHost(req, res, host).catch(err => {
         console.error("Labyrinth host: request failed", err instanceof Error ? err.message : err);

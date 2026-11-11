@@ -23,7 +23,7 @@ test("unconfigured service is healthy, answers 503 on the API and 404 elsewhere"
   await new Promise<void>(r => server.listen(0, "127.0.0.1", r));
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   try {
-    const health = await fetch(`${base}/healthz`);
+    const health = await fetch(`${base}/health`);
     assert.equal(health.status, 200);
     assert.deepEqual(await health.json(), { ok: true, configured: false });
     assert.equal(health.headers.get("x-frame-options"), "DENY");

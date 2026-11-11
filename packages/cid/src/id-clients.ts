@@ -111,7 +111,8 @@ export const ID_CLIENTS: Record<string, IdClient> = {
   conjure: {
     name: "Conjure",
     app: "conjure",
-    origins: [],
+    // Conjure Russia (Yandex Cloud). Staff only: the server still checks its staff list.
+    origins: ["https://conjure-ru.infinitumcorporation.ai"],
     loopback: true,
   },
   "eidetic-admin": {

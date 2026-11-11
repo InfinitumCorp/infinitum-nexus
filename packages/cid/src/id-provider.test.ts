@@ -26,6 +26,14 @@ describe("shared product clients", () => {
     assert.equal(idClientFor("infinitum", "https://developer.infinitumcorporation.ai/"), null);
   });
 
+  it("lets Conjure Russia sign in on conjure-ru.infinitumcorporation.ai only", () => {
+    assert.ok(idClientFor("conjure", "https://conjure-ru.infinitumcorporation.ai/auth/cid/callback"));
+    assert.equal(idClientFor("conjure", "http://conjure-ru.infinitumcorporation.ai/auth/cid/callback"), null);
+    assert.equal(idClientFor("conjure", "https://conjure-ru-preview.infinitumcorporation.ai/auth/cid/callback"), null);
+    assert.equal(idClientFor("conjure", "https://conjure-ru.infinitumcorporation.ai.evil.example/"), null);
+    assert.equal(idClientFor("infinitum", "https://conjure-ru.infinitumcorporation.ai/"), null);
+  });
+
   it("lets internal tools return to a loopback port, and nobody else", () => {
     assert.ok(idClientFor("1mind", "http://127.0.0.1:4400/auth/cid/callback"));
     assert.ok(idClientFor("conjure", "http://localhost:4317/auth/cid/callback"));

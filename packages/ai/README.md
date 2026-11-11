@@ -32,8 +32,8 @@ Deployed services can't reach an OmniRoute running on a laptop. In production, p
 
 These are the canonical ids, in tier order:
 
-- **smart:** `gpt-oss-120b` (Apache-2.0), `qwen3-235b` (Apache-2.0), `deepseek-v3` (MIT)
-- **fast:** `gpt-oss-20b` (Apache-2.0), `qwen3-32b` (Apache-2.0)
+- **smart:** `gpt-oss-120b` (Apache-2.0), `qwen3-235b` (Apache-2.0), `deepseek-v3` (MIT), `gemma-4-31b` (Apache-2.0, Google)
+- **fast:** `gpt-oss-20b` (Apache-2.0), `qwen3-32b` (Apache-2.0), `gemma-4-26b-a4b` (Apache-2.0, Google; keyless on Workers AI and Ollama)
 
 Only OSI-licensed models are included. Llama is excluded because its custom license isn't open source.
 

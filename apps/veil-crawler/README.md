@@ -3,7 +3,7 @@
 VEIL's own web crawler and search index. Design: `docs/VEIL-CRAWLER.md`. Public page for site
 owners: https://infinitumveil.app/bot (`apps/veil-web/public/bot.html`).
 
-- `src/crawl.js`: one crawl round, run by a cron every minute. Picks up to 12 sites whose
+- `src/crawl.js`: one crawl round, run by a cron every minute. Picks up to 30 sites whose
   politeness clock has run out and fetches one page from each. It checks robots.txt (re-read
   daily) first and never asks a site more often than every 10 s or its `Crawl-delay`. It
   backs off on 429/503, follows only same-site redirects, and reads HTML only (2 MB cap).

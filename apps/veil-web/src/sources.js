@@ -1,7 +1,10 @@
 /**
  * VEIL search sources beyond Brave: Yandex (Yandex Cloud Search API) and Mojeek (Mojeek
- * Search API). Both are official, paid APIs with their own keys, set as Worker secrets.
- * VEIL asks every source that has a key at the same time and blends the answers.
+ * Search API), official paid APIs with their own keys, set as Worker secrets; and two free
+ * public APIs that need no key: Hacker News (Algolia's HN Search API) and Stack Overflow
+ * (Stack Exchange API, content CC BY-SA). VEIL asks every source at the same time and
+ * blends the answers. The free sources are specialist, so they add only their top few
+ * results, weighted below the general ones.
  */
 import { MAX_OFFSET, PAGE_SIZE, decodeEntities, text, webUrl } from "./search.js";
 
@@ -77,7 +80,88 @@ export function fromMojeek(data, offset) {
   return { results, next: more ? { offset: offset + 1 } : null };
 }
 
+// ---------------- Hacker News (free, no key) ----------------
+
+export const HN_API = "https://hn.algolia.com/api/v1/search";
+export const NICHE_RESULTS = 4;
+
+/** Stories only, with some votes, so the few results HN adds are worth reading. */
+export function hnUrl(q, offset) {
+  const u = new URL(HN_API);
+  u.searchParams.set("query", q);
+  u.searchParams.set("tags", "story");
+  u.searchParams.set("numericFilters", "points>10");
+  u.searchParams.set("hitsPerPage", String(NICHE_RESULTS));
+  u.searchParams.set("page", String(offset));
+  return u.toString();
+}
+
+/** A story links to its page; Ask HN and other text posts link to the discussion. */
+export function fromHackerNews(data, offset) {
+  const results = [];
+  for (const h of data?.hits || []) {
+    const discussion = "https://news.ycombinator.com/item?id=" + encodeURIComponent(String(h.objectID ?? ""));
+    const url = webUrl(h.url) || (h.objectID ? discussion : null);
+    const title = text(h.title || "");
+    if (!url || !title) continue;
+    const points = Number(h.points) || 0, comments = Number(h.num_comments) || 0;
+    results.push({ title, url, snippet: `Hacker News · ${points} points · ${comments} comments` });
+  }
+  const more = (data?.nbPages ?? 0) > offset + 1 && offset < MAX_OFFSET;
+  return { results, next: more && results.length ? { offset: offset + 1 } : null };
+}
+
+// ---------------- Stack Overflow (free, no key; CC BY-SA) ----------------
+
+export const SO_API = "https://api.stackexchange.com/2.3/search/excerpts";
+
+/** An optional free app key (STACKEXCHANGE_KEY, not secret) raises the daily limit. */
+export function soUrl(q, offset, key) {
+  const u = new URL(SO_API);
+  u.searchParams.set("q", q);
+  u.searchParams.set("site", "stackoverflow");
+  u.searchParams.set("order", "desc");
+  u.searchParams.set("sort", "relevance");
+  u.searchParams.set("pagesize", String(NICHE_RESULTS * 2));
+  u.searchParams.set("page", String(offset + 1));
+  if (key) u.searchParams.set("key", key);
+  return u.toString();
+}
+
+/** The searched words (3+ letters), lower case. */
+function words(q) {
+  return [...new Set((String(q ?? "").toLowerCase().match(/[\p{L}\p{N}+#.]{3,}/gu) || []))];
+}
+
+/**
+ * Questions only (an answer's hit links to its question), one result per question. Stack
+ * Overflow answers every search, even "pizza dough" (from code samples that mention it), so
+ * a question counts only when its title and tags contain at least half of the searched words.
+ */
+export function fromStackOverflow(data, offset, q = "") {
+  const want = words(q);
+  const results = [];
+  const seen = new Set();
+  for (const it of data?.items || []) {
+    const id = Number(it.question_id);
+    if (!Number.isInteger(id) || seen.has(id)) continue;
+    seen.add(id);
+    const title = text(it.title || "");
+    if (!title) continue;
+    const excerpt = text(it.excerpt || "");
+    const hay = (title + " " + (it.tags || []).join(" ")).toLowerCase();
+    if (want.length && want.filter((w) => hay.includes(w)).length * 2 < want.length) continue;
+    results.push({ title, url: "https://stackoverflow.com/questions/" + id, snippet: excerpt.slice(0, 300) });
+    if (results.length === NICHE_RESULTS) break;
+  }
+  const more = Boolean(data?.has_more) && offset < MAX_OFFSET;
+  return { results, next: more && results.length ? { offset: offset + 1 } : null };
+}
+
 // ---------------- Blending ----------------
+
+/** Specialist sources count for less, so general results lead. */
+export const WEIGHTS = { hackernews: 0.5, stackoverflow: 0.5 };
 
 /** The same page from two sources: ignore scheme, "www.", trailing slash and the fragment. */
 export function sameKey(url) {
@@ -101,17 +185,18 @@ export function blend(answers) {
       const key = sameKey(r.url);
       const hit = byKey.get(key);
       if (hit) {
-        hit.score += 1 / (60 + i);
+        hit.score += (WEIGHTS[source] ?? 1) / (60 + i);
         if (!hit.sources.includes(source)) hit.sources.push(source);
         if (!hit.snippet && r.snippet) hit.snippet = r.snippet;
       } else {
-        byKey.set(key, { ...r, sources: [source], score: 1 / (60 + i) });
+        byKey.set(key, { ...r, sources: [source], score: (WEIGHTS[source] ?? 1) / (60 + i) });
       }
     });
   }
   const results = [...byKey.values()]
     .sort((a, b) => b.score - a.score)
     .map(({ score, ...r }) => r);
-  const next = answers.map((a) => a.next).find(Boolean) || null;
+  // Paging follows the general sources; specialist ones alone don't make a next page.
+  const next = answers.filter((a) => !WEIGHTS[a.source]).map((a) => a.next).find(Boolean) || null;
   return { results, next };
 }

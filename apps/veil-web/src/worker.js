@@ -6,15 +6,18 @@
  * Results come first from VEIL's own index (VEILBot, apps/veil-crawler, D1 binding
  * VEIL_INDEX), then from every web search API VEIL has a key for, asked at the same time and
  * blended (sources.js): Yandex (YANDEX_SEARCH_KEY + YANDEX_FOLDER_ID), Brave
- * (BRAVE_SEARCH_KEY) and Mojeek (MOJEEK_SEARCH_KEY). Keys are Worker secrets, never sent to
- * the browser. With no keys, or when every source fails, results come from Wikipedia's
+ * (BRAVE_SEARCH_KEY) and Mojeek (MOJEEK_SEARCH_KEY), plus two free sources that need no key,
+ * Hacker News and Stack Overflow, which add their top few results. Keys are Worker secrets,
+ * never sent to the browser. With no keys, or when every source fails, results come from Wikipedia's
  * search API, so search always answers. The query travels in the POST body, so it never appears in a
  * URL or request log, and the Worker keeps nothing. CORS is open because the Android app's
  * start page is a file:// page.
  */
 import { MAX_QUERY, WIKI_UA, apiUrl, fromBrave, fromWikipedia, offsetFrom, wikiUrl } from "./search.js";
 import { searchIndex } from "../../veil-crawler/src/search.js";
-import { YANDEX_API, blend, decodeRaw, fromMojeek, fromYandexXml, mojeekUrl, yandexBody } from "./sources.js";
+import {
+  YANDEX_API, blend, decodeRaw, fromHackerNews, fromMojeek, fromStackOverflow, fromYandexXml, hnUrl, mojeekUrl, soUrl, yandexBody,
+} from "./sources.js";
 
 const HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -40,9 +43,12 @@ async function search(request, env) {
   if (env?.YANDEX_SEARCH_KEY && env?.YANDEX_FOLDER_ID) asks.push(ask("yandex", () => yandex(q, offset, env)));
   if (env?.BRAVE_SEARCH_KEY) asks.push(ask("brave", () => brave(q, offset, env.BRAVE_SEARCH_KEY)));
   if (env?.MOJEEK_SEARCH_KEY) asks.push(ask("mojeek", () => mojeek(q, offset, env.MOJEEK_SEARCH_KEY)));
+  asks.push(ask("hackernews", () => hackerNews(q, offset)));
+  asks.push(ask("stackoverflow", () => stackOverflow(q, offset, env?.STACKEXCHANGE_KEY)));
   if (env?.VEIL_INDEX) asks.unshift(ask("veil", () => searchIndex(env.VEIL_INDEX, q, offset)));
   const answers = (await Promise.all(asks)).filter((a) => a && a.results.length);
-  const found = answers.reduce((n, a) => n + a.results.length, 0);
+  // Only general sources count towards a full page; specialist results don't keep Wikipedia out.
+  const found = answers.filter((a) => a.source !== "hackernews" && a.source !== "stackoverflow").reduce((n, a) => n + a.results.length, 0);
   if (found < 10) {
     // Too few results: Wikipedia fills in (and answers alone when nothing else did).
     const wiki = await ask("wikipedia", () => wikipediaAnswer(q, offset));
@@ -91,6 +97,16 @@ async function brave(q, offset, key) {
 async function mojeek(q, offset, key) {
   const res = await get(mojeekUrl(q, offset, key), { headers: { "Accept": "application/json" } });
   return res && fromMojeek(await res.json(), offset);
+}
+
+async function hackerNews(q, offset) {
+  const res = await get(hnUrl(q, offset), { headers: { "Accept": "application/json" } });
+  return res && fromHackerNews(await res.json(), offset);
+}
+
+async function stackOverflow(q, offset, key) {
+  const res = await get(soUrl(q, offset, key), { headers: { "Accept": "application/json" } });
+  return res && fromStackOverflow(await res.json(), offset, q);
 }
 
 async function wikipedia(q, offset) {

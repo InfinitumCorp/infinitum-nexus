@@ -50,7 +50,7 @@
     } catch (e) { return href; }
   }
 
-  var NAMES = { veil: "VEIL", yandex: "Yandex", brave: "Brave", mojeek: "Mojeek", wikipedia: "Wikipedia" };
+  var NAMES = { veil: "VEIL", yandex: "Yandex", brave: "Brave", mojeek: "Mojeek", wikipedia: "Wikipedia", hackernews: "Hacker News", stackoverflow: "Stack Overflow" };
   function sourceName(s) { return NAMES[s] || s; }
 
   function render(results) {
@@ -126,7 +126,7 @@
       $("meta").hidden = false;
       var from = (data.sources || []).map(sourceName).join(", ");
       $("meta").textContent = "Private search · " + shown + " results" + (from ? " from " + from : "") +
-        ((data.sources || []).indexOf("wikipedia") >= 0 ? " (CC BY-SA)" : "");
+        ((data.sources || []).some(function (s) { return s === "wikipedia" || s === "stackoverflow"; }) ? " (CC BY-SA)" : "");
       next = data.next || null;
       $("more").hidden = !next;
     }).catch(function () {

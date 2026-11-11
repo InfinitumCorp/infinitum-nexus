@@ -36,7 +36,18 @@ Worker secrets and never reach the browser:
 | Brave | `BRAVE_SEARCH_KEY` | Brave Search API |
 | Mojeek | `MOJEEK_SEARCH_KEY` | Mojeek Search API |
 
-Set one with `npx wrangler secret put <NAME> --name infinitum-veil-web`. With no keys, or
-when every source fails, results come from Wikipedia's free search API (credited CC BY-SA).
+Set one with `npx wrangler secret put <NAME> --name infinitum-veil-web`.
+
+These sources need no key and are always asked:
+
+| Source | What it adds |
+|---|---|
+| VEIL index | Pages VEILBot has crawled (`apps/veil-crawler`, D1 `VEIL_INDEX`). Ranked first. |
+| Hacker News | Algolia's HN Search API: up to 4 stories with 10+ points. |
+| Stack Overflow | Stack Exchange API: up to 4 questions whose title or tags match the search (CC BY-SA). About 300 searches a day without a key; a free app key from stackapps.com, set as the plain variable `STACKEXCHANGE_KEY`, raises that to 10,000. |
+| Wikipedia | Fills in when the general sources found fewer than 10 results (CC BY-SA). |
+
+Hacker News and Stack Overflow are specialist, so their results count for half in the
+blend and never decide paging.
 Google, Bing and DuckDuckGo have no general web search API open to new customers, and VEIL
 does not scrape their result pages.

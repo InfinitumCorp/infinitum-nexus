@@ -10,7 +10,7 @@ import { crawlable, hostOf, robotsPath } from "./url.js";
 
 export const UA = "Mozilla/5.0 (compatible; VEILBot/1.0; +https://infinitumveil.app/bot)";
 export const LIMITS = Object.freeze({
-  hostsPerRun: 12,
+  hostsPerRun: 30,
   minDelayS: 10,                 // never faster than one request per 10 s per host
   robotsTtlMs: 24 * 3600e3,      // robots.txt re-read daily
   robotsRetryMs: 3600e3,         // robots.txt unreachable: try the host again in an hour

@@ -105,14 +105,14 @@ test("with no key, or when Brave fails, the Worker answers from Wikipedia", asyn
     assert.equal(res.status, 200);
     assert.deepEqual(data.sources, ["wikipedia"]);
     assert.equal(data.results[0].title, "Tor (network)");
-    assert.ok(asked[0].startsWith("https://en.wikipedia.org/w/api.php"));
+    assert.ok(asked.some((u) => u.startsWith("https://en.wikipedia.org/w/api.php")));
 
     asked.length = 0;
     globalThis.fetch = async (url) => { asked.push(String(url)); return String(url).includes("brave") ? new Response("", { status: 429 }) : Response.json(wiki); };
     res = await worker.fetch(post({ q: "tor" }), { BRAVE_SEARCH_KEY: "k" });
     data = await res.json();
     assert.deepEqual(data.sources, ["wikipedia"]);
-    assert.equal(asked.length, 2);
+    assert.equal(asked.filter((u) => !/algolia|stackexchange/.test(u)).length, 2);
   } finally {
     globalThis.fetch = real;
   }

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { blend, decodeRaw, fromMojeek, fromYandexXml, mojeekUrl, sameKey, yandexBody } from "../src/sources.js";
+import { blend, decodeRaw, fromHackerNews, fromMojeek, fromStackOverflow, fromYandexXml, hnUrl, mojeekUrl, sameKey, soUrl, yandexBody } from "../src/sources.js";
 import worker from "../src/worker.js";
 
 // Shape of Yandex's XML answer (trimmed).
@@ -81,7 +81,7 @@ test("the Worker asks every source with a key and blends; a failing source is sk
     assert.equal(res.status, 200);
     assert.deepEqual(data.sources, ["yandex", "brave"]);
     assert.deepEqual(data.results[0].sources, ["yandex", "brave"]);
-    assert.equal(asked.length, 4, "three sources, then Wikipedia fills in (fewer than 10 results)");
+    assert.equal(asked.length, 6, "three keyed sources and the two free ones, then Wikipedia fills in (fewer than 10 results)");
     assert.ok(!JSON.stringify(data).includes("yk"));
   } finally {
     globalThis.fetch = real;
@@ -105,4 +105,58 @@ test("VEIL's own index is asked first, and Wikipedia fills in when results are f
   } finally {
     globalThis.fetch = real;
   }
+});
+
+test("reads Hacker News stories; text posts link to the discussion", () => {
+  const data = { nbPages: 3, hits: [
+    { objectID: "1", title: "Debian 14 released", url: "https://www.debian.org/News/", points: 512, num_comments: 200 },
+    { objectID: "2", title: "Ask HN: Debian or Arch?", url: null, points: 40, num_comments: 90 },
+    { objectID: "3", title: "Bad", url: "javascript:alert(1)", points: 50, num_comments: 1 },
+  ] };
+  const { results, next } = fromHackerNews(data, 0);
+  assert.deepEqual(results.map((r) => r.url), [
+    "https://www.debian.org/News/",
+    "https://news.ycombinator.com/item?id=2",
+    "https://news.ycombinator.com/item?id=3",
+  ]);
+  assert.equal(results[0].snippet, "Hacker News · 512 points · 200 comments");
+  assert.deepEqual(next, { offset: 1 });
+  assert.match(hnUrl("tor", 2), /tags=story/);
+  assert.match(hnUrl("tor", 2), /page=2/);
+});
+
+test("reads Stack Overflow, one result per question, and adds the optional key", () => {
+  const data = { has_more: true, items: [
+    { question_id: 10, item_type: "question", title: "How do I &amp; why?", excerpt: "Use <span class=\"highlight\">apt</span>" },
+    { question_id: 10, item_type: "answer", title: "How do I &amp; why?", excerpt: "answer text" },
+    { question_id: 11, item_type: "answer", title: "Second", excerpt: "x" },
+  ] };
+  const { results, next } = fromStackOverflow(data, 0);
+  assert.deepEqual(results, [
+    { title: "How do I & why?", url: "https://stackoverflow.com/questions/10", snippet: "Use apt" },
+    { title: "Second", url: "https://stackoverflow.com/questions/11", snippet: "x" },
+  ]);
+  assert.deepEqual(next, { offset: 1 });
+  assert.doesNotMatch(soUrl("q", 0), /key=/);
+  assert.match(soUrl("q", 0, "abc"), /key=abc/);
+  assert.match(soUrl("q", 1), /page=2/);
+});
+
+test("specialist sources rank below general ones and don't drive paging", () => {
+  const { results, next } = blend([
+    { source: "stackoverflow", results: [{ title: "SO", url: "https://stackoverflow.com/questions/1" }], next: { offset: 1 } },
+    { source: "wikipedia", results: [{ title: "W1", url: "https://en.wikipedia.org/wiki/A" }, { title: "W2", url: "https://en.wikipedia.org/wiki/B" }], next: null },
+  ]);
+  assert.deepEqual(results.map((r) => r.title), ["W1", "W2", "SO"]);
+  assert.equal(next, null);
+});
+
+test("Stack Overflow results must match the search", () => {
+  const data = { items: [
+    { question_id: 1, title: "Read a cell in pandas", excerpt: "dataframe", tags: ["python"] },
+    { question_id: 2, title: "Pizza dough rises too fast", excerpt: "yeast" },
+    { question_id: 3, title: "Update a table", excerpt: "remove one pizza dough recipe" },
+  ] };
+  assert.deepEqual(fromStackOverflow(data, 0, "pizza dough recipe").results.map((r) => r.url), ["https://stackoverflow.com/questions/2"]);
+  assert.equal(fromStackOverflow(data, 0, "").results.length, 3);
 });

@@ -1,3 +1,4 @@
+import CumulusKit
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -71,7 +72,7 @@ struct CloudView: View {
             }
             sideLink("Trash", current: session.cloudSection == .trash) {
                 session.cloudSection = .trash
-                Task { await session.reloadDrive() }
+                Task { await session.refreshDrive() }
             }
             sideLink("Exchange", current: session.cloudSection == .exchange) {
                 session.cloudSection = .exchange

@@ -1,3 +1,4 @@
+import CumulusKit
 import SwiftUI
 
 struct SignInView: View {

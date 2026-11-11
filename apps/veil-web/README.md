@@ -14,9 +14,15 @@ A static PWA (no framework) for infinitumveil.app. It is hosted as a Cloudflare 
 
     pnpm --filter @infinitum/veil-web deploy     # build.js + cf deploy -> Worker "infinitum-veil-web"
 
-Then attach the custom domain `infinitumveil.app` to the Worker (Workers & Pages -> infinitum-veil-web -> Settings -> Domains & Routes). This creates the DNS record in the Cloudflare zone. `/api/veil/*` (the control plane, part of Spectre) isn't served here yet.
+**Live layout (since 2026-11-11).** The same Worker also serves the Infinitum product site (built in the separate site-build project, outputs/veil-site). One deploy carries both:
 
-Until the cutover, a temporary copy runs on Vercel (https://veil-web-nine.vercel.app). `vercel.json` stays in the repo until the domain is live on Cloudflare.
+- `/`: the VEIL landing page, plus 404.html, robots.txt, sitemap.xml, llms.txt, assets/cumulus-id.js and icons/ (from the site build);
+- `/start/`: this folder's `public/` (start page, `search.html`, `search.js`, lib/, icons/), with download links made absolute (`/downloads/...`);
+- `/bot`: `public/bot.html`;
+- `/downloads/`: the real APK from `apps/veil-browser-android/build`, never the stub in this repo;
+- `POST /api/search`: `src/worker.js`, with the D1 binding `VEIL_INDEX`.
+
+Deploying only this folder, or only the site build, removes the other half. The search box then falls back to an old copy that leaves VEIL. Always deploy the merged folder.
 
 ## Search sources
 

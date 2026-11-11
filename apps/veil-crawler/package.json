@@ -6,10 +6,11 @@
   "private": true,
   "scripts": {
     "test": "node --test test/",
-    "migrate": "cf d1 migrations apply veil-index --remote",
+    "migrate": "cf d1 migrations apply 604d319a-8e29-4e9e-b91c-0a6322d8c15c --dir migrations",
     "deploy": "cf deploy"
   },
   "devDependencies": {
-    "cf": "^1.0.0-beta.28"
+    "cf": "^1.0.0-beta.28",
+    "wrangler": "^4.160.0"
   }
 }

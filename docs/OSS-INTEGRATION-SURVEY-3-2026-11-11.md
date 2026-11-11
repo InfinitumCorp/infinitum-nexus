@@ -4,6 +4,19 @@ Third wave. Surveys I and II are not repeated here. Every org and repo below was
 
 Rules for this pass: permissive code only (MIT, Apache-2.0, BSD-2/3, ISC, MPL-2.0). No GPL, AGPL, LGPL, unlicensed, source-available, or non-commercial code is copied. No product UI changes. No website repos. Integrated code is **on by default**. A switch may turn it off. Face comparison in ei·det·ic is on as well, and it still refuses to run unless consent and purpose already allow it.
 
+## Pull requests
+
+The survey is https://github.com/InfinitumCorp/infinitum-nexus/pull/132.
+
+The four product commits are on local branches. `git push` to those repositories returned `403` (`Permission to InfinitumCorp/<repo>.git denied to cursor[bot]`). This agent credential can push `infinitum-nexus` only, so those four pull requests are not open.
+
+| Repo | Local branch | Commit |
+|---|---|---|
+| flower-pollen | `cursor/cheap-ruler-geo-68d6` | `27d0b4f` |
+| prpgnd | `cursor/growthbook-assign-68d6` | `0ddfd0b` |
+| eidetic | `cursor/face-distance-consent-68d6` | `b03fe7c` |
+| zerkalo | `cursor/hermes-validate-68d6` | `aac32c6` |
+
 ## What was integrated
 
 | Product repo | Upstream | License | Commit / pin | Where | Default |

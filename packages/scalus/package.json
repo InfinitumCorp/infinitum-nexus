@@ -11,6 +11,9 @@
     "node": ">=22.18"
   },
   "scripts": {
+    "start": "node --experimental-strip-types src/server.ts",
+    "build": "node --experimental-strip-types scripts/build.ts",
+    "start:prod": "node dist/server.js",
     "typecheck": "tsc -p . --noEmit",
     "test": "node --test --experimental-strip-types $(find src -name \"*.test.ts\" 2>/dev/null || true)"
   },
@@ -19,6 +22,7 @@
     "@types/node": "^22.0.0"
   },
   "dependencies": {
+    "@infinitum/ai": "workspace:*",
     "@infinitum/lbrnth-client": "workspace:*"
   }
 }

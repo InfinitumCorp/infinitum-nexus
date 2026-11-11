@@ -1,4 +1,5 @@
 import type { InboundMail } from "@infinitum/mail";
+import { inboundKey, safeType, type FileStore } from "./files.ts";
 
 /** The parts of a postal-mime parse result that Cumulus uses. */
 export interface ParsedEmail {
@@ -9,7 +10,7 @@ export interface ParsedEmail {
   date?: string;
   text?: string;
   html?: string;
-  attachments?: { filename?: string | null; content: ArrayBuffer | string }[];
+  attachments?: { filename?: string | null; mimeType?: string; content: ArrayBuffer | string }[];
 }
 
 const people = (list: ParsedEmail["to"]) =>
@@ -45,4 +46,19 @@ export function toInbound(envelopeFrom: string, envelopeTo: string, parsed: Pars
       size: typeof a.content === "string" ? a.content.length : a.content.byteLength,
     })),
   };
+}
+
+/** Save the files that came with outside mail, so the recipient can open them. */
+export async function storeInboundFiles(mail: InboundMail, parsed: ParsedEmail, store: FileStore): Promise<InboundMail> {
+  const list = parsed.attachments ?? [];
+  const attachments = await Promise.all(
+    list.map(async (a, i) => {
+      const data = typeof a.content === "string" ? new TextEncoder().encode(a.content) : new Uint8Array(a.content);
+      const id = inboundKey();
+      const type = safeType(a.mimeType);
+      await store.put(id, data, type);
+      return { ...(mail.attachments?.[i] ?? { name: a.filename || "attachment", size: data.byteLength }), id, type };
+    }),
+  );
+  return { ...mail, attachments };
 }

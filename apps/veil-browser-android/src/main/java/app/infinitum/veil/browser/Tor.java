@@ -89,6 +89,13 @@ final class Tor {
     static final long TRAFFIC_PROGRESS_BYTES = 16 * 1024;
     static final long TRAFFIC_POLL_MS = 5_000;
     static final String PREFS = "tor";
+    /**
+     * Connection Assist (as in Tor Browser): once every built-in bridge type has stalled, VEIL
+     * asks the Tor Project's bridge service (Moat.java) for bridges that work in this country
+     * and tries them as one more bridge type, ASSIST. They are kept for ASSIST_MAX_AGE_MS.
+     */
+    static final String ASSIST = "assist";
+    static final long ASSIST_MAX_AGE_MS = 7L * 24 * 3600 * 1000;
 
     private static Tor instance;
 
@@ -138,6 +145,8 @@ final class Tor {
     private int gen;
     /** True between a restart's kill and its relaunch, when process is briefly null. */
     private boolean restarting;
+    /** True once Connection Assist ran during this connection attempt. */
+    private boolean assisted;
 
     boolean ready() {
         return process != null && error == null && progress >= 100;
@@ -160,6 +169,7 @@ final class Tor {
         brokerRetries = 0;
         pathWorks = false;
         directBlocked = false;
+        assisted = false;
         java.util.List<String> avail = available();
         String saved = prefs().getString("transport", null);
         if (saved == null && prefs().getBoolean("bridges", false) && !avail.isEmpty()) saved = avail.get(0);
@@ -325,6 +335,7 @@ final class Tor {
         } catch (IOException | org.json.JSONException ignored) {
             // no bridges in this build: direct only
         }
+        if (!assistBridges().isEmpty()) out.add(ASSIST);
         return out;
     }
 
@@ -332,15 +343,86 @@ final class Tor {
     private String bridgeConfig(String lyrebird, String kind) throws IOException, org.json.JSONException {
         StringBuilder sb = new StringBuilder("UseBridges 1\n")
             .append("ClientTransportPlugin meek_lite,obfs4,webtunnel,snowflake exec ").append(lyrebird).append('\n');
+        if (ASSIST.equals(kind)) {
+            for (String line : assistBridges()) sb.append("Bridge ").append(line).append('\n');
+            return sb.toString();
+        }
         JSONArray lines = ptConfig().getJSONObject("bridges").getJSONArray(kind);
         for (int i = 0; i < lines.length(); i++) sb.append("Bridge ").append(lines.getString(i)).append('\n');
         return sb.toString();
+    }
+
+    /** Bridges Moat gave us, if still fresh. */
+    private java.util.List<String> assistBridges() {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        if (System.currentTimeMillis() - prefs().getLong("assistAt", 0) > ASSIST_MAX_AGE_MS) return out;
+        for (String l : prefs().getString("assist", "").split("\n")) if (!l.trim().isEmpty()) out.add(l.trim());
+        return out;
+    }
+
+    /** Connection Assist: fetch bridges for this country from Moat, then start with them. */
+    private synchronized void assist() {
+        assisted = true;
+        stopSpare();
+        int g = ++gen;
+        Process old = process;
+        process = null;
+        restarting = true;
+        progress = 0;
+        summary = "Asking the Tor Project for bridges that work here";
+        notifyListener();
+        android.util.Log.i("VEIL-Tor", "VEIL: built-in bridges stalled, asking Moat (Connection Assist)");
+        Thread t = new Thread(() -> {
+            if (old != null) {
+                old.destroy();
+                try { old.waitFor(); } catch (InterruptedException ignored) { }
+            }
+            String lyrebird = new File(app.getApplicationInfo().nativeLibraryDir, "libLyrebird.so").getAbsolutePath();
+            try {
+                java.util.List<String> got = Moat.fetch(lyrebird, new File(app.getNoBackupFilesDir(), "moat"), country());
+                if (got.isEmpty()) throw new IOException("the Tor Project has no bridges for this network");
+                prefs().edit().putString("assist", String.join("\n", got)).putLong("assistAt", System.currentTimeMillis()).apply();
+                android.util.Log.i("VEIL-Tor", "Connection Assist: " + got.size() + " bridges (" + transports(got) + ")");
+                main.post(() -> launch(ASSIST, g));
+            } catch (Exception e) {
+                android.util.Log.i("VEIL-Tor", "Connection Assist failed: " + e);
+                // Moat is blocked here too: go back to the built-in bridges.
+                main.post(() -> {
+                    synchronized (Tor.this) {
+                        if (g != gen) return;
+                        java.util.List<String> avail = available();
+                        launch(avail.isEmpty() ? null : avail.get(0), g);
+                    }
+                });
+            }
+        }, "tor-assist");
+        t.setDaemon(true);
+        t.start();
+    }
+
+    /** Two-letter country of the mobile network or SIM, or null. */
+    private String country() {
+        try {
+            android.telephony.TelephonyManager tm = (android.telephony.TelephonyManager) app.getSystemService(Context.TELEPHONY_SERVICE);
+            String c = tm == null ? "" : tm.getNetworkCountryIso();
+            if ((c == null || c.isEmpty()) && tm != null) c = tm.getSimCountryIso();
+            return c != null && c.matches("[A-Za-z]{2}") ? c.toLowerCase(java.util.Locale.ROOT) : null;
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    static String transports(java.util.List<String> lines) {
+        java.util.TreeSet<String> kinds = new java.util.TreeSet<>();
+        for (String l : lines) kinds.add(l.split(" ", 2)[0]);
+        return String.join(", ", kinds);
     }
 
     static String label(String kind) {
         switch (kind) {
             case "snowflake": return "Snowflake";
             case "webtunnel": return "WebTunnel";
+            case ASSIST: return "the Tor Project's";
             default: return kind;
         }
     }
@@ -386,6 +468,11 @@ final class Tor {
             if (!avail.isEmpty()) prefs().edit().putBoolean("bridges", true).putString("transport", avail.get(0)).apply();
         }
         brokerRetries = 0;
+        // Every built-in bridge type stalled: ask Moat for bridges for this network, once.
+        if (bridges && !pathWorks && !assisted && !avail.isEmpty() && transport.equals(avail.get(avail.size() - 1))) {
+            assist();
+            return;
+        }
         restart(next(transport, pathWorks, directBlocked, avail));
     }
 

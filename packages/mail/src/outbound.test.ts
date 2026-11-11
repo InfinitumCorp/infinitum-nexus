@@ -25,6 +25,7 @@ test("outside recipients are queued with everything needed to send, Cumulus ones
     cc: ["lee@example.org"],
     subject: "Plans",
     text: job!.text,
+    attachments: [],
   });
   assert.match(job!.text, /^See you at 3./);
   assert.equal(po.claimOutbound().length, 0, "a claimed job isn't handed out twice");
@@ -69,14 +70,19 @@ test("a permanent failure bounces at once with the reason", async () => {
   assert.equal(po.claimOutbound().length, 0);
 });
 
-test("a job whose sender crashed goes back in the queue after 10 minutes", async () => {
+test("a job whose run stopped mid-send is never sent twice; the sender is told", async () => {
   const po = setup();
   await po.send("a", { to: "priya@gmail.com", subject: "Crash", body: "x" });
   assert.equal(po.claimOutbound().length, 1);
   now += 5 * 60_000;
   assert.equal(po.claimOutbound().length, 0);
   now += 6 * 60_000;
-  assert.equal(po.claimOutbound().length, 1);
+  assert.equal(po.claimOutbound().length, 0, "not handed out again");
+  assert.match(notices(po)[0]!.subject, /Delivery not confirmed: Crash/);
+  assert.match(sentCopy(po, "Crash").delivery![0]!.detail, /couldn't be confirmed/);
+  now += 60 * 60_000;
+  assert.equal(po.claimOutbound().length, 0);
+  assert.equal(notices(po).length, 1, "told once");
 });
 
 test("jobs queued before sending existed are closed with a notice, not sent blind", async () => {
@@ -87,4 +93,13 @@ test("jobs queued before sending existed are closed with a notice, not sent blin
   assert.equal(po.claimOutbound().length, 0);
   assert.equal(notices(po).length, 1);
   assert.equal(legacy.status, "failed");
+});
+
+test("stored files ride along; name-only entries and storage are counted", async () => {
+  const po = setup();
+  const files = [{ name: "plan.pdf", size: 1000, id: "u/a/1", type: "application/pdf" }, { name: "old.txt", size: 10 }];
+  await po.send("a", { to: "priya@gmail.com", subject: "Files", body: "x", attachments: files });
+  const [job] = po.claimOutbound();
+  assert.deepEqual(job!.attachments, [{ id: "u/a/1", name: "plan.pdf", type: "application/pdf", size: 1000 }]);
+  assert.deepEqual(sentCopy(po, "Files").attachments, files);
 });

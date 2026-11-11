@@ -37,6 +37,20 @@ export class CidLabyrinth {
     if (!org || (delegated && org.id !== delegated.orgId)) throw new LabyrinthError("forbidden", "Client organization membership required");
     return { cid: actor, org, parentSession: auth?.session.id ?? delegated!.parentSession, delegated: !auth };
   }
+  session(token: string) {
+    const direct = this.#cid.authenticate(token);
+    const identity = direct ? { cid: direct.account.cid, org: this.#cid.organizationMembership(direct.account.cid), delegated: false } : this.#identity(token);
+    return { cid: identity.cid, organization: identity.org ? { id: identity.org.id, name: identity.org.name, admin: identity.org.admin } : null, delegated: identity.delegated,
+      scopes: (["repo:read", "repo:write", "repo:admin"] as Scope[]).filter(scope => this.#cid.can(identity.cid, "LBRNTH", scope)) };
+  }
+  async createOrganization(token: string, name: string) {
+    const direct = this.#cid.authenticate(token);
+    if (!direct) throw new LabyrinthError("forbidden", "Direct Cumulus ID sign-in required");
+    if (this.#cid.organizationMembership(direct.account.cid)) throw new LabyrinthError("conflict", "Account already belongs to an organization");
+    if (typeof name !== "string" || !name.trim() || name.length > 120 || /[\x00-\x1f\x7f]/.test(name)) throw new LabyrinthError("invalid", "Organization name required");
+    const org = await this.#cid.createOrganization(name.trim(), direct.account.cid);
+    return { id: org.id, name: org.name };
+  }
   /** Exchange an authenticated browser CID cookie for a short-lived, repository-only bearer.
    * This credential is NOT a CID login token and cannot authenticate to other CID products. */
   issueToken(token: string): { token: string; expiresAt: string } {
@@ -81,7 +95,7 @@ export class CidLabyrinth {
       createRepository: (name: string) => call((cid, org) => this.#lab.createRepository(cid, org, name)),
       commit: (repo: string, input: CommitInput) => call((cid, org) => this.#lab.commit(cid, org, repo, input)),
       readFile: (repo: string, commit: string, path: string) => call((cid, org) => this.#lab.readFile(cid, org, repo, commit, path)),
-      history: (repo: string, branch?: string, limit?: number) => call((cid, org) => this.#lab.history(cid, org, repo, branch, limit)),
+      history: (repo: string, branch?: string, limit?: number, before?: string) => call((cid, org) => this.#lab.history(cid, org, repo, branch, limit, before)),
       diff: (repo: string, from: string | null, to: string) => call((cid, org) => this.#lab.diff(cid, org, repo, from, to)),
       createBranch: (repo: string, name: string, from: string | null) => call((cid, org) => this.#lab.createBranch(cid, org, repo, name, from)),
       createTag: (repo: string, name: string, commit: string) => call((cid, org) => this.#lab.createTag(cid, org, repo, name, commit)),
@@ -93,7 +107,7 @@ export class CidLabyrinth {
         if ((role === "owner" || role === "admin") && !target?.admin) throw new LabyrinthError("forbidden", "Administrative Labyrinth roles require a current CID org admin");
         return this.#lab.setMember(cid, org, member, role);
       }),
-      audit: () => adminCall((cid, org) => this.#lab.audit(cid, org)),
+      audit: (after?: number, limit?: number) => adminCall((cid, org) => this.#lab.audit(cid, org, after, limit)),
     };
   }
   forProduct(token: string, product: string) {
@@ -108,6 +122,14 @@ export class CidLabyrinth {
       product: id,
       repositories: session.repositories, createRepository: session.createRepository,
       save: (repo: string, path: string, content: string | Uint8Array, expectedHead: string | null, message = `Save ${id} artifact`, branch = "main") => session.commit(repo, { branch, expectedHead, message, changes: { [pathFor(path)]: content } }),
+      commit: (repo: string, input: CommitInput) => {
+        if (!input || !input.changes || typeof input.changes !== "object" || Array.isArray(input.changes)) throw new LabyrinthError("invalid", "Artifact changes required");
+        const changes: CommitInput["changes"] = Object.create(null);
+        if (Object.keys(input.changes).length > 1000) throw new LabyrinthError("invalid", "Too many artifact changes");
+        for (const [path, content] of Object.entries(input.changes)) changes[pathFor(path)] = content;
+        return session.commit(repo, { ...input, changes });
+      },
+      remove: (repo: string, path: string, expectedHead: string, message = `Remove ${id} artifact`, branch = "main") => session.commit(repo, { branch, expectedHead, message, changes: { [pathFor(path)]: null } }),
       load: (repo: string, commit: string, path: string) => session.readFile(repo, commit, pathFor(path)),
       history: session.history, diff: session.diff,
     };

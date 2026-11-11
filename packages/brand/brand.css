@@ -1,0 +1,76 @@
+/*
+ * Infinitum Corporation® brand — the single source for every product UI.
+ * Matches https://infinitum-corporation.vercel.app/ exactly (read from the live site).
+ *
+ * Copies of this file live in static UIs; run `pnpm brand:sync` after editing it.
+ * Do not edit the copies.
+ */
+
+:root {
+  /* Color — copied from the site's :root */
+  --ink: #111820;    /* primary text, wordmarks */
+  --muted: #52606b;  /* secondary text, labels */
+  --line: #d6dce1;   /* borders, dividers (1px) */
+  --accent: #2454dd; /* links, focus, primary action only */
+  --paper: #ffffff;  /* background — always white */
+  --m-ease: cubic-bezier(.22, 1, .36, 1);
+
+  /* Type */
+  --font: "Helvetica Neue", Helvetica, Arial, sans-serif;
+
+  color-scheme: light;
+}
+
+body {
+  margin: 0;
+  color: var(--ink);
+  background: var(--paper);
+  font-family: var(--font);
+  font-size: 16px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+button, input, select, textarea { font: inherit; color: inherit; }
+
+/* Type scale — weights stay at 400; tight tracking on large sizes */
+.h1, h1.brand-h1 { font-size: 48px; font-weight: 400; letter-spacing: -0.065em; line-height: 1.05; }
+.h2, h2.brand-h2 { font-size: 43px; font-weight: 400; letter-spacing: -0.055em; line-height: 1.1; }
+.h3 { font-size: 22px; font-weight: 400; line-height: 1.3; }
+.lead { font-size: 18px; letter-spacing: -0.015em; }
+.body { font-size: 16px; }
+.label { font-size: 12px; color: var(--muted); }
+
+/*
+ * Product logos are text wordmarks: the product name in the brand font,
+ * symbols included, weight 500, ink, normal tracking. Never an image.
+ */
+.wordmark {
+  font-family: var(--font);
+  font-size: 20px;
+  font-weight: 500;
+  letter-spacing: normal;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+/* A wordmark used as a page title keeps the heading size but stays a wordmark (500, normal tracking). */
+.wordmark.h1 { font-size: 48px; line-height: 1.05; }
+.wordmark.h2 { font-size: 43px; line-height: 1.1; }
+.wordmark.h3 { font-size: 22px; }
+
+/* ™ and ® — small, raised, regular weight. Exactly the site's rule. */
+sup.tm {
+  font-size: 0.38em;
+  vertical-align: super;
+  line-height: 0;
+  margin-left: 0.08em;
+  letter-spacing: 0;
+  font-weight: 400;
+}
+/* In small running text the mark is larger so it stays legible (site: .pillars .tm etc.). */
+.label .tm, .small .tm, .muted .tm, .tm-legible .tm { font-size: 0.65em; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition: none !important; animation: none !important; }
+}

@@ -3,12 +3,13 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>VEIL</title>
+  <title>VEIL&lt;/&gt;™</title>
+  <link rel="stylesheet" href="brand.css" />
   <style>
     :root {
   --brand-accent: #2454dd; /* //RULES// interactive blue */ --bg: #ffffff; --fg: #111820; --muted: #52606b; --line: #d6dce1; --card: #ffffff; --good: #1a7f37; --warn: #9a6700; --bad: #c62828; }
     * { box-sizing: border-box; }
-    body { margin: 0; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background: var(--bg); color: var(--fg); font-size: 14px; }
+    body { margin: 0; font-family: var(--font); background: var(--bg); color: var(--fg); font-size: 14px; }
     header { padding: 0.75rem 1rem 0; border-bottom: 1px solid var(--line); }
     .top { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; }
     h1 { margin: 0; font-size: 1rem; font-weight: 600; letter-spacing: 0.06em; }
@@ -56,7 +57,7 @@
 <body>
   <header>
     <div class="top">
-      <h1>VEIL&lt;/&gt;</h1>
+      <h1 class="wordmark">VEIL&lt;/&gt;<sup class="tm">™</sup></h1>
       <span id="ws-chip" class="chip anon">Anonymous</span>
     </div>
     <nav>
@@ -104,7 +105,7 @@
 
     <section id="ask" class="panel">
       <div class="card">
-        <div class="label">Ask (via :\ARCHITECT\)</div>
+        <div class="label">Ask (via :\ARCHITECT\<sup class="tm">™</sup>)</div>
         <textarea id="q" placeholder="Research, summarize or plan something…"></textarea>
         <label class="check"><input type="checkbox" id="include-page" /> Share this tab's title and address with the assistant</label>
         <div class="row"><button class="btn" id="ask-btn">Ask</button></div>
@@ -141,10 +142,10 @@
 
     <section id="wallet" class="panel">
       <div class="card">
-        <div class="label">FIRM Wallet</div>
+        <div class="label">FIRM Wallet<sup class="tm">™</sup></div>
         <div id="w-addr" class="mono">Not set up</div>
         <div id="w-bal" class="grid" style="margin-top:0.5rem"></div>
-        <div class="muted" id="w-note" style="margin-top:0.5rem">Sign in with Cumulus://ID to see the FIRM Wallet account that comes with it. VEIL never creates placeholder addresses or balances.</div>
+        <div class="muted" id="w-note" style="margin-top:0.5rem">Sign in with Cumulus://ID<sup class="tm">™</sup> to see the FIRM Wallet<sup class="tm">™</sup> account that comes with it. VEIL never creates placeholder addresses or balances.</div>
       </div>
       <firm-suite id="w-suite" product="veil" compact></firm-suite>
     </section>
@@ -156,7 +157,7 @@
         <div class="row"><button class="btn" id="ws-switch">Switch</button></div>
       </div>
       <div class="card" id="signin-card">
-        <div class="label">Cumulus://ID</div>
+        <div class="label">Cumulus://ID<sup class="tm">™</sup></div>
         <div id="cid-who" class="muted">Not signed in</div>
         <div id="social-buttons"></div>
         <div class="row"><button class="btn ghost" id="cid-refresh">I've signed in: refresh</button></div>

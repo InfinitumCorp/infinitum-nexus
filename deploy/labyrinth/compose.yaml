@@ -1,0 +1,38 @@
+services:
+  labyrinth:
+    image: infinitum-labyrinth:local
+    build:
+      context: ../..
+      dockerfile: deploy/labyrinth/Dockerfile
+      secrets:
+        - proxy_ca
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 256
+    mem_limit: 1g
+    stop_grace_period: 30s
+    ports:
+      - "127.0.0.1:${LABYRINTH_PORT:-3030}:3000"
+    environment:
+      SPECTRE_ORIGIN: ${LABYRINTH_ORIGIN:?Set the exact external HTTPS origin (loopback HTTP for local use)}
+      LBRNTH_MASTER_KEY: ${LBRNTH_MASTER_KEY:?Supply a canonical base64 32-byte secret}
+      LBRNTH_SNAPSHOT_FILE: ${LBRNTH_SNAPSHOT_FILE:-/var/lib/labyrinth/labyrinth.json}
+      LBRNTH_ENTITLED_ORGS: ${LBRNTH_ENTITLED_ORGS:-}
+    volumes:
+      - labyrinth_data:/var/lib/labyrinth
+    healthcheck:
+      test: ["CMD", "node", "-e", "Promise.all([fetch('http://127.0.0.1:3000/labyrinth').then(r=>{if(r.status!==200)throw Error()}),fetch('http://127.0.0.1:3000/api/labyrinth',{method:'POST',headers:{'content-type':'application/json','x-labyrinth':'1'},body:JSON.stringify({action:'session',product:'spectre'})}).then(r=>{if(r.status!==401)throw Error()})]).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+volumes:
+  labyrinth_data:
+secrets:
+  proxy_ca:
+    file: ${LABYRINTH_BUILD_CA:-/etc/ssl/certs/ca-certificates.crt}

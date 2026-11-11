@@ -1,12 +1,23 @@
 /**
- * Build unpacked Chrome and Firefox trees and zip them.
- *   node scripts/package.js
+ * Build unpacked Chrome and Firefox trees and reproducible zip/tar archives.
+ *   node scripts/package.js [output-directory]
+ *
+ * SOURCE_DATE_EPOCH overrides the archive timestamp. When it is unset, the
+ * timestamp is the current git commit time. Node is pinned in toolchain.js.
  */
 import { spawnSync } from "node:child_process";
-import { cpSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  assertNodeToolchain,
+  gitHead,
+  packDirectory,
+  resolveSourceDateEpoch,
+  writeSha256Manifest,
+} from "./archive.js";
 import { chromeManifest, firefoxManifest } from "./manifests.js";
+import { NODE_VERSION, PNPM_VERSION } from "./toolchain.js";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 
@@ -33,6 +44,8 @@ export const EXTENSION_FILES = [
   "lib/password-rules.js",
   "lib/privacy.js",
   "lib/proxy.js",
+  "lib/region.js",
+  "lib/region-blocks.js",
   "lib/safety.js",
   "lib/rewards.js",
   "lib/veil-api.js",
@@ -43,50 +56,60 @@ export const EXTENSION_FILES = [
   "icons/icon-128.png",
 ];
 
-export function packageExtension(source = root, outDir = join(source, "dist"), { dev = false } = {}) {
+export function packageExtension(source = root, outDir = join(source, "dist"), options = {}) {
+  assertNodeToolchain();
+  if (resolve(outDir) === resolve(source)) throw new Error("refusing to replace the extension source tree");
+  const epoch = options.sourceDateEpoch === undefined ? resolveSourceDateEpoch(source) : options.sourceDateEpoch;
   const version = JSON.parse(readFileSync(join(source, "package.json"), "utf8")).version;
+  const dev = options.dev === true;
   rmSync(outDir, { recursive: true, force: true });
   const targets = [
-    ["chrome", chromeManifest(version), "veil-chrome.zip"],
-    ["firefox", firefoxManifest(version), "veil-firefox.zip"],
+    ["chrome", chromeManifest(version), "veil-chrome.zip", "veil-chrome.tar"],
+    ["firefox", firefoxManifest(version), "veil-firefox.zip", "veil-firefox.tar"],
   ];
   const zips = [];
-  for (const [name, manifest, zipName] of targets) {
+  for (const [name, manifest, zipName, tarName] of targets) {
     const dir = join(outDir, name);
-    mkdirSync(dir, { recursive: true });
     for (const file of EXTENSION_FILES) {
       const dest = join(dir, file);
       mkdirSync(dirname(dest), { recursive: true });
-      cpSync(join(source, file), dest);
+      writeFileSync(dest, readFileSync(join(source, file)));
     }
     writeFileSync(join(dir, "lib/build.js"), `export const VEIL_DEV = ${dev ? "true" : "false"};\n`);
     writeFileSync(join(dir, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
     const zipPath = join(outDir, zipName);
-    const zip = zipDirectory(dir, zipPath);
-    if (zip.status !== 0) throw new Error(zip.stderr || `zip failed for ${name}`);
+    const tarPath = join(outDir, tarName);
+    writeFileSync(zipPath, packDirectory(dir, epoch, "zip"));
+    writeFileSync(tarPath, packDirectory(dir, epoch, "tar"));
     zips.push(zipPath);
   }
+  const commit = options.gitCommit ?? gitHead(source);
+  writeFileSync(
+    join(outDir, "BUILDINFO"),
+    [
+      `SOURCE_DATE_EPOCH=${epoch}`,
+      `NODE_VERSION=${NODE_VERSION}`,
+      `PNPM_VERSION=${PNPM_VERSION}`,
+      `GIT_COMMIT=${commit}`,
+      "UNSIGNED=1",
+      "",
+    ].join("\n"),
+  );
+  writeSha256Manifest(outDir);
   return zips;
 }
 
-/** Windows' built-in bsdtar, which reads and writes zip files where Info-ZIP is not installed. */
-export const WINDOWS_TAR = process.platform === "win32" ? join(process.env.SystemRoot ?? "C:\Windows", "System32", "tar.exe") : null;
+/** Windows' built-in bsdtar, used to read zip archives where Info-ZIP is not installed. */
+export const WINDOWS_TAR = process.platform === "win32" ? join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe") : null;
 
 export function hasCommand(cmd) {
   const r = spawnSync(cmd, ["-v"], { encoding: "utf8" });
   return !r.error;
 }
 
-function zipDirectory(dir, zipPath) {
-  if (hasCommand("zip") || !WINDOWS_TAR) return spawnSync("zip", ["-r", "-X", zipPath, "."], { cwd: dir, encoding: "utf8" });
-  const files = readdirSync(dir, { recursive: true })
-    .map((f) => String(f).replaceAll("\\", "/"))
-    .filter((f) => statSync(join(dir, f)).isFile())
-    .sort();
-  return spawnSync(WINDOWS_TAR, ["-a", "-c", "-f", zipPath, ...files], { cwd: dir, encoding: "utf8" });
-}
-
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const zips = packageExtension(root, join(root, "dist"), { dev: process.env.VEIL_DEV === "1" });
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const out = process.argv[2] ? resolve(process.argv[2]) : join(root, "dist");
+  const zips = packageExtension(root, out, { dev: process.env.VEIL_DEV === "1" });
   console.log(zips.join("\n"));
+  console.log(join(out, "SHA256SUMS"));
 }

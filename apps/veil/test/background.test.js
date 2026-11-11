@@ -120,7 +120,7 @@ test("messages from another extension are refused", async () => {
 // ---------- v0.5: Cumulus account and Nexus ----------
 
 const signedInMe = {
-  cid: "cid_9", username: "sam", mailAddress: "sam@cumulusmail.cloud",
+  cid: "cid_9", username: "sam", mailAddress: "sam@cumuluscloud.app",
   cumulus: { plan: "Free", mail: { unread: 4, url: "http://localhost:3010" },
     storage: { label: "0 B of 15 GB", pct: 0 }, wallet: { address: "0xfeed", balances: { FIRM: "1.0", USDC: "0" } } },
 };

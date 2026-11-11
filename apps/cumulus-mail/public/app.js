@@ -189,7 +189,7 @@ function render() {
     el("button", { class: "x", "aria-label": "Dismiss", onClick: () => { state.toast = null; render(); } }, ["×"]),
   ]));
   if (state.help) root.append(helpDialog());
-  document.title = data.unread ? `Inbox (${data.unread}) · Cumulus://Mail` : "Cumulus://Mail";
+  document.title = data.unread ? `Inbox (${data.unread}) · Cumulus://Mail™` : "Cumulus://Mail™";
 }
 
 const SHORTCUTS = [
@@ -217,6 +217,12 @@ function sidebar(data) {
       id === "inbox" && data.unread ? el("span", { class: "count" }, [String(data.unread)]) : null)),
     el("hr"),
     ...views.map(([id, label]) => navButton(state.view === id, label, () => go(id))),
+    el("button", { onClick: () => { location.href = "/labyrinth"; } }, ["Labyrinth *LBRNTH", el("sup", { class: "tm" }, ["™"])]),
+    el("hr"),
+    el("button", { onClick: () => { location.href = "/drive/"; } }, ["Drive"]),
+    el("button", { onClick: () => { location.href = "/drive/#/new/dox"; } }, ["Dox"]),
+    el("button", { onClick: () => { location.href = "/drive/#/new/spreads"; } }, ["Spreads"]),
+    el("button", { onClick: () => { location.href = "/drive/#/new/podium"; } }, ["Podium"]),
     el("button", { class: "mobile-only", "aria-current": state.view === "account", onClick: () => go("account") }, ["Account"]),
     el("button", { class: "me", onClick: () => go("account") }, [
       el("div", { class: "meter" }, [el("span", { style: `width:${Math.max(1, data.quota.pct)}%` })]),
@@ -321,6 +327,7 @@ async function scheduleSend(when) {
   clearTimeout(draftTimer);
   if (draftSaving) await draftSaving;
   const form = state.composer;
+  if (stillUploading(form)) { state.error = "Wait for your files to finish uploading."; render(); return; }
   if (form.payment?.amount) { state.error = "Payments go out right away. Send this one now."; render(); return; }
   try {
     form.sent = true;
@@ -449,7 +456,9 @@ function reader(message) {
         ]),
         item.payment ? paymentCard(item) : none(),
         el("p", { class: "letter" }, [item.body]),
-        ...(item.attachments || []).map((file) => el("span", { class: "file" }, [file.name, el("span", { class: "sub" }, [size(file.size)])])),
+        ...(item.attachments || []).map((file) => file.id
+          ? el("a", { class: "file", href: fileUrl(file.id), download: file.name, title: `Download ${file.name}` }, [file.name, el("span", { class: "sub" }, [size(file.size)])])
+          : el("span", { class: "file", title: "This file wasn't stored, so it can't be opened." }, [file.name, el("span", { class: "sub" }, [size(file.size)])])),
       ])),
       state.composer?.inline ? el("div", { class: "inline-composer" }, [composerForm()]) : none(),
     ]),
@@ -500,7 +509,7 @@ function composerForm() {
     ]),
     field("Message", "body"),
     ...(form.attachments || []).map((file, index) => el("span", { class: "file" }, [
-      file.name, el("span", { class: "sub" }, [size(file.size)]),
+      file.name, el("span", { class: "sub" }, [file.uploading ? "Uploading…" : size(file.size)]),
       el("button", { type: "button", "aria-label": `Remove ${file.name}`, onClick: () => { form.attachments.splice(index, 1); render(); } }, ["×"]),
     ])),
     el("div", { class: "actions" }, [
@@ -526,15 +535,44 @@ function composerForm() {
   ]);
 }
 
-const filePicker = el("input", { type: "file", style: "display:none", onChange: (event) => {
-  const file = event.target.files?.[0];
-  event.target.value = "";
-  if (!file || !state.composer) return;
-  if (file.size > 25 * 1024 * 1024) { state.error = "Files stay under 25 MB. Larger ones belong in Cloud."; render(); return; }
-  state.composer.attachments = [...(state.composer.attachments || []), { name: file.name, size: file.size }];
-  state.error = "";
+const fileUrl = (id) => `/api/files/${id.split("/").map(encodeURIComponent).join("/")}`;
+
+/** Upload a picked file to Cumulus storage; the composer keeps only the stored file's reference. */
+async function uploadFile(form, file) {
+  const entry = { name: file.name, size: file.size, uploading: true };
+  form.attachments = [...(form.attachments || []), entry];
   render();
+  try {
+    const response = await fetch(`/api/files?name=${encodeURIComponent(file.name)}`, {
+      method: "POST",
+      headers: { "Content-Type": file.type || "application/octet-stream", "x-cumulus": "1" },
+      body: file,
+      credentials: "same-origin",
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || "Upload failed");
+    const index = form.attachments.indexOf(entry);
+    if (index >= 0) form.attachments.splice(index, 1, payload);
+  } catch (err) {
+    form.attachments = form.attachments.filter((a) => a !== entry);
+    state.error = `${file.name}: ${err.message}`;
+  }
+  render();
+  queueDraftSave();
+}
+
+const filePicker = el("input", { type: "file", multiple: true, style: "display:none", onChange: (event) => {
+  const picked = [...(event.target.files || [])];
+  event.target.value = "";
+  if (!picked.length || !state.composer) return;
+  state.error = "";
+  for (const file of picked) {
+    if (file.size > 25 * 1024 * 1024) { state.error = `${file.name} is over 25 MB. Larger files belong in Cloud.`; render(); continue; }
+    uploadFile(state.composer, file);
+  }
 } });
+
+const stillUploading = (form) => (form.attachments || []).some((a) => a.uploading);
 
 /* Drafts save themselves a moment after you stop typing, like Gmail. */
 let draftTimer;
@@ -593,6 +631,7 @@ async function send() {
   clearTimeout(draftTimer);
   if (draftSaving) await draftSaving;
   const form = state.composer;
+  if (stillUploading(form)) { state.error = "Wait for your files to finish uploading."; render(); return; }
   const paying = Boolean(form.payment?.amount);
   if (paying && !confirm(`Send ${form.payment.amount} ${form.payment.asset} from your FIRM Wallet to ${form.to}?`)) return;
   try {
@@ -841,7 +880,7 @@ function renderAuth(message = "") {
     .catch(() => {});
   root.replaceChildren(el("div", { class: "auth" }, [el("div", { class: "auth-card" }, [
     el("div", { class: "mark" }, ["Cumulus://Mail", el("sup", { class: "tm" }, ["™"])]),
-    el("p", { class: "muted" }, ["Sign in with your Cumulus://ID"]),
+    el("p", { class: "muted" }, [state.signInFor ? `Sign in with your Cumulus://ID to continue to ${state.signInFor}` : "Sign in with your Cumulus://ID"]),
     el("button", { class: "primary", onClick: async () => {
       err.textContent = "";
       try {
@@ -849,6 +888,11 @@ function renderAuth(message = "") {
         await finishSignIn(await usePasskey(options));
       } catch (e) { fail(e); }
     } }, ["Continue with passkey"]),
+    window.cumulusDesktop ? el("button", { class: "outline", onClick: () => {
+      err.textContent = "";
+      window.cumulusDesktop.signInWithBrowser().catch(fail);
+      err.textContent = "Finish signing in in your browser, then come back here.";
+    } }, ["Sign in with your browser"]) : null,
     social,
     el("p", { class: "muted divider" }, ["New here? Pick your address. It's your Cumulus://ID."]),
     username,
@@ -934,7 +978,63 @@ async function refresh(manual = false) {
 setInterval(() => refresh(), 30_000);
 document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
 
+/* Signing in the desktop app: the app opens /?desktop=<challenge> here; you approve, and the app gets a one-time code. */
+const DESKTOP_KEY = "cumulus-desktop-challenge";
+function takeDesktopChallenge() {
+  const params = new URLSearchParams(location.search);
+  const c = params.get("desktop");
+  if (c && /^[A-Za-z0-9_-]{43}$/.test(c)) {
+    try { sessionStorage.setItem(DESKTOP_KEY, c); } catch {}
+    history.replaceState(null, "", "/");
+  }
+  try { return sessionStorage.getItem(DESKTOP_KEY); } catch { return null; }
+}
+
+function renderDesktopApprove(challenge) {
+  const root = document.querySelector("#app");
+  const err = el("p", { class: "error", role: "alert" }, []);
+  const done = () => { try { sessionStorage.removeItem(DESKTOP_KEY); } catch {} };
+  root.replaceChildren(el("div", { class: "auth" }, [el("div", { class: "auth-card" }, [
+    el("div", { class: "mark" }, ["Cumulus://Mail", el("sup", { class: "tm" }, ["™"])]),
+    el("p", {}, [`Sign in to the Cumulus://Mail desktop app as ${state.data?.me?.email ?? "you"}?`]),
+    el("p", { class: "muted small" }, ["Only continue if you just clicked “Sign in with your browser” in the app on this computer."]),
+    el("button", { class: "primary", onClick: async () => {
+      err.textContent = "";
+      try {
+        const { code } = await api("/api/auth/desktop/grant", { challenge });
+        done();
+        location.href = `cumulus-mail://signin?code=${encodeURIComponent(code)}`;
+        root.replaceChildren(el("div", { class: "auth" }, [el("div", { class: "auth-card" }, [
+          el("div", { class: "mark" }, ["You're signed in"]),
+          el("p", { class: "muted" }, ["Go back to the Cumulus://Mail app. You can close this tab."]),
+          el("a", { class: "outline", href: "/" }, ["Open mail here instead"]),
+        ])]));
+      } catch (e) { err.textContent = e.message; }
+    } }, ["Open the app"]),
+    el("button", { class: "outline", onClick: () => { done(); render(); } }, ["Cancel"]),
+    err,
+  ])]));
+}
+
+/*
+ * Coming from another Infinitum product ("Sign in with Cumulus://ID") or from Drive: /?next=<path>.
+ * Only paths on this site are kept, and only the sign-in request and the Drive pages.
+ */
+const NEXT_KEY = "cumulus-next";
+function takeNext() {
+  const params = new URLSearchParams(location.search);
+  const next = params.get("next");
+  if (next && /^\/(api\/id\/authorize\?|drive\/)/.test(next) && !next.startsWith("//")) {
+    try { sessionStorage.setItem(NEXT_KEY, JSON.stringify({ next, for: (params.get("for") || "").slice(0, 60) })); } catch {}
+    history.replaceState(null, "", "/");
+  }
+  try { return JSON.parse(sessionStorage.getItem(NEXT_KEY) || "null"); } catch { return null; }
+}
+
 async function boot() {
+  const desktopChallenge = takeDesktopChallenge();
+  const pending = takeNext();
+  state.signInFor = pending?.for || "";
   const [page, arg] = location.hash.replace(/^#\/?/, "").split("/");
   if (page === "signin-error") return renderAuth(decodeURIComponent(arg || ""));
   if (page === "mfa" && arg) {
@@ -946,9 +1046,15 @@ async function boot() {
   }
   try {
     state.data = await api("/api/state");
+    if (pending) {
+      try { sessionStorage.removeItem(NEXT_KEY); } catch {}
+      location.replace(pending.next);
+      return;
+    }
     const params = new URLSearchParams(location.search);
-    if (params.get("compose") === "1") state.composer = blankComposer({ to: params.get("to") || "" });
+    if (params.get("compose") === "1") state.composer = blankComposer({ to: (params.get("to") || "").slice(0, 2000), subject: (params.get("subject") || "").slice(0, 500), body: (params.get("body") || "").slice(0, 20000) });
     if (params.has("compose") || params.has("source")) history.replaceState(null, "", "/");
+    if (desktopChallenge) return renderDesktopApprove(desktopChallenge);
     render();
   } catch {
     // Not signed in: renderAuth() has already been shown.

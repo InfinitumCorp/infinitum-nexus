@@ -25,7 +25,7 @@ export async function harness(opts: { providers?: Providers; cronSecret?: string
   const events: { ws: string; event: GrowthEvent }[] = [];
   let emitImpl = async (ws: string, event: GrowthEvent) => { events.push({ ws, event }); };
   const app = createApp({
-    cid, suite, crm, ai: { model: "m" }, publicDir: join(here, "../../public"), secureCookies: false, origin: ORIGIN,
+    cid, suite, crm, ai: {}, publicDir: join(here, "../../public"), secureCookies: false, origin: ORIGIN,
     emit: (ws, e) => emitImpl(ws, e),
     ...opts,
   });

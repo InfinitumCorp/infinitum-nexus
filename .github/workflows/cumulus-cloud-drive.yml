@@ -1,0 +1,49 @@
+name: Cumulus Cloud Drive
+
+# Runs the Drive test suite on the pull request head. It does not deploy.
+on:
+  pull_request:
+
+# A newer push to the same PR cancels the older run, so minutes are not spent on stale commits.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Local filesystem and PostgreSQL
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: cumulus
+          POSTGRES_PASSWORD: cumulus
+          POSTGRES_DB: cloud
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U cumulus -d cloud"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      # Ephemeral database on the runner. Not a production credential.
+      CUMULUS_CLOUD_DATABASE_URL: postgres://cumulus:cumulus@127.0.0.1:5432/cloud
+      CUMULUS_CLOUD_REQUIRE_INTEGRATION: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.28.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @infinitum/cloud typecheck
+      - run: pnpm --filter @infinitum/cloud test
+      - run: pnpm --filter @infinitum/cid test

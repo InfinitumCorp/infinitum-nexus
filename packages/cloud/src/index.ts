@@ -6,5 +6,7 @@ export { grant } from "./license.ts";
 export type { LicenseGrant } from "./license.ts";
 export { AgentRuntime } from "./runtime.ts";
 export type { RuntimeTask } from "./runtime.ts";
+export { createDriveApp, readDriveConfig, cidAuth, DriveService, DriveRepo, LocalFsBlobStore, DriveError, assertLocalDriver } from "./drive/index.ts";
+export type { DriveConfig, DriveAuth, BlobStore } from "./drive/index.ts";
 
 export { createCloudLabyrinth } from "./labyrinth.ts";

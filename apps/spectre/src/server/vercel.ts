@@ -6,7 +6,7 @@ import { SpectreCRM, emptyStore } from "../core/crm.ts";
 import { createApp } from "./app.ts";
 import { aiConfigFromEnv } from "./ai.ts";
 import { providersFromEnv } from "../core/messaging.ts";
-import { RemoteState, HttpGateway } from "./remote.ts";
+import { RemoteState, HttpGateway, type NexusGateway } from "./remote.ts";
 
 /**
  * +SPCTR on Vercel (serverless). All data lives in Supabase behind the private
@@ -17,12 +17,31 @@ import { RemoteState, HttpGateway } from "./remote.ts";
  *   FIRMAMENT_SIGNER_KEY   base64 PKCS#8 Ed25519 key that signs ledger entries (keep secret)
  *   NEXUS_STORE_URL        https://<project>.supabase.co/functions/v1/nexus-store
  *   NEXUS_STORE_KEY        gateway key; its SHA-256 is listed in nexus_gateway_keys
- * Optional: ANTHROPIC_API_KEY, USE_METATRON, CUMULUS_ROOT_DOMAIN, CUMULUS_ID_HOST,
+ * Optional: OMNIROUTE_API_KEY (or another open-model host), USE_METATRON, CUMULUS_ROOT_DOMAIN, CUMULUS_ID_HOST,
  * CUMULUS_KEYCLOAK_REALM, CUMULUS_CLOUD_HOST, CUMULUS_MAIL_HOST, CUMULUS_MAIL_ORIGIN,
- * and the social sign-in variables (see main.ts).
+ * and the social sign-in variables (see main.ts). CID_OIDC_SIGNING_KEY is optional; when it is
+ * unset, OpenID Connect stays off and sign-in still works. See docs/cumulus-id.md.
  */
 
 process.env.USE_METATRON ??= "1";
+
+/** import.meta.url is not a URL inside a Workers bundle; static files never come from here there. */
+function publicDir(): string {
+  try {
+    return new URL("./public/", import.meta.url).pathname;
+  } catch {
+    return "/public/";
+  }
+}
+
+let gatewayOverride: NexusGateway | undefined;
+/**
+ * Keep state somewhere other than the nexus-store function (the Cloudflare Worker passes a
+ * Durable Object). Call before the first request. NEXUS_STORE_URL/KEY are then not needed.
+ */
+export function useGateway(gateway: NexusGateway) {
+  gatewayOverride = gateway;
+}
 
 function required(name: string): string {
   const v = process.env[name];
@@ -37,7 +56,8 @@ function build() {
   const spectreStore = emptyStore();
   // The CID, Mail, Wallet and quota docs are shared by every hosted Infinitum product,
   // so an account made here has the same mailbox and wallet in Cumulus://Mail.
-  const state = new RemoteState(new HttpGateway(required("NEXUS_STORE_URL"), required("NEXUS_STORE_KEY")), {
+  const gateway = gatewayOverride ?? new HttpGateway(required("NEXUS_STORE_URL"), required("NEXUS_STORE_KEY"));
+  const state = new RemoteState(gateway, {
     cid: cumulusStores.cid,
     spectre: spectreStore,
     "cumulus-mail": cumulusStores.mail,
@@ -70,7 +90,7 @@ function build() {
     suite,
     crm,
     ai: aiConfigFromEnv(),
-    publicDir: new URL("./public/", import.meta.url).pathname, // static files are served by Vercel's CDN
+    publicDir: publicDir(), // static files are served by the CDN (Vercel) or Workers static assets
     secureCookies: origin.startsWith("https://"),
     origin,
     providers: providersFromEnv(),

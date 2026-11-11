@@ -1,3 +1,5 @@
+import { createRouter } from "@infinitum/ai";
+import { queuedRouter, textReply, toolReply } from "@infinitum/ai/testing";
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
 import type { AddressInfo } from "node:net";
@@ -54,7 +56,7 @@ before(async () => {
   await new Promise<void>((r) => probe.close(() => r()));
   base = `http://localhost:${port}`;
   suite = createCumulus({ ledger, signer, rpId: "localhost", origins: [base], mailOrigin: base });
-  server = createMailApp({ suite, publicDir: join(import.meta.dirname, "..", "public"), origin: base, secureCookies: false, scalvs: async () => ({ ok: true, text: "Brief." }), cleanAgent: scalvsCleanAgent({ model: "m" }) }).server();
+  server = createMailApp({ suite, publicDir: join(import.meta.dirname, "..", "public"), origin: base, secureCookies: false, scalvs: async () => ({ ok: true, text: "Brief." }), cleanAgent: scalvsCleanAgent({ router: createRouter({ providers: [] }) }) }).server();
   await new Promise<void>((r) => server.listen(port, "127.0.0.1", r));
 });
 after(() => new Promise<void>((r) => server.close(() => r())));
@@ -173,22 +175,18 @@ describe("Cumulus://Mail over HTTP", () => {
 
 describe("SCALVS Clean agent", () => {
   it("turns SCALVS proposals into suggestions and drops ids it wasn't shown", async () => {
-    const calls: any[] = [];
-    const replies = [
-      { stop_reason: "tool_use", content: [{ type: "tool_use", id: "t1", name: "list_inbox", input: {} }] },
-      { stop_reason: "tool_use", content: [
-        { type: "tool_use", id: "t2", name: "archive_messages", input: { ids: ["m1", "not-yours"], reason: "Old newsletter" } },
-        { type: "tool_use", id: "t3", name: "trash_messages", input: { ids: ["starred"], reason: "Junk" } },
-      ] },
-      { stop_reason: "end_turn", content: [{ type: "text", text: "Mostly newsletters." }] },
-    ];
-    const fetchImpl = (async (_url: string, init: any) => {
-      calls.push(JSON.parse(init.body));
-      return new Response(JSON.stringify(replies.shift()), { status: 200 });
-    }) as typeof fetch;
+    const ai = queuedRouter([
+      toolReply([{ id: "t1", name: "list_inbox", input: {} }]),
+      toolReply([
+        { id: "t2", name: "archive_messages", input: { ids: ["m1", "not-yours"], reason: "Old newsletter" } },
+        { id: "t3", name: "trash_messages", input: { ids: ["starred"], reason: "Junk" } },
+      ]),
+      textReply("Mostly newsletters."),
+    ]);
+    const calls = ai.requests;
     const at = new Date("2026-11-01T00:00:00Z").toISOString();
     const base = { threadId: "x", folder: "inbox" as const, to: [], cc: [], body: "Unsubscribe", at, unread: false, labels: [] };
-    const agent = scalvsCleanAgent({ apiKey: "test-key", model: "m", fetchImpl });
+    const agent = scalvsCleanAgent({ router: ai.router });
     const out = await agent({
       messages: [
         { ...base, id: "m1", from: { name: "Paper", email: "news@paper.example" }, subject: "Daily", starred: false },
@@ -200,7 +198,7 @@ describe("SCALVS Clean agent", () => {
     });
     assert.deepEqual(out.suggestions.map((s) => [s.kind, s.ids]), [["archive", ["m1"]]]);
     assert.equal(out.note, "Mostly newsletters.");
-    assert.match(calls[0].system, /untrusted/);
+    assert.match(calls[0].messages[0].content, /untrusted/);
   });
   it("acts on conversations in bulk and undoes over HTTP", async () => {
     const ivy = new Browser();
@@ -237,4 +235,19 @@ describe("SCALVS Clean agent", () => {
     assert.equal(c.data.messages.find((m: any) => m.id === r.data.id).sendAt, undefined);
     assert.equal((await kim.call("POST", "/api/schedule/cancel", { id: r.data.id })).status, 404);
   });
+});
+
+it("mounts the shared Labyrinth UI while keeping an unconfigured repository API unavailable", async () => {
+  const b = new Browser();
+  const ui = await b.call("GET", "/labyrinth");
+  assert.equal(ui.status, 200);
+  assert.match(ui.data, /Labyrinth/);
+  assert.match(ui.data, /data-product="cumulus-mail"/);
+  assert.equal(ui.headers.get("cache-control"), "no-store");
+  assert.match(ui.headers.get("x-robots-tag") ?? "", /noindex/);
+  const js = await b.call("GET", "/labyrinth/assets/app.js");
+  assert.equal(js.status, 200);
+  assert.match(js.headers.get("content-type") ?? "", /javascript/);
+  const unavailable = await b.call("POST", "/api/labyrinth", { product: "cumulus-mail", action: "list" }, { "x-labyrinth": "1" });
+  assert.equal(unavailable.status, 503);
 });

@@ -152,8 +152,8 @@ $("ask-btn").onclick = async () => {
     $("out").textContent = JSON.stringify(result, null, 2);
     say("Ready");
   } catch (err) {
-    $("out").textContent = `Architect unreachable at ${state.origins.architect}.\n${err.message}`;
-    say("Architect offline");
+    $("out").textContent = `:\\ARCHITECT\\™ unreachable at ${state.origins.architect}.\n${err.message}`;
+    say(":\\ARCHITECT\\™ offline");
   }
 };
 

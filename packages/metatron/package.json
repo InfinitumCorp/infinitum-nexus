@@ -5,7 +5,10 @@
   "homepage": "https://mttrn.app",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./learn": "./src/learn.ts",
+    "./evaluate": "./src/evaluate.ts",
+    "./backtest": "./src/backtest.ts"
   },
   "private": true,
   "engines": {

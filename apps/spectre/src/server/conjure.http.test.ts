@@ -1,3 +1,4 @@
+import { queuedRouter, scriptedRouter, textReply, toolReply } from "@infinitum/ai/testing";
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { join, dirname } from "node:path";
@@ -42,11 +43,8 @@ describe("+SPCTR Conjure simulations over HTTP", () => {
     const ledger = new Ledger(undefined, { authorizedSigners: [signer.publicKey] });
     const cid = new CidService({ ledger, signer, rpId: "localhost", origins: [ORIGIN] });
     crm = new SpectreCRM({ ledger, signer });
-    const ai = {
-      model: "m",
-      get apiKey() { return apiKey; },
-      fetchImpl: (async () => new Response(JSON.stringify(reportReplies.shift()))) as typeof fetch,
-    };
+    const scripted = scriptedRouter(() => reportReplies.shift());
+    const ai = { get router() { return apiKey ? scripted.router : undefined; } };
     const app = createApp({ cid, crm, ai, publicDir: join(here, "../../public"), secureCookies: false, origin: ORIGIN, conjureComplete: complete });
     server = app.server();
     await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
@@ -108,7 +106,7 @@ describe("+SPCTR Conjure simulations over HTTP", () => {
   });
 
   it("writes a report and interviews an agent", async () => {
-    reportReplies.push({ stop_reason: "end_turn", content: [{ type: "text", text: JSON.stringify({ outcome: "Likely to sign after a discount", probability: 0.64, forecast: "…", drivers: ["price"], signals: ["procurement call"], assumptions: [], confidence: "medium" }) }] });
+    reportReplies.push(textReply(JSON.stringify({ outcome: "Likely to sign after a discount", probability: 0.64, forecast: "…", drivers: ["price"], signals: ["procurement call"], assumptions: [], confidence: "medium" })));
     const rep = await call("POST", `/api/conjure/${simId}/report`, {}, me);
     assert.equal(rep.status, 200, JSON.stringify(rep.body));
     assert.equal(rep.body.probability, 0.64);

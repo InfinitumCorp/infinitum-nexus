@@ -66,8 +66,11 @@ pnpm test
 pnpm typecheck
 pnpm lint
 node scripts/package.js
+bash scripts/repro-check.sh
 node scripts/make-icons.js
 ```
+
+`scripts/package.js` writes reproducible zip and tar archives and `dist/SHA256SUMS`. Node is pinned in `scripts/toolchain.js`. `SOURCE_DATE_EPOCH` sets the archive time; otherwise the git commit time is used. The packages are unsigned.
 
 ## Configuration (chrome.storage.local)
 

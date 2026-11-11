@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- No ™ in <title>. -->
+  <title>PRODUCT</title>
+  <link rel="stylesheet" href="/app-shell.css">
+  <!-- App-specific layout goes in app.css, loaded after the shell. -->
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="app-bar">
+    <!-- The product's own wordmark, exactly as RULES/brand/wordmarks.md writes it. Never the Infinitum logo. -->
+    <a class="app-wordmark" href="/">PRODUCT<sup class="tm">™</sup></a>
+    <nav class="app-nav" aria-label="Main">
+      <a href="/" aria-current="page">Home</a>
+      <a href="/settings">Settings</a>
+    </nav>
+    <div class="app-actions">
+      <button class="btn small" type="button">Sign out</button>
+    </div>
+  </header>
+  <main id="main" class="app-main">
+    <div class="app-head">
+      <div>
+        <h1>Page title</h1>
+        <p>One line of context.</p>
+      </div>
+      <button class="btn primary" type="button">Primary action</button>
+    </div>
+
+    <p class="notice" role="status">A notice: monochrome, with an ink rule on the left.</p>
+
+    <section class="app-section">
+      <h2>Section</h2>
+      <label class="field"><span>Label</span><input name="example"></label>
+      <table class="table">
+        <thead><tr><th>Name</th><th>Status</th></tr></thead>
+        <tbody><tr><td>Row</td><td>Active</td></tr></tbody>
+      </table>
+    </section>
+
+    <div class="empty">
+      <h3>Nothing here yet</h3>
+      <p>Say what will appear here and how to add it.</p>
+    </div>
+  </main>
+  <!-- Legal text may name the company as text. No logo images. -->
+  <footer class="app-footer">© The Infinitum Corporation</footer>
+</body>
+</html>

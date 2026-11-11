@@ -50,6 +50,7 @@ export {
   MAIL_DOMAIN,
   SYSTEM_SENDERS,
   messageBytes,
+  attachmentBytes,
   isReservedMailName,
   MAX_INBOUND_BODY,
   OUTBOUND_MAX_ATTEMPTS,

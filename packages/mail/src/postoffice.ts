@@ -10,7 +10,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { Mailbox, type MailSnapshot, type SendInput } from "./mailbox.ts";
-import type { FolderId, MailMessage, MailPayment, Person } from "./model.ts";
+import type { Attachment, FolderId, MailMessage, MailPayment, Person } from "./model.ts";
 import { MAIL_DOMAIN } from "@infinitum/cid";
 import { isCumulus, parsePeople, tomorrowMorning, validEmail } from "./logic.ts";
 import type { CumulusTunnel } from "./tunnel.ts";
@@ -64,6 +64,8 @@ export interface OutboundMail {
   toList?: string[];
   ccList?: string[];
   body?: string;
+  /** Stored files to attach (name-only entries can't be sent and are left out). */
+  attachments?: { id: string; name: string; type?: string; size: number }[];
   attempts?: number;
   /** Earliest time to try again after a temporary failure. */
   nextAttemptAt?: string;
@@ -80,13 +82,18 @@ export interface OutboundSend {
   cc: string[];
   subject: string;
   text: string;
+  attachments: { id: string; name: string; type?: string; size: number }[];
 }
 
 export type OutboundResult = { ok: true; providerId?: string } | { ok: false; error: string; permanent: boolean };
 
 /** Temporary failures are retried this many times, with growing gaps, before the sender is told. */
 export const OUTBOUND_MAX_ATTEMPTS = 6;
-/** A job claimed but never finished (the sender crashed) goes back in the queue after this long. */
+/**
+ * A job claimed but never finished after this long: the run stopped between taking it and recording
+ * the result, so it may or may not have gone out. It is never sent again (no duplicates); the
+ * sender is told delivery couldn't be confirmed instead.
+ */
 const OUTBOUND_CLAIM_TIMEOUT_MS = 10 * 60_000;
 
 export class PostOfficeStore {
@@ -131,7 +138,7 @@ export interface InboundMail {
   subject: string;
   body: string;
   at?: string;
-  attachments?: { name: string; size: number }[];
+  attachments?: Attachment[];
 }
 
 /** Longest inbound body kept (characters); the rest is cut. */
@@ -139,6 +146,9 @@ export const MAX_INBOUND_BODY = 512 * 1024;
 
 export const messageBytes =(m: Pick<MailMessage, "subject" | "body">) =>
   Buffer.byteLength(m.subject, "utf8") + Buffer.byteLength(m.body, "utf8") + 512; // headers
+
+/** Storage the files on a message take. */
+export const attachmentBytes = (files?: Attachment[]) => (files ?? []).reduce((n, f) => n + (f.size > 0 ? f.size : 0), 0);
 
 const RESERVED_LOCAL = new Set([
   ...Object.values(SYSTEM_SENDERS).map((s) => s.email.split("@")[0]),
@@ -246,7 +256,7 @@ export class PostOffice {
     if (cc.some((p) => !validEmail(p.email))) throw new MailError("bad_address", "Check the Cc addresses.");
     if (!input.subject.trim() && !input.body.trim()) throw new MailError("empty", "Write a subject or a message.");
 
-    const size = messageBytes({ subject: input.subject, body: input.body });
+    const size = messageBytes({ subject: input.subject, body: input.body }) + attachmentBytes(input.attachments);
     if (this.quota && !this.quota.canFit(cid, size)) {
       throw new MailError("quota_exceeded", "Your Cumulus storage is full. Free up space in Mail or Cloud to send.");
     }
@@ -313,6 +323,7 @@ export class PostOffice {
       const job: OutboundMail = {
         id: `out-${randomUUID()}`, fromCid: cid, from: sender.owner.email, fromName: sender.owner.name, to: external,
         toList: outside(to), ccList: outside(cc), subject: sent.subject, body: sent.body, messageId: id,
+        attachments: (sent.attachments ?? []).filter((a): a is Attachment & { id: string } => Boolean(a.id)).map(({ id, name, type, size }) => ({ id, name, type, size })),
         queuedAt: at, status: "queued", attempts: 0,
       };
       this.store.outbound.set(job.id, job);
@@ -404,7 +415,7 @@ export class PostOffice {
     if (isCumulus(sender)) throw new MailError("spoofed_sender", "Mail from a Cumulus address can't arrive from outside Cumulus.");
     const subject = input.subject.slice(0, 998);
     const body = input.body.slice(0, MAX_INBOUND_BODY);
-    const size = messageBytes({ subject, body });
+    const size = messageBytes({ subject, body }) + attachmentBytes(input.attachments);
     const delivered: string[] = [];
     const unknown: string[] = [];
     const seen = new Set<string>();
@@ -463,16 +474,20 @@ export class PostOffice {
   /**
    * Take up to `limit` jobs that are due for sending and mark them "sending", so a second sender
    * running at the same time skips them. Call inside one transaction, send outside it, then report
-   * each outcome with finishOutbound(). Jobs from before outside sending existed carry no body and
-   * are closed with a notice instead.
+   * each outcome with finishOutbound() as soon as it's known. Every job is handed out at most once
+   * per attempt: one left in "sending" is closed as unconfirmed, never re-sent. Jobs from before
+   * outside sending existed carry no body and are closed with a notice instead.
    */
   claimOutbound(limit = 20): OutboundSend[] {
     const now = this.clock().getTime();
     const claimed: OutboundSend[] = [];
     for (const job of this.store.outbound.values()) {
       if (claimed.length >= limit) break;
-      const stale = job.status === "sending" && Date.parse(job.claimedAt ?? "") < now - OUTBOUND_CLAIM_TIMEOUT_MS;
-      if (job.status !== "queued" && !stale) continue;
+      if (job.status === "sending" && Date.parse(job.claimedAt ?? "") < now - OUTBOUND_CLAIM_TIMEOUT_MS) {
+        this.unconfirmedOutbound(job);
+        continue;
+      }
+      if (job.status !== "queued") continue;
       if (job.nextAttemptAt && Date.parse(job.nextAttemptAt) > now) continue;
       if (job.body === undefined) {
         this.closeOutbound(job, "Sending to addresses outside Cumulus wasn't available yet when this was sent. Please send it again.");
@@ -482,7 +497,7 @@ export class PostOffice {
       job.claimedAt = this.now();
       const to = job.toList?.length ? job.toList : job.to;
       const cc = job.toList?.length ? (job.ccList ?? []) : [];
-      claimed.push({ id: job.id, from: { email: job.from, name: job.fromName }, to, cc, subject: job.subject, text: job.body });
+      claimed.push({ id: job.id, from: { email: job.from, name: job.fromName }, to, cc, subject: job.subject, text: job.body, attachments: job.attachments ?? [] });
     }
     return claimed;
   }
@@ -521,6 +536,19 @@ export class PostOffice {
       body: `Your message to ${job.to.join(", ")} wasn't delivered.
 
 ${reason}`,
+      threadId: sent?.threadId,
+    });
+  }
+
+  private unconfirmedOutbound(job: OutboundMail) {
+    job.status = "failed";
+    job.claimedAt = undefined;
+    job.error = "unconfirmed";
+    this.updateHops(job, "outbound", "Delivery couldn't be confirmed. It may have arrived.");
+    const sent = job.messageId ? this.findMessage(job.fromCid, job.messageId) : undefined;
+    this.notify(job.fromCid, "postmaster", {
+      subject: `Delivery not confirmed: ${job.subject}`,
+      body: `Cumulus started sending your message to ${job.to.join(", ")} but couldn't confirm it was delivered. It may have arrived. To avoid sending it twice, Cumulus won't retry on its own. If the recipient didn't get it, send it again.`,
       threadId: sent?.threadId,
     });
   }

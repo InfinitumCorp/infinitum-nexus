@@ -2,6 +2,10 @@
 
 This document is a plan. It does not deploy Labyrinth, change DNS, publish a package, or edit the Infinitum company website.
 
+Current workspace UI, binary/batch API, paging and maintenance commands are documented
+in [LBRNTH-BUILD.md](LBRNTH-BUILD.md). The source/CI figures below describe the
+previous release baseline; this build records fresh validation in its PR.
+
 ## States
 
 | State | Where it stands |
@@ -63,7 +67,7 @@ PR #26 is the whole integration. Nothing from the orbital or CONJURE stacks (PR 
 - There is no KMS. The 32-byte key lives in the process environment. Losing it makes the snapshot unreadable. Rotation is stop-the-writer, load with the old key, save to a new file with the new key, replace the file, start once.
 - One active writer. A leftover `.lock` fails closed. Nothing deletes a stale lock automatically.
 - The file snapshot is the wrong store for ephemeral serverless disks. Hosted +SPCTR on short-lived instances stays blocked until a transactional adapter exists.
-- No Git protocol, repository UI, or firmware sync.
+- No Git protocol or firmware sync. The shared repository UI is available at `/labyrinth` in both hosts.
 - THRONE, SERAPHIM, CHERUBIM, AZRAIL, and NEMESIS are registry entries only.
 - Audit is encrypted and hash-chained. It is not anchored outside the snapshot.
 - Relays do nothing useful until an operator sets `LBRNTH_ENDPOINT` to the one authoritative writer. This plan does not set that.
@@ -96,7 +100,7 @@ A denied allowlist entry returns 403. A wrong key on the next process start refu
 4. Point every relay's `LBRNTH_ENDPOINT` at that writer's `https://<host>/api/labyrinth`. HTTPS is required except loopback.
 5. Confirm `POST /api/labyrinth` is 503 before the key exists, then 401 without a CID session, then succeeds for an entitled org.
 6. Restore by stopping the writer and starting a new process with the same key and the backed-up file. Do not start a second writer against the live file.
-7. Rotate by the re-encrypt procedure covered in the release test. There is no in-place rotate call.
+7. Rotate by the re-encrypt procedure covered in the release test. There is no in-place rotate call. The offline `pnpm labyrinth:maintain rotate` command writes and verifies a new snapshot; see the workspace guide.
 8. Do not enable this on ephemeral Vercel disks. Do not change DNS. Do not publish the tarballs. Do not merge this PR as part of the plan.
 
 ## Security evidence

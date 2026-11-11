@@ -2,36 +2,57 @@
  * Minimal Architect Podium: a single HTML page that lets a user
  * submit a Score intent and see the performance result.
  * In production this would be a real UI; this is a self-contained scaffold.
+ * Uses the shared app shell (packages/ui/app-shell.css): Helvetica Neue,
+ * white palette, and the :\ARCHITECT\™ wordmark.
  */
+/** The shared app shell stylesheet, served at /app-shell.css. */
+export { appShellCss } from "./app-shell-css.ts";
 
 export const podiumHtml = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>:\\ARCHITECT\\ Podium</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>:\\ARCHITECT\\™ Podium</title>
+  <link rel="stylesheet" href="/app-shell.css" />
   <style>
-    body { font-family: system-ui, sans-serif; max-width: 720px; margin: 2rem auto; }
-    textarea { width: 100%; height: 8rem; font-family: inherit; }
-    button { padding: 0.5rem 1rem; }
-    pre { background: #f5f5f5; padding: 1rem; }
+    #intent { min-height: 8rem; }
+    #out { margin: 24px 0 0; padding: 16px; border: 1px solid var(--line); white-space: pre-wrap; overflow-x: auto; font-size: var(--text-sm); }
+    #out:empty { display: none; }
+    #social:empty { display: none; }
+    #social { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 24px; }
   </style>
 </head>
 <body>
-  <h1>:\\ARCHITECT\\</h1>
-  <div id="social" style="margin-bottom:1rem"></div>
-  <p>Write a Score intent (plain text). The executor will plan and simulate.</p>
-  <textarea id="intent" placeholder="Research the top 3 competitors of Acme and summarize"></textarea><br>
-  <button id="run">Perform</button>
-  <pre id="out"></pre>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="app-bar">
+    <a class="app-wordmark" href="/">:\\ARCHITECT\\<sup class="tm">™</sup></a>
+    <nav class="app-nav" aria-label="Main">
+      <a href="/" aria-current="page">Podium</a>
+    </nav>
+  </header>
+  <main id="main" class="app-main">
+    <div class="app-head">
+      <div>
+        <h1>Podium</h1>
+        <p>Write a Score intent in plain text. The executor will plan and simulate.</p>
+      </div>
+    </div>
+    <div id="social"></div>
+    <label class="field" for="intent"><span>Score intent</span>
+      <textarea id="intent" class="input" placeholder="Research the top 3 competitors of Acme and summarize"></textarea>
+    </label>
+    <button id="run" class="btn primary" type="button">Perform</button>
+    <pre id="out"></pre>
+  </main>
   <script>
-    
-    // Social sign-in (shared Cumulus://ID). Buttons appear when providers are configured on the CID origin.
+    // Social sign-in (shared Cumulus://ID™). Buttons appear when providers are configured on the CID origin.
     const CID_ORIGIN = window.CID_ORIGIN || "http://localhost:3000";
     fetch(CID_ORIGIN + "/api/auth/providers").then(r => r.json()).then(providers => {
       const el = document.getElementById("social");
       if (!providers.length) return;
-      el.innerHTML = "<strong>Sign in:</strong> " + providers.map(p => 
-        \`<a class="btn" href="\${CID_ORIGIN}/api/auth/oauth/\${p.id}/start" style="margin-right:0.5rem;padding:0.4rem 0.8rem;border:1px solid #ccc;border-radius:4px;text-decoration:none">Continue with \${p.label}</a>\`
+      el.innerHTML = "<strong>Sign in:</strong>" + providers.map(p =>
+        \`<a class="btn small" href="\${CID_ORIGIN}/api/auth/oauth/\${p.id}/start">Continue with \${p.label}</a>\`
       ).join("");
     }).catch(() => {});
 

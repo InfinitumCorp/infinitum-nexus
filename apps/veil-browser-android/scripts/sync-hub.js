@@ -3,7 +3,7 @@
  * render launcher icons. Downloads, the service worker and the PWA manifest
  * stay out of the APK.
  */
-import { cpSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { render } from "../../veil-web/scripts/brand-icon.js";
@@ -19,7 +19,7 @@ rmSync(hub, { recursive: true, force: true });
 mkdirSync(`${hub}lib`, { recursive: true });
 mkdirSync(`${hub}icons`, { recursive: true });
 mkdirSync(`${hub}brand`, { recursive: true });
-for (const f of ["index.html", "app.js", "search.html", "search.js", "lib/trackers.js", "icons/icon-192.png", "brand/horizontal-white-bg.png"]) {
+for (const f of ["index.html", "app.js", "search.html", "search.js", "lib/trackers.js", "firm-suite.js", "firm-suite.css", "icons/icon-192.png", "brand/horizontal-white-bg.png"]) {
   cpSync(`${web}public/${f}`, `${hub}${f}`);
 }
 
@@ -27,7 +27,8 @@ const DENSITIES = { mdpi: 48, hdpi: 72, xhdpi: 96, xxhdpi: 144, xxxhdpi: 192 };
 for (const [d, px] of Object.entries(DENSITIES)) {
   const dir = `${root}src/main/res/mipmap-${d}/`;
   mkdirSync(dir, { recursive: true });
-  writeFileSync(`${dir}ic_launcher.png`, render(px));
+  // The checked-in icons carry the ™ (drawn by hand, #113): only render missing ones.
+  if (!existsSync(`${dir}ic_launcher.png`)) writeFileSync(`${dir}ic_launcher.png`, render(px));
 }
 // Same blocklist as the extension (apps/veil/lib/blocklist.js).
 const javaHosts = BLOCKED_HOSTS.map((h) => `        "${h}"`).join(",\n");

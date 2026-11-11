@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SCALVS.ai</title>
+  <meta name="description" content="SCALVS.ai, the Infinitum Corporation® AI workforce.">
+  <link rel="stylesheet" href="/app.css">
+  <link rel="stylesheet" href="/firm-suite.css">
+</head>
+<body>
+  <header>
+    <p class="mark">Infinitum Corporation®</p>
+    <h1>SCALVS.ai</h1>
+    <p class="tag">Agents that research, write, and operate.</p>
+  </header>
+  <main>
+    <section id="sign-in">
+      <h2>Sign in</h2>
+      <p class="muted">Paste a Cumulus ID access token. It stays in this browser tab.</p>
+      <label for="token">Bearer token</label>
+      <textarea id="token" rows="4" spellcheck="false" autocomplete="off" placeholder="eyJhbGciOiJSUzI1NiIs…"></textarea>
+      <div class="row">
+        <button id="sign-in-button" type="button">Sign in</button>
+        <button id="sign-out" type="button" hidden>Sign out</button>
+      </div>
+      <p id="auth-status" role="status"></p>
+    </section>
+
+    <div id="workspace" hidden>
+      <section id="agents">
+        <h2>Agents</h2>
+        <form id="agent-form">
+          <label for="agent-id">Id</label>
+          <input id="agent-id" name="id" required maxlength="64" placeholder="researcher">
+          <label for="agent-name">Name</label>
+          <input id="agent-name" name="name" required maxlength="80" placeholder="Researcher">
+          <label for="agent-role">Role</label>
+          <input id="agent-role" name="role" required maxlength="80" placeholder="Research">
+          <fieldset>
+            <legend>Tools</legend>
+            <label><input type="checkbox" name="tool" value="echo" checked> echo</label>
+            <label><input type="checkbox" name="tool" value="note"> note</label>
+            <label><input type="checkbox" name="tool" value="search"> search</label>
+          </fieldset>
+          <button type="submit">Create agent</button>
+        </form>
+        <ul id="agent-list"></ul>
+        <form id="run-form">
+          <h3>Run an agent</h3>
+          <label for="run-agent">Agent</label>
+          <select id="run-agent" required></select>
+          <label for="run-prompt">Prompt</label>
+          <textarea id="run-prompt" required rows="3" placeholder="hello"></textarea>
+          <button type="submit">Run</button>
+        </form>
+        <pre id="run-output" class="out"></pre>
+      </section>
+
+      <section id="teams">
+        <h2>Teams</h2>
+        <form id="team-form">
+          <label for="team-id">Id</label>
+          <input id="team-id" name="id" required maxlength="64" placeholder="desk">
+          <label for="team-name">Name</label>
+          <input id="team-name" name="name" required maxlength="80" placeholder="Desk">
+          <fieldset>
+            <legend>Members</legend>
+            <div id="team-members"></div>
+          </fieldset>
+          <button type="submit">Create team</button>
+        </form>
+        <ul id="team-list"></ul>
+        <form id="team-run-form">
+          <h3>Run a team</h3>
+          <label for="run-team">Team</label>
+          <select id="run-team" required></select>
+          <label for="team-prompt">Prompt</label>
+          <textarea id="team-prompt" required rows="3" placeholder="hello"></textarea>
+          <button type="submit">Run team</button>
+        </form>
+        <pre id="team-output" class="out"></pre>
+      </section>
+
+      <section id="vault">
+        <h2>Context vault</h2>
+        <form id="vault-form">
+          <label for="vault-agent">Agent</label>
+          <select id="vault-agent" required></select>
+          <label for="vault-note">Note</label>
+          <textarea id="vault-note" rows="3" placeholder="A note to remember"></textarea>
+          <div class="row">
+            <button type="submit">Remember</button>
+            <button id="vault-refresh" type="button">Refresh</button>
+            <button id="vault-anchor" type="button">Anchor</button>
+            <button id="vault-clear" type="button">Clear</button>
+          </div>
+        </form>
+        <pre id="vault-output" class="out"></pre>
+      </section>
+
+      <section id="evidence">
+        <h2>Architect evidence</h2>
+        <form id="evidence-form">
+          <label for="evidence-agent">Agent</label>
+          <select id="evidence-agent" required></select>
+          <label for="evidence-prompt">Prompt</label>
+          <textarea id="evidence-prompt" required rows="3" placeholder="hello"></textarea>
+          <button type="submit">Record evidence</button>
+        </form>
+        <pre id="evidence-output" class="out"></pre>
+      </section>
+    </div>
+
+    <section id="firm">
+      <firm-suite product="scalvs"></firm-suite>
+    </section>
+  </main>
+  <script type="module" src="/firm-suite.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

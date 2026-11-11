@@ -2,13 +2,31 @@ name: FABRIC
 
 on:
   pull_request:
+    paths:
+      - "apps/fabric/**"
+      - "packages/fabric/**"
+      - ".github/workflows/fabric.yml"
+      - "pnpm-lock.yaml"
+  push:
+    branches:
+      - main
+    paths:
+      - "apps/fabric/**"
+      - "packages/fabric/**"
+      - ".github/workflows/fabric.yml"
+      - "pnpm-lock.yaml"
+
+# A newer push to the same PR cancels the older run, so minutes are not spent on stale commits.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   server:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
         with:
           version: 10.28.0
       - uses: actions/setup-node@v4

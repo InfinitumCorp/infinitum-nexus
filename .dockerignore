@@ -1,0 +1,16 @@
+.git
+node_modules
+**/node_modules
+dist
+**/dist
+data
+**/data
+**/.vercel
+**/screenshots
+artifacts
+.env
+.env.*
+**/.env
+**/.env.*
+*.key
+**/*.key

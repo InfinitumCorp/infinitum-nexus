@@ -14,7 +14,7 @@ import { createOpenClaw } from "./openclaw.ts";
 const here = dirname(fileURLToPath(import.meta.url));
 const ORIGIN = "http://localhost";
 
-describe("+SPCTR @openclaw in Ask", () => {
+describe("+SPCTR @scalvs in Ask", () => {
   const servers: Server[] = [];
   const sent: any[] = [];
 
@@ -56,7 +56,7 @@ describe("+SPCTR @openclaw in Ask", () => {
   it("hands the task and the workspace summary to the OpenClaw agent", async () => {
     const me = await signUp(base, "morgan");
     await call(base, "POST", "/api/companies", { name: "Northwind", kind: "enterprise" }, me.cookie);
-    const res = await call(base, "POST", "/api/ask", { question: "@openclaw draft a follow-up to Northwind" }, me.cookie);
+    const res = await call(base, "POST", "/api/ask", { question: "@scalvs draft a follow-up to Northwind" }, me.cookie);
     assert.equal(res.status, 200);
     assert.equal(res.body.answer, "Drafted a follow-up for Northwind.");
     assert.deepEqual(res.body.openclaw, { agent: "openclaw/sales" });
@@ -75,16 +75,16 @@ describe("+SPCTR @openclaw in Ask", () => {
     assert.equal((await call(base, "GET", "/api/openclaw")).status, 401);
   });
 
-  it("asks for a task after a bare @openclaw", async () => {
+  it("asks for a task after a bare @scalus", async () => {
     const me = await signUp(base, "casey");
-    const res = await call(base, "POST", "/api/ask", { question: "@openclaw" }, me.cookie);
+    const res = await call(base, "POST", "/api/ask", { question: "@scalus" }, me.cookie);
     assert.equal(res.status, 400);
   });
 
   it("says how to connect OpenClaw when it isn't set up", async () => {
     const off = await start(false);
     const me = await signUp(off, "jordan");
-    const res = await call(off, "POST", "/api/ask", { question: "@openclaw what's at risk?" }, me.cookie);
+    const res = await call(off, "POST", "/api/ask", { question: "@scalvs what's at risk?" }, me.cookie);
     assert.equal(res.status, 503);
     assert.match(res.body.error, /OPENCLAW_GATEWAY_URL/);
     assert.deepEqual((await call(off, "GET", "/api/openclaw", undefined, me.cookie)).body, { connected: false, agent: null });

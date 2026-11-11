@@ -94,7 +94,7 @@ export interface AppDeps {
   conjureComplete?: Complete;
   /** Hosted Conjure for "@conjure" in Ask. Defaults to CONJURE_URL + CONJURE_PRODUCT_KEY; null turns it off. */
   conjureLive?: ConjureLiveClient | null;
-  /** OpenClaw agent for "@openclaw" in Ask. Defaults to OPENCLAW_GATEWAY_URL + OPENCLAW_GATEWAY_TOKEN; null turns it off. */
+  /** SCALVS agent (on OpenClaw) for "@scalvs" / "@scalus" in Ask. Defaults to OPENCLAW_GATEWAY_URL + OPENCLAW_GATEWAY_TOKEN; null turns it off. */
   openclaw?: OpenClawClient | null;
   /**
    * VEIL browser proxy. A plan is required for the exit and for bridges.
@@ -706,7 +706,7 @@ export function createApp(deps: AppDeps) {
   const livePredictions = new Map<string, string>(); // prediction id -> workspace that asked
   const openclaw = deps.openclaw === undefined ? openClawFromEnv() : deps.openclaw;
 
-  /** What Ask (and an @openclaw agent) knows about a workspace. */
+  /** What Ask (and a @scalvs agent) knows about a workspace. */
   const askContext = (ws: string) => {
     const scores = scoresFor(ws);
     const companies = crm.list("companies", ws);
@@ -738,8 +738,8 @@ export function createApp(deps: AppDeps) {
     }
     const claw = parseOpenClawMention(String(ctx.body.question));
     if (claw) {
-      if (!openclaw) throw new HttpError(503, "OpenClaw isn't connected. Set OPENCLAW_GATEWAY_URL and OPENCLAW_GATEWAY_TOKEN to use @openclaw.");
-      if (!claw.task) throw new HttpError(400, "Tell OpenClaw what to do after @openclaw.");
+      if (!openclaw) throw new HttpError(503, "SCALVS isn't connected. Set OPENCLAW_GATEWAY_URL and OPENCLAW_GATEWAY_TOKEN to use @scalvs.");
+      if (!claw.task) throw new HttpError(400, "Tell SCALVS what to do after @scalvs.");
       const brief = "You are helping a +SPCTR™ user with their sales workspace. Workspace summary (JSON):\n" + JSON.stringify(askContext(ws)).slice(0, 60_000);
       try {
         // One OpenClaw session per person: the gateway derives it from `user`.
@@ -760,7 +760,7 @@ export function createApp(deps: AppDeps) {
   });
 
 
-  /** Whether @openclaw works here, and which agent answers. Never the gateway URL or token. */
+  /** Whether @scalvs works here, and which agent answers. Never the gateway URL or token. */
   route("GET", "/api/openclaw", () => ({ connected: Boolean(openclaw), agent: openclaw?.agent ?? null }));
 
   /** Follow a live @conjure forecast started from Ask (only from the workspace that asked). */

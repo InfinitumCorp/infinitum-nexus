@@ -5,11 +5,14 @@ import { createOpenClaw, openClawFromEnv, parseOpenClawMention, OpenClawError } 
 const reply = (content: unknown, status = 200) => new Response(JSON.stringify({ choices: [{ message: { role: "assistant", content } }] }), { status });
 
 describe("OpenClaw client", () => {
-  it("parses @openclaw anywhere in the text", () => {
-    assert.deepEqual(parseOpenClawMention("@openclaw draft a follow-up to Northwind"), { task: "draft a follow-up to Northwind" });
-    assert.deepEqual(parseOpenClawMention("Northwind went quiet. @OpenClaw ping them on Telegram"), { task: "Northwind went quiet. ping them on Telegram" });
-    assert.deepEqual(parseOpenClawMention("@openclaw"), { task: "" });
-    assert.equal(parseOpenClawMention("email openclaw@example.com"), null);
+  it("parses @scalvs or @scalus anywhere in the text", () => {
+    assert.deepEqual(parseOpenClawMention("@scalvs draft a follow-up to Northwind"), { task: "draft a follow-up to Northwind" });
+    assert.deepEqual(parseOpenClawMention("@scalus draft a follow-up to Northwind"), { task: "draft a follow-up to Northwind" });
+    assert.deepEqual(parseOpenClawMention("Northwind went quiet. @SCALVS ping them on Telegram"), { task: "Northwind went quiet. ping them on Telegram" });
+    assert.deepEqual(parseOpenClawMention("@scalvs"), { task: "" });
+    assert.equal(parseOpenClawMention("email scalvs@example.com"), null);
+    assert.equal(parseOpenClawMention("@openclaw do it"), null);
+    assert.equal(parseOpenClawMention("@scalvsx do it"), null);
     assert.equal(parseOpenClawMention("what is at risk?"), null);
   });
 

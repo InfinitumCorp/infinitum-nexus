@@ -1,5 +1,6 @@
 /**
- * OpenClaw in +SPCTR: "@openclaw <task>" in Ask hands the task to an OpenClaw agent.
+ * SCALVS in +SPCTR: "@scalvs <task>" (or "@scalus <task>") in Ask hands the task to a SCALVS
+ * agent, which runs on OpenClaw.
  *
  * OpenClaw (https://openclaw.ai) is a self-hosted agent gateway. +SPCTR talks to its
  * OpenAI-compatible endpoint, POST /v1/chat/completions, which the gateway turns on with
@@ -40,9 +41,10 @@ export class OpenClawError extends Error {
 }
 
 const MAX_ANSWER = 20_000;
-const MENTION = /(^|\s)@openclaw\b/i;
+/** People type @scalvs or @scalus; OpenClaw is the engine underneath. */
+const MENTION = /(^|\s)@scal(?:vs|us)\b/i;
 
-/** The task after "@openclaw", or null when the text doesn't mention OpenClaw. */
+/** The task after "@scalvs" or "@scalus", or null when the text mentions neither. */
 export function parseOpenClawMention(text: string): { task: string } | null {
   const m = MENTION.exec(text);
   if (!m) return null;
@@ -95,19 +97,19 @@ export function createOpenClaw(config: OpenClawConfig): OpenClawClient {
           signal,
         });
       } catch (err) {
-        if ((err as Error).name === "TimeoutError") throw new OpenClawError("OpenClaw took too long to answer.", 504);
-        throw new OpenClawError("Couldn't reach the OpenClaw gateway.", 502);
+        if ((err as Error).name === "TimeoutError") throw new OpenClawError("SCALVS took too long to answer.", 504);
+        throw new OpenClawError("Couldn't reach SCALVS (its OpenClaw gateway).", 502);
       }
-      if (res.status === 401 || res.status === 403) throw new OpenClawError("The OpenClaw gateway refused +SPCTR's token.", 502);
-      if (res.status === 404) throw new OpenClawError("The OpenClaw gateway's chat endpoint is off. Enable gateway.http.endpoints.chatCompletions.", 502);
-      if (res.status === 429) throw new OpenClawError("OpenClaw is busy. Try again in a moment.", 429);
-      if (!res.ok) throw new OpenClawError(`OpenClaw returned ${res.status}.`, 502);
+      if (res.status === 401 || res.status === 403) throw new OpenClawError("SCALVS's OpenClaw gateway refused +SPCTR's token.", 502);
+      if (res.status === 404) throw new OpenClawError("SCALVS's OpenClaw chat endpoint is off. Enable gateway.http.endpoints.chatCompletions.", 502);
+      if (res.status === 429) throw new OpenClawError("SCALVS is busy. Try again in a moment.", 429);
+      if (!res.ok) throw new OpenClawError(`SCALVS returned ${res.status}.`, 502);
       const body = (await res.json().catch(() => null)) as { choices?: { message?: { content?: unknown } }[] } | null;
       const content = body?.choices?.[0]?.message?.content;
       const text = typeof content === "string" ? content
         : Array.isArray(content) ? content.map((p) => (p && typeof p === "object" && typeof (p as { text?: unknown }).text === "string" ? (p as { text: string }).text : "")).join("")
         : "";
-      if (!text.trim()) throw new OpenClawError("OpenClaw sent an empty answer.", 502);
+      if (!text.trim()) throw new OpenClawError("SCALVS sent an empty answer.", 502);
       return text.slice(0, MAX_ANSWER);
     },
   };

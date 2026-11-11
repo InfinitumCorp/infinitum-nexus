@@ -2,7 +2,8 @@
   "manifest_version": 3,
   "name": "VEIL</>™",
   "version": "0.8.0",
-  "description": "VEIL VPN and optional Tor for this browser from Infinitum Corporation®. It is not a device-wide VPN.",
+  "description": "__MSG_ext_description__",
+  "default_locale": "en",
   "permissions": [
     "storage",
     "tabs",

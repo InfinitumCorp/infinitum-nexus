@@ -19,6 +19,13 @@ describe("shared product clients", () => {
     assert.equal(idClientFor("toString", "https://scalvs.app/"), null);
   });
 
+  it("lets Infinitum developers sign in on developer.infinitumcorporation.ai only", () => {
+    assert.ok(idClientFor("developer", "https://developer.infinitumcorporation.ai/"));
+    assert.equal(idClientFor("developer", "https://infinitumcorporation.ai/"), null);
+    assert.equal(idClientFor("developer", "http://developer.infinitumcorporation.ai/"), null);
+    assert.equal(idClientFor("infinitum", "https://developer.infinitumcorporation.ai/"), null);
+  });
+
   it("lets internal tools return to a loopback port, and nobody else", () => {
     assert.ok(idClientFor("1mind", "http://127.0.0.1:4400/auth/cid/callback"));
     assert.ok(idClientFor("conjure", "http://localhost:4317/auth/cid/callback"));

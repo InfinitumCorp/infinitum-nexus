@@ -161,6 +161,13 @@ describe("Sign in with Cumulus://ID", () => {
     assert.equal(idClientFor("toString", "https://scalvs.app/"), null);
   });
 
+  it("lets Infinitum developers sign in on developer.infinitumcorporation.ai only", () => {
+    assert.ok(idClientFor("developer", "https://developer.infinitumcorporation.ai/"));
+    assert.equal(idClientFor("developer", "https://infinitumcorporation.ai/"), null);
+    assert.equal(idClientFor("developer", "http://developer.infinitumcorporation.ai/"), null);
+    assert.equal(idClientFor("infinitum", "https://developer.infinitumcorporation.ai/"), null);
+  });
+
   it("signed out: goes to sign-in first; signed in: returns a code the product trades for a profile", async () => {
     const { verifier, challenge } = pkce();
     const q = new URLSearchParams({ client_id: "scalvs", redirect_uri: "https://scalvs.app/signed-in", code_challenge: challenge, code_challenge_method: "S256", state: "xyz" });

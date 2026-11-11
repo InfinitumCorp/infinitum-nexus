@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="wordmark">VEIL&lt;/&gt;\u2122</string>
+    <string name="wordmark" translatable="false">VEIL&lt;/&gt;\u2122</string>
     <string name="limits">Full-device IPv4 route 0.0.0.0/0. IPv6 route ::/0 is captured and dropped, not tunneled. No DNS server is installed. No kill switch: when the tunnel is down, other traffic is not blocked. infinitumveilvpn.app is the product name, not a server.</string>
     <string name="operator_heading">Operator-provided peer. This is not a local test and not a built-in server.</string>
     <string name="endpoint_label">Peer endpoint</string>
     <string name="public_label">Peer public key</string>
     <string name="private_label">Private key</string>
-    <string name="endpoint_hint">IPv4:port</string>
+    <string name="endpoint_hint" translatable="false">IPv4:port</string>
     <string name="public_hint">64 hex characters</string>
     <string name="private_hint">64 hex characters, not saved</string>
     <string name="connect">Connect</string>

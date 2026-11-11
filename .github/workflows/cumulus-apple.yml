@@ -1,0 +1,79 @@
+# Cumulus for Mac and iOS. Unit tests on Linux and macOS, then unsigned xcodebuild
+# for both platforms. No certificates, profiles, or secrets.
+name: cumulus-apple
+
+on:
+  push:
+    paths:
+      - "apps/cumulus-apple/**"
+      - ".github/workflows/cumulus-apple.yml"
+      - "docs/cumulus-apple/**"
+  pull_request:
+    paths:
+      - "apps/cumulus-apple/**"
+      - ".github/workflows/cumulus-apple.yml"
+      - "docs/cumulus-apple/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    name: Swift package tests
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-24.04' }}
+    defaults:
+      run:
+        working-directory: apps/cumulus-apple
+    steps:
+      - uses: actions/checkout@v4
+      - uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: "6.2"
+      - run: swift test
+
+  apple:
+    name: macOS and iOS build
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: apps/cumulus-apple
+    steps:
+      - uses: actions/checkout@v4
+      - name: Unit tests
+        run: swift test
+      - name: Build macOS
+        run: >
+          xcodebuild
+          -project Cumulus.xcodeproj
+          -scheme Cumulus
+          -destination 'generic/platform=macOS'
+          -configuration Debug
+          CODE_SIGNING_ALLOWED=NO
+          CODE_SIGNING_REQUIRED=NO
+          CODE_SIGN_IDENTITY=
+          DEVELOPMENT_TEAM=
+          build
+      - name: Build iOS Simulator
+        run: >
+          xcodebuild
+          -project Cumulus.xcodeproj
+          -scheme Cumulus
+          -destination 'generic/platform=iOS Simulator'
+          -configuration Debug
+          CODE_SIGNING_ALLOWED=NO
+          CODE_SIGNING_REQUIRED=NO
+          CODE_SIGN_IDENTITY=
+          DEVELOPMENT_TEAM=
+          build
+      - name: UI tests
+        run: >
+          xcodebuild test
+          -project Cumulus.xcodeproj
+          -scheme Cumulus
+          -destination 'platform=macOS'
+          -only-testing:CumulusUITests
+          CODE_SIGNING_ALLOWED=NO
+          CODE_SIGNING_REQUIRED=NO
+          CODE_SIGN_IDENTITY=
+          DEVELOPMENT_TEAM=

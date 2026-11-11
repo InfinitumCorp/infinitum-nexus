@@ -31,6 +31,7 @@ import { parseConjureMention, handleConjureMention, conjureLiveFromEnv, formatFo
 import { createVeilControl, serveNodeVeil } from "@infinitum/veil/server";
 import type { DeviceExitConfig, VeilServer } from "@infinitum/veil/server";
 import { runLlmAgent, LlmError } from "@infinitum/scalus";
+import { parseOpenClawMention, openClawFromEnv, OpenClawError, type OpenClawClient } from "./openclaw.ts";
 import { AGENTS, AGENT_IDS, agentDefinition, applyProposal, newProposalId, newRunId, type AgentId, type AgentRunRecord } from "../core/agent-team.ts";
 
 /**
@@ -93,6 +94,8 @@ export interface AppDeps {
   conjureComplete?: Complete;
   /** Hosted Conjure for "@conjure" in Ask. Defaults to CONJURE_URL + CONJURE_PRODUCT_KEY; null turns it off. */
   conjureLive?: ConjureLiveClient | null;
+  /** OpenClaw agent for "@openclaw" in Ask. Defaults to OPENCLAW_GATEWAY_URL + OPENCLAW_GATEWAY_TOKEN; null turns it off. */
+  openclaw?: OpenClawClient | null;
   /**
    * VEIL browser proxy. A plan is required for the exit and for bridges.
    * Local Tor in the extension does not call this.
@@ -701,6 +704,21 @@ export function createApp(deps: AppDeps) {
   // "@conjure <question>" in Ask starts a live Conjure forecast instead of a plain answer.
   const conjureLive = deps.conjureLive === undefined ? conjureLiveFromEnv() : deps.conjureLive;
   const livePredictions = new Map<string, string>(); // prediction id -> workspace that asked
+  const openclaw = deps.openclaw === undefined ? openClawFromEnv() : deps.openclaw;
+
+  /** What Ask (and an @openclaw agent) knows about a workspace. */
+  const askContext = (ws: string) => {
+    const scores = scoresFor(ws);
+    const companies = crm.list("companies", ws);
+    const names = new Map(companies.map((c) => [c.id, c.name]));
+    return {
+      today: crm.now().toISOString().slice(0, 10),
+      companies: companies.map((c) => ({ name: c.name, kind: c.kind, industry: c.industry, facts: c.facts.map((f) => `${f.field}: ${f.value}`) })),
+      deals: crm.list("deals", ws).map((d) => ({ name: d.name, company: names.get(d.companyId), market: d.market, stage: d.stage, amount: d.amount, currency: d.currency, closeDate: d.closeDate, winProbability: scores.get(d.id)?.probability, risks: scores.get(d.id)?.factors.filter((f) => f.effect < 1).map((f) => f.label) })),
+      contacts: crm.list("contacts", ws).filter((c) => !c.optedOut).map((c) => ({ name: c.name, title: c.title, company: c.companyId ? names.get(c.companyId) : undefined, role: c.influence })),
+      recentActivity: crm.list("activities", ws).sort((a, b) => b.at.localeCompare(a.at)).slice(0, 80).map((a) => ({ at: a.at.slice(0, 10), kind: a.kind, summary: a.summary, company: a.companyId ? names.get(a.companyId) : undefined, inbound: a.inbound, done: a.done })),
+    };
+  };
 
   route("POST", "/api/ask", async (ctx) => {
     need(ctx, "question");
@@ -718,16 +736,21 @@ export function createApp(deps: AppDeps) {
         throw err;
       }
     }
-    const scores = scoresFor(ws);
-    const companies = crm.list("companies", ws);
-    const names = new Map(companies.map((c) => [c.id, c.name]));
-    const context = {
-      today: crm.now().toISOString().slice(0, 10),
-      companies: companies.map((c) => ({ name: c.name, kind: c.kind, industry: c.industry, facts: c.facts.map((f) => `${f.field}: ${f.value}`) })),
-      deals: crm.list("deals", ws).map((d) => ({ name: d.name, company: names.get(d.companyId), market: d.market, stage: d.stage, amount: d.amount, currency: d.currency, closeDate: d.closeDate, winProbability: scores.get(d.id)?.probability, risks: scores.get(d.id)?.factors.filter((f) => f.effect < 1).map((f) => f.label) })),
-      contacts: crm.list("contacts", ws).filter((c) => !c.optedOut).map((c) => ({ name: c.name, title: c.title, company: c.companyId ? names.get(c.companyId) : undefined, role: c.influence })),
-      recentActivity: crm.list("activities", ws).sort((a, b) => b.at.localeCompare(a.at)).slice(0, 80).map((a) => ({ at: a.at.slice(0, 10), kind: a.kind, summary: a.summary, company: a.companyId ? names.get(a.companyId) : undefined, inbound: a.inbound, done: a.done })),
-    };
+    const claw = parseOpenClawMention(String(ctx.body.question));
+    if (claw) {
+      if (!openclaw) throw new HttpError(503, "OpenClaw isn't connected. Set OPENCLAW_GATEWAY_URL and OPENCLAW_GATEWAY_TOKEN to use @openclaw.");
+      if (!claw.task) throw new HttpError(400, "Tell OpenClaw what to do after @openclaw.");
+      const brief = "You are helping a +SPCTR™ user with their sales workspace. Workspace summary (JSON):\n" + JSON.stringify(askContext(ws)).slice(0, 60_000);
+      try {
+        // One OpenClaw session per person: the gateway derives it from `user`.
+        return { answer: await openclaw.ask(claw.task.slice(0, 4000), { user: `spctr:${ctx.user!.account.cid}`, context: brief }), openclaw: { agent: openclaw.agent } };
+      } catch (err) {
+        if (err instanceof OpenClawError) throw new HttpError(err.status, err.message);
+        throw err;
+      }
+    }
+    const context = askContext(ws);
+
     try {
       return { answer: await askSpectre(deps.ai, String(ctx.body.question).slice(0, 2000), context) };
     } catch (err) {
@@ -736,6 +759,9 @@ export function createApp(deps: AppDeps) {
     }
   });
 
+
+  /** Whether @openclaw works here, and which agent answers. Never the gateway URL or token. */
+  route("GET", "/api/openclaw", () => ({ connected: Boolean(openclaw), agent: openclaw?.agent ?? null }));
 
   /** Follow a live @conjure forecast started from Ask (only from the workspace that asked). */
   route("GET", "/api/conjure/live/:id", async (ctx) => {

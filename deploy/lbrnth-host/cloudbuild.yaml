@@ -1,0 +1,9 @@
+# Builds the Labyrinth host image into Artifact Registry. Deploying is a separate, approved step.
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args: ["build", "-f", "deploy/lbrnth-host/Dockerfile", "-t", "${_IMAGE}", "."]
+images: ["${_IMAGE}"]
+substitutions:
+  _IMAGE: europe-north1-docker.pkg.dev/${PROJECT_ID}/labyrinth/lbrnth-host:latest
+options:
+  logging: CLOUD_LOGGING_ONLY

@@ -144,20 +144,20 @@ function renderAuth(message = "") {
   root.innerHTML = `
     <div class="auth"><div class="auth-card">
       <div class="logo">+SPCTR<sup class="tm">™</sup></div>
-      <p class="muted">Sign in with your Cumulus://ID<sup class="tm">™</sup></p>
-      <button class="btn primary" id="signin">Continue with passkey</button>
+      <p class="muted">One Cumulus://ID<sup class="tm">™</sup> for every Infinitum product</p>
+      <button class="btn primary" id="signin">Sign in with Cumulus ID</button>
       <div class="social" id="social"></div>
-      <div class="divider">or create a CID</div>
+      <div class="divider">No Cumulus ID yet?</div>
       <input class="input" id="username" placeholder="Choose a username" autocomplete="username webauthn" autocapitalize="none" spellcheck="false">
-      <button class="btn" id="signup">Create account with passkey</button>
+      <button class="btn" id="signup">Create a Cumulus ID</button>
       <div class="error" id="err"></div>
-      <p class="faint small">One account for every Infinitum product. Your passkey stays on your device.</p>
+      <p class="faint small">Your Cumulus ID is unlocked by your device, with your fingerprint, face or screen lock. No password to remember.</p>
     </div></div>`;
   const err = $("#err");
   err.textContent = message;
   // A product's "Create a Cumulus ID" button lands here with ?create=1.
   if (new URLSearchParams(location.search).get("create") === "1") $("#username").focus();
-  const fail = (e) => { err.textContent = e.name === "NotAllowedError" ? "Passkey request was cancelled." : e.message; };
+  const fail = (e) => { err.textContent = e.name === "NotAllowedError" ? "Sign-in was cancelled." : e.message; };
   // Social sign-in buttons for every provider the server has configured.
   api("GET", "/api/auth/providers").then((providers) => {
     const back = productReturn();

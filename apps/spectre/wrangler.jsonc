@@ -19,6 +19,8 @@
   "vars": {
     "SPECTRE_ORIGIN": "https://id.cumuluscloud.app",
     "NEXUS_STORE_URL": "https://ivqiskeziohbbtkcvlun.supabase.co/functions/v1/nexus-store",
+    // CloudFront mirror for networks that throttle Cloudflare (Russian ISPs); passkeys work there too.
+    "SPECTRE_EXTRA_ORIGINS": "https://ru.id.cumuluscloud.app",
     "CUMULUS_MAIL_ORIGIN": "https://mail.cumuluscloud.app",
     "COGNITO_REGION": "us-east-1",
     "COGNITO_USER_POOL_ID": "us-east-1_fRlMO7dna",

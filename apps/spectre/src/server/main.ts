@@ -25,8 +25,9 @@ import { saveSnapshot, loadSnapshot } from "./persist.ts";
  *   CUMULUS_MAIL_HOST    Cumulus://Mail, default mail.cumuluscloud.app
  *   CUMULUS_MAIL_ORIGIN  full mail URL in notices; default https://CUMULUS_MAIL_HOST
  *   SPECTRE_DATA_DIR     default ./data
- *   OMNIROUTE_API_KEY    enables AI features through OmniRoute (open-weight models); see
- *                        packages/ai/src/env.ts for backup hosts (Cloudflare Workers AI, Groq, ...)
+ *   OMNIROUTE_API_KEY    optional fallback for AI features through OmniRoute (open-weight models).
+ *                        The Cloudflare Worker tries the free Workers AI binding (`AI`) first.
+ *                        See packages/ai/src/env.ts for other hosts. With neither, AI stays not connected.
  *   USE_METATRON         set to 1 (default) to use METATRON scorer
  *   Social sign-in (each optional; a provider appears only when its credentials are set):
  *     GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET

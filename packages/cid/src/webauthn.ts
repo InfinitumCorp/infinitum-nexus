@@ -1,4 +1,7 @@
-import { createHash, createPublicKey, verify, type KeyObject, type JsonWebKey } from "node:crypto";
+import { createHash, createPublicKey, verify, type KeyObject, type webcrypto } from "node:crypto";
+
+// @types/node 26 exposes JsonWebKey only under webcrypto.
+type JsonWebKey = webcrypto.JsonWebKey;
 import { decodeCbor, type CborValue } from "./cbor.ts";
 
 /**

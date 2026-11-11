@@ -1,4 +1,9 @@
 {
   "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "paths": {
+      "@infinitum/sense": ["../sense/src/index.ts"]
+    }
+  },
   "include": ["src"]
 }

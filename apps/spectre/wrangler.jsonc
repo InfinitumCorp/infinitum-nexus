@@ -1,10 +1,14 @@
 // Cumulus://ID (+SPCTR) on Cloudflare Workers, free plan. See src/server/worker.ts.
 // Build first: node scripts/build-cloudflare.mjs (writes dist/entry.mjs with public/ embedded). Secrets (wrangler secret put NAME):
 //   FIRMAMENT_SIGNER_KEY   base64 PKCS#8 Ed25519 ledger signing key (keep a safe copy)
+//   NEXUS_STORE_KEY        gateway key for the Supabase nexus-store (Vercel path). The Worker
+//                          uses the NexusStore Durable Object and does not read this key.
 //   COGNITO_CLIENT_SECRET  Amazon Cognito app client secret (Cognito stays off until it is set)
 //   GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET   Google sign-in (off until both are set)
 //   CID_OIDC_SIGNING_KEY   ES256 or Ed25519 private JWK. OpenID Connect stays off until it is set.
 //                          node scripts/generate-oidc-key.mjs   (writes a file, does not print the key)
+// The AI binding below is Workers AI on the free daily allowance. It is not a secret.
+// Ask Spectre uses it first and falls back to OMNIROUTE_BASE_URL / OMNIROUTE_API_KEY when those are set.
 // Other sign-in providers use the variables listed in src/server/main.ts. See docs/cumulus-id.md.
 {
   "name": "cumulus-id",
@@ -16,6 +20,9 @@
   "observability": { "enabled": true },
   "vars": {
     "SPECTRE_ORIGIN": "https://id.cumuluscloud.app",
+    "NEXUS_STORE_URL": "https://ivqiskeziohbbtkcvlun.supabase.co/functions/v1/nexus-store",
+    // Google Cloud Run mirror for networks that throttle Cloudflare (Russian ISPs); passkeys work there too.
+    "SPECTRE_EXTRA_ORIGINS": "https://ru.id.cumuluscloud.app",
     "CUMULUS_MAIL_ORIGIN": "https://mail.cumuluscloud.app",
     "COGNITO_REGION": "us-east-1",
     "COGNITO_USER_POOL_ID": "us-east-1_fRlMO7dna",
@@ -23,5 +30,6 @@
     "COGNITO_DOMAIN": "cumulus-id.auth.us-east-1.amazoncognito.com"
   },
   "durable_objects": { "bindings": [{ "name": "NEXUS_STATE", "class_name": "NexusStore" }] },
+  "ai": { "binding": "AI" },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["NexusStore"] }]
 }

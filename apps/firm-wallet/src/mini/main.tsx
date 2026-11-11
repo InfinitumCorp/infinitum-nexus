@@ -1,6 +1,7 @@
 import { render } from "preact";
 import { MiniApp } from "./Mini.tsx";
 import "../ui/styles.css";
+import "../i18n/start.ts";
 
 render(<MiniApp />, document.getElementById("app")!);
 

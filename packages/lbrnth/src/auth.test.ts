@@ -65,7 +65,7 @@ test("every website registry entry requires existing CID LBRNTH scopes and paid 
   const s = await authenticatedSetup();
   for (const product of LABYRINTH_PRODUCTS) {
     const client = s.auth.forProduct(s.token, product.id);
-    assert.ok((INFINITUM_APPS as readonly string[]).includes(client.product), "every canonical brand must be registered in CID");
+    if (!("external" in product)) assert.ok((INFINITUM_APPS as readonly string[]).includes(client.product), "every canonical brand must be registered in CID");
     const repo = client.createRepository(`repo-${product.id}`);
     const commit = client.save(repo.id, "artifact.json", JSON.stringify({ product: product.id }), null);
     assert.equal(Buffer.from(client.load(repo.id, commit.id, "artifact.json")).toString(), JSON.stringify({ product: product.id }));

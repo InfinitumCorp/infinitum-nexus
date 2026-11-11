@@ -8,14 +8,9 @@
 //   <firm-suite product="scalvs"></firm-suite>
 //   <firm-suite product="cumulus-mail" wallet-endpoint="/api/wallet" signin-href="/"></firm-suite>
 //   el.wallet = { address, balances: { USDC: "0", FIRM: "0" } }   // host already has the wallet
-//   <firm-suite product="veil" wallet-app="https://app.firmwallet.app"></firm-suite>
-//     adds "Connect FIRM Wallet": opens the wallet's #/connect popup and, on approval, fires a
-//     `firm-connect` event with { address, message, signature, nonce }. The message is Sign-In with
-//     Ethereum (EIP-4361): the host's backend must verify the signature before trusting the address.
 //
 // Wallet states: "wallet" (balances from the signed-in Cumulus://ID), "signin" (endpoint said 401/403),
-// "early" (no wallet wired: early access on firmwallet.app), "connected" (address from the wallet's
-// connect popup, not yet verified by the host). Nothing here invents addresses or balances.
+// "early" (no wallet wired: early access on firmwallet.app). Nothing here invents addresses or balances.
 
 export const FIRM_WALLET_URL = "https://firmwallet.app";
 export const FIRMAMENT_URL = "https://firmnetwork.app";
@@ -75,42 +70,10 @@ export async function loadWallet(endpoint, fetchImpl = globalThis.fetch) {
   }
 }
 
-/** URL of the wallet's connect popup (apps/firm-wallet/src/core/connect.ts). */
-export function connectUrl(app, origin, nonce) {
-  return `${String(app).replace(/\/+$/, "")}/#/connect?origin=${encodeURIComponent(origin)}&nonce=${encodeURIComponent(nonce)}`;
-}
-
-/** 32 hex characters: within the wallet's 8-64 alphanumeric nonce rule. */
-export function newNonce(cryptoImpl = globalThis.crypto) {
-  const bytes = new Uint8Array(16);
-  cryptoImpl.getRandomValues(bytes);
-  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
-}
-
-/**
- * Accept a postMessage reply from the wallet only if it comes from the wallet app's exact origin,
- * is a connect reply, and its signed message carries our nonce. Returns { address, message, signature }
- * or null. This is a client-side filter, not a signature check: the host's backend verifies.
- */
-export function acceptConnect(event, app, nonce) {
-  let origin;
-  try {
-    origin = new URL(app).origin;
-  } catch {
-    return null;
-  }
-  const d = event?.data;
-  if (event?.origin !== origin || !d || d.source !== "firm-wallet" || d.type !== "connect") return null;
-  if (typeof d.address !== "string" || !/^0x[0-9a-fA-F]{40}$/.test(d.address)) return null;
-  if (typeof d.message !== "string" || typeof d.signature !== "string") return null;
-  if (!d.message.split("\n").some((line) => line.trim() === `Nonce: ${nonce}`)) return null;
-  return { address: d.address, message: d.message, signature: d.signature };
-}
-
 const short = (address) => (address.length > 16 ? `${address.slice(0, 8)}…${address.slice(-6)}` : address);
 
 /** Render the suite as an HTML string. Every dynamic value is escaped. */
-export function render({ product, state = "early", wallet = null, signinHref = "/", compact = false, connect = false }) {
+export function render({ product, state = "early", wallet = null, signinHref = "/", compact = false }) {
   // `product` may list several products ("spectre metatron"); the first one tags the links.
   const ids = String(product || "firm").split(/[\s,]+/).filter(Boolean);
   const l = links(ids[0]);
@@ -122,8 +85,6 @@ export function render({ product, state = "early", wallet = null, signinHref = "
     body =
       `<p class="fs-sub">Included with your Cumulus://ID · <span class="fs-addr" title="${esc(wallet.address)}">${esc(short(wallet.address))}</span></p>` +
       `<ul class="fs-balances">${rows || "<li><b>0</b> <span>$FIRM</span></li>"}</ul>`;
-  } else if (state === "connected" && wallet) {
-    body = `<p class="fs-sub">Connected · <span class="fs-addr" title="${esc(wallet.address)}">${esc(short(wallet.address))}</span></p>`;
   } else if (state === "signin") {
     body = `<p class="fs-sub">Sign in with Cumulus://ID to open the FIRM Wallet${TM} that comes with it.</p>`;
   } else {
@@ -141,17 +102,15 @@ export function render({ product, state = "early", wallet = null, signinHref = "
   }
   tokens.push(`<li><span class="fs-ticker">$FIRM</span><span>Settles every Infinitum product</span><span class="fs-muted">Solana (CPO) → Ethereum</span></li>`);
   const primary =
-    connect && state !== "wallet" && state !== "connected"
-      ? `<button type="button" class="fs-btn fs-solid" data-fs-connect>Connect FIRM Wallet${TM}</button>`
-      : state === "signin"
+    state === "signin"
       ? `<a class="fs-btn fs-solid" href="${esc(signinHref)}">Sign in</a>`
-      : state === "wallet" || state === "connected"
+      : state === "wallet"
         ? `<a class="fs-btn fs-solid" href="${esc(l.wallet)}" target="_blank" rel="noopener">Open FIRM Wallet${TM}</a>`
         : `<a class="fs-btn fs-solid" href="${esc(l.wallet)}" target="_blank" rel="noopener">Get early access</a>`;
   return (
     `<div class="firm-suite${compact ? " fs-compact" : ""}" role="region" aria-label="FIRM Suite" data-state="${esc(state)}">` +
     `<div class="fs-head"><span class="fs-wordmark">FIRM Wallet${TM}</span>` +
-    `<span class="fs-tag">${state === "wallet" || state === "connected" ? "Preview" : "Coming soon"}</span></div>` +
+    `<span class="fs-tag">${state === "wallet" ? "Preview" : "Coming soon"}</span></div>` +
     body +
     (compact ? "" : `<ul class="fs-tokens">${tokens.join("")}</ul>`) +
     `<div class="fs-actions">${primary}` +
@@ -163,7 +122,6 @@ export function render({ product, state = "early", wallet = null, signinHref = "
 if (typeof HTMLElement !== "undefined" && typeof customElements !== "undefined" && !customElements.get("firm-suite")) {
   class FirmSuite extends HTMLElement {
     #wallet = null;
-    #onMessage = null;
     set wallet(data) {
       this.#wallet = normaliseWallet(data);
       this.#paint(this.#wallet ? "wallet" : "early");
@@ -190,26 +148,6 @@ if (typeof HTMLElement !== "undefined" && typeof customElements !== "undefined" 
         });
       }
     }
-    disconnectedCallback() {
-      if (this.#onMessage) window.removeEventListener("message", this.#onMessage);
-      this.#onMessage = null;
-    }
-    #connect() {
-      const app = this.getAttribute("wallet-app");
-      const nonce = newNonce();
-      if (this.#onMessage) window.removeEventListener("message", this.#onMessage);
-      this.#onMessage = (event) => {
-        const reply = acceptConnect(event, app, nonce);
-        if (!reply) return;
-        window.removeEventListener("message", this.#onMessage);
-        this.#onMessage = null;
-        this.#wallet = { address: reply.address, balances: {} };
-        this.#paint("connected");
-        this.dispatchEvent(new CustomEvent("firm-connect", { bubbles: true, detail: { ...reply, nonce } }));
-      };
-      window.addEventListener("message", this.#onMessage);
-      window.open(connectUrl(app, location.origin, nonce), "firm-wallet-connect", "popup,width=420,height=680");
-    }
     #paint(state) {
       this.innerHTML = render({
         product: this.getAttribute("product") || "firm",
@@ -217,9 +155,7 @@ if (typeof HTMLElement !== "undefined" && typeof customElements !== "undefined" 
         wallet: this.#wallet,
         signinHref: this.getAttribute("signin-href") || "/",
         compact: this.hasAttribute("compact"),
-        connect: this.hasAttribute("wallet-app"),
       });
-      this.querySelector("[data-fs-connect]")?.addEventListener("click", () => this.#connect());
     }
   }
   customElements.define("firm-suite", FirmSuite);

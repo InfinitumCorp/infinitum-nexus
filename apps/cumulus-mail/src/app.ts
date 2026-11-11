@@ -1,6 +1,6 @@
 import { serveNodeLabyrinthUI } from "@infinitum/lbrnth";
 import { AiError, sharedRouter, type AiRouter } from "@infinitum/ai";
-import { serveNodeLabyrinth } from "@infinitum/lbrnth";
+import { serveNodeLabyrinth, serveNodeLabyrinthProxy } from "@infinitum/lbrnth";
 /**
  * Cumulus://Mail HTTP app. Sign-in is Cumulus://ID; every request is scoped to the signed-in CID,
  * and access needs the "cumulus-mail" grant, so revoking it in the CID permissions dashboard
@@ -37,6 +37,11 @@ const MUTATING = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
 export interface MailAppDeps {
   suite: CumulusSuite;
+  /**
+   * Hosted Labyrinth service used when this host has no local Labyrinth storage. Omit to read
+   * LBRNTH_ENDPOINT; null turns the relay off. Only an explicit Cumulus ID bearer is forwarded.
+   */
+  labyrinthEndpoint?: string | null;
   publicDir: string;
   origin: string;
   secureCookies: boolean;
@@ -692,7 +697,11 @@ export function createMailApp(deps: MailAppDeps) {
     const url = new URL(req.url ?? "/", "http://localhost");
     try {
       if (url.pathname === "/labyrinth" || url.pathname.startsWith("/labyrinth/")) return await serveNodeLabyrinthUI(req, res, "cumulus-mail");
-      if (url.pathname === "/api/labyrinth") return await serveNodeLabyrinth(req, res, deps.suite?.labyrinth, parseCookies(req.headers.cookie)[COOKIE], deps.onChange);
+      if (url.pathname === "/api/labyrinth") {
+        const endpoint = (deps.labyrinthEndpoint === undefined ? process.env.LBRNTH_ENDPOINT : deps.labyrinthEndpoint) || undefined;
+        if (!deps.suite?.labyrinth && endpoint) return await serveNodeLabyrinthProxy(req, res, endpoint, "cumulus-mail");
+        return await serveNodeLabyrinth(req, res, deps.suite?.labyrinth, parseCookies(req.headers.cookie)[COOKIE], deps.onChange);
+      }
       if (url.pathname === "/cumulus-config.js") {
         const body = `globalThis.CUMULUS=${JSON.stringify({ mailDomain: MAIL_DOMAIN })};`;
         res.writeHead(200, { "Content-Type": "text/javascript; charset=utf-8", "Cache-Control": "no-store" });

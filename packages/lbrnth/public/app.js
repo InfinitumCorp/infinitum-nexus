@@ -146,6 +146,18 @@ bind('more-history', 'click', async () => {
 bind('diff', 'click', async () => { if (!state.commit) return; const changes = await rpc('diff', { repo: state.repo.id, from: state.commit.parent, to: state.commit.id }); $('changes').textContent = changes.map(c => `${c.kind.toUpperCase()}  ${c.path}\n  ${c.before ?? '∅'} → ${c.after ?? '∅'}`).join('\n\n') || 'No file changes.'; });
 async function loadMembers() { const members = await rpc('members'); table('members', ['Member CID', 'Role'], members.map(m => [m.cid, m.role])); }
 bind('load-members', 'click', loadMembers);
+function clearAgentToken() { $('agent-token').value = ''; $('agent-token-box').hidden = true; }
+bind('issue-agent-token', 'click', async () => {
+  const issued = await rpc('token');
+  $('agent-token').value = issued.token;
+  $('agent-token-expiry').textContent = `Expires ${new Date(issued.expiresAt).toLocaleTimeString()}. Paste it into OpenClaw now; it is not shown again.`;
+  $('agent-token-box').hidden = false;
+  setTimeout(clearAgentToken, Math.max(0, new Date(issued.expiresAt).getTime() - Date.now()));
+  notice('OpenClaw credential issued.');
+});
+bind('copy-agent-token', 'click', async () => { await navigator.clipboard.writeText($('agent-token').value); notice('Credential copied.'); });
+bind('clear-agent-token', 'click', async () => clearAgentToken());
+
 bind('set-member', 'submit', async () => { const memberRole = $('member-role').value; if (!window.confirm('Apply this organization repository access change?')) return; await rpc('set-member', { member: $('member-cid').value.trim(), memberRole: memberRole === 'remove' ? null : memberRole }); await loadMembers(); notice('Member access updated.'); });
 async function loadAudit(reset = false) {
   if (reset) state.audit = [];

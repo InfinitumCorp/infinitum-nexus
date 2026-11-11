@@ -33,6 +33,9 @@ export const LABYRINTH_PRODUCTS = [
   { id: "cumulus", name: "Cumulus", implementation: "packages/cumulus" },
   { id: "cloud", name: "Cumulus Cloud", implementation: "packages/cloud" },
   { id: "conjure", name: "Conjure", implementation: "packages/conjure" },
+  // Third-party agent (OpenClaw) acting for the person with a repository-only lbrnth_ credential.
+  // External: not an Infinitum app in CID; access is the LBRNTH plan and scopes of the person it acts for.
+  { id: "openclaw", name: "OpenClaw", implementation: "packages/lbrnth-openclaw", external: true },
 ] as const;
 export type LabyrinthProduct = (typeof LABYRINTH_PRODUCTS)[number]["id"];
 const aliases: Readonly<Record<string, LabyrinthProduct>> = Object.freeze({ scalus: "scalvs", cndctr: "architect", architct: "architect", "project-tokens": "tokens", "firmament-network": "firmament", "e(o)n": "eon", "cumulus exchange": "cumulus-exchange" });

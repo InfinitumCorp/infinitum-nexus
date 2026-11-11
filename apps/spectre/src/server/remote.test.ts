@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { Ledger, generateSigner } from "@infinitum/firmament";
 import { CidService, CidStore } from "@infinitum/cid";
 import { SpectreCRM, emptyStore } from "../core/crm.ts";
-import { RemoteState, MemoryGateway } from "./remote.ts";
+import { HttpGateway, RemoteState, MemoryGateway } from "./remote.ts";
 
 /** Two serverless instances sharing one database. */
 function instance(gateway: MemoryGateway, signer = generateSigner()) {
@@ -17,6 +17,20 @@ function instance(gateway: MemoryGateway, signer = generateSigner()) {
 }
 
 describe("Hosted state (serverless instances sharing Supabase)", () => {
+  it("calls fetch as a plain function so Workers do not throw Illegal invocation", async () => {
+    let seen: unknown = "unset";
+    const fetchImpl = function (this: unknown, _url: string | URL | Request, init?: RequestInit) {
+      seen = this;
+      if (this !== undefined && this !== globalThis) throw new TypeError("Illegal invocation");
+      const body = JSON.parse(String(init?.body));
+      assert.equal(body.op, "load");
+      return Promise.resolve(new Response(JSON.stringify({ entries: [], docs: [] }), { status: 200 }));
+    } as typeof fetch;
+    const gateway = new HttpGateway("https://store.example/nexus", "key", fetchImpl);
+    assert.deepEqual(await gateway.load(-1, {}), { entries: [], docs: [] });
+    assert.equal(seen, undefined);
+  });
+
   it("saves changes and lets another instance see them", async () => {
     const db = new MemoryGateway();
     const a = instance(db);

@@ -4,10 +4,11 @@ Maps every product advertised on https://infinitumcorporation.ai/#products to cu
 
 **Note:** #THRONE is ignored and will not be built or referenced further.
 
-## Live deployments (2026-11-09)
+## Live deployments (2026-11-11)
 
 | Product | URL | What is deployed | Source |
 |---|---|---|---|
+| Cumulus://ID / +SPCTR™ | https://id.cumuluscloud.app | Sign in with Cumulus://ID for the product sites (passkeys, and Google or Cognito when those secrets are set). The CRM is the same Worker. A newer build adds the free Workers AI binding for Ask Spectre; that build is not deployed until `wrangler deploy` runs. Payments and the $SPCTR token are off. Mirror: https://ru.id.cumuluscloud.app | `apps/spectre` Worker `cumulus-id` |
 | SCALVS.ai | https://scalvs.app | Full web app: agents and CONJURE forecasts on Workers AI (no provider key), rate-limited API | InfinitumCorp/scalvs-ai (Worker `scalvs-ai`), not `packages/scalus` |
 | :\ARCHITECT\ | https://rchtch.app | Public site | InfinitumCorp/architect |
 | Firmament Network / FIRM Wallet | https://firmnetwork.app, https://firmwallet.app | Public sites | InfinitumCorp/firmament-launch |
@@ -35,14 +36,14 @@ Each public domain needs a "(public)" Cloudflare Access bypass app; the account-
 
 | Product | Advertised task | Status | Evidence | Next steps |
 |---------|-----------------|--------|----------|------------|
-| **+SPCTR™ (Spectre)** | AI intelligent CRM. | Partial | Full app.ts + METATRON (learned per-workspace model, GET /api/metatron and /api/metatron/backtest, model shown in Settings) + research ... | Typecheck, tests, deploy. SpectreCollector ready. |
+| **+SPCTR™ (Spectre)** | AI intelligent CRM. | Partial | Full `app.ts` on the live Cumulus://ID Worker. METATRON is default-on. Ask Spectre, research, and agents use the free Workers AI binding `AI`, then `OMNIROUTE_*`, then the not-connected message. ei·det·ic returns "not configured". Payments and the $SPCTR token are off. | Deploy `cumulus-id` with the command in DEPLOY.md. Do not turn payments or $SPCTR on in that deploy. |
 | **:\ARCHITECT\\** | Intent → Score → perform → verify. | Partial | Score, executor, autonomy | Deploy via Docker/Vercel. ArchitectCollector ready. |
 | **SCALVS.ai** | AI workforce platform. | Scaffolded | Agent + Context Vault + tools + Team + Architect evidence + Firmament vault + NEXT.md | See packages/scalus/NEXT.md. ScalusCollector ready. |
 | **METATRON** | Prediction + analytics. | Partial | Default scorer + learned logistic scorer (explainable odds-ratio factors) + time-ordered backtests (Brier, log loss, AUC, calibration) + series forecasters (naive, last-delta, damped Holt) with rolling-origin error (MAE, RMSE, sMAPE). Live in Spectre: learned model per workspace once 30+ closed deals (won and lost), retrained when closed deals change. | Stage learned from history (Deal.closedFrom) once deals close after this release; numeric features clamped to ±3σ. MetatronCollector ready. |
 | **HRVST** | Capture → privacy filter → Harvest Packet. | Scaffolded | Packet + privacy filter + licensing + Personal Silo | Production privacy model. HrvstCollector ready. |
-| **ei·det·ic** | Identity-intelligence (authorized use only). | Scaffolded | Service + Spectre integration | Production sources. Restricted. EideticCollector ready. |
+| **ei·det·ic** | Identity-intelligence (authorized use only). | Scaffolded | Service scaffold. Spectre's `eidetic.ts` returns "ei·det·ic is not configured" and does not report an empty match or a recorded consent. | An authorized source, still restricted. No source is connected. |
 | **FIRM + FIRM Wallet** | Ecosystem token, wallet, DEX. | Partial | EVM client + wallet signing + DEX + router calldata + contracts + deploy scripts + compile.sh + deploy-helper.md | See DEPLOY.md and packages/firm/scripts/deploy-helper.md. Compile and deploy. FirmCollector ready. |
-| **Project-specific tokens** | $HRVST, $ARCT, $SPCTR, $SCLV. | Scaffolded | tokens.ts + ProjectToken.sol + deploy.ts | Compile and deploy. TokensCollector ready. |
+| **Project-specific tokens** | $HRVST, $ARCT, $SPCTR, $SCLV. | Scaffolded | tokens.ts + ProjectToken.sol + deploy.ts. $SPCTR is not live in the +SPCTR Worker. | Compile and deploy when a token launch is requested. TokensCollector ready. |
 | **Cumulus://Cloud** | Storage, licensing, agent runtime, **Data Exchange** | Partial (exchange) | packages/cloud + packages/data-exchange + apps/data-exchange | Wire CumulusCollector; object store production; CDAT settlement. |
 | **Cumulus://Mail** | Free email on every CID, alex@cumuluscloud.app, encrypted at rest, end-to-end between Cumulus accounts, SCALVS briefs, Architect tasks, Drive files, snooze, rules, signature. | Core logic + inside-network delivery | `packages/mail` + `apps/cumulus-mail` | SMTP handoff for the outbox. SCALVS when `XAI_API_KEY` is set. |
 
@@ -77,7 +78,7 @@ These cannot be fully built as software. Data from these is excluded from public
 ## Immediate next build
 
 See **DEPLOY.md**, **apps/spectre/src/server/RESTORE-APP.md**, **packages/firm/scripts/deploy-helper.md**, **apps/architect/DEPLOY.md**, **apps/veil/NEXT.md**, and **packages/scalus/NEXT.md**.  
-- Spectre: full restore of `app.ts`, then deploy.  
+- Spectre: server is the full `app.ts`. Deploy the `cumulus-id` Worker with the command in DEPLOY.md. Workers AI is the free model path. Leave payments and $SPCTR off.  
 - Architect: deploy.  
 - FIRM: compile then deploy.  
 - METATRON enabled by default in Spectre.  

@@ -1,18 +1,15 @@
 /**
  * Spectre integration point for ei·det·ic.
- * Authorized, lawful use only. Calls the stub service.
+ * Authorized, lawful use only. No identity source is wired in this build, so callers
+ * get an explicit "not configured" result instead of an empty match or a fake consent receipt.
  */
-class EideticService {
-  async match(query: string) { return { matches: [], query }; }
-  async recordConsent(subject: string, purpose: string) { return { recorded: true, subject, purpose }; }
-}
 
-const eidetic = new EideticService();
+export const EIDETIC_NOT_CONFIGURED = "ei·det·ic is not configured";
 
 export async function matchIdentity(query: string) {
-  return eidetic.match(query);
+  return { configured: false as const, error: EIDETIC_NOT_CONFIGURED, query, matches: [] as [] };
 }
 
 export async function recordConsent(subject: string, purpose: string) {
-  return eidetic.recordConsent(subject, purpose);
+  return { configured: false as const, recorded: false as const, error: EIDETIC_NOT_CONFIGURED, subject, purpose };
 }

@@ -5,7 +5,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { chromeManifest, firefoxManifest } from "../scripts/manifests.js";
+import { DESCRIPTION_MESSAGE, chromeManifest, extensionDescription, firefoxManifest } from "../scripts/manifests.js";
 import { EXTENSION_FILES, WINDOWS_TAR, hasCommand, packageExtension } from "../scripts/package.js";
 
 const version = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version;
@@ -23,8 +23,12 @@ test("the unpacked manifest is the Chrome build and Firefox gets its own proxy p
   assert.equal(chromeManifest(version).permissions.includes("webRequestBlocking"), false);
   assert.equal(firefox.action.default_popup, "popup.html");
   assert.equal(firefox.background.service_worker, "background.js");
-  assert.match(firefox.description, /not a device-wide VPN/);
-  assert.match(firefox.description, /Infinitum Corporation®/);
+  assert.equal(firefox.description, DESCRIPTION_MESSAGE);
+  assert.equal(firefox.default_locale, "en");
+  const en = JSON.parse(readFileSync(new URL("../_locales/en/messages.json", import.meta.url), "utf8")).ext_description.message;
+  assert.equal(en, extensionDescription());
+  assert.match(en, /not a device-wide VPN/);
+  assert.match(en, /Infinitum Corporation®/);
   const csp = "script-src 'self'; object-src 'self'; worker-src 'self'";
   assert.equal(firefox.content_security_policy.extension_pages, csp);
   assert.equal(chromeManifest(version).content_security_policy.extension_pages, csp);

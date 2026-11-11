@@ -144,6 +144,29 @@ const rejectsWith = (p: Promise<unknown>, code: string) =>
   assert.rejects(p, (e: unknown) => e instanceof CidError && e.code === code);
 
 describe("CID social sign-in", () => {
+  it("calls fetch as a plain function so Workers do not throw Illegal invocation", async () => {
+    let seen: unknown = "unset";
+    const fetchImpl = function (this: unknown, url: string | URL | Request) {
+      seen = this;
+      if (this !== undefined && this !== globalThis) throw new TypeError("Illegal invocation");
+      const path = new URL(String(url)).pathname;
+      const json = (d: unknown) => Promise.resolve(new Response(JSON.stringify(d), { status: 200, headers: { "content-type": "application/json" } }));
+      if (path === "/login/oauth/access_token") return json({ access_token: "gho_test" });
+      if (path === "/user") return json({ id: 7, login: "ada" });
+      if (path === "/user/emails") return json([]);
+      return Promise.resolve(new Response("no", { status: 404 }));
+    } as typeof fetch;
+    const client = new SocialClient(fetchImpl);
+    const pending: PendingAuth = {
+      state: "s", provider: "github", nonce: "n", codeVerifier: "v",
+      redirectUri: REDIRECT, expiresAt: Date.now() + 60_000,
+    };
+    const profile = await client.complete(PROVIDERS.github, { clientId: "id", clientSecret: "sec" }, pending, "code", new Date());
+    assert.equal(profile.subject, "7");
+    assert.equal(profile.usernameHint, "ada");
+    assert.equal(seen, undefined);
+  });
+
   it("accepts a discovery issuer with a trailing slash", async () => {
     const fake = fakeProviders();
     const client = new SocialClient(fake.fetchImpl);

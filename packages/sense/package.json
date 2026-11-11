@@ -1,0 +1,21 @@
+{
+  "name": "@infinitum/sense",
+  "version": "0.1.0",
+  "description": "Geo, voice-safety, and consented sensing adapters over public engines. Does not vendor models or restricted SDKs.",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "typecheck": "tsc -p . --noEmit",
+    "test": "node --test --experimental-strip-types src/*.test.ts"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.0",
+    "@types/node": "^26.6.6"
+  }
+}

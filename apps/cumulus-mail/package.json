@@ -23,10 +23,10 @@
     "@infinitum/lbrnth": "workspace:*",
     "@infinitum/mail": "workspace:*",
     "@infinitum/scalus": "workspace:*",
-    "postal-mime": "2.4.4"
+    "postal-mime": "4.2.0"
   },
   "devDependencies": {
-    "@types/node": "^22.0.0",
+    "@types/node": "^26.6.6",
     "cf": "1.0.0-beta.28",
     "typescript": "^5.9.0",
     "wrangler": "^4.158.0"

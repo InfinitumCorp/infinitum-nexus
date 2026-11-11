@@ -15,6 +15,11 @@ export interface IdClient {
   /** CID app id the profile:read grant is recorded under. */
   app: string;
   origins: string[];
+  /**
+   * Internal tools that run on the person's own computer may return to http://127.0.0.1:<port> or
+   * http://localhost:<port> (RFC 8252 loopback redirect). PKCE still binds the code to the tool.
+   */
+  loopback?: boolean;
 }
 
 export const ID_CLIENTS: Record<string, IdClient> = {
@@ -54,7 +59,12 @@ export const ID_CLIENTS: Record<string, IdClient> = {
   architect: {
     name: ":\\ARCHITECT\\",
     app: "architect",
-    origins: ["https://rchtch.app", "https://www.rchtch.app"],
+    origins: [
+      "https://rchtch.app",
+      "https://www.rchtch.app",
+      // The :\ARCHITECT\ Chrome extension (chrome.identity.launchWebAuthFlow).
+      "https://ldhkkbpfacheloapjlgnalmbaciameec.chromiumapp.org",
+    ],
   },
   veil: {
     name: "VEIL</>",
@@ -92,10 +102,42 @@ export const ID_CLIENTS: Record<string, IdClient> = {
     app: "cumulus",
     origins: ["https://infinitumdefense.com", "https://www.infinitumdefense.com"],
   },
+  "1mind": {
+    name: "1MIND",
+    app: "1mind",
+    // 1MIND Russia (Yandex Cloud, conjure-russia). Internal: the server still checks CID_OWNERS.
+    origins: ["https://1mind-ru.infinitumcorporation.ai"],
+    loopback: true,
+  },
+  conjure: {
+    name: "Conjure",
+    app: "conjure",
+    // Conjure Russia (Yandex Cloud). Staff only: the server still checks its staff list.
+    origins: ["https://conjure-ru.infinitumcorporation.ai"],
+    loopback: true,
+  },
+  "eidetic-admin": {
+    name: "ei·det·ic purpose desk",
+    app: "eidetic",
+    origins: [],
+    loopback: true,
+  },
+  "eidetic-reviewer": {
+    name: "ei·det·ic review desk",
+    app: "eidetic",
+    origins: [],
+    loopback: true,
+  },
   spectre: {
     name: "+SPCTR",
     app: "spectre",
     origins: ["https://spectre.infinitumcorporation.ai"],
+  },
+  // developer.infinitumcorporation.ai: where Infinitum developers sign in.
+  developer: {
+    name: "Infinitum Developer",
+    app: "cumulus",
+    origins: ["https://developer.infinitumcorporation.ai"],
   },
 };
 
@@ -109,8 +151,15 @@ export function idClientFor(clientId: string, redirectUri: string): IdClient | n
   } catch {
     return null;
   }
-  if (url.protocol !== "https:" || url.username || url.password || url.hash) return null;
+  if (url.username || url.password || url.hash) return null;
+  if (url.protocol === "http:") return client.loopback && isLoopback(url) ? client : null;
+  if (url.protocol !== "https:") return null;
   return client.origins.includes(url.origin) ? client : null;
+}
+
+/** http://127.0.0.1:<port> or http://localhost:<port>, with an explicit port. */
+function isLoopback(url: URL): boolean {
+  return (url.hostname === "127.0.0.1" || url.hostname === "localhost" || url.hostname === "[::1]") && url.port !== "";
 }
 
 /** Every origin that may call the token endpoints from a browser. */

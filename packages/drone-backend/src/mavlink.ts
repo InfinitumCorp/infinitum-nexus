@@ -7,7 +7,7 @@ export interface Observation {
   systemId: number;
   componentId: number;
   sequence: number;
-  data: Record<string, number | boolean | null>;
+  data: Record<string, number | string | boolean | null>;
 }
 const definitions: Record<number, { extra: number; min: number; max: number }> = {
   0: { extra: 50, min: 9, max: 9 },
@@ -52,7 +52,9 @@ export function decodeTelemetry(bytes: Uint8Array): Observation[] {
     if (messageId === 0) {
       if (p.getUint8(8) !== 3) throw new Error("Invalid heartbeat protocol version");
       kind = "heartbeat";
-      data = { customMode: p.getUint32(0, true), vehicleType: p.getUint8(4), autopilot: p.getUint8(5), baseMode: p.getUint8(6), systemStatus: p.getUint8(7), armed: !!(p.getUint8(6) & 128) };
+      const autopilot = p.getUint8(5);
+      const stack = autopilot === 12 ? "px4" : autopilot === 3 ? "ardupilot" : "other";
+      data = { customMode: p.getUint32(0, true), vehicleType: p.getUint8(4), autopilot, stack, baseMode: p.getUint8(6), systemStatus: p.getUint8(7), armed: !!(p.getUint8(6) & 128) };
     } else if (messageId === 1) {
       kind = "systemStatus";
       const voltage = p.getUint16(14, true), current = p.getInt16(16, true), battery = p.getInt8(30);

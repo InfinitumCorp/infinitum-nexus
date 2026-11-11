@@ -65,6 +65,7 @@ test("esc escapes HTML", () => {
   assert.equal(esc(`<a href="x">'&`), "&lt;a href=&quot;x&quot;&gt;&#39;&amp;");
 });
 
+// apps/spectre/public is not in copies.json. id.cumuluscloud.app keeps the live FIRM Suite widget until a UI change is allowed.
 test("synced copies match the canonical files", () => {
   const copies = JSON.parse(readFileSync(join(here, "copies.json"), "utf8")) as string[];
   const root = join(here, "..", "..", "..");

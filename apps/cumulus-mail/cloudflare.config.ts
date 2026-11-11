@@ -45,6 +45,8 @@ export default defineConfig({
       DOWNLOADS_SITE: bindings.worker({ worker: "cumulus-downloads" }),
       GOOGLE_CLIENT_ID: bindings.secret(),
       GOOGLE_CLIENT_SECRET: bindings.secret(),
+      // Hosted Labyrinth relay target (https://<cloud-run-host>/api/labyrinth), set with wrangler secret put.
+      LBRNTH_ENDPOINT: bindings.secret(),
     },
   },
 });

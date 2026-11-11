@@ -1,0 +1,12 @@
+{
+  "limits": "Full-device IPv4 route 0.0.0.0/0. IPv6 route ::/0 is captured and dropped, not tunneled. No DNS server is installed. No kill switch: when the tunnel is down, other traffic is not blocked. infinitumveilvpn.app is the product name, not a server.",
+  "operator_heading": "Operator-provided peer. This is not a local test and not a built-in server.",
+  "endpoint_label": "Peer endpoint",
+  "public_label": "Peer public key",
+  "private_label": "Private key",
+  "public_hint": "64 hex characters",
+  "private_hint": "64 hex characters, not saved",
+  "connect": "Connect",
+  "disconnect": "Disconnect",
+  "status_label": "Tunnel status"
+}

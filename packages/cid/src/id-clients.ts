@@ -131,6 +131,12 @@ export const ID_CLIENTS: Record<string, IdClient> = {
     app: "spectre",
     origins: ["https://spectre.infinitumcorporation.ai"],
   },
+  // developer.infinitumcorporation.ai: where Infinitum developers sign in.
+  developer: {
+    name: "Infinitum Developer",
+    app: "cumulus",
+    origins: ["https://developer.infinitumcorporation.ai"],
+  },
 };
 
 /** The client a redirect may go to, or null when it isn't one of ours. */

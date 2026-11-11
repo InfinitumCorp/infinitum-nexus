@@ -1,0 +1,7 @@
+{
+  "description": "Every vendored copy of the runtime in this repo (static apps serve them from public/). `pnpm --filter @infinitum/i18n sync` rewrites them; the test fails if one drifts. Standalone repos (scalvs-ai, cumulus-mail, …) keep a copy in src/i18n/ and re-copy by hand.",
+  "copies": [
+    { "from": "src/i18n.js", "to": ["apps/cndctr/public/i18n.js", "apps/spectre/public/i18n.js", "apps/cumulus-mail/public/i18n.js"] },
+    { "from": "src/i18n.css", "to": ["apps/cndctr/public/i18n.css", "apps/spectre/public/i18n.css", "apps/cumulus-mail/public/i18n.css"] }
+  ]
+}

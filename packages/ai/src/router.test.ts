@@ -141,4 +141,11 @@ test("env: OmniRoute defaults to its auto model; order override works", () => {
   }).find((item) => item.name === "ai21");
   assert.equal(ai21?.baseUrl, "https://api.ai21.com/studio/v1");
   assert.equal(ai21?.models["gpt-oss-20b"], "jamba-mini");
+  const deepseek = providersFromEnv({ DEEPSEEK_API_KEY: "k" }).find((item) => item.name === "deepseek");
+  assert.equal(deepseek?.baseUrl, "https://api.deepseek.com");
+  assert.equal(deepseek?.models["deepseek-v4-flash"], "deepseek-flash");
+  assert.equal(deepseek?.models["deepseek-v4-pro"], "deepseek-v4-pro");
+  const silicon = providersFromEnv({ SILICONFLOW_API_KEY: "k" }).find((item) => item.name === "siliconflow");
+  assert.equal(silicon?.models["deepseek-v3"], "deepseek-ai/DeepSeek-V3");
+  assert.equal(silicon?.models["deepseek-v4-flash"], "deepseek-ai/DeepSeek-V4-Flash");
 });

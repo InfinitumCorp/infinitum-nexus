@@ -20,7 +20,11 @@ These stay upstream. `@infinitum/sense` speaks to them. We do not copy the trees
 | [uber/h3](https://github.com/uber/h3) | Apache-2.0 | Global cell index. Our geohash is the small stand-in for mission-scale fixes. |
 | [mavlink/mavlink](https://github.com/mavlink/mavlink) | LGPL-3.0 generator, different terms on generated code | Already implemented, in our own words, in `@infinitum/drone-backend`. The generator is not copied. |
 | [teslamotors/react-native-camera-kit](https://github.com/teslamotors/react-native-camera-kit) | MIT | Camera library. Not vendored: dropping it into FABRIC would change the app. |
-| [facebookresearch/detectron2](https://github.com/facebookresearch/detectron2) and [segment-anything](https://github.com/facebookresearch/segment-anything) | Apache-2.0 | Detection and segmentation research stacks. Not copied into the apps. |
+| [facebookresearch/detectron2](https://github.com/facebookresearch/detectron2) and [segment-anything](https://github.com/facebookresearch/segment-anything) | Apache-2.0 | Meta detection and segmentation. Research stacks, not copied. |
+| [microsoft/onnxruntime](https://github.com/microsoft/onnxruntime) | MIT | The runtime that would execute an on-device model. About 1.6 GB. Not copied. |
+| [microsoft/VibeVoice](https://github.com/microsoft/VibeVoice) | MIT | Voice model. About 216 MB. Transcripts can feed the same safety parser. Not copied. |
+| [data-privacy-stack/presidio](https://github.com/data-privacy-stack/presidio) | MIT | Microsoft's PII redaction framework, now under that org. About 343 MB. HRVST already redacts email and phone. Not copied. |
+| [meta-pytorch/opacus](https://github.com/meta-pytorch/opacus) | Apache-2.0 | Differential privacy for PyTorch training. Not a runtime the apps call. Not copied. |
 | [palantir/blueprint](https://github.com/palantir/blueprint) | Apache-2.0 | A web UI kit. Not applied. Product UI is not being replaced. |
 
 ## Not copied, and why
@@ -38,3 +42,6 @@ These stay upstream. `@infinitum/sense` speaks to them. We do not copy the trees
 | Telegram | `tdlib/td` (BSL-1.0) | Not merged into Infinitum apps. |
 | CERN | ROOT, Geant4, tomography toolboxes | Scientific codes with incompatible or mixed licenses. Not a product fit. |
 | Palantir Gotham / Foundry | Not published. Blueprint is a UI kit. | See above. |
+| Apple | Containers, FoundationDB, SwiftNIO, Pkl, Turi Create, coremltools (BSD-3-Clause) | Siri, Core Location, Face ID, and the Neural Engine are not published. coremltools converts models for Apple devices. It is not a sensing runtime for these apps, and it is not copied. `ml-ferret` and `ml-mobileclip` have no SPDX license on the repo, so they are not copied. |
+| Microsoft | VS Code, TypeScript, Playwright, ONNX Runtime, VibeVoice, Presidio, Deep3DFaceReconstruction | Windows, Azure Face, and Azure Maps are not these repos. ONNX Runtime, VibeVoice, and Presidio are MIT but hundreds of megabytes to over a gigabyte, so they stay upstream. The 3D face-reconstruction repo is a face model, not redaction, and is not imported. `FaceSynthetics` has no SPDX license. |
+| Meta | Detectron2, Segment Anything, SAM 2, FAISS, AudioCraft, fairseq, Opacus | The production face-recognition and social graph are not published. FAISS is MIT and about 293 MB. AudioCraft generates audio. Neither is copied. Llama weights use the Llama community license, not a general grant, and are not in this repo. |

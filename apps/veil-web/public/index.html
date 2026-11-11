@@ -10,6 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icons/icon-192.png" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <link rel="stylesheet" href="firm-suite.css" />
   <style>
     /* Standard Infinitum White, as on VEIL Phase I's start page (veil-chrome/src/shared/veil.css):
        white, quiet, Helvetica Neue at a regular weight, one coloured dot beside "Anonymous". */
@@ -65,6 +66,7 @@
 
     /* Panels that open under the bookmarks */
     .panel { margin-top: 20px; padding: 16px; border: 1px solid var(--rule); border-radius: 2px; font-size: 13px; }
+    firm-suite.firm { margin-top: 20px; }
     .panel h2 { font-size: 14px; font-weight: 400; margin: 0 0 6px; }
     .panel p { margin: 0 0 10px; color: var(--ink-quiet); }
     .panel p:last-child { margin-bottom: 0; }
@@ -139,6 +141,8 @@
       <p>The extension and the Android app block ad networks, trackers and data brokers by default, warn about unencrypted or look-alike sites, hold risky downloads and personal-data forms for a tap to confirm, and warn when a protected password is typed on the wrong site.</p>
       <p>$VEIL rewards are not income, an investment return or payment for visiting particular sites. $VEIL is not a share in Infinitum Corporation.</p>
     </section>
+
+    <firm-suite class="firm" product="veil" compact></firm-suite>
   </main>
 
   <nav class="apps" aria-label="Infinitum apps">
@@ -153,6 +157,7 @@
       <span class="quiet">© 2026 Infinitum Corporation · <span id="build"></span></span>
     </span>
   </footer>
+  <script type="module" src="firm-suite.js"></script>
   <script src="lib/trackers.js"></script>
   <script src="app.js"></script>
 </body>

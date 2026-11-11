@@ -189,7 +189,7 @@ function render() {
     el("button", { class: "x", "aria-label": "Dismiss", onClick: () => { state.toast = null; render(); } }, ["×"]),
   ]));
   if (state.help) root.append(helpDialog());
-  document.title = data.unread ? `Inbox (${data.unread}) · Cumulus://Mail` : "Cumulus://Mail";
+  document.title = data.unread ? `Inbox (${data.unread}) · Cumulus://Mail™` : "Cumulus://Mail™";
 }
 
 const SHORTCUTS = [

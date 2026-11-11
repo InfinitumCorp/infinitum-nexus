@@ -14,6 +14,9 @@ import { RemoteState, HttpGateway, type NexusGateway } from "./remote.ts";
  *
  * Required environment variables:
  *   SPECTRE_ORIGIN         public URL, e.g. https://spectre.example.com (passkeys are bound to it)
+ *   SPECTRE_EXTRA_ORIGINS  optional, comma-separated mirrors under the SPECTRE_ORIGIN host, e.g.
+ *                          https://ru.id.cumuluscloud.app (CloudFront, for networks that throttle
+ *                          Cloudflare); passkeys work on them because they share its rpId
  *   FIRMAMENT_SIGNER_KEY   base64 PKCS#8 Ed25519 key that signs ledger entries (keep secret)
  *   NEXUS_STORE_URL        https://<project>.supabase.co/functions/v1/nexus-store
  *   NEXUS_STORE_KEY        gateway key; its SHA-256 is listed in nexus_gateway_keys
@@ -49,8 +52,22 @@ function required(name: string): string {
   return v;
 }
 
+/** Parses SPECTRE_EXTRA_ORIGINS. Each mirror must be a subdomain of the rpId host, or its passkeys would not work. */
+export function extraOrigins(value: string | undefined, rpId: string): string[] {
+  return (value ?? "")
+    .split(",")
+    .map((o) => o.trim().replace(/\/$/, ""))
+    .filter(Boolean)
+    .map((o) => {
+      if (!new URL(o).hostname.endsWith(`.${rpId}`)) throw new Error(`SPECTRE_EXTRA_ORIGINS: ${o} is not under ${rpId}`);
+      return o;
+    });
+}
+
 function build() {
   const origin = required("SPECTRE_ORIGIN").replace(/\/$/, "");
+  const rpId = new URL(origin).hostname;
+  const origins = [origin, ...extraOrigins(process.env.SPECTRE_EXTRA_ORIGINS, rpId)];
   const signer = signerFromPrivateKey(required("FIRMAMENT_SIGNER_KEY"));
   const cumulusStores = emptyCumulusStores();
   const spectreStore = emptyStore();
@@ -67,7 +84,7 @@ function build() {
   });
   const ledger = new Ledger(state.ledgerStore, { authorizedSigners: [signer.publicKey] });
   const suite = createCumulus({
-    ledger, signer, rpId: new URL(origin).hostname, origins: [origin], stores: cumulusStores,
+    ledger, signer, rpId, origins, stores: cumulusStores,
     social: { providers: socialFromEnv() }, mailOrigin: process.env.CUMULUS_MAIL_ORIGIN,
   });
   const cid = suite.cid;
@@ -93,6 +110,7 @@ function build() {
     publicDir: publicDir(), // static files are served by the CDN (Vercel) or Workers static assets
     secureCookies: origin.startsWith("https://"),
     origin,
+    mirrorOrigins: origins.slice(1),
     providers: providersFromEnv(),
     cronSecret: process.env.CRON_SECRET,
     twilioAuthToken: process.env.TWILIO_AUTH_TOKEN,

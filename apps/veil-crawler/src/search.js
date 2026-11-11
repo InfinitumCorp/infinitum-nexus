@@ -23,14 +23,22 @@ const SQL = `
   ORDER BY rank
   LIMIT ? OFFSET ?`;
 
+/**
+ * Every searched word must be on the page: first in its title or description (what the page
+ * is about), else anywhere on it. There is no "any one word" fallback: a page that mentions
+ * only "pizza" is not an answer to "pizza dough recipe", and VEIL's results are shown first.
+ */
 export async function searchIndex(db, q, offset = 0) {
   const off = Number.isInteger(offset) && offset >= 0 && offset <= MAX_OFFSET ? offset : 0;
+  const all = ftsQuery(q);
   let rows = [];
-  for (const joiner of [" ", " OR "]) {
-    const match = ftsQuery(q, joiner);
-    if (!match) break;
-    rows = (await db.prepare(SQL).bind(match, PAGE_SIZE + 1, off * PAGE_SIZE).all()).results;
-    if (rows.length || off > 0) break; // all words first; any word if nothing matched
+  let weak = false; // only passing mentions: the blend weights these like a specialist source
+  if (all) {
+    for (const match of ["{title description} : (" + all + ")", all]) {
+      rows = (await db.prepare(SQL).bind(match, PAGE_SIZE + 1, off * PAGE_SIZE).all()).results;
+      if (rows.length) break;
+      weak = true;
+    }
   }
   const results = rows.slice(0, PAGE_SIZE).map((r) => ({
     title: r.title,
@@ -38,5 +46,5 @@ export async function searchIndex(db, q, offset = 0) {
     snippet: r.description || r.snip || "",
   }));
   const more = rows.length > PAGE_SIZE && off < MAX_OFFSET;
-  return { results, next: more ? { offset: off + 1 } : null };
+  return { results, next: more ? { offset: off + 1 } : null, ...(weak && results.length ? { weight: 0.5 } : {}) };
 }

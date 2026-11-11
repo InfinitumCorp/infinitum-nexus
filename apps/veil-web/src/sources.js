@@ -175,21 +175,23 @@ export function sameKey(url) {
 
 /**
  * Reciprocal rank fusion: each source votes 1/(60 + rank) for its results, pages found by
- * several sources rise, and each result lists which sources found it.
+ * several sources rise, and each result lists which sources found it. An answer may carry
+ * its own `weight` (VEIL's index does, when it found only passing mentions).
  * `answers` is [{ source, results, next }].
  */
 export function blend(answers) {
   const byKey = new Map();
-  for (const { source, results } of answers) {
+  for (const { source, results, weight: w } of answers) {
+    const weight = w ?? WEIGHTS[source] ?? 1;
     results.forEach((r, i) => {
       const key = sameKey(r.url);
       const hit = byKey.get(key);
       if (hit) {
-        hit.score += (WEIGHTS[source] ?? 1) / (60 + i);
+        hit.score += weight / (60 + i);
         if (!hit.sources.includes(source)) hit.sources.push(source);
         if (!hit.snippet && r.snippet) hit.snippet = r.snippet;
       } else {
-        byKey.set(key, { ...r, sources: [source], score: (WEIGHTS[source] ?? 1) / (60 + i) });
+        byKey.set(key, { ...r, sources: [source], score: weight / (60 + i) });
       }
     });
   }

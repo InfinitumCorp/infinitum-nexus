@@ -110,3 +110,23 @@ test("exact duplicates are indexed once, and blocked (opted-out) hosts are never
 test("limits are sane", () => {
   assert.ok(LIMITS.minDelayS >= 10 && LIMITS.maxDepth <= 3 && LIMITS.maxBytes <= 2 * 1024 * 1024);
 });
+
+test("index search needs every word, and prefers pages about it", async () => {
+  const db = openD1();
+  const add = async (id, url, title, description, body) => {
+    await db.batch([
+      db.prepare("INSERT OR IGNORE INTO hosts (host) VALUES (?)").bind(new URL(url).host),
+      db.prepare("INSERT INTO pages (id, url, host, title, description, lang, trackers, hash, crawled_at) VALUES (?, ?, ?, ?, ?, 'en', 0, ?, 0)").bind(id, url, new URL(url).host, title, description, "h" + id),
+      db.prepare("INSERT INTO pages_fts (rowid, title, description, body) VALUES (?, ?, ?, ?)").bind(id, title, description, body),
+    ]);
+  };
+  await add(1, "https://ai.example.com/", "Adaptive AI", "Learns all the time", "we order pizza on fridays");
+  await add(2, "https://food.example.com/dough", "Pizza dough recipe", "Flour, water, yeast", "knead the dough");
+  await add(3, "https://blog.example.com/p", "Weekend notes", "Kitchen diary", "my pizza dough recipe from grandma");
+  const titles = async (q) => (await searchIndex(db, q)).results.map((r) => r.title);
+  assert.deepEqual(await titles("pizza dough recipe"), ["Pizza dough recipe"], "a page about it beats a passing mention");
+  assert.deepEqual(await titles("grandma pizza"), ["Weekend notes"], "all words on the page, when none is about it");
+  assert.equal((await searchIndex(db, "grandma pizza")).weight, 0.5, "passing mentions are weighted down");
+  assert.equal((await searchIndex(db, "pizza dough recipe")).weight, undefined);
+  assert.deepEqual(await titles("pizza quantum"), [], "no 'any one word' fallback");
+});

@@ -160,3 +160,11 @@ test("Stack Overflow results must match the search", () => {
   assert.deepEqual(fromStackOverflow(data, 0, "pizza dough recipe").results.map((r) => r.url), ["https://stackoverflow.com/questions/2"]);
   assert.equal(fromStackOverflow(data, 0, "").results.length, 3);
 });
+
+test("an answer's own weight overrides its source's", () => {
+  const { results } = blend([
+    { source: "veil", weight: 0.5, results: [{ title: "Passing mention", url: "https://a.example/" }] },
+    { source: "wikipedia", results: [{ title: "About it", url: "https://en.wikipedia.org/wiki/X" }] },
+  ]);
+  assert.deepEqual(results.map((r) => r.title), ["About it", "Passing mention"]);
+});

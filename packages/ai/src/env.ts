@@ -9,7 +9,9 @@
  *                                            OmniRoute gateway, default http://localhost:20128/v1,
  *                                            model "auto" (OmniRoute picks) unless a combo is named
  *   GROQ_API_KEY, CEREBRAS_API_KEY, TOGETHER_API_KEY, FIREWORKS_API_KEY,
- *   DEEPINFRA_API_KEY, OPENROUTER_API_KEY
+ *   DEEPINFRA_API_KEY, OPENROUTER_API_KEY, AI21_API_KEY
+ *   AI21 serves chat/completions at https://api.ai21.com/studio/v1.
+ *   Its Jamba models are not OSI, so map a catalog id with AI_MODEL_MAP.
  *   CLOUDFLARE_ACCOUNT_ID + CLOUDFLARE_AI_TOKEN   Workers AI
  *   OLLAMA_BASE_URL                         local Ollama, e.g. http://localhost:11434/v1
  *

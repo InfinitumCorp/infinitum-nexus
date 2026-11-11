@@ -214,7 +214,7 @@ export function openClawFromEnv(env = globalThis.process?.env ?? {}, options = {
 }
 
 /**
- * createOpenClawRoutes from the environment. Off (GET says connected: false, @openclaw answers 503)
+ * createOpenClawRoutes from the environment. Off (GET says connected: false, @scalvs answers 503)
  * until OPENCLAW_GATEWAY_URL and OPENCLAW_GATEWAY_TOKEN are set (@scalvs answers 503 meanwhile). A bad URL or agent name turns it
  * off too, rather than taking the product down.
  */

@@ -37,7 +37,7 @@ export interface AskOptions {
 export interface OpenClawClient {
   readonly agent: string;
   ask(task: string, opts?: AskOptions): Promise<string>;
-  /** Null when the text has no @openclaw. Throws OpenClawError(400) for a bare mention. */
+  /** Null when the text has no @scalvs / @scalus. Throws OpenClawError(400) for a bare mention. */
   handleMention(text: string, opts?: AskOptions): Promise<{ text: string; agent: string } | null>;
 }
 

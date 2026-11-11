@@ -98,7 +98,11 @@ export function createOpenClaw({ url, token, agent = "openclaw", timeoutMs = 120
         ...(context ? [{ role: "system", content: String(context).slice(0, MAX_CONTEXT) }] : []),
         { role: "user", content: String(task).slice(0, MAX_TASK) },
       ];
-      const timeout = AbortSignal.timeout(timeoutMs);
+      // A plain timer (not AbortSignal.timeout, whose timer is unref'd) so a hung gateway still
+      // times out when nothing else keeps the event loop alive.
+      const timer = new AbortController();
+      const clock = setTimeout(() => timer.abort(new DOMException("SCALVS took too long to answer.", "TimeoutError")), timeoutMs);
+      const timeout = timer.signal;
       const both = signal && typeof AbortSignal.any === "function" ? AbortSignal.any([signal, timeout]) : timeout;
       let res;
       try {
@@ -111,6 +115,8 @@ export function createOpenClaw({ url, token, agent = "openclaw", timeoutMs = 120
       } catch (err) {
         if (err?.name === "TimeoutError") throw new OpenClawError("SCALVS took too long to answer.", 504);
         throw new OpenClawError("Couldn't reach SCALVS (its OpenClaw gateway).", 502);
+      } finally {
+        clearTimeout(clock);
       }
       if (res.status === 401 || res.status === 403) throw new OpenClawError(`SCALVS's OpenClaw gateway refused ${product}'s token.`, 502);
       if (res.status === 404) throw new OpenClawError("SCALVS's OpenClaw chat endpoint is off. Enable gateway.http.endpoints.chatCompletions.", 502);

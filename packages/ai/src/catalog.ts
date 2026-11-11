@@ -109,6 +109,13 @@ export const PRESETS: readonly ProviderPreset[] = [
     },
   },
   {
+    name: "ai21",
+    baseUrl: "https://api.ai21.com/studio/v1",
+    keyEnv: "AI21_API_KEY",
+    // Jamba is not an OSI license, so it is not in MODELS. Name it with AI_MODEL_MAP.
+    models: {},
+  },
+  {
     name: "ollama",
     baseUrl: "http://localhost:11434/v1",
     models: {

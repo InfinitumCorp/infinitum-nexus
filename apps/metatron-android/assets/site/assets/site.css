@@ -246,3 +246,6 @@ html::-webkit-scrollbar-button{display:none}
 
 /* product-site */
 .hub-links{display:flex;flex-direction:column;align-items:flex-start;gap:10px;flex-shrink:0}
+
+/* metatron-brand */
+.mttrn-brand{display:inline-flex;flex-direction:row;align-items:flex-start;font-family:"Helvetica Neue",Helvetica,Arial,sans-serif;font-weight:500;font-size:22px;letter-spacing:-.01em;color:#111820;white-space:nowrap}.mttrn-brand sup{position:static;font-size:.45em;line-height:1;margin:.15em 0 0 1px}@media(max-width:480px){.mttrn-brand{font-size:18px}}

@@ -510,7 +510,8 @@ public class MainActivity extends Activity {
 
         address = new EditText(this);
         address.setSingleLine(true);
-        address.setHint("Search or type URL");
+        address.setHint("Search");
+        address.setGravity(Gravity.CENTER);
         address.setContentDescription("Address bar");
         address.setHintTextColor(QUIET);
         address.setTextColor(FG);

@@ -1,0 +1,24 @@
+{
+  "name": "@infinitum/lbrnth-host",
+  "version": "0.1.0",
+  "description": "Labyrinth *LBRNTH hosted service: Cumulus ID authenticated, Postgres-backed. By Infinitum Corporation®",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "start": "node --experimental-strip-types src/main.ts",
+    "typecheck": "tsc -p . --noEmit",
+    "test": "node --test --experimental-strip-types src/*.test.ts"
+  },
+  "dependencies": {
+    "@infinitum/lbrnth": "workspace:*",
+    "pg": "8.16.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/pg": "8.15.6",
+    "typescript": "^5.9.0"
+  }
+}

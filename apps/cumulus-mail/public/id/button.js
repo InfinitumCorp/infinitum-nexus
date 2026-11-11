@@ -4,7 +4,10 @@
  *   <span data-cumulus-id></span>
  *   <script src="/assets/cumulus-id.js" data-client="scalvs" defer></script>
  *
- * Copy this file onto the product's own site (canonical copy: mail.cumuluscloud.app/id/button.js).
+ * Copy this file onto the product's own site. New buttons should use
+ * https://id.cumuluscloud.app/id/button.js (that copy defaults to the ID host).
+ * This copy stays pointed at mail.cumuluscloud.app so a button already deployed
+ * against Mail keeps working. Set data-issuer (or data-id) to choose a host.
  * It only navigates the page, never calls fetch(), so it works under a strict
  * Content-Security-Policy (script-src 'self'; connect-src 'self'; form-action 'none').
  *
@@ -17,7 +20,7 @@
  */
 (() => {
   const script = document.currentScript;
-  const ID = (script && script.dataset.id) || "https://mail.cumuluscloud.app";
+  const ID = (script && (script.dataset.issuer || script.dataset.id)) || "https://mail.cumuluscloud.app";
   const CLIENT = (script && script.dataset.client) || "infinitum";
   const KEY = `cumulus-id:${CLIENT}`;
   const PENDING = `${KEY}:pending`;

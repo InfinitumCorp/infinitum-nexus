@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Infinitum icon: Arial Regular glyph, ink #111820 on white (icongen/rollout.mjs). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <path android:fillColor="#111820" android:pathData="M43.53 62.11L28.00 55.47L28.00 52.78L43.53 46.22L43.53 49.09L31.22 54.14L43.53 59.25L43.53 62.11ZM46.35 66.13L44.03 66.13L50.83 41.87L53.13 41.87L46.35 66.13ZM69.15 52.78L69.15 55.47L53.62 62.11L53.62 59.25L65.92 54.14L53.62 49.09L53.62 46.22L69.15 52.78ZM73.33 46.57L72.55 46.57L72.55 42.57L71.03 42.57L71.03 41.87L74.86 41.87L74.86 42.57L73.33 42.57L73.33 46.57ZM76.11 46.57L75.39 46.57L75.39 41.87L76.54 41.87L77.73 45.62L78.87 41.87L80 41.87L80 46.57L79.29 46.57L79.29 42.63L78.08 46.57L77.37 46.57L76.11 42.57L76.11 46.57Z" />
+</vector>

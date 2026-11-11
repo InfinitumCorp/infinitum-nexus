@@ -1,6 +1,6 @@
 import { serveNodeLabyrinthUI } from "@infinitum/lbrnth";
 import { AiError, sharedRouter, type AiRouter } from "@infinitum/ai";
-import { serveNodeLabyrinth } from "@infinitum/lbrnth";
+import { serveNodeLabyrinth, serveNodeLabyrinthProxy } from "@infinitum/lbrnth";
 /**
  * Cumulus://Mail HTTP app. Sign-in is Cumulus://ID; every request is scoped to the signed-in CID,
  * and access needs the "cumulus-mail" grant, so revoking it in the CID permissions dashboard
@@ -23,6 +23,8 @@ import type { CumulusSuite } from "@infinitum/cumulus";
 import { MAX_FILE_BYTES, isFileKey, safeType, uploadKey, type FileStore } from "./files.ts";
 import { DriveError, MAX_UPLOAD_BYTES, Workspace, WorkspaceStore, type DocKind } from "./workspace.ts";
 import { registerIdProvider } from "./id-provider.ts";
+import { registerBilling } from "./billing.ts";
+import { BillingLinkStore, RevenueClient } from "@infinitum/billing";
 
 export const MAIL_SCOPES = ["mail:read", "mail:write"];
 /** Drive and the office apps (Dox, Spreads, Podium) use the Cumulus://Cloud grant, so it can be revoked apart from Mail. */
@@ -35,6 +37,11 @@ const MUTATING = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
 export interface MailAppDeps {
   suite: CumulusSuite;
+  /**
+   * Hosted Labyrinth service used when this host has no local Labyrinth storage. Omit to read
+   * LBRNTH_ENDPOINT; null turns the relay off. Only an explicit Cumulus ID bearer is forwarded.
+   */
+  labyrinthEndpoint?: string | null;
   publicDir: string;
   origin: string;
   secureCookies: boolean;
@@ -55,6 +62,10 @@ export interface MailAppDeps {
   files?: FileStore;
   /** Drive metadata, saved with the rest of the shared state. Defaults to an in-memory store. */
   workspaceStore?: WorkspaceStore;
+  /** CID -> billing org links, saved with the rest of the shared state. Defaults to an in-memory store. */
+  billingStore?: BillingLinkStore;
+  /** Infinitum revenue API (Stripe Checkout, portal, entitlements). Defaults to the production API. */
+  revenue?: RevenueClient;
 }
 
 class HttpError extends Error {
@@ -287,6 +298,14 @@ export function createMailApp(deps: MailAppDeps) {
   /* ---------------- "Sign in with Cumulus://ID" for every Infinitum product ---------------- */
 
   registerIdProvider({ route, cid, origin: deps.origin, sessionCookie, device, need, str, Redirect, HttpError });
+
+  /* ---------------- Buying Infinitum products with a Cumulus://ID (see billing.ts) ---------------- */
+
+  registerBilling({
+    route, cid, origin: deps.origin, str, Redirect, HttpError,
+    store: deps.billingStore ?? new BillingLinkStore(),
+    revenue: deps.revenue ?? new RevenueClient(),
+  });
 
   /**
    * Attachments carry raw bytes, so they skip the JSON routes:
@@ -678,7 +697,11 @@ export function createMailApp(deps: MailAppDeps) {
     const url = new URL(req.url ?? "/", "http://localhost");
     try {
       if (url.pathname === "/labyrinth" || url.pathname.startsWith("/labyrinth/")) return await serveNodeLabyrinthUI(req, res, "cumulus-mail");
-      if (url.pathname === "/api/labyrinth") return await serveNodeLabyrinth(req, res, deps.suite?.labyrinth, parseCookies(req.headers.cookie)[COOKIE], deps.onChange);
+      if (url.pathname === "/api/labyrinth") {
+        const endpoint = (deps.labyrinthEndpoint === undefined ? process.env.LBRNTH_ENDPOINT : deps.labyrinthEndpoint) || undefined;
+        if (!deps.suite?.labyrinth && endpoint) return await serveNodeLabyrinthProxy(req, res, endpoint, "cumulus-mail");
+        return await serveNodeLabyrinth(req, res, deps.suite?.labyrinth, parseCookies(req.headers.cookie)[COOKIE], deps.onChange);
+      }
       if (url.pathname === "/cumulus-config.js") {
         const body = `globalThis.CUMULUS=${JSON.stringify({ mailDomain: MAIL_DOMAIN })};`;
         res.writeHead(200, { "Content-Type": "text/javascript; charset=utf-8", "Cache-Control": "no-store" });

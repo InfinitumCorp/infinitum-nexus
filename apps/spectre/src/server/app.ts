@@ -1,10 +1,10 @@
 import { serveNodeLabyrinthUI } from "@infinitum/lbrnth";
 import { serveNodeDroneBackend } from "@infinitum/drone-backend";
-import { serveNodeLabyrinth } from "@infinitum/lbrnth";
+import { serveNodeLabyrinth, serveNodeLabyrinthProxy } from "@infinitum/lbrnth";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { readFile } from "node:fs/promises";
 import { join, normalize, extname } from "node:path";
-import { CidService, CidError, cumulusCorsHeaders, type Account } from "@infinitum/cid";
+import { CidService, CidError, cumulusCorsHeaders, loadOidcSigner, oidcDiscovery, registerProductIdp, safeProductReturn, type Account, type OidcSigner } from "@infinitum/cid";
 import type { CumulusSuite } from "@infinitum/cumulus";
 import { SpectreCRM, SpectreError } from "../core/crm.ts";
 import { scoreDealMetatron as scoreDeal, learnedContextFor } from "../core/intelligence-metatron.ts";
@@ -54,8 +54,18 @@ export interface AppDeps {
   cookieDomain?: string;
   /** Public origin, e.g. https://spectre.infinitum.example; used for sign-in callback URLs. */
   origin: string;
+  /**
+   * Mirrors of `origin` (for example https://ru.id.cumuluscloud.app for Russian networks). A mirror
+   * names itself in the x-spctr-mirror header, and social sign-in started there returns there.
+   */
+  mirrorOrigins?: string[];
   /** Called after any request that changed data (persistence hook). */
   onChange?: () => void;
+  /**
+   * OpenID Connect signing key. Omit to read CID_OIDC_SIGNING_KEY.
+   * Null, or an unset secret, leaves discovery and signed tokens off. Sign-in still works.
+   */
+  oidcSigner?: OidcSigner | null;
   /**
    * Wraps each API request (hosted mode): load the latest state first, save all changes
    * atomically afterwards, and re-run the request if someone else saved in between.
@@ -69,6 +79,16 @@ export interface AppDeps {
   cronSecret?: string;
   /** Twilio auth token, to verify inbound SMS webhooks. */
   twilioAuthToken?: string;
+  /**
+   * Hosted Labyrinth service (https://.../api/labyrinth) used when this host has no local
+   * Labyrinth storage. Omit to read LBRNTH_ENDPOINT; null turns the relay off.
+   */
+  labyrinthEndpoint?: string | null;
+  /**
+   * SHA-256 (hex) of the hosted Labyrinth's directory key. Omit to read
+   * CID_DIRECTORY_KEY_SHA256; unset keeps POST /api/id/labyrinth-directory off.
+   */
+  labyrinthDirectoryKeySha256?: string | null;
   /** Tests: scripted model for Conjure simulations. */
   conjureComplete?: Complete;
   /** Hosted Conjure for "@conjure" in Ask. Defaults to CONJURE_URL + CONJURE_PRODUCT_KEY; null turns it off. */
@@ -158,6 +178,7 @@ async function readBody(req: IncomingMessage): Promise<Record<string, any>> {
 
 export function createApp(deps: AppDeps) {
   const { cid, crm } = deps;
+  const oidc = deps.oidcSigner === undefined ? loadOidcSigner(process.env.CID_OIDC_SIGNING_KEY) : deps.oidcSigner;
   const providers: Providers = deps.providers ?? {};
   /** Events start matching automations, then reach any outside listener. */
   const raise = async (ws: string, event: GrowthEvent) => {
@@ -178,6 +199,15 @@ export function createApp(deps: AppDeps) {
   const setSession = (res: ServerResponse, token: string) => {
     res.setHeader("Set-Cookie", sessionCookie(token));
   };
+  const OAUTH_COOKIE = "spctr_oauth";
+  const NEXT_COOKIE = "spctr_oauth_next";
+  const oauthCookie = (provider: string, value: string, maxAge: number) => {
+    // Apple returns with a cross-site form POST, which only carries SameSite=None cookies.
+    const sameSite = provider === "apple" && deps.secureCookies ? "None" : "Lax";
+    return `${OAUTH_COOKIE}=${value}; HttpOnly; Path=/api/auth/oauth; SameSite=${sameSite}; Max-Age=${maxAge}${domainAttr}${deps.secureCookies ? "; Secure" : ""}`;
+  };
+  const nextCookie = (value: string, maxAge: number) =>
+    `${NEXT_COOKIE}=${encodeURIComponent(value)}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${maxAge}${domainAttr}${deps.secureCookies ? "; Secure" : ""}`;
 
   const ensureGrant = async (account: Account) => {
     const ws = account.orgId ?? account.cid;
@@ -227,10 +257,13 @@ export function createApp(deps: AppDeps) {
 
   route("POST", "/api/auth/mfa", async (ctx) => {
     need(ctx, "mfaToken", "code");
+    const next = safeProductReturn(parseCookies(ctx.req.headers.cookie)[NEXT_COOKIE]);
     const { token, session } = await cid.completeMfa(String(ctx.body.mfaToken), String(ctx.body.code));
-    setSession(ctx.res, token);
+    const cookies = [sessionCookie(token)];
+    if (next) cookies.push(nextCookie("", 0));
+    ctx.res.setHeader("Set-Cookie", cookies);
     await ensureGrant(cid.getAccount(session.cid));
-    return { status: "ok" };
+    return next ? { status: "ok", next } : { status: "ok" };
   }, false);
 
   route("POST", "/api/auth/signout", async (ctx) => {
@@ -239,42 +272,46 @@ export function createApp(deps: AppDeps) {
     return { ok: true };
   });
 
-  /* ---------------- Social sign-in (Google, Apple, Microsoft, GitHub, ChatGPT) ---------------- */
-
-  const OAUTH_COOKIE = "spctr_oauth";
-  const oauthCookie = (provider: string, value: string, maxAge: number) => {
-    // Apple returns with a cross-site form POST, which only carries SameSite=None cookies.
-    const sameSite = provider === "apple" && deps.secureCookies ? "None" : "Lax";
-    return `${OAUTH_COOKIE}=${value}; HttpOnly; Path=/api/auth/oauth; SameSite=${sameSite}; Max-Age=${maxAge}${domainAttr}${deps.secureCookies ? "; Secure" : ""}`;
-  };
+  /* ---------------- Social sign-in (Google, Apple, Microsoft, GitHub, ChatGPT, Cognito) ---------------- */
 
   route("GET", "/api/auth/providers", () => cid.socialProvidersEnabled(), false);
 
   route("GET", "/api/auth/oauth/:provider/start", async (ctx) => {
     const linking = ctx.query.get("link") === "1";
     if (linking && !ctx.user) throw new HttpError(401, "Please sign in");
-    const redirectUri = `${deps.origin}/api/auth/oauth/${ctx.params.provider}/callback`;
+    const mirror = ctx.req.headers["x-spctr-mirror"];
+    const base = typeof mirror === "string" && deps.mirrorOrigins?.includes(mirror) ? mirror : deps.origin;
+    const redirectUri = `${base}/api/auth/oauth/${ctx.params.provider}/callback`;
     const { url, state } = await cid.startSocialSignIn(ctx.params.provider, redirectUri, linking ? ctx.user!.account.cid : undefined);
-    ctx.res.setHeader("Set-Cookie", oauthCookie(ctx.params.provider, state, 600));
+    const next = linking ? null : safeProductReturn(ctx.query.get("next"));
+    const cookies = [oauthCookie(ctx.params.provider, state, 600)];
+    if (next) cookies.push(nextCookie(next, 600));
+    ctx.res.setHeader("Set-Cookie", cookies);
     return new Redirect(url);
   }, false, { optionalAuth: true });
 
   const oauthCallback: Handler = async (ctx) => {
     const p = ctx.req.method === "POST" ? ctx.body : Object.fromEntries(ctx.query);
-    ctx.res.setHeader("Set-Cookie", oauthCookie(ctx.params.provider, "", 0));
+    const cookiesIn = parseCookies(ctx.req.headers.cookie);
+    const next = safeProductReturn(cookiesIn[NEXT_COOKIE]);
+    const clearOauth = [oauthCookie(ctx.params.provider, "", 0), nextCookie("", 0)];
+    ctx.res.setHeader("Set-Cookie", clearOauth);
     if (p.error) return new Redirect(`/#/signin-error/${encodeURIComponent(p.error === "access_denied" ? "Sign-in was cancelled." : "The provider couldn't sign you in.")}`);
     try {
       const device = String(ctx.req.headers["user-agent"] ?? "Browser").slice(0, 120);
       const result = await cid.finishSocialSignIn(ctx.params.provider, {
         state: String(p.state ?? ""),
         code: String(p.code ?? ""),
-        browserState: parseCookies(ctx.req.headers.cookie)[OAUTH_COOKIE],
+        browserState: cookiesIn[OAUTH_COOKIE],
       }, device);
       if (result.status === "linked") return new Redirect("/#/settings");
-      if (result.status === "mfa_required") return new Redirect(`/#/mfa/${result.mfaToken}`);
-      ctx.res.setHeader("Set-Cookie", [oauthCookie(ctx.params.provider, "", 0), sessionCookie(result.token)]);
+      if (result.status === "mfa_required") {
+        if (next) ctx.res.setHeader("Set-Cookie", [oauthCookie(ctx.params.provider, "", 0), nextCookie(next, 600)]);
+        return new Redirect(`/#/mfa/${result.mfaToken}`);
+      }
+      ctx.res.setHeader("Set-Cookie", [...clearOauth, sessionCookie(result.token)]);
       await ensureGrant(cid.getAccount(result.session.cid));
-      return new Redirect("/#/today");
+      return new Redirect(next ?? "/#/today");
     } catch (err) {
       const message = err instanceof CidError ? err.message : "Sign-in failed. Please try again.";
       if (!(err instanceof CidError)) console.error(err);
@@ -284,6 +321,21 @@ export function createApp(deps: AppDeps) {
   // The provider sends the browser back here, so these can't carry Spectre's request header.
   route("GET", "/api/auth/oauth/:provider/callback", oauthCallback, false, { csrf: false });
   route("POST", "/api/auth/oauth/:provider/callback", oauthCallback, false, { csrf: false });
+
+  // Product sign-in. Without a signing key this still issues a cid and an opaque token.
+  // With CID_OIDC_SIGNING_KEY it also signs ID tokens whose sub is that cid.
+  registerProductIdp({
+    route,
+    cid,
+    origin: deps.origin,
+    device: (ctx) => String(ctx.req.headers["user-agent"] ?? "Browser").slice(0, 120),
+    need,
+    str: (v, max = 8000) => String(v ?? "").slice(0, max),
+    Redirect,
+    HttpError,
+    signer: oidc,
+    labyrinthDirectoryKeySha256: (deps.labyrinthDirectoryKeySha256 === undefined ? process.env.CID_DIRECTORY_KEY_SHA256 : deps.labyrinthDirectoryKeySha256) || undefined,
+  });
 
   route("GET", "/api/me/identities", (ctx) => ({
     linked: cid.linkedIdentities(ctx.user!.account.cid).map(({ provider, email, linkedAt }) => ({ provider, email, linkedAt })),
@@ -1131,6 +1183,8 @@ export function createApp(deps: AppDeps) {
     }
   }
 
+  const labyrinthEndpoint = (deps.labyrinthEndpoint === undefined ? process.env.LBRNTH_ENDPOINT : deps.labyrinthEndpoint) || undefined;
+
   async function handle(req: IncomingMessage, res: ServerResponse) {
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
@@ -1149,10 +1203,35 @@ export function createApp(deps: AppDeps) {
     }
     try {
       if (url.pathname === "/labyrinth" || url.pathname.startsWith("/labyrinth/")) return await serveNodeLabyrinthUI(req, res);
-      if (url.pathname === "/api/labyrinth") return await serveNodeLabyrinth(req, res, deps.suite?.labyrinth, parseCookies(req.headers.cookie)[COOKIE], deps.onChange);
+      if (url.pathname === "/api/labyrinth") {
+        // This host is the authoritative Cumulus://ID, so its own session cookie is valid at the
+        // hosted Labyrinth service, which checks every token against this same CID store.
+        if (!deps.suite?.labyrinth && labyrinthEndpoint) return await serveNodeLabyrinthProxy(req, res, labyrinthEndpoint, "spectre", { cookieToken: parseCookies(req.headers.cookie)[COOKIE], productFromBody: true });
+        return await serveNodeLabyrinth(req, res, deps.suite?.labyrinth, parseCookies(req.headers.cookie)[COOKIE], deps.onChange);
+      }
       if (url.pathname.startsWith("/api/drones/")) return await serveNodeDroneBackend(req, res, deps.suite?.labyrinth, deps.origin);
       if (url.pathname.startsWith("/api/veil/")) return await serveNodeVeil(req, res, veilControl, deps.origin);
-      if (!url.pathname.startsWith("/api/")) {
+      const oidcDocument = url.pathname === "/.well-known/openid-configuration"
+        || url.pathname === "/.well-known/jwks.json"
+        || url.pathname === "/realms/cumulus/.well-known/openid-configuration"
+        || url.pathname === "/realms/cumulus/protocol/openid-connect/certs";
+      if (oidc && (req.method === "GET" || req.method === "HEAD") && oidcDocument) {
+        const body = url.pathname.endsWith("/certs") || url.pathname.endsWith("/jwks.json")
+          ? JSON.stringify({ keys: [oidc.publicJwk()] })
+          : JSON.stringify(oidcDiscovery(cid.issuer, oidc.alg));
+        res.writeHead(200, {
+          "Content-Type": "application/json; charset=utf-8",
+          "Cache-Control": "public, max-age=300",
+        });
+        if (req.method === "HEAD") res.end();
+        else res.end(body);
+        return;
+      }
+      // These paths have no file extension, so the static handler would serve the app.
+      // With no signing key they stay absent: OpenID Connect is off.
+      if (!oidc && (oidcDocument || url.pathname.startsWith("/realms/"))) throw new HttpError(404, "Not found");
+      const oidcRoute = Boolean(oidc) && url.pathname.startsWith("/realms/cumulus/");
+      if (!url.pathname.startsWith("/api/") && !oidcRoute) {
         if (req.method !== "GET" && req.method !== "HEAD") throw new HttpError(405, "Method not allowed");
         return await serveStatic(url.pathname, res);
       }

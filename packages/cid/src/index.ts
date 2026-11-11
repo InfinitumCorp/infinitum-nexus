@@ -33,6 +33,12 @@ export type { RegistrationResponse, AssertionResponse, VerifiedCredential } from
 export { generateTotpSecret, verifyTotp, hotp, otpauthUri, base32Encode, base32Decode } from "./totp.ts";
 export { verifyIdToken } from "./oidc.ts";
 export type { SsoConfig, IdTokenClaims } from "./oidc.ts";
+export { loadOidcSigner, signerFromJwk, verifyOidcToken } from "./oidc-sign.ts";
+export type { OidcAlg, OidcPublicJwk, OidcSigner } from "./oidc-sign.ts";
+export { ID_CLIENTS, idClientFor, idClientOrigins } from "./id-clients.ts";
+export type { IdClient } from "./id-clients.ts";
+export { oidcDiscovery, profileOf, registerProductIdp, safeProductReturn } from "./product-idp.ts";
+export type { ProductIdpHelpers } from "./product-idp.ts";
 export { encodeCbor, decodeCbor } from "./cbor.ts";
 export {
   CUMULUS_DOMAIN_DEFAULTS,
@@ -44,3 +50,5 @@ export {
   exactCorsOrigin,
 } from "./domains.ts";
 export type { CidIssuerMetadata, CumulusDomains } from "./domains.ts";
+export { answerLabyrinthDirectory, labyrinthDirectoryKeyMatches, LabyrinthDirectoryError, LABYRINTH_SCOPES } from "./labyrinth-directory.ts";
+export type { LabyrinthDirectoryIdentity, LabyrinthDirectoryOrg, LabyrinthDirectoryScope, CidTokenResolver } from "./labyrinth-directory.ts";

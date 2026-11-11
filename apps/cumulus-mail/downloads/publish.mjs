@@ -10,7 +10,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const BUCKET = "cumulus-downloads";
-const SITE = "https://downloads.cumuluscloud.app";
 
 /** Which download a file is, from its name (CumulusMail-<version>-<os>-<arch>.<ext>). */
 export function classify(name) {
@@ -64,14 +63,27 @@ async function main() {
     entries.push(entry);
   }
 
-  return fetch(`${SITE}/files/manifest.json`, { cache: "no-store" })
-    .then((r) => (r.ok ? r.json() : { files: [] }))
-    .catch(() => ({ files: [] }))
+  // Read what is published straight from the bucket. The public site can answer with a sign-in
+  // page (Cloudflare Access), and treating that as "nothing published" would drop every
+  // platform not in this upload, so anything other than a real manifest stops the run.
+  const tmp = mkdtempSync(join(tmpdir(), "cm-dl-"));
+  const currentFile = join(tmp, "current.json");
+  let current = { files: [] };
+  try {
+    execFileSync("npx", ["wrangler", "r2", "object", "get", `${BUCKET}/manifest.json`, "--file", currentFile, "--remote"], { stdio: "ignore", shell: process.platform === "win32" });
+  } catch {
+    console.log("No manifest.json in the bucket yet; starting a new one.");
+  }
+  try { current = JSON.parse(readFileSync(currentFile, "utf8")); } catch (e) {
+    if (e.code !== "ENOENT") throw new Error(`manifest.json in ${BUCKET} is not valid JSON; not overwriting it.`);
+  }
+  if (!Array.isArray(current.files)) throw new Error(`manifest.json in ${BUCKET} has no files list; not overwriting it.`);
+  return Promise.resolve(current)
     .then((current) => {
       const byKey = new Map((current.files || []).map((f) => [f.key, f]));
       for (const e of entries) byKey.set(e.key, e);
       const manifest = { updatedAt: new Date().toISOString(), files: [...byKey.values()].sort((a, b) => a.key.localeCompare(b.key)) };
-      const file = join(mkdtempSync(join(tmpdir(), "cm-dl-")), "manifest.json");
+      const file = join(tmp, "manifest.json");
       writeFileSync(file, JSON.stringify(manifest, null, 2));
       console.log(JSON.stringify(manifest, null, 2));
       if (!dry) wrangler("r2", "object", "put", `${BUCKET}/manifest.json`, "--file", file, "--content-type", "application/json", "--remote");

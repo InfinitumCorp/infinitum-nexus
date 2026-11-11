@@ -59,7 +59,13 @@ describe("OpenClaw client", () => {
   it("times out a stuck agent", async () => {
     const hang = ((_u: string, init: RequestInit) => new Promise((_r, reject) => init.signal!.addEventListener("abort", () => reject(init.signal!.reason)))) as unknown as typeof fetch;
     const claw = createOpenClaw({ url: "https://claw.test", token: "t", timeoutMs: 20, fetchImpl: hang });
-    await assert.rejects(claw.ask("x", { user: "u" }), (err: OpenClawError) => err.status === 504);
+    // AbortSignal.timeout doesn't keep Node running (a server does); hold the loop open meanwhile.
+    const keepAlive = setInterval(() => {}, 1000);
+    try {
+      await assert.rejects(claw.ask("x", { user: "u" }), (err: OpenClawError) => err.status === 504);
+    } finally {
+      clearInterval(keepAlive);
+    }
   });
 
   it("refuses unsafe configuration", () => {

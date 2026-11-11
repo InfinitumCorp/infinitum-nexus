@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- METATRON¹⁰⁰'s canonical site. Pages on this host are served from the bundled copy in assets/site. -->
+    <string name="home_url" translatable="false">https://mttrn.app/</string>
+</resources>

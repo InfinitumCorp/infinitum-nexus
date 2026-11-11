@@ -1,12 +1,12 @@
-# @openclaw in this product
+# @scalvs / @scalus in this product
 
-[OpenClaw](https://openclaw.ai) is a self-hosted agent gateway: one AI agent, connected to the person's chat apps and skills. Anyone using this product can type **@openclaw** and a task, for example `@openclaw summarise this thread and send it to my Telegram`. The product sends the task, plus whatever the person is looking at, to the OpenClaw agent and shows the answer, the same way `@conjure` works.
+[OpenClaw](https://openclaw.ai) is a self-hosted agent gateway: one AI agent, connected to the person's chat apps and skills. Anyone using this product can type **@scalvs** (or **@scalus**) and a task, for example `@scalvs summarise this thread and send it to my Telegram`. The product sends the task, plus whatever the person is looking at, to the SCALVS agent, which runs on OpenClaw, and shows the answer. Typing **@conjure** and a question still starts a Conjure™ forecast. `@openclaw` is not a trigger.
 
 `openclaw.mjs` is the whole client: no dependencies, works in Node 18+, Cloudflare Workers, Deno and Bun. Its source of truth is `InfinitumCorp/infinitum-nexus`, `packages/ai/src/openclaw/` (inside the monorepo, import `@infinitum/ai/openclaw`). Copies in other repos are synced from there with `node packages/ai/scripts/sync-openclaw.mjs <dest-folder>`. Don't edit a copy.
 
 ## How to turn it on
 
-It is **off by default**. Until both variables below are set, `@openclaw` replies with how to connect it, and everything else in the product works as before.
+It is **off by default**. Until both variables below are set, `@scalvs` replies with how to connect it, and everything else in the product works as before.
 
 1. On the OpenClaw gateway, set `gateway.http.endpoints.chatCompletions.enabled = true` and make the gateway reachable over https (for example with Tailscale Funnel). For people in Russia, use a host that is reachable there without a VPN, not one behind Cloudflare.
 2. Set these in the product's **server** environment (Cloudflare/Vercel secrets, or `.env` locally, which is never committed):
@@ -31,15 +31,15 @@ const res = await openclaw(request, { user: session.cid, context: "What the pers
 if (res) return res; // null for paths it doesn't own
 ```
 
-The browser posts `{ text, context? }` to `POST /api/openclaw` whenever the person's text contains `@openclaw`, and shows `text` from the reply:
+The browser posts `{ text, context? }` to `POST /api/openclaw` whenever the person's text contains `@scalvs` or `@scalus`, and shows `text` from the reply:
 
 | Reply | Meaning |
 |---|---|
-| `200 { mention: false }` | No `@openclaw` in the text. Handle it as usual. |
+| `200 { mention: false }` | No `@scalvs` / `@scalus` in the text. Handle it as usual. |
 | `200 { mention: true, text, agent }` | The agent's answer. |
-| `400` | A bare `@openclaw` with no task. |
+| `400` | A bare `@scalvs` with no task. |
 | `401` | Not signed in. |
-| `503` | OpenClaw isn't connected here (the error says how to connect it). |
+| `503` | SCALVS isn't connected here (the error says how to connect it). |
 | `429` / `502` / `504` | The gateway is busy, refused the token, is unreachable or timed out. |
 
 To let each person bring their own gateway, pass a lookup instead of the environment: `createOpenClawRoutes({ openclaw: (user) => clientFromTheirSettings(user), product })`.

@@ -14,17 +14,18 @@ const reply = (content: unknown, status = 200) => new Response(JSON.stringify({ 
 const fake = (fn: (url: string, init: RequestInit) => Response | Promise<Response>) => fn as unknown as typeof fetch;
 
 describe("parseOpenClawMention", () => {
-  it("finds @openclaw anywhere and takes it out of the task", () => {
-    assert.deepEqual(parseOpenClawMention("@openclaw draft a follow-up to Northwind"), { task: "draft a follow-up to Northwind" });
-    assert.deepEqual(parseOpenClawMention("Northwind went quiet. @OpenClaw ping them on Telegram"), { task: "Northwind went quiet. ping them on Telegram" });
-    assert.deepEqual(parseOpenClawMention("＠openclaw: book the room"), { task: "book the room" });
-    assert.deepEqual(parseOpenClawMention("@openclaw"), { task: "" });
+  it("finds @scalvs or @scalus anywhere and takes it out of the task", () => {
+    assert.deepEqual(parseOpenClawMention("@scalvs draft a follow-up to Northwind"), { task: "draft a follow-up to Northwind" });
+    assert.deepEqual(parseOpenClawMention("Northwind went quiet. @SCALUS ping them on Telegram"), { task: "Northwind went quiet. ping them on Telegram" });
+    assert.deepEqual(parseOpenClawMention("＠scalvs: book the room"), { task: "book the room" });
+    assert.deepEqual(parseOpenClawMention("@scalus"), { task: "" });
   });
 
-  it("ignores emails, longer handles and plain text", () => {
-    assert.equal(parseOpenClawMention("write to me@openclaw.ai"), null);
-    assert.equal(parseOpenClawMention("see openclaw.ai/@openclaw"), null);
-    assert.equal(parseOpenClawMention("@openclaws are here"), null);
+  it("ignores @openclaw, emails, longer handles and plain text", () => {
+    assert.equal(parseOpenClawMention("@openclaw draft a follow-up"), null);
+    assert.equal(parseOpenClawMention("write to me@scalvs.app"), null);
+    assert.equal(parseOpenClawMention("see scalvs.app/@scalvs"), null);
+    assert.equal(parseOpenClawMention("@scalvsbot is here"), null);
     assert.equal(parseOpenClawMention("what is at risk?"), null);
     assert.equal(parseOpenClawMention(undefined), null);
   });
@@ -59,8 +60,8 @@ describe("createOpenClaw", () => {
   it("handleMention returns null without a mention and asks for a task after a bare one", async () => {
     const claw = createOpenClaw({ url: "https://claw.test", token: "t", fetch: fake(() => reply("done")) });
     assert.equal(await claw.handleMention("hello"), null);
-    assert.deepEqual(await claw.handleMention("@openclaw do it", { user: "u" }), { text: "done", agent: "openclaw" });
-    await assert.rejects(claw.handleMention("@openclaw"), (err: OpenClawError) => err.status === 400);
+    assert.deepEqual(await claw.handleMention("@scalvs do it", { user: "u" }), { text: "done", agent: "openclaw" });
+    await assert.rejects(claw.handleMention("@scalvs"), (err: OpenClawError) => err.status === 400);
   });
 
   it("explains gateway failures without leaking the token", async () => {
@@ -110,7 +111,7 @@ describe("createOpenClawRoutes", () => {
   });
 
   it("needs a signed-in person", async () => {
-    assert.equal((await routes(post({ text: "@openclaw x" }), {}))!.status, 401);
+    assert.equal((await routes(post({ text: "@scalvs x" }), {}))!.status, 401);
   });
 
   it("reports the connection without the gateway URL or token", async () => {
@@ -120,7 +121,7 @@ describe("createOpenClawRoutes", () => {
   });
 
   it("sends the task, the context and a per-person session", async () => {
-    const res = await routes(post({ text: "@openclaw file this under Q4", context: "Thread: Q4 budget" }), { user: "cid_9", context: "Signed in as Ada" });
+    const res = await routes(post({ text: "@scalvs file this under Q4", context: "Thread: Q4 budget" }), { user: "cid_9", context: "Signed in as Ada" });
     assert.equal(res!.status, 200);
     const body = await res!.json();
     assert.deepEqual(body, { mention: true, text: "On it.", agent: "openclaw/ops" });
@@ -133,16 +134,16 @@ describe("createOpenClawRoutes", () => {
 
   it("says mention: false for ordinary text and rejects bad input", async () => {
     assert.deepEqual(await (await routes(post({ text: "hello" }), { user: "u" }))!.json(), { mention: false });
-    assert.equal((await routes(post({ text: "@openclaw" }), { user: "u" }))!.status, 400);
+    assert.equal((await routes(post({ text: "@scalvs" }), { user: "u" }))!.status, 400);
     assert.equal((await routes(post({ nope: 1 }), { user: "u" }))!.status, 400);
-    assert.equal((await routes(post({ text: "@openclaw x" }, "text/plain"), { user: "u" }))!.status, 415);
+    assert.equal((await routes(post({ text: "@scalvs x" }, "text/plain"), { user: "u" }))!.status, 415);
     assert.equal((await routes(new Request("https://app.test/api/openclaw", { method: "DELETE" }), { user: "u" }))!.status, 405);
   });
 
   it("is off until configured and says how to connect", async () => {
     const off = openClawRoutesFromEnv({}, { product: "mail" });
     assert.deepEqual(await (await off(new Request("https://app.test/api/openclaw"), { user: "u" }))!.json(), { connected: false, agent: null });
-    const res = await off(post({ text: "@openclaw x" }), { user: "u" });
+    const res = await off(post({ text: "@scalvs x" }), { user: "u" });
     assert.equal(res!.status, 503);
     assert.equal((await res!.json()).error, OPENCLAW_NOT_CONNECTED);
     // Plain text still passes through when OpenClaw is off.
@@ -151,18 +152,18 @@ describe("createOpenClawRoutes", () => {
 
   it("stays off, not broken, with a bad URL", async () => {
     const bad = openClawRoutesFromEnv({ OPENCLAW_GATEWAY_URL: "http://claw.example.com", OPENCLAW_GATEWAY_TOKEN: "t" });
-    assert.equal((await bad(post({ text: "@openclaw x" }), { user: "u" }))!.status, 503);
+    assert.equal((await bad(post({ text: "@scalvs x" }), { user: "u" }))!.status, 503);
   });
 
   it("supports a per-user gateway", async () => {
     const perUser = createOpenClawRoutes({ openclaw: (user: string) => (user === "u1" ? claw : null) });
-    assert.equal((await perUser(post({ text: "@openclaw x" }), { user: "u1" }))!.status, 200);
-    assert.equal((await perUser(post({ text: "@openclaw x" }), { user: "u2" }))!.status, 503);
+    assert.equal((await perUser(post({ text: "@scalvs x" }), { user: "u1" }))!.status, 200);
+    assert.equal((await perUser(post({ text: "@scalvs x" }), { user: "u2" }))!.status, 503);
   });
 
   it("passes gateway errors through", async () => {
     const busy = createOpenClawRoutes({ openclaw: createOpenClaw({ url: "https://claw.test", token: "t", fetch: fake(() => new Response("", { status: 429 })) }) });
-    const res = await busy(post({ text: "@openclaw x" }), { user: "u" });
+    const res = await busy(post({ text: "@scalvs x" }), { user: "u" });
     assert.equal(res!.status, 429);
     assert.match((await res!.json()).error, /busy/);
   });

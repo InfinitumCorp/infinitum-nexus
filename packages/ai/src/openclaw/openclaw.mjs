@@ -1,8 +1,9 @@
 // OpenClaw client for Infinitum products. Zero dependencies: Node 18+, Workers, Deno, Bun.
 //
-// Anyone can type "@openclaw <task>" in a product's chat, Ask or compose box. The product
-// passes that text here (server side: the gateway token must never reach a browser) and
-// gets back the answer from the person's OpenClaw agent, the same way "@conjure" works.
+// Anyone can type "@scalvs <task>" (or "@scalus <task>") in a product's chat, Ask or compose
+// box. The product passes that text here (server side: the gateway token must never reach a
+// browser) and gets back the answer from the SCALVS agent, the same way "@conjure" works.
+// SCALVS runs on OpenClaw underneath; "@openclaw" is not a trigger.
 //
 // OpenClaw (https://openclaw.ai) is a self-hosted agent gateway. This client calls its
 // OpenAI-compatible endpoint, POST /v1/chat/completions, which the gateway turns on with
@@ -18,10 +19,10 @@
 // Source of truth: InfinitumCorp/infinitum-nexus packages/ai/src/openclaw/openclaw.mjs
 // (exported as "@infinitum/ai/openclaw"). Copies in other repos are synced from it.
 
-export const OPENCLAW_CLIENT_VERSION = "1.0.0";
+export const OPENCLAW_CLIENT_VERSION = "1.1.0";
 
-export const OPENCLAW_NOT_CONNECTED = "OpenClaw isn't connected. Set OPENCLAW_GATEWAY_URL and OPENCLAW_GATEWAY_TOKEN to use @openclaw.";
-export const OPENCLAW_NEEDS_TASK = "Tell OpenClaw what to do after @openclaw, for example: @openclaw summarise this and send it to my Telegram.";
+export const OPENCLAW_NOT_CONNECTED = "SCALVS isn't connected. Set OPENCLAW_GATEWAY_URL and OPENCLAW_GATEWAY_TOKEN to use @scalvs.";
+export const OPENCLAW_NEEDS_TASK = "Tell SCALVS what to do after @scalvs, for example: @scalvs summarise this and send it to my Telegram.";
 
 const MAX_TASK = 4000;
 const MAX_CONTEXT = 60_000;
@@ -35,17 +36,17 @@ export class OpenClawError extends Error {
   }
 }
 
-// "@openclaw" (or the full-width "＠openclaw") as a word: not part of an email
-// (me@openclaw.ai) or a longer handle (@openclaws).
-const MENTION = /(^|[^\w@＠./])[@＠]openclaw(?![\w-]|\.[a-z])/i;
+// People type "@scalvs" or "@scalus" (also full-width "＠"), as a word: not part of an email
+// (me@scalvs.app) or a longer handle (@scalvsbot). OpenClaw is the engine underneath.
+const MENTION = /(^|[^\w@＠./])[@＠]scal(?:vs|us)(?![\w-]|\.[a-z])/i;
 
-/** The task: the text with the mention taken out. Null when the text doesn't mention OpenClaw. */
+/** The task: the text with the mention taken out. Null when the text mentions neither @scalvs nor @scalus. */
 export function parseOpenClawMention(text) {
   if (typeof text !== "string") return null;
   const m = MENTION.exec(text);
   if (!m) return null;
   const at = m.index + m[1].length;
-  const rest = text.slice(at + "@openclaw".length).replace(/^[\s:,\-–—]+/, " ");
+  const rest = text.slice(at + "@scalvs".length).replace(/^[\s:,\-–—]+/, " ");
   const task = (text.slice(0, at) + " " + rest).replace(/\s+/g, " ").trim();
   return { task };
 }
@@ -108,22 +109,22 @@ export function createOpenClaw({ url, token, agent = "openclaw", timeoutMs = 120
           signal: both,
         });
       } catch (err) {
-        if (err?.name === "TimeoutError") throw new OpenClawError("OpenClaw took too long to answer.", 504);
-        throw new OpenClawError("Couldn't reach the OpenClaw gateway.", 502);
+        if (err?.name === "TimeoutError") throw new OpenClawError("SCALVS took too long to answer.", 504);
+        throw new OpenClawError("Couldn't reach SCALVS (its OpenClaw gateway).", 502);
       }
-      if (res.status === 401 || res.status === 403) throw new OpenClawError(`The OpenClaw gateway refused ${product}'s token.`, 502);
-      if (res.status === 404) throw new OpenClawError("The OpenClaw gateway's chat endpoint is off. Enable gateway.http.endpoints.chatCompletions.", 502);
-      if (res.status === 429) throw new OpenClawError("OpenClaw is busy. Try again in a moment.", 429);
-      if (!res.ok) throw new OpenClawError(`OpenClaw returned ${res.status}.`, 502);
+      if (res.status === 401 || res.status === 403) throw new OpenClawError(`SCALVS's OpenClaw gateway refused ${product}'s token.`, 502);
+      if (res.status === 404) throw new OpenClawError("SCALVS's OpenClaw chat endpoint is off. Enable gateway.http.endpoints.chatCompletions.", 502);
+      if (res.status === 429) throw new OpenClawError("SCALVS is busy. Try again in a moment.", 429);
+      if (!res.ok) throw new OpenClawError(`SCALVS returned ${res.status}.`, 502);
       const body = await res.json().catch(() => null);
       const text = textOf(body?.choices?.[0]?.message?.content);
-      if (!text.trim()) throw new OpenClawError("OpenClaw sent an empty answer.", 502);
+      if (!text.trim()) throw new OpenClawError("SCALVS sent an empty answer.", 502);
       return text.slice(0, MAX_ANSWER);
     },
 
     /**
-     * The one call products make for "@openclaw". Returns null when the text has no mention;
-     * otherwise { text, agent }. Throws OpenClawError (status 400) for a bare "@openclaw".
+     * The one call products make for "@scalvs" / "@scalus". Returns null when the text has no
+     * mention; otherwise { text, agent }. Throws OpenClawError (status 400) for a bare mention.
      */
     async handleMention(text, { user, context, signal } = {}) {
       const m = parseOpenClawMention(text);
@@ -140,7 +141,7 @@ export function createOpenClaw({ url, token, agent = "openclaw", timeoutMs = 120
 const reply = (status, data) => new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json", "cache-control": "no-store" } });
 
 /**
- * Standard @openclaw routes for any product, on web-standard Request/Response
+ * Standard @scalvs / @scalus routes for any product, on web-standard Request/Response
  * (Cloudflare Workers, Hono via c.req.raw, Deno, Bun; Node via toWebRequest below).
  *
  *   GET  {prefix}                          → { connected, agent }   (never the URL or token)
@@ -160,7 +161,7 @@ export function createOpenClawRoutes({ openclaw = null, prefix = "/api/openclaw"
     try {
       claw = (await resolve(String(user))) || null;
     } catch {
-      return reply(503, { error: "OpenClaw's settings are invalid. Check the gateway URL, token and agent." });
+      return reply(503, { error: "SCALVS's OpenClaw settings are invalid. Check the gateway URL, token and agent." });
     }
     if (request.method === "GET") return reply(200, { connected: Boolean(claw), agent: claw?.agent ?? null });
     if (request.method !== "POST") return reply(405, { error: "use GET or POST" });
@@ -214,7 +215,7 @@ export function openClawFromEnv(env = globalThis.process?.env ?? {}, options = {
 
 /**
  * createOpenClawRoutes from the environment. Off (GET says connected: false, @openclaw answers 503)
- * until OPENCLAW_GATEWAY_URL and OPENCLAW_GATEWAY_TOKEN are set. A bad URL or agent name turns it
+ * until OPENCLAW_GATEWAY_URL and OPENCLAW_GATEWAY_TOKEN are set (@scalvs answers 503 meanwhile). A bad URL or agent name turns it
  * off too, rather than taking the product down.
  */
 export function openClawRoutesFromEnv(env = globalThis.process?.env ?? {}, { product = "app", prefix, fetch, timeoutMs } = {}) {
@@ -222,7 +223,7 @@ export function openClawRoutesFromEnv(env = globalThis.process?.env ?? {}, { pro
   try {
     claw = openClawFromEnv(env, { product, fetch, timeoutMs });
   } catch (err) {
-    globalThis.console?.warn?.(`OpenClaw is off: ${err.message}`);
+    globalThis.console?.warn?.(`SCALVS (OpenClaw) is off: ${err.message}`);
   }
   return createOpenClawRoutes({ openclaw: claw, prefix, product });
 }

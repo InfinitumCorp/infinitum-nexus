@@ -32,6 +32,7 @@ import { createVeilControl, serveNodeVeil } from "@infinitum/veil/server";
 import type { DeviceExitConfig, VeilServer } from "@infinitum/veil/server";
 import { runLlmAgent, LlmError } from "@infinitum/scalus";
 import { parseOpenClawMention, openClawFromEnv, OpenClawError, type OpenClawClient } from "./openclaw.ts";
+import { parseSearchMention, searchFromEnv, type Search, type SearchAnswer, type ChatMessage } from "@infinitum/ai/search";
 import { AGENTS, AGENT_IDS, agentDefinition, applyProposal, newProposalId, newRunId, type AgentId, type AgentRunRecord } from "../core/agent-team.ts";
 
 /**
@@ -96,6 +97,12 @@ export interface AppDeps {
   conjureLive?: ConjureLiveClient | null;
   /** SCALVS agent (on OpenClaw) for "@scalvs" / "@scalus" in Ask. Defaults to OPENCLAW_GATEWAY_URL + OPENCLAW_GATEWAY_TOKEN; null turns it off. */
   openclaw?: OpenClawClient | null;
+  /**
+   * Infinitum Search for "@search <question>" in Ask: a web answer with numbered sources.
+   * Defaults to SEARXNG_URL / YANDEX_SEARCH_API_KEY + YANDEX_FOLDER_ID / BRAVE_SEARCH_API_KEY,
+   * answered by +SPCTR's own open-model router; null turns it off.
+   */
+  search?: Search | null;
   /**
    * VEIL browser proxy. A plan is required for the exit and for bridges.
    * Local Tor in the extension does not call this.
@@ -705,6 +712,32 @@ export function createApp(deps: AppDeps) {
   const conjureLive = deps.conjureLive === undefined ? conjureLiveFromEnv() : deps.conjureLive;
   const livePredictions = new Map<string, string>(); // prediction id -> workspace that asked
   const openclaw = deps.openclaw === undefined ? openClawFromEnv() : deps.openclaw;
+  // "@search <question>": answers come from +SPCTR's own open-model router when it is connected.
+  const searchChat = async (messages: ChatMessage[]) => {
+    if (!aiConnected(deps.ai)) throw new AiNotConnected();
+    const system = messages.filter((m) => m.role === "system").map((m) => m.content).join("\n\n");
+    const rest = messages.filter((m) => m.role !== "system").map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
+    return (await deps.ai.router.chat({ system, messages: rest, maxTokens: 1200 })).text;
+  };
+  let search: Search | null = null;
+  if (deps.search !== undefined) search = deps.search;
+  else {
+    try {
+      search = searchFromEnv(process.env, aiConnected(deps.ai) ? { chat: searchChat } : {});
+    } catch (err) {
+      console.warn(`Infinitum Search is off: ${(err as Error).message}`);
+    }
+  }
+  const searchTimes = new Map<string, number[]>();
+  const searchLimited = (cid: string) => {
+    const now = Date.now();
+    const times = (searchTimes.get(cid) ?? []).filter((t) => now - t < 60_000);
+    const over = times.length >= 12;
+    if (!over) times.push(now);
+    searchTimes.set(cid, times);
+    if (searchTimes.size > 10_000) searchTimes.clear();
+    return over;
+  };
 
   /** What Ask (and a @scalvs agent) knows about a workspace. */
   const askContext = (ws: string) => {
@@ -749,6 +782,15 @@ export function createApp(deps: AppDeps) {
         throw err;
       }
     }
+    const found = parseSearchMention(String(ctx.body.question));
+    if (found) {
+      if (!search) throw new HttpError(503, "Search isn't connected. Set SEARXNG_URL, YANDEX_SEARCH_API_KEY + YANDEX_FOLDER_ID, or BRAVE_SEARCH_API_KEY to use @search.");
+      if (!found.query) throw new HttpError(400, "Write a question after @search.");
+      if (searchLimited(ctx.user!.account.cid)) throw new HttpError(429, "Too many searches. Try again in a minute.");
+      // Only the question goes out to the web; nothing from the workspace.
+      const r = await search.ask(found.query.slice(0, 1000));
+      return { answer: searchAnswerText(r), search: { sources: r.sources, engine: r.engine } };
+    }
     const context = askContext(ws);
 
     try {
@@ -762,6 +804,9 @@ export function createApp(deps: AppDeps) {
 
   /** Whether @scalvs works here, and which agent answers. Never the gateway URL or token. */
   route("GET", "/api/openclaw", () => ({ connected: Boolean(openclaw), agent: openclaw?.agent ?? null }));
+
+  /** Whether @search works here. Never an engine URL or key. */
+  route("GET", "/api/web-search", () => ({ connected: Boolean(search), engines: search?.engines ?? [], answers: Boolean(search?.answers) }));
 
   /** Follow a live @conjure forecast started from Ask (only from the workspace that asked). */
   route("GET", "/api/conjure/live/:id", async (ctx) => {
@@ -1321,4 +1366,11 @@ export function createApp(deps: AppDeps) {
   };
 
   return { handle, runDueAutomations, server: () => createServer((req, res) => void handle(req, res)) };
+}
+
+/** An @search reply for the Ask thread: the answer, then the numbered sources. */
+export function searchAnswerText(r: SearchAnswer): string {
+  const sources = r.sources.map((s) => `[${s.n}] ${s.title} — ${s.url}`).join("\n");
+  const answer = r.answer ?? (sources ? "No written answer right now. Sources found:" : "Nothing found on the web for that.");
+  return sources ? `${answer}\n\nSources\n${sources}` : answer;
 }

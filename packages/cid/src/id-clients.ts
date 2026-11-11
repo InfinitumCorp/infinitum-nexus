@@ -113,7 +113,8 @@ export const ID_CLIENTS: Record<string, IdClient> = {
     name: "Conjure",
     app: "conjure",
     // Conjure Russia (Yandex Cloud). Staff only: the server still checks its staff list.
-    origins: ["https://conjure-ru.infinitumcorporation.ai"],
+    // Plus its global hostname: a Cloudflare Worker forwarding to the same server, for networks that block Yandex Cloud.
+    origins: ["https://conjure-ru.infinitumcorporation.ai", "https://conjure.infinitumcorporation.ai"],
     loopback: true,
   },
   "eidetic-admin": {

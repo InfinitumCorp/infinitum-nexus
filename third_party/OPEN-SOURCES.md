@@ -8,6 +8,7 @@ Public repositories were checked on 2026-11-11. A repo is in this tree only when
 |---|---|---|---|
 | [yandex/speechkitcloud](https://github.com/yandex/speechkitcloud) | Apache-2.0 | `third_party/yandex-speechkit` | Browser voice client and speech protocol. The upstream OSX binary is not included. |
 | [google/open-location-code](https://github.com/google/open-location-code) | Apache-2.0 | `third_party/google-open-location-code` | Plus Codes. HRVST calls this for every consented location sample. |
+| [open-dis/open-dis-javascript](https://github.com/open-dis/open-dis-javascript) | BSD-2-Clause | `third_party/open-dis` | IEEE 1278.1 simulation protocol. Autonomy writes entity-state position reports. It does not call fire, detonation, minefield, or designator PDUs. |
 
 ## Used through our own adapters
 
@@ -85,3 +86,22 @@ Public repo counts are from GitHub on 2026-11-11. None of these trees are copied
 | Mellanox | Mellanox | 248 | NIC and RDMA drivers. Not copied. |
 | monday, Kaltura, AppsFlyer, ironSource, Taboola, Similarweb, Riskified, Forter, Fiverr, Playtika, Lightricks, SentinelOne, Wiz, Orca, Guardicore, Claroty, Cybereason, Deep Instinct, Axonius, Intezer, Hunters, Coralogix, Logz.io, env0, groundcover, Lumigo, Radware, Checkmarx, Qodo, Tabnine, run:ai, Moovit, Gong, AudioCodes | those orgs | from 1 to 157 | Samples, SDKs, and product tools. None is a small geo, voice, or drone library these apps can compile. |
 | Mobileye, Elbit, Rafael, IAI, NSO, Cellebrite | no public product source | 0 | Nothing to take. Spyware and unpublished military systems are not imported from anywhere else either. |
+
+## Military and flight code
+
+Checked on 2026-11-11. Applied only where the license allows a copy and the TypeScript builds can run it.
+
+| Upstream | License | Decision |
+|---|---|---|
+| open-dis/open-dis-javascript | BSD-2-Clause | Vendored. `@infinitum/autonomy` encodes an entity-state PDU for a platform's own position. |
+| nasa/cFS and nasa/cFE | Apache-2.0 | Not copied. cFS is a superproject of C submodules, and cFE is about 53 MB of flight software. These apps do not compile it. |
+| nasa/fprime | Apache-2.0 | Not copied. About 800 MB. |
+| PX4/PX4-Autopilot | BSD-3-Clause | Not copied. About 600 MB, and it is a flight controller. The drone backend does not take control, planning, navigation, or targeting. |
+| cisagov/cset | MIT | Not copied. A desktop evaluation app of about 2 GB. |
+| ArduPilot, GNU Radio | GPL-3.0 | Not copied. |
+| JSBSim | LGPL-2.1 | Not copied into this proprietary tree. |
+| defenseunicorns/uds-core | AGPL-3.0 | Not copied. |
+| deptofdefense/AndroidTacticalAssaultKit-CIV | No SPDX license | Not copied. |
+| OpenDDS, OpenCPI | No SPDX license on the repo | Not copied. |
+| mavlink/mavlink | Generator is LGPL | Already implemented in `@infinitum/drone-backend`. The upstream tree is not copied. |
+

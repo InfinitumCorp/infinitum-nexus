@@ -28,9 +28,11 @@ export interface OpenModel {
 export const MODELS: readonly OpenModel[] = [
   { id: "gpt-oss-120b", label: "gpt-oss 120B", license: "Apache-2.0", tier: "smart", tools: true, contextTokens: 131_072 },
   { id: "qwen3-235b", label: "Qwen3 235B A22B", license: "Apache-2.0", tier: "smart", tools: true, contextTokens: 131_072 },
+  { id: "deepseek-v4-pro", label: "DeepSeek V4 Pro", license: "MIT", tier: "smart", tools: true, contextTokens: 1_048_576 },
   { id: "deepseek-v3", label: "DeepSeek V3", license: "MIT", tier: "smart", tools: true, contextTokens: 131_072 },
   { id: "gpt-oss-20b", label: "gpt-oss 20B", license: "Apache-2.0", tier: "fast", tools: true, contextTokens: 131_072 },
   { id: "qwen3-32b", label: "Qwen3 32B", license: "Apache-2.0", tier: "fast", tools: true, contextTokens: 32_768 },
+  { id: "deepseek-v4-flash", label: "DeepSeek V4 Flash", license: "MIT", tier: "fast", tools: true, contextTokens: 1_048_576 },
 ];
 
 export interface ProviderPreset {
@@ -109,12 +111,40 @@ export const PRESETS: readonly ProviderPreset[] = [
     },
   },
   {
+    name: "ai21",
+    baseUrl: "https://api.ai21.com/studio/v1",
+    keyEnv: "AI21_API_KEY",
+    // Jamba is not an OSI license, so it is not in MODELS. Name it with AI_MODEL_MAP.
+    models: {},
+  },
+  {
+    name: "deepseek",
+    baseUrl: "https://api.deepseek.com",
+    keyEnv: "DEEPSEEK_API_KEY",
+    models: {
+      "deepseek-v4-pro": "deepseek-v4-pro",
+      "deepseek-v4-flash": "deepseek-flash",
+    },
+  },
+  {
+    name: "siliconflow",
+    baseUrl: "https://api.siliconflow.cn/v1",
+    keyEnv: "SILICONFLOW_API_KEY",
+    models: {
+      "deepseek-v4-pro": "deepseek-ai/DeepSeek-V4-Pro",
+      "deepseek-v4-flash": "deepseek-ai/DeepSeek-V4-Flash",
+      "deepseek-v3": "deepseek-ai/DeepSeek-V3",
+    },
+  },
+  {
     name: "ollama",
     baseUrl: "http://localhost:11434/v1",
     models: {
       "gpt-oss-120b": "gpt-oss:120b",
       "gpt-oss-20b": "gpt-oss:20b",
+      "qwen3-235b": "qwen3:235b",
       "qwen3-32b": "qwen3:32b",
+      "deepseek-v3": "deepseek-v3",
     },
   },
 ];

@@ -5,11 +5,14 @@ import {
   createCrawler,
   createSearch,
   createSearchRoutes,
+  escapeRobotsPattern,
   extractText,
   isPublicUrl,
   parseRobots,
   parseSearchMention,
   parseYandexXml,
+  robotsAllows,
+  robotsPath,
   searchFromEnv,
   searchRoutesFromEnv,
   SEARCH_NOT_CONNECTED,
@@ -63,12 +66,146 @@ describe("extractText", () => {
   });
 });
 
-describe("robots.txt", () => {
-  it("uses our own group, else *, with Allow overriding a shorter Disallow", () => {
-    const rules = parseRobots("User-agent: *\nDisallow: /private\nAllow: /private/ok\n\nUser-agent: Googlebot\nDisallow: /");
-    assert.deepEqual(rules, { allow: ["/private/ok"], disallow: ["/private"] });
-    assert.deepEqual(parseRobots("User-agent: InfinitumSearch\nDisallow: /\n\nUser-agent: *\nDisallow:"), { allow: [], disallow: ["/"] });
+// Cases ported from Google's robots_test.cc (github.com/google/robotstxt, Apache License 2.0).
+const allowed = (txt: string, agent: string, url: string) => robotsAllows(parseRobots(txt, agent), robotsPath(url));
+
+describe("robots.txt (google/robotstxt conformance)", () => {
+  it("system test and line syntax", () => {
+    const rt = "user-agent: FooBot\ndisallow: /\n";
+    assert.equal(allowed("", "FooBot", ""), true);
+    assert.equal(allowed(rt, "", ""), true);
+    assert.equal(allowed(rt, "FooBot", ""), false);
+    const url = "http://foo.bar/x/y";
+    assert.equal(allowed("foo: FooBot\nbar: /\n", "FooBot", url), true);
+    assert.equal(allowed("user-agent FooBot\ndisallow /\n", "FooBot", url), false);
   });
+
+  it("groups: merged per agent, rules before any user-agent ignored", () => {
+    const rt = "allow: /foo/bar/\n\nuser-agent: FooBot\ndisallow: /\nallow: /x/\nuser-agent: BarBot\ndisallow: /\nallow: /y/\n\n\nallow: /w/\nuser-agent: BazBot\n\nuser-agent: FooBot\nallow: /z/\ndisallow: /\n";
+    const u = (p: string) => `http://foo.bar${p}`;
+    assert.equal(allowed(rt, "FooBot", u("/x/b")), true);
+    assert.equal(allowed(rt, "FooBot", u("/z/d")), true);
+    assert.equal(allowed(rt, "FooBot", u("/y/c")), false);
+    assert.equal(allowed(rt, "BarBot", u("/y/c")), true);
+    assert.equal(allowed(rt, "BarBot", u("/w/a")), true);
+    assert.equal(allowed(rt, "BarBot", u("/z/d")), false);
+    assert.equal(allowed(rt, "BazBot", u("/z/d")), true);
+    for (const a of ["FooBot", "BarBot", "BazBot"]) assert.equal(allowed(rt, a, u("/foo/bar/")), false, a);
+  });
+
+  it("Sitemap and unknown lines don't end a group", () => {
+    for (const mid of ["Sitemap: https://foo.bar/sitemap", "Invalid-Unknown-Line: unknown"]) {
+      const rt = `User-agent: BarBot\n${mid}\nUser-agent: *\nDisallow: /\n`;
+      assert.equal(allowed(rt, "FooBot", "http://foo.bar/"), false);
+      assert.equal(allowed(rt, "BarBot", "http://foo.bar/"), false);
+    }
+  });
+
+  it("keys and user-agent values are case-insensitive; the agent is cut at the first space", () => {
+    for (const rt of ["USER-AGENT: FooBot\nALLOW: /x/\nDISALLOW: /\n", "uSeR-aGeNt: FooBot\nAlLoW: /x/\ndIsAlLoW: /\n", "User-Agent: FoO bAr\nAllow: /x/\nDisallow: /\n"]) {
+      const agent = rt.includes("bAr") ? "foo" : "FooBot";
+      assert.equal(allowed(rt, agent, "http://foo.bar/x/y"), true);
+      assert.equal(allowed(rt, agent, "http://foo.bar/a/b"), false);
+    }
+    const rt = "User-Agent: *\nDisallow: /\nUser-Agent: Foo Bar\nAllow: /x/\nDisallow: /\n";
+    assert.equal(allowed(rt, "Foo", "http://foo.bar/x/y"), true);
+    assert.equal(allowed(rt, "Foo Bar", "http://foo.bar/x/y"), false);
+  });
+
+  it("global groups apply only when no group names us", () => {
+    const url = "http://foo.bar/x/y";
+    assert.equal(allowed("", "FooBot", url), true);
+    const global = "user-agent: *\nallow: /\nuser-agent: FooBot\ndisallow: /\n";
+    assert.equal(allowed(global, "FooBot", url), false);
+    assert.equal(allowed(global, "BarBot", url), true);
+    assert.equal(allowed("user-agent: FooBot\nallow: /\nuser-agent: BarBot\ndisallow: /\nuser-agent: BazBot\ndisallow: /\n", "QuxBot", url), true);
+    const both = "User-agent: *\nDisallow: /x/\nUser-agent: FooBot\nDisallow: /y/\n";
+    assert.equal(allowed(both, "FooBot", "http://foo.bar/x/page"), true);
+    assert.equal(allowed(both, "FooBot", "http://foo.bar/y/page"), false);
+  });
+
+  it("values are case-sensitive; the longest match wins and Allow wins ties", () => {
+    const url = "http://foo.bar/x/page.html";
+    assert.equal(allowed("user-agent: FooBot\ndisallow: /x/\n", "FooBot", "http://foo.bar/x/y"), false);
+    assert.equal(allowed("user-agent: FooBot\ndisallow: /X/\n", "FooBot", "http://foo.bar/x/y"), true);
+    assert.equal(allowed("user-agent: FooBot\ndisallow: /x/page.html\nallow: /x/\n", "FooBot", url), false);
+    assert.equal(allowed("user-agent: FooBot\nallow: /x/page.html\ndisallow: /x/\n", "FooBot", url), true);
+    assert.equal(allowed("user-agent: FooBot\nallow: /x/page.html\ndisallow: /x/\n", "FooBot", "http://foo.bar/x/"), false);
+    assert.equal(allowed("user-agent: FooBot\ndisallow: \nallow: \n", "FooBot", url), true);
+    assert.equal(allowed("user-agent: FooBot\ndisallow: /\nallow: /\n", "FooBot", url), true);
+    assert.equal(allowed("user-agent: FooBot\ndisallow: /x\nallow: /x/\n", "FooBot", "http://foo.bar/x"), false);
+    assert.equal(allowed("user-agent: FooBot\ndisallow: /x\nallow: /x/\n", "FooBot", "http://foo.bar/x/"), true);
+    assert.equal(allowed("user-agent: FooBot\ndisallow: /x/page.html\nallow: /x/page.html\n", "FooBot", url), true);
+    assert.equal(allowed("user-agent: FooBot\nallow: /page\ndisallow: /*.html\n", "FooBot", "http://foo.bar/page.html"), false);
+    assert.equal(allowed("user-agent: FooBot\nallow: /page\ndisallow: /*.html\n", "FooBot", "http://foo.bar/page"), true);
+    assert.equal(allowed("user-agent: FooBot\nallow: /x/page.\ndisallow: /*.html\n", "FooBot", url), true);
+    assert.equal(allowed("user-agent: FooBot\nallow: /x/page.\ndisallow: /*.html\n", "FooBot", "http://foo.bar/x/y.html"), false);
+  });
+
+  it("encoding: patterns are %-normalised, paths are used as given", () => {
+    const q = "/foo/bar?qux=taz&baz=http://foo.bar?tar&par";
+    assert.equal(allowed(`User-agent: FooBot\nDisallow: /\nAllow: ${q}\n`, "FooBot", `http://foo.bar${q}`), true);
+    for (const allow of ["/foo/bar/ツ", "/foo/bar/%E3%83%84"]) {
+      const rt = `User-agent: FooBot\nDisallow: /\nAllow: ${allow}\n`;
+      assert.equal(allowed(rt, "FooBot", "http://foo.bar/foo/bar/%E3%83%84"), true);
+      assert.equal(allowed(rt, "FooBot", "http://foo.bar/foo/bar/ツ"), false);
+    }
+    const rt = "User-agent: FooBot\nDisallow: /\nAllow: /foo/bar/%62%61%7A\n";
+    assert.equal(allowed(rt, "FooBot", "http://foo.bar/foo/bar/baz"), false);
+    assert.equal(allowed(rt, "FooBot", "http://foo.bar/foo/bar/%62%61%7A"), true);
+    assert.equal(escapeRobotsPattern("http://www.example.com"), "http://www.example.com");
+    assert.equal(escapeRobotsPattern("á"), "%C3%A1");
+    assert.equal(escapeRobotsPattern("%aa"), "%AA");
+  });
+
+  it("special characters: *, a final $, and # comments", () => {
+    const star = "User-agent: FooBot\nDisallow: /foo/bar/quz\nAllow: /foo/*/qux\n";
+    assert.equal(allowed(star, "FooBot", "http://foo.bar/foo/bar/quz"), false);
+    for (const p of ["/foo/quz", "/foo//quz", "/foo/bax/quz"]) assert.equal(allowed(star, "FooBot", `http://foo.bar${p}`), true, p);
+    const dollar = "User-agent: FooBot\nDisallow: /foo/bar$\nAllow: /foo/bar/qux\n";
+    assert.equal(allowed(dollar, "FooBot", "http://foo.bar/foo/bar"), false);
+    for (const p of ["/foo/bar/qux", "/foo/bar/", "/foo/bar/baz"]) assert.equal(allowed(dollar, "FooBot", `http://foo.bar${p}`), true, p);
+    const hash = "User-agent: FooBot\n# Disallow: /\nDisallow: /foo/quz#qux\nAllow: /\n";
+    assert.equal(allowed(hash, "FooBot", "http://foo.bar/foo/bar"), true);
+    assert.equal(allowed(hash, "FooBot", "http://foo.bar/foo/quz"), false);
+  });
+
+  it("index.html is the directory; typos, BOM and CR line endings are accepted", () => {
+    const rt = "User-Agent: *\nAllow: /allowed-slash/index.html\nDisallow: /\n";
+    assert.equal(allowed(rt, "foobot", "http://foo.com/allowed-slash/"), true);
+    assert.equal(allowed(rt, "foobot", "http://foo.com/allowed-slash/index.htm"), false);
+    assert.equal(allowed(rt, "foobot", "http://foo.com/allowed-slash/index.html"), true);
+    assert.equal(allowed(rt, "foobot", "http://foo.com/anyother-url"), false);
+    assert.equal(allowed("useragent: FooBot\ndissallow: /\n", "FooBot", "http://foo.bar/a"), false);
+    assert.equal(allowed("﻿User-Agent: foo\r\nDisallow: /a\rAllow: /a/b\n", "foo", "http://foo.bar/a/c"), false);
+    assert.equal(allowed("﻿User-Agent: foo\r\nDisallow: /a\rAllow: /a/b\n", "foo", "http://foo.bar/a/b"), true);
+  });
+
+  it("cuts lines longer than Google's limit", () => {
+    const max = 2083 * 8;
+    const long = "/x/" + "a".repeat(max - 3 - "disallow: ".length + 1 - 3);
+    const rt = `user-agent: FooBot\ndisallow: ${long}/qux\n`;
+    assert.equal(allowed(rt, "FooBot", "http://foo.bar/fux"), true);
+    assert.equal(allowed(rt, "FooBot", `http://foo.bar${long}/fux`), false);
+  });
+
+  it("robotsPath extracts path, params and query", () => {
+    const cases: [string, string][] = [
+      ["", "/"], ["http://www.example.com", "/"], ["http://www.example.com/a/", "/a/"],
+      ["http://www.example.com/a/b?c=http://d.e/", "/a/b?c=http://d.e/"], ["http://www.example.com/a/b?c=d&e=f#fragment", "/a/b?c=d&e=f"],
+      ["example.com", "/"], ["example.com/a", "/a"], ["a", "/"], ["a/", "/"], ["/a", "/a"], ["a/b", "/b"],
+      ["example.com?a", "/?a"], ["example.com/a;b#c", "/a;b"], ["//a/b/c", "/b/c"],
+    ];
+    for (const [url, path] of cases) assert.equal(robotsPath(url), path, url);
+  });
+
+  it("always allows /robots.txt itself", () => {
+    assert.equal(allowed("User-agent: *\nDisallow: /\n", "InfinitumSearch", "https://a.example/robots.txt"), true);
+    assert.equal(parseRobots("User-agent: InfinitumSearch\nDisallow: /\n\nUser-agent: *\nDisallow:").group, "specific");
+  });
+});
+
+describe("crawler", () => {
 
   it("the crawler skips disallowed pages and follows safe redirects only", async () => {
     const seen: string[] = [];

@@ -38,6 +38,6 @@ Engines are tried in the order above, and the next one takes over if one fails. 
 ## Safety
 
 - **Fetching:** only public `http(s)` pages on ports 80/443. Every redirect is re-checked, and private, loopback, link-local and metadata addresses are refused. Pages are capped at 1.5 MB and 7 s.
-- **robots.txt:** respected for `InfinitumSearch` and for `*`.
+- **robots.txt:** respected for `InfinitumSearch` (else `*`), matched the way Google's open-source parser does it ([google/robotstxt](https://github.com/google/robotstxt), Apache-2.0, ported to JS with its conformance tests): merged groups, longest match with Allow winning ties, `*` and `$`, %-normalised patterns, common typos accepted.
 - **Page content:** passed to the model as data, never as instructions. Citations to sources that don't exist are removed.
 - **Limits:** each person gets 12 searches a minute per server instance.

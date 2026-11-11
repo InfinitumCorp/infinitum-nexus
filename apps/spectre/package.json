@@ -14,20 +14,21 @@
   },
   "dependencies": {
     "@infinitum/ai": "workspace:*",
-    "@infinitum/firmament": "workspace:*",
-    "@infinitum/cid": "workspace:*",
     "@infinitum/architect": "workspace:*",
+    "@infinitum/cid": "workspace:*",
     "@infinitum/conjure": "workspace:*",
     "@infinitum/cumulus": "workspace:*",
-    "@infinitum/metatron": "workspace:*",
-    "@infinitum/scalus": "workspace:*",
+    "@infinitum/drone-backend": "workspace:*",
+    "@infinitum/firmament": "workspace:*",
     "@infinitum/lbrnth": "workspace:*",
     "@infinitum/lbrnth-client": "workspace:*",
-    "@infinitum/drone-backend": "workspace:*",
+    "@infinitum/metatron": "workspace:*",
+    "@infinitum/scalus": "workspace:*",
     "@infinitum/veil": "workspace:*"
   },
   "devDependencies": {
-    "typescript": "^5.9.0",
-    "@types/node": "^26.6.6"
+    "@electric-sql/pglite": "0.3.14",
+    "@types/node": "^26.6.6",
+    "typescript": "^5.9.0"
   }
 }

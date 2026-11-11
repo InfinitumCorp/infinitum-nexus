@@ -52,7 +52,7 @@ function createWindow() {
     ...bounds,
     minWidth: 380,
     minHeight: 520,
-    title: "Cumulus Mail",
+    title: "Cumulus://Mail™",
     icon: nativeImage.createFromPath(path.join(__dirname, "build", "icon.png")),
     backgroundColor: "#ffffff",
     show: false,
@@ -200,7 +200,7 @@ function buildMenu() {
     ] },
     { role: "windowMenu" },
     { role: "help", submenu: [
-      { label: "Cumulus://Mail Help", click: () => shell.openExternal("https://cumuluscloud.app/") },
+      { label: "Cumulus://Mail™ Help", click: () => shell.openExternal("https://cumuluscloud.app/") },
       { label: `Version ${app.getVersion()}`, enabled: false },
     ] },
   ];

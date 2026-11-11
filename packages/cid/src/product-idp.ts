@@ -17,6 +17,7 @@ import type { Account, CidService } from "./service.ts";
 import { idClientFor, idClientOrigins } from "./id-clients.ts";
 import type { OidcSigner } from "./oidc-sign.ts";
 import { verifyOidcToken } from "./oidc-sign.ts";
+import { answerLabyrinthDirectory, labyrinthDirectoryKeyMatches, LabyrinthDirectoryError } from "./labyrinth-directory.ts";
 
 export const profileOf = (a: Account) => ({ cid: a.cid, username: a.username, email: a.mailAddress, name: a.username, handle: a.handle });
 
@@ -67,6 +68,11 @@ export interface ProductIdpHelpers {
   HttpError: new (status: number, message: string) => Error;
   /** When null or omitted, tokens stay opaque and the OpenID Connect routes are not registered. */
   signer?: OidcSigner | null;
+  /**
+   * SHA-256 (hex) of the service key a separately hosted Labyrinth uses to reach
+   * POST /api/id/labyrinth-directory. Unset: the route is not registered.
+   */
+  labyrinthDirectoryKeySha256?: string;
 }
 
 const ALL_ORIGINS = idClientOrigins();
@@ -152,7 +158,9 @@ export function registerProductIdp(h: ProductIdpHelpers) {
     }
     if (!ctx.user) {
       const back = `${strict ? "/realms/cumulus/protocol/openid-connect/auth" : "/api/id/authorize"}?${q.toString()}`;
-      return new Redirect(`/?next=${encodeURIComponent(back)}&for=${encodeURIComponent(client.name)}`);
+      // "Create a Cumulus ID" in a product sends prompt=create: open the sign-in page on Create.
+      const create = q.get("prompt") === "create" ? "&create=1" : "";
+      return new Redirect(`/?next=${encodeURIComponent(back)}&for=${encodeURIComponent(client.name)}${create}`);
     }
     const account = ctx.user.account as Account;
     if (!cid.can(account.cid, client.app, "profile:read")) await cid.grant(account.cid, client.app, ["profile:read"]);
@@ -285,4 +293,28 @@ export function registerProductIdp(h: ProductIdpHelpers) {
   }, false, { csrf: false });
 
   route("GET", "/api/id/me", (ctx) => (ctx.user ? profileOf(ctx.user.account) : { signedIn: false }), false, { optionalAuth: true });
+
+  // Server-to-server only: the hosted Labyrinth asks who a presented token belongs to.
+  // No CORS headers are set, so a browser page can never read an answer.
+  const directoryKey = h.labyrinthDirectoryKeySha256;
+  if (directoryKey) {
+    route("POST", "/api/id/labyrinth-directory", async (ctx) => {
+      if (!labyrinthDirectoryKeyMatches(ctx.req.headers["x-cid-directory-key"], directoryKey)) throw new HttpError(401, "Unknown directory client");
+      const resolve = (token: string) => {
+        if (!(OPAQUE.test(token) || JWT.test(token))) return null;
+        try {
+          const hit = accountFromToken(token);
+          return { cid: hit.account.cid, sessionId: hit.sessionId };
+        } catch {
+          return null;
+        }
+      };
+      try {
+        return await answerLabyrinthDirectory(cid, resolve, ctx.body);
+      } catch (err) {
+        if (err instanceof LabyrinthDirectoryError) throw new HttpError(err.status, err.message);
+        throw err;
+      }
+    }, false, { csrf: false });
+  }
 }

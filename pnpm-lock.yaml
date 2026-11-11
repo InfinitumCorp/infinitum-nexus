@@ -198,6 +198,25 @@ importers:
         specifier: ^5.9.0
         version: 5.9.3
 
+  apps/lbrnth-host:
+    dependencies:
+      '@infinitum/lbrnth':
+        specifier: workspace:*
+        version: link:../../packages/lbrnth
+      pg:
+        specifier: 8.16.3
+        version: 8.16.3
+    devDependencies:
+      '@types/node':
+        specifier: ^26.6.6
+        version: 26.6.6
+      '@types/pg':
+        specifier: 8.15.6
+        version: 8.15.6
+      typescript:
+        specifier: ^5.9.0
+        version: 5.9.3
+
   apps/spectre:
     dependencies:
       '@infinitum/ai':
@@ -237,6 +256,9 @@ importers:
         specifier: workspace:*
         version: link:../veil
     devDependencies:
+      '@electric-sql/pglite':
+        specifier: 0.3.14
+        version: 0.3.14
       '@types/node':
         specifier: ^26.6.6
         version: 26.6.6
@@ -316,6 +338,9 @@ importers:
       '@infinitum/lbrnth-client':
         specifier: workspace:*
         version: link:../lbrnth-client
+      '@infinitum/sense':
+        specifier: workspace:*
+        version: link:../sense
     devDependencies:
       '@types/node':
         specifier: ^26.6.6
@@ -538,6 +563,9 @@ importers:
       '@infinitum/lbrnth-client':
         specifier: workspace:*
         version: link:../lbrnth-client
+      '@infinitum/sense':
+        specifier: workspace:*
+        version: link:../sense
     devDependencies:
       '@types/node':
         specifier: ^26.6.6
@@ -551,6 +579,9 @@ importers:
       '@infinitum/lbrnth-client':
         specifier: workspace:*
         version: link:../lbrnth-client
+      '@infinitum/sense':
+        specifier: workspace:*
+        version: link:../sense
     devDependencies:
       '@types/node':
         specifier: ^26.6.6
@@ -571,6 +602,9 @@ importers:
         specifier: workspace:*
         version: link:../lbrnth-client
     devDependencies:
+      '@electric-sql/pglite':
+        specifier: 0.3.14
+        version: 0.3.14
       '@types/node':
         specifier: ^26.6.6
         version: 26.6.6
@@ -624,6 +658,15 @@ importers:
       '@infinitum/lbrnth-client':
         specifier: workspace:*
         version: link:../lbrnth-client
+    devDependencies:
+      '@types/node':
+        specifier: ^26.6.6
+        version: 26.6.6
+      typescript:
+        specifier: ^5.9.0
+        version: 5.9.3
+
+  packages/sense:
     devDependencies:
       '@types/node':
         specifier: ^26.6.6
@@ -787,6 +830,9 @@ packages:
   '@cspotcode/source-map-support@0.8.1':
     resolution: {integrity: sha512-IchNf6dN4tHoMFIn/7OE8LWZ19Y6q/67Bmf6vnGREv8RSbBVb9LPJxEcnwrcwX6ixSvaiGoomAUvu4YSxXrVgw==}
     engines: {node: '>=12'}
+
+  '@electric-sql/pglite@0.3.14':
+    resolution: {integrity: sha512-3DB258dhqdsArOI1fIt7cb9RpUOgcDg5hXWVgVHAeqVQ/qxtFy605QKs4gx6mFq3jWsSPqDN8TgSEsqC3OfV9Q==}
 
   '@emnapi/runtime@1.11.3':
     resolution: {integrity: sha512-Xz4Tpyki7XyrpbUK1jR1AhdAdaXyhhY4lZ3neLodmhpuWfy2PAQN5B46sAiU4liOXGLkHypn/qU+jvfWSCYYLA==}
@@ -1468,6 +1514,9 @@ packages:
   '@types/node@26.6.6':
     resolution: {integrity: sha512-MzQj+8Kx3XI40OmUAE6Qoh58ZMNstNNMwn2nfd3qWsfe7nDNSqJNzes4njhz6AHwrSHOffSLwXU6yb474Q4aog==}
 
+  '@types/pg@8.15.6':
+    resolution: {integrity: sha512-NoaMtzhxOrubeL/7UZuNTrejB4MPAJ0RpxZqXQf2qXuVlTPuG6Y8p4u9dKRaue4yjmC7ZhzVO2/Yyyn25znrPQ==}
+
   '@types/pg@8.23.1':
     resolution: {integrity: sha512-fKVHpikPdg4GKks3JuLEhvwSyvwzF23hnabPy6DD8ljVbC7+6J5dQzdv4arV6jqq57djnMgs1HKBxX4P8aBI3A==}
 
@@ -1804,6 +1853,15 @@ packages:
   pg-types@2.2.0:
     resolution: {integrity: sha512-qTAAlrEsl8s4OiEQY69wDvcMIdQN6wdz5ojQiOy6YRMuynxenON0O5oCpJI6lshc6scgAY8qvJ2On/p+CXY0GA==}
     engines: {node: '>=4'}
+
+  pg@8.16.3:
+    resolution: {integrity: sha512-enxc1h0jA/aq5oSDMvqyW3q89ra6XIIDZgCX9vkMrnz5DFTw/Ny3Li2lFQ+pt3L6MCgm/5o2o8HW9hiJji+xvw==}
+    engines: {node: '>= 16.0.0'}
+    peerDependencies:
+      pg-native: '>=3.0.1'
+    peerDependenciesMeta:
+      pg-native:
+        optional: true
 
   pg@8.23.1:
     resolution: {integrity: sha512-aL96AHANtWjPLDOLqnhx+ngp9+UK7ETEU8VJrDCGvsSSi/mGLcWYsS6Herg7lmaBJe4uwrfqsa7gTEFaSizDoQ==}
@@ -2275,6 +2333,8 @@ snapshots:
     dependencies:
       '@jridgewell/trace-mapping': 0.3.9
 
+  '@electric-sql/pglite@0.3.14': {}
+
   '@emnapi/runtime@1.11.3':
     dependencies:
       tslib: 2.9.1
@@ -2735,6 +2795,12 @@ snapshots:
     dependencies:
       undici-types: 8.9.0
 
+  '@types/pg@8.15.6':
+    dependencies:
+      '@types/node': 26.6.6
+      pg-protocol: 1.16.1
+      pg-types: 2.2.0
+
   '@types/pg@8.23.1':
     dependencies:
       '@types/node': 26.6.6
@@ -3053,6 +3119,10 @@ snapshots:
 
   pg-int8@1.0.1: {}
 
+  pg-pool@3.14.0(pg@8.16.3):
+    dependencies:
+      pg: 8.16.3
+
   pg-pool@3.14.0(pg@8.23.1):
     dependencies:
       pg: 8.23.1
@@ -3066,6 +3136,16 @@ snapshots:
       postgres-bytea: 1.0.1
       postgres-date: 1.0.7
       postgres-interval: 1.2.0
+
+  pg@8.16.3:
+    dependencies:
+      pg-connection-string: 2.14.1
+      pg-pool: 3.14.0(pg@8.16.3)
+      pg-protocol: 1.16.1
+      pg-types: 2.2.0
+      pgpass: 1.0.5
+    optionalDependencies:
+      pg-cloudflare: 1.4.1
 
   pg@8.23.1:
     dependencies:

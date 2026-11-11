@@ -1,7 +1,7 @@
 {
   "name": "@infinitum/lbrnth",
   "version": "0.1.0",
-  "description": "Labyrinth \u2014 private client code and artifact repositories by Infinitum Corporation\u00ae",
+  "description": "Labyrinth — private client code and artifact repositories by Infinitum Corporation®",
   "private": true,
   "type": "module",
   "exports": {
@@ -21,7 +21,8 @@
     "@infinitum/lbrnth-client": "workspace:*"
   },
   "devDependencies": {
-    "typescript": "^5.9.0",
-    "@types/node": "^26.6.6"
+    "@electric-sql/pglite": "0.3.14",
+    "@types/node": "^26.6.6",
+    "typescript": "^5.9.0"
   }
 }

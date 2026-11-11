@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@infinitum/hardware": "workspace:*",
-    "@infinitum/lbrnth-client": "workspace:*"
+    "@infinitum/lbrnth-client": "workspace:*",
+    "@infinitum/sense": "workspace:*"
   }
 }

@@ -1,8 +1,8 @@
-# Hosted Labyrinth (Postgres + Cloud Run)
+# Hosted Labyrinth (Postgres, Yandex Cloud)
 
 By **Infinitum Corporation®**. This is the authoritative, durable Labyrinth service that the
 product relays point `LBRNTH_ENDPOINT` at. It replaces the single-writer encrypted file for
-hosted use. Nothing in this document has been run against production by this change.
+hosted use.
 
 ## Shape
 
@@ -12,10 +12,10 @@ browser ── id.cumuluscloud.app (CID)  ─────┤  CID cookie forward
 browser ── mail.cumuluscloud.app ──────────┘  explicit bearer only
                      │ POST /api/labyrinth
                      ▼
-        Labyrinth host (Google Cloud Run, apps/lbrnth-host)
+        Labyrinth host (Yandex labyrinth-russia, apps/lbrnth-host)
           │ live identity                         │ encrypted envelopes, bearers, plans
           ▼                                       ▼
- id.cumuluscloud.app/api/id/labyrinth-directory   Supabase Postgres, schema lbrnth
+ id.cumuluscloud.app/api/id/labyrinth-directory   local Postgres, schema lbrnth
 ```
 
 - **Identity.** Cumulus://ID stays the only sign-in. People without a Cumulus ID create one in
@@ -36,48 +36,43 @@ browser ── mail.cumuluscloud.app ──────────┘  explicit
   revision change other than +1. On a conflict nothing is written and the request re-runs.
   Responses are sent only after the commit.
 
-## Configuration
+## Where it runs (since 2026-11-12)
+
+The host runs on the Yandex Cloud server `labyrinth-russia` (ru-central1-e) at
+`https://lbrnth.cumuluscloud.app`, with Postgres on the same server. Server setup, TLS, backups
+and checks live in [InfinitumCorp/labyrinth-ru](https://github.com/InfinitumCorp/labyrinth-ru),
+which pins a commit of this repository. The earlier Cloud Run service and Supabase `lbrnth`
+schema were retired on 2026-11-12. Both were empty.
 
 | Where | Name | Value |
 |---|---|---|
-| Cloud Run secret | `LBRNTH_MASTER_KEY` | canonical base64, 32 bytes; keep an offline copy |
-| Cloud Run secret | `DATABASE_URL` | Supabase **session pooler** URL (IPv4), port 5432 |
-| Cloud Run secret | `CID_DIRECTORY_KEY` | random service key, 48+ characters |
-| Cloud Run env (optional) | `DATABASE_CA_PEM`, `CID_DIRECTORY_URL`, `LBRNTH_ENTITLED_ORGS` | |
+| Server `/etc/lbrnth/master-key` | `LBRNTH_MASTER_KEY` | generated on the server once; keep an offline copy |
+| Server `/etc/lbrnth/db-password` | `DATABASE_URL` | local Postgres over loopback (no TLS needed) |
+| Server `/etc/lbrnth/cid-directory-key` | `CID_DIRECTORY_KEY` | piped from Secret Manager `lbrnth-cid-directory-key` |
+| Server (optional) | `LBRNTH_ENTITLED_ORGS` | `/etc/lbrnth/entitled-orgs` |
 | CID Worker secret | `CID_DIRECTORY_KEY_SHA256` | hex SHA-256 of `CID_DIRECTORY_KEY` |
-| CID, Mail, ARCHITECT | `LBRNTH_ENDPOINT` | `https://<cloud-run-host>/api/labyrinth` |
+| CID, Mail, ARCHITECT secret | `LBRNTH_ENDPOINT` | `https://lbrnth.cumuluscloud.app/api/labyrinth` |
 
-Generate secrets by piping, never printing or typing them, for example
-`node -e "process.stdout.write(require('crypto').randomBytes(32).toString('base64'))" | gcloud secrets create lbrnth-master-key --data-file=-`.
+`lbrnth.cumuluscloud.app` is a DNS-only A record to the server's IP, which is dynamic until a
+static IP is attached. If it changes, update the record and re-run setup.
 
-## Deploy (each step needs William's explicit OK)
+The relays use `fetch(..., { redirect: "manual" })` and refuse 3xx. Cloudflare Workers reject
+`redirect: "error"` outright (#138).
 
-1. Apply `supabase/migrations/20261111_lbrnth_store.sql` to the Supabase project.
-2. Create the three secrets in Secret Manager. Put the directory key's SHA-256 on the
-   `cumulus-id` Worker as `CID_DIRECTORY_KEY_SHA256`.
-3. Build and deploy, from the repository root:
-   ```sh
-   gcloud artifacts repositories create labyrinth --repository-format=docker --location=europe-north1
-   gcloud builds submit --config deploy/lbrnth-host/cloudbuild.yaml .
-   gcloud run deploy lbrnth-host --image europe-north1-docker.pkg.dev/$PROJECT/labyrinth/lbrnth-host:latest \
-     --region europe-north1 --allow-unauthenticated --min-instances 0 --max-instances 3 --concurrency 20 \
-     --set-secrets LBRNTH_MASTER_KEY=lbrnth-master-key:latest,DATABASE_URL=lbrnth-database-url:latest,CID_DIRECTORY_KEY=lbrnth-cid-directory-key:latest
-   ```
-   `--allow-unauthenticated` only opens the Labyrinth API itself, which demands a CID bearer.
-4. Redeploy `cumulus-id` with this change and `LBRNTH_ENDPOINT`. Set `LBRNTH_ENDPOINT` on Mail
-   and on the ARCHITECT Worker (rchtch.app).
-5. Add the client org's entitlement row, then check: `/health` says configured, `POST
-   /api/labyrinth` without a bearer is 401, and Save to Labyrinth plus the Saved tab work.
+## Deploy or upgrade
 
-No DNS change is needed: relays call the `run.app` URL server to server.
+See the labyrinth-ru README. In short: bump the pinned commit, upload that commit's tarball to
+the server (GitHub is often unreachable from Russia), run `scripts/setup.sh` over SSH, and
+check with `scripts/check.sh`. Grant a plan with an `insert into lbrnth.entitlements` on the
+server.
 
 ## Limits
 
-- The host serializes requests per instance and rebuilds its in-memory SDK when another
-  instance commits; `--max-instances 3` keeps conflicts rare. Capacity limits are unchanged
+- One instance serializes requests; it still rebuilds its in-memory SDK if another instance
+  commits. Capacity limits are unchanged
   (256 orgs, 32 MiB per org, 128 MiB total).
-- Rate limits are per instance and reset when an instance restarts.
+- Rate limits reset when the service restarts.
 - Browsers in Russia reach the relays (rchtch.app, id.cumuluscloud.app), not the host. Those
-  are Cloudflare-hosted, so Russian reachability still depends on them; the Cloud Run host only
-  removes the storage blocker.
+  are Cloudflare-hosted, so Russian reachability still depends on them. The data itself is
+  stored in Russia.
 - Migrating an existing file snapshot is not automated; none is in production use.

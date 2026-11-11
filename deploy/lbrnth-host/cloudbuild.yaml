@@ -1,9 +1,10 @@
 # Builds the Labyrinth host image into Artifact Registry. Deploying is a separate, approved step.
+#   gcloud builds submit --region europe-north1 --config deploy/lbrnth-host/cloudbuild.yaml --substitutions _TAG=<git sha> .
 steps:
   - name: gcr.io/cloud-builders/docker
-    args: ["build", "-f", "deploy/lbrnth-host/Dockerfile", "-t", "${_IMAGE}", "."]
-images: ["${_IMAGE}"]
+    args: ["build", "-f", "deploy/lbrnth-host/Dockerfile", "-t", "europe-north1-docker.pkg.dev/$PROJECT_ID/labyrinth/lbrnth-host:${_TAG}", "."]
+images: ["europe-north1-docker.pkg.dev/$PROJECT_ID/labyrinth/lbrnth-host:${_TAG}"]
 substitutions:
-  _IMAGE: europe-north1-docker.pkg.dev/${PROJECT_ID}/labyrinth/lbrnth-host:latest
+  _TAG: latest
 options:
   logging: CLOUD_LOGGING_ONLY

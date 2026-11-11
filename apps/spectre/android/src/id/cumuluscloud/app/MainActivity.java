@@ -9,6 +9,7 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.telephony.TelephonyManager;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -31,7 +32,7 @@ public class MainActivity extends Activity {
     private static final String ACTION_CUSTOM_TABS = "android.support.customtabs.action.CustomTabsService";
 
     private static final int PROBE_MS = 4000;
-    private static final int PROBE_BYTES = 40 * 1024;
+    private static final int PROBE_BYTES = 256 * 1024; // the whole app script, not just its start
 
     @Override
     protected void onCreate(Bundle state) {
@@ -43,6 +44,12 @@ public class MainActivity extends Activity {
         final String mirror = getString(R.string.mirror_url);
         if (mirror.isEmpty()) {
             open(target(main));
+            return;
+        }
+        // Russian and Belarusian networks throttle Cloudflare on and off, so a probe can pass and the
+        // page still stall. Use the mirror there without probing.
+        if (throttledCountry()) {
+            open(target(mirror));
             return;
         }
         final Handler ui = new Handler(Looper.getMainLooper());
@@ -61,6 +68,19 @@ public class MainActivity extends Activity {
             String base = !ok[0] && ok[1] ? mirror : main;
             ui.post(() -> open(target(base)));
         }).start();
+    }
+
+    /** True when the mobile network or the SIM is Russian or Belarusian. */
+    private boolean throttledCountry() {
+        try {
+            TelephonyManager tm = (TelephonyManager) getSystemService(TELEPHONY_SERVICE);
+            if (tm == null) return false;
+            for (String iso : new String[] {tm.getNetworkCountryIso(), tm.getSimCountryIso()}) {
+                if (iso != null && (iso.equalsIgnoreCase("ru") || iso.equalsIgnoreCase("by"))) return true;
+            }
+        } catch (Exception ignored) {
+        }
+        return false;
     }
 
     /** True if the first PROBE_BYTES of the site's app script arrive within PROBE_MS. */

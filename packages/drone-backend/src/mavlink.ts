@@ -7,7 +7,7 @@ export interface Observation {
   systemId: number;
   componentId: number;
   sequence: number;
-  data: Record<string, number | boolean | null>;
+  data: Record<string, number | string | boolean | null>;
 }
 const definitions: Record<number, { extra: number; min: number; max: number }> = {
   0: { extra: 50, min: 9, max: 9 },

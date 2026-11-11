@@ -1,3 +1,4 @@
+import CumulusKit
 import SwiftUI
 
 struct MailView: View {
@@ -394,6 +395,8 @@ struct MailView: View {
         .frame(width: 520)
         .background(CumulusColor.paper)
         .overlay(Rectangle().stroke(CumulusColor.ink, lineWidth: 1))
+        // A container keeps its children's identifiers (the Send button stays "send").
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("composer")
     }
 

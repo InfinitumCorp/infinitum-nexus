@@ -1,3 +1,4 @@
+import CumulusKit
 import SwiftUI
 
 enum CumulusColor {

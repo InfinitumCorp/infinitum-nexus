@@ -61,7 +61,8 @@ export function entityState(fix: EntityFix): Uint8Array {
 }
 
 export function readEntityState(bytes: Uint8Array): EntityFix {
-  const copy = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+  // A fresh Uint8Array owns a plain ArrayBuffer (bytes.buffer may be a SharedArrayBuffer in the types).
+  const copy = new Uint8Array(bytes).buffer;
   const pdu = new dis.EntityStatePdu();
   pdu.initFromBinary(new dis.InputStream(copy));
   if (pdu.pduType !== 1) throw new Error("Only an entity-state PDU can be read here.");

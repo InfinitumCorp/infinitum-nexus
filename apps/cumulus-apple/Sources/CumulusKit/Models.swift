@@ -35,6 +35,11 @@ public struct MailPayment: Codable, Equatable, Sendable {
 public struct MailTunnel: Codable, Equatable, Sendable {
     public var verified: Bool
     public var fingerprint: String
+
+    public init(verified: Bool, fingerprint: String) {
+        self.verified = verified
+        self.fingerprint = fingerprint
+    }
 }
 
 public struct MailMessage: Decodable, Equatable, Identifiable, Sendable {

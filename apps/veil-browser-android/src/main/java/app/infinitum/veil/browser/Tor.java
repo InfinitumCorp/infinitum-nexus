@@ -35,6 +35,12 @@ import org.json.JSONObject;
  * restarts with Tor Browser's built-in Snowflake, WebTunnel/obfs4 and meek bridges
  * (assets/tor/pt_config.json), carried by lyrebird (lib/<abi>/libLyrebird.so).
  * Once bridges connect, the next launch starts with them.
+ *
+ * Snowflake's speed depends on which volunteer proxy it draws: the same bridge connects in
+ * 20 s or not at all in 3 minutes. So a Snowflake start runs a second tor beside the first
+ * (its own data directory, warmed with a copy of the first one's directory cache, and its
+ * own ports) and keeps whichever reaches 100% first. The browser then follows the winner's
+ * SOCKS port (MainActivity sees socksPort change in onTorState).
  */
 final class Tor {
     interface Listener {
@@ -91,8 +97,17 @@ final class Tor {
         return instance;
     }
 
-    final int socksPort = freePort();
-    final int controlPort = freePort();
+    /** The SOCKS and control ports of the tor in use; they change when the spare tor wins. */
+    volatile int socksPort = freePort();
+    volatile int controlPort = freePort();
+    /** The second Snowflake tor racing the first (see class comment), or null. */
+    private volatile Process spare;
+    private File spareDir;
+    private int spareSocks, spareControl;
+    /** The two data directories the racing tors take turns in; the winner's is kept. */
+    static final String[] DIRS = {"tor", "tor-b"};
+    /** Directory cache files copied to the spare so it starts warm (never the lock or cookie). */
+    static final String[] CACHE_FILES = {"cached-certs", "cached-microdesc-consensus", "cached-microdescs", "cached-microdescs.new", "state"};
     private final Handler main = new Handler(Looper.getMainLooper());
     private volatile Process process;
     private Context app;
@@ -169,30 +184,8 @@ final class Tor {
         trafficSeen = 0;
         notifyListener();
         try {
-            dir = new File(app.getNoBackupFilesDir(), "tor");
-            if (!dir.isDirectory() && !dir.mkdirs()) throw new IOException("can't create " + dir);
-            String libs = app.getApplicationInfo().nativeLibraryDir;
-            StringBuilder conf = new StringBuilder()
-                .append("DataDirectory ").append(dir.getAbsolutePath()).append('\n')
-                .append("SocksPort 127.0.0.1:").append(socksPort).append('\n')
-                .append("ControlPort 127.0.0.1:").append(controlPort).append('\n')
-                .append("CookieAuthentication 1\n")
-                .append("CookieAuthFile ").append(new File(dir, "control_auth_cookie").getAbsolutePath()).append('\n')
-                .append("__OwningControllerProcess ").append(android.os.Process.myPid()).append('\n')
-                .append("ClientOnly 1\n")
-                .append("AvoidDiskWrites 1\n")
-                .append("Log notice stdout\n");
-            if (kind != null) conf.append(bridgeConfig(new File(libs, "libLyrebird.so").getAbsolutePath(), kind));
-            File torrc = new File(dir, "torrc");
-            try (OutputStream o = new FileOutputStream(torrc)) {
-                o.write(conf.toString().getBytes(StandardCharsets.UTF_8));
-            }
-            ProcessBuilder pb = new ProcessBuilder(new File(libs, "libTor.so").getAbsolutePath(),
-                "-f", torrc.getAbsolutePath(), "--defaults-torrc", new File(dir, "torrc-defaults").getAbsolutePath(),
-                "--ignore-missing-torrc");
-            pb.directory(dir);
-            pb.redirectErrorStream(true);
-            Process p = pb.start();
+            dir = new File(app.getNoBackupFilesDir(), mainDirName());
+            Process p = startTor(dir, socksPort, controlPort, kind);
             process = p;
             Thread t = new Thread(() -> watch(p), "tor-log");
             t.setDaemon(true);
@@ -204,7 +197,105 @@ final class Tor {
         } catch (IOException | org.json.JSONException e) {
             process = null;
             fail("Tor couldn't start: " + e.getMessage());
+            return;
         }
+        if ("snowflake".equals(kind)) startSpare(kind);
+    }
+
+    /** The data directory the last winning tor used (DIRS[0] at first). */
+    private String mainDirName() {
+        String d = prefs().getString("dir", DIRS[0]);
+        return DIRS[1].equals(d) ? DIRS[1] : DIRS[0];
+    }
+
+    /** Writes a torrc in d and starts tor with it. */
+    private Process startTor(File d, int socks, int control, String kind) throws IOException, org.json.JSONException {
+        if (!d.isDirectory() && !d.mkdirs()) throw new IOException("can't create " + d);
+        String libs = app.getApplicationInfo().nativeLibraryDir;
+        StringBuilder conf = new StringBuilder()
+            .append("DataDirectory ").append(d.getAbsolutePath()).append('\n')
+            .append("SocksPort 127.0.0.1:").append(socks).append('\n')
+            .append("ControlPort 127.0.0.1:").append(control).append('\n')
+            .append("CookieAuthentication 1\n")
+            .append("CookieAuthFile ").append(new File(d, "control_auth_cookie").getAbsolutePath()).append('\n')
+            .append("__OwningControllerProcess ").append(android.os.Process.myPid()).append('\n')
+            .append("ClientOnly 1\n")
+            .append("AvoidDiskWrites 1\n")
+            .append("Log notice stdout\n");
+        if (kind != null) conf.append(bridgeConfig(new File(libs, "libLyrebird.so").getAbsolutePath(), kind));
+        File torrc = new File(d, "torrc");
+        try (OutputStream o = new FileOutputStream(torrc)) {
+            o.write(conf.toString().getBytes(StandardCharsets.UTF_8));
+        }
+        ProcessBuilder pb = new ProcessBuilder(new File(libs, "libTor.so").getAbsolutePath(),
+            "-f", torrc.getAbsolutePath(), "--defaults-torrc", new File(d, "torrc-defaults").getAbsolutePath(),
+            "--ignore-missing-torrc");
+        pb.directory(d);
+        pb.redirectErrorStream(true);
+        return pb.start();
+    }
+
+    /** Starts the second Snowflake tor in the other data directory, warmed with this one's cache. */
+    private synchronized void startSpare(String kind) {
+        stopSpare();
+        try {
+            File d = new File(app.getNoBackupFilesDir(), DIRS[0].equals(dir.getName()) ? DIRS[1] : DIRS[0]);
+            if (!d.isDirectory() && !d.mkdirs()) return;
+            for (String name : CACHE_FILES) copyIfNewer(new File(dir, name), new File(d, name));
+            int socks = freePort(), control = freePort();
+            Process sp = startTor(d, socks, control, kind);
+            spare = sp;
+            spareDir = d;
+            spareSocks = socks;
+            spareControl = control;
+            android.util.Log.i("VEIL-Tor", "VEIL: racing a second Snowflake tor");
+            Thread t = new Thread(() -> watch(sp), "tor-spare-log");
+            t.setDaemon(true);
+            t.start();
+        } catch (IOException | org.json.JSONException e) {
+            android.util.Log.i("VEIL-Tor", "VEIL: no second tor: " + e.getMessage());
+        }
+    }
+
+    private synchronized void stopSpare() {
+        Process sp = spare;
+        spare = null;
+        if (sp != null) sp.destroy();
+    }
+
+    /** The spare reached 100% before the first tor: it becomes the tor in use. */
+    private synchronized void promote(Process sp) {
+        if (sp != spare || process == null || progress >= 100) { // too late: the first one won
+            if (sp == spare) stopSpare();
+            return;
+        }
+        android.util.Log.i("VEIL-Tor", "VEIL: the second Snowflake tor won the race");
+        Process old = process;
+        process = sp; // set before destroying old, so its log thread doesn't report a failure
+        spare = null;
+        old.destroy();
+        dir = spareDir;
+        socksPort = spareSocks;
+        controlPort = spareControl;
+        gen++; // stale stall checks and traffic polls of the old tor stop
+        progress = 100;
+        summary = "Done";
+        pathWorks = true;
+        prefs().edit().putBoolean("bridges", bridges).putString("transport", transport).putString("dir", dir.getName()).apply();
+        notifyListener();
+    }
+
+    static void copyIfNewer(File from, File to) {
+        if (!from.isFile() || (to.isFile() && to.lastModified() >= from.lastModified())) return;
+        File tmp = new File(to.getPath() + ".tmp");
+        try (InputStream in = new FileInputStream(from); OutputStream out = new FileOutputStream(tmp)) {
+            byte[] buf = new byte[64 * 1024];
+            for (int n; (n = in.read(buf)) > 0; ) out.write(buf, 0, n);
+        } catch (IOException e) {
+            tmp.delete();
+            return;
+        }
+        if (!tmp.renameTo(to)) tmp.delete();
     }
 
     private JSONObject ptConfig;
@@ -361,6 +452,7 @@ final class Tor {
      * binds the same SOCKS and control ports, so the wait happens off the main thread.
      */
     private synchronized void restart(String kind) {
+        stopSpare();
         int g = ++gen;
         Process old = process;
         process = null;
@@ -384,7 +476,12 @@ final class Tor {
             String line;
             while ((line = r.readLine()) != null) {
                 android.util.Log.i("VEIL-Tor", line); // notice level, SafeLogging on: no destinations
-                if (process != p) continue; // a replaced tor still flushing its log: don't touch the new one's state
+                if (process != p) {
+                    // The racing spare tor only matters once it's done. Anything else here is a
+                    // replaced tor still flushing its log: don't touch the new one's state.
+                    if (p == spare && line.contains("Bootstrapped 100%")) promote(p);
+                    continue;
+                }
                 Matcher m = BOOTSTRAP.matcher(line);
                 if (m.find()) {
                     int pct = Integer.parseInt(m.group(1));
@@ -396,6 +493,10 @@ final class Tor {
                         // next launch skips a direct start that stalls at 10% here.
                         pathWorks = true;
                         prefs().edit().putBoolean("bridges", bridges).putString("transport", transport).apply();
+                    }
+                    if (pct >= 100) {
+                        stopSpare(); // this one won the race
+                        prefs().edit().putString("dir", dir.getName()).apply();
                     }
                     notifyListener();
                 } else if (bridges && !pathWorks && PT_ACTIVITY.matcher(line).find()) {
@@ -487,6 +588,7 @@ final class Tor {
     }
 
     synchronized void stop() {
+        stopSpare();
         gen++;
         restarting = false;
         if (process != null) {

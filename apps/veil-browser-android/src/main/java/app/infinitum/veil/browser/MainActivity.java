@@ -116,6 +116,8 @@ public class MainActivity extends Activity {
     int blockedReported = 0;
     TextView torBox;
     volatile boolean proxyReady = false;
+    /** The Tor SOCKS port the WebView proxy points at; Tor's changes when its racing spare wins. */
+    int proxyPort = -1;
     /** Set when this phone's WebView can't be pointed at Tor; VEIL then refuses to browse. */
     String proxyProblem;
     /** Where to go once Tor connects (main view), or the panel to open (url, title). */
@@ -200,14 +202,21 @@ public class MainActivity extends Activity {
     }
 
     void startProxy() {
+        startProxy(true);
+    }
+
+    /** Points the WebView at Tor's SOCKS port; reload loads the start page once it's set. */
+    void startProxy(boolean reload) {
         if (!WebViewFeature.isFeatureSupported(WebViewFeature.PROXY_OVERRIDE)) {
             proxyProblem = "This phone's Android System WebView is too old to send VEIL's traffic over Tor. Update \"Android System WebView\" from the Play Store, then reopen VEIL.";
             updateTorBox();
             web.loadUrl(HUB); // local page; nothing remote loads (proxyReady stays false)
             return;
         }
+        int port = tor.socksPort;
+        proxyPort = port;
         ProxyConfig config = new ProxyConfig.Builder()
-            .addProxyRule("socks5://127.0.0.1:" + tor.socksPort) // SOCKS5: host names resolve inside Tor, not on the phone
+            .addProxyRule("socks5://127.0.0.1:" + port) // SOCKS5: host names resolve inside Tor, not on the phone
             .build();
         try {
             ProxyController.getInstance().setProxyOverride(config, getMainExecutor(), () -> {
@@ -215,8 +224,9 @@ public class MainActivity extends Activity {
                     ProxyController.getInstance().clearProxyOverride(getMainExecutor(), () -> {});
                     return;
                 }
+                if (port != proxyPort) return; // a newer port is being set
                 proxyReady = true;
-                web.loadUrl(HUB);
+                if (reload) web.loadUrl(HUB);
                 onTorState(tor.progress, tor.summary, tor.error);
             });
         } catch (RuntimeException e) {
@@ -231,6 +241,11 @@ public class MainActivity extends Activity {
     }
 
     void onTorState(int progress, String summary, String error) {
+        if (!torOff && proxyPort != -1 && proxyPort != tor.socksPort && proxyProblem == null) {
+            // Tor's racing spare won: follow it to its SOCKS port. Nothing loads until it's set.
+            proxyReady = false;
+            startProxy(false);
+        }
         updateTorBox();
         if (!torReady()) { torWasReady = false; return; }
         if (!torWasReady) {

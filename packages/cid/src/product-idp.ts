@@ -152,7 +152,9 @@ export function registerProductIdp(h: ProductIdpHelpers) {
     }
     if (!ctx.user) {
       const back = `${strict ? "/realms/cumulus/protocol/openid-connect/auth" : "/api/id/authorize"}?${q.toString()}`;
-      return new Redirect(`/?next=${encodeURIComponent(back)}&for=${encodeURIComponent(client.name)}`);
+      // "Create a Cumulus ID" in a product sends prompt=create: open the sign-in page on Create.
+      const create = q.get("prompt") === "create" ? "&create=1" : "";
+      return new Redirect(`/?next=${encodeURIComponent(back)}&for=${encodeURIComponent(client.name)}${create}`);
     }
     const account = ctx.user.account as Account;
     if (!cid.can(account.cid, client.app, "profile:read")) await cid.grant(account.cid, client.app, ["profile:read"]);

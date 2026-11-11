@@ -155,6 +155,8 @@ function renderAuth(message = "") {
     </div></div>`;
   const err = $("#err");
   err.textContent = message;
+  // A product's "Create a Cumulus ID" button lands here with ?create=1.
+  if (new URLSearchParams(location.search).get("create") === "1") $("#username").focus();
   const fail = (e) => { err.textContent = e.name === "NotAllowedError" ? "Passkey request was cancelled." : e.message; };
   // Social sign-in buttons for every provider the server has configured.
   api("GET", "/api/auth/providers").then((providers) => {

@@ -5,7 +5,7 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "test": "node --test test/",
+    "test": "node --test test/*.test.js",
     "migrate": "cf d1 migrations apply 604d319a-8e29-4e9e-b91c-0a6322d8c15c --dir migrations",
     "deploy": "cf deploy"
   },

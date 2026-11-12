@@ -22,6 +22,11 @@ services:
       # Supabase session pooler, data_platform_gateway role. Catalog, events, search and the
       # DP budget all live there.
       DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL (Supabase pooler, data_platform_gateway role)}
+      # Free-tier guards: stop taking events before Supabase's 500 MB limit, and cap each
+      # product per UTC day so one noisy product cannot fill the database for the others.
+      PLATFORM_STORAGE_LIMIT_MB: ${PLATFORM_STORAGE_LIMIT_MB:-450}
+      PLATFORM_DAILY_EVENT_QUOTA: ${PLATFORM_DAILY_EVENT_QUOTA:-200000}
+      PLATFORM_MAX_BATCH: ${PLATFORM_MAX_BATCH:-1000}
       DATAHUB_GMS_URL: ${DATAHUB_GMS_URL:-}
       DATAHUB_GMS_TOKEN: ${DATAHUB_GMS_TOKEN:-}
     mem_limit: 1g

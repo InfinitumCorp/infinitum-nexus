@@ -169,6 +169,20 @@ class PostgresEventIndex:
             hits.append({"_source": src, "sort": [_ms(occurred), eid]})
         return {"hits": {"hits": hits}}
 
+    def erase(self, cid_pseudonym: str, product: str | None) -> int:
+        sql = "delete from data_platform.events where cid = %s"
+        args: list[Any] = [cid_pseudonym]
+        if product:
+            sql += " and product = %s"
+            args.append(product)
+        with _connect(self.dsn) as c:
+            return c.execute(sql, args).rowcount
+
+    def storage_bytes(self) -> int:
+        """Size of the whole database: the Supabase free-plan limit applies to all of it."""
+        with _connect(self.dsn) as c:
+            return int(c.execute("select pg_database_size(current_database())").fetchone()[0])
+
     def purge_expired(self) -> int:
         with _connect(self.dsn) as c:
             return int(c.execute("select data_platform.purge_expired_events()").fetchone()[0])

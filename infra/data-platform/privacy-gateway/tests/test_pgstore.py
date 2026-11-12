@@ -109,6 +109,23 @@ def test_bi_reader_sees_only_safe_columns(stack, reader_dsn):
             c.execute("delete from data_platform.events")
 
 
+def test_erasure_and_storage_size(stack, redactor):
+    from cumulus_privacy.platform import Eraser, IngestLimits
+
+    _, collector, searcher, index = stack
+    collector.ingest("spectre", [event(), event(tenant="globex"), event(cid="cid_other")])
+    eraser = Eraser(redactor, index)
+    assert eraser.erase("cumulus-mail", "cid_person0001") == {"deleted": 0}
+    assert eraser.erase("spectre", "cid_person0001") == {"deleted": 2}
+    assert eraser.erase(None, "cid_person0001") == {"deleted": 0}
+    assert len(searcher.search("spectre", _q())["hits"]) == 1
+    # The gateway role can read the database size, which drives the free-tier guard.
+    size = index.storage_bytes()
+    assert size > 1_000_000
+    limits = IngestLimits(storage_limit_bytes=size, storage=index.storage_bytes)
+    assert limits.storage_state() == "full"
+
+
 def test_retention_purge(stack):
     _, collector, _, index = stack
     old = (datetime.now(timezone.utc) - timedelta(days=400)).isoformat()

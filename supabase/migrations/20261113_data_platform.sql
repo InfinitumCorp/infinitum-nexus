@@ -38,6 +38,8 @@ create index if not exists events_scope_time on data_platform.events (product, t
 create index if not exists events_object on data_platform.events (product, tenant, object_type, object_id);
 create index if not exists events_type on data_platform.events (product, tenant, event_type, occurred_at desc);
 create index if not exists events_tsv on data_platform.events using gin (tsv);
+-- Right to erasure: find every event about one person (by CID pseudonym).
+create index if not exists events_cid on data_platform.events (cid) where cid is not null;
 
 create table if not exists data_platform.privacy_budget (
   dataset  text primary key,

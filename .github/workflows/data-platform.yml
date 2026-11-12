@@ -70,6 +70,11 @@ jobs:
           python ../smoke/platform_smoke.py http://127.0.0.1:8090 "$SPECTRE" "$MAIL" || { cat "$RUNNER_TEMP/gateway.log"; exit 1; }
           rows=$(python -c "import os,psycopg;print(psycopg.connect(os.environ['TEST_DATABASE_URL']).execute('select count(*) from data_platform.events').fetchone()[0])")
           echo "events stored in Postgres: $rows"; test "$rows" -gt 0
+          curl -fsS http://127.0.0.1:8090/api/v1/health | grep -q '"storage": "ok"'
+          # Right to erasure: the smoke event's person is erased everywhere with the pipeline token.
+          out=$(curl -fsS http://127.0.0.1:8090/api/v1/erasure/subjects/all-products \
+            -H "Authorization: Bearer $PRIVACY_GATEWAY_TOKEN" -H 'Content-Type: application/json' -d '{"cid":"cid_smoke0001"}')
+          echo "$out"; test "$out" = '{"deleted": 1}'
 
   conjure:
     runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
@@ -141,6 +146,12 @@ jobs:
         run: |
           set -a; . ./.env; set +a
           python3 smoke/platform_smoke.py http://127.0.0.1:8090 "$SMOKE_SPECTRE_TOKEN" "$SMOKE_MAIL_TOKEN"
+      - name: Right to erasure on OpenSearch (delete_by_query)
+        run: |
+          set -a; . ./.env; set +a
+          out=$(curl -fsS http://127.0.0.1:8090/api/v1/erasure/subjects \
+            -H "Authorization: Bearer $SMOKE_SPECTRE_TOKEN" -H 'Content-Type: application/json' -d '{"cid":"cid_smoke0001"}')
+          echo "$out"; test "$out" = '{"deleted": 1}'
       - name: Start Superset (profile bi)
         run: |
           docker compose --profile bi up -d --build --wait --wait-timeout 900 superset

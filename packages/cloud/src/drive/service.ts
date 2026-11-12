@@ -525,6 +525,13 @@ export class DriveService {
     return result;
   }
 
+  /** Give back quota held by uploads that crashed before their database commit. See DriveRepo.reconcileQuotas. */
+  async reconcileQuotas(opts: { graceMs?: number } = {}) {
+    const graceMs = opts.graceMs ?? DAY_MS;
+    if (!Number.isFinite(graceMs) || graceMs < 60 * 60 * 1000) throw new DriveError(400, "grace_too_short", "Quota reconciliation needs a grace period of at least one hour");
+    return this.repo.reconcileQuotas(new Date(this.clock().getTime() - graceMs));
+  }
+
   async expireUploads(): Promise<number> {
     const expired = await this.repo.expiredUploads(this.clock());
     for (const upload of expired) await this.releaseUpload(upload.ownerCid, upload.id, upload.declaredSize);

@@ -2,7 +2,8 @@
  * Find (and with --delete, remove) Cumulus://Cloud bytes that no file version or upload points at.
  *
  *   node --experimental-strip-types scripts/sweep-orphans.ts            # report only
- *   node --experimental-strip-types scripts/sweep-orphans.ts --delete   # remove them
+ *   node --experimental-strip-types scripts/sweep-orphans.ts --delete   # remove them, and give back
+ *                                                                       # quota crashed uploads still hold
  *   --grace-hours=N   only consider objects older than N hours (default 24, minimum 1)
  *
  * Reads CUMULUS_CLOUD_DATABASE_URL and CUMULUS_CLOUD_DATA_DIR like the server.
@@ -28,6 +29,11 @@ try {
   for (const key of r.orphans) console.log(`${del ? "removed" : "orphan"}  ${key}`);
   for (const key of r.temps) console.log(`${del ? "removed" : "temp"}    ${key}`);
   console.log(`${r.scanned} objects checked, ${r.orphans.length} orphaned, ${r.temps.length} temp files, ${r.deleted} removed${del ? "" : " (report only; pass --delete to remove)"}`);
+  if (del) {
+    const fixed = await service.reconcileQuotas({ graceMs: graceHours * 3_600_000 });
+    for (const f of fixed) console.log(`quota    ${f.ownerCid}: ${f.before} -> ${f.after} bytes`);
+    console.log(`${fixed.length} quota${fixed.length === 1 ? "" : "s"} corrected`);
+  }
 } finally {
   await pool.end();
 }

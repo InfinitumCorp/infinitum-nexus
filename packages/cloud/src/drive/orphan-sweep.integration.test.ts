@@ -114,6 +114,32 @@ describe("Cumulus://Cloud orphan sweep against local PostgreSQL", {
     await rm(outside, { recursive: true, force: true });
   });
 
+  it("gives back quota a crashed upload held, but never an upload in flight or a live file's", async () => {
+    const crashed = `cid_${randomUUID()}`;
+    const busy = `cid_${randomUUID()}`;
+    const body = Buffer.from("kept-bytes");
+    // Crashed: a file was stored, then a 900-byte upload reserved quota and the process died.
+    await service.upload(crashed, Readable.from([body]), { name: "kept.txt", folderId: null, declaredSize: body.length, declaredType: "text/plain", expectedSha256: sha(body) });
+    await service.repo.reserve(crashed, 900, 10_000);
+    // In flight: reserved a moment ago, its row isn't written yet.
+    await service.repo.reserve(busy, 500, 10_000);
+    // Idle for two days with a multipart upload still open: that reservation is real.
+    const waiting = `cid_${randomUUID()}`;
+    await service.startUpload(waiting, { name: "slow.bin", folderId: null, fileId: null, declaredSize: 3072, declaredType: "application/octet-stream", expectedSha256: null });
+    await pool.query(`UPDATE cloud_quotas SET updated_at = now() - interval '48 hours' WHERE owner_cid = ANY($1::text[])`, [[crashed, waiting]]);
+
+    const used = async (c: string) => Number((await pool.query(`SELECT used_bytes FROM cloud_quotas WHERE owner_cid = $1`, [c])).rows[0].used_bytes);
+    assert.equal(await used(crashed), body.length + 900);
+    const fixed = await service.reconcileQuotas();
+    const mine = fixed.filter((f) => [crashed, busy, waiting].includes(f.ownerCid));
+    assert.deepEqual(mine, [{ ownerCid: crashed, before: body.length + 900, after: body.length }]);
+    assert.equal(await used(crashed), body.length, "only the live file still counts");
+    assert.equal(await used(busy), 500, "an upload in flight keeps its reservation");
+    assert.equal(await used(waiting), 3072, "an open upload keeps its reservation");
+    assert.deepEqual((await service.reconcileQuotas()).filter((f) => f.ownerCid === crashed), [], "nothing left to fix");
+    await assert.rejects(service.reconcileQuotas({ graceMs: 1000 }), (e: DriveError) => e.code === "grace_too_short");
+  });
+
   it("refuses a grace period under an hour", async () => {
     await assert.rejects(service.sweepOrphanBlobs({ graceMs: 60_000 }), (e: DriveError) => e.code === "grace_too_short");
   });

@@ -69,7 +69,13 @@ const sweepMode = (process.env.CUMULUS_CLOUD_ORPHAN_SWEEP ?? "off").trim().toLow
 if (sweepMode === "delete" || sweepMode === "report") {
   const sweep = () =>
     service.sweepOrphanBlobs({ dryRun: sweepMode !== "delete" })
-      .then((r) => { if (r.orphans.length || r.temps.length) console.log(`Cumulus://Cloud orphan sweep (${sweepMode}): ${r.orphans.length} objects, ${r.temps.length} temp files, ${r.deleted} removed`); })
+      .then(async (r) => {
+        if (r.orphans.length || r.temps.length) console.log(`Cumulus://Cloud orphan sweep (${sweepMode}): ${r.orphans.length} objects, ${r.temps.length} temp files, ${r.deleted} removed`);
+        if (sweepMode === "delete") {
+          const fixed = await service.reconcileQuotas();
+          if (fixed.length) console.log(`Cumulus://Cloud quota reconcile: ${fixed.length} owner(s) corrected`);
+        }
+      })
       .catch(() => console.error("Cumulus://Cloud orphan sweep failed"));
   setTimeout(() => void sweep(), 5 * 60_000).unref();
   setInterval(() => void sweep(), 6 * 60 * 60_000).unref();

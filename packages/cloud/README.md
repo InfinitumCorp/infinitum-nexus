@@ -136,8 +136,13 @@ Storage keys are random and never reused, so a key that is old and unreferenced 
 
 ```sh
 node --experimental-strip-types scripts/sweep-orphans.ts            # report only
-node --experimental-strip-types scripts/sweep-orphans.ts --delete   # remove them
+node --experimental-strip-types scripts/sweep-orphans.ts --delete   # remove them, and fix quotas
 ```
+
+In delete mode it also runs `DriveService.reconcileQuotas()`. An owner's usage is the size of every
+stored version plus the declared size of each open upload; a crashed upload leaves `used_bytes`
+higher than that. The fix only ever lowers `used_bytes`, and only for owners whose quota row has
+been idle for the grace period, so a reservation for an upload in flight is never taken back.
 
 ## Launch gaps
 
@@ -146,7 +151,7 @@ node --experimental-strip-types scripts/sweep-orphans.ts --delete   # remove the
 - There is no monitoring, alerting, or request metrics.
 - The rate limit and the upload-expiry timer are inside one process. A second host would not share them.
 - The filesystem driver is one machine. It does not replicate.
-- A crash after the blob is renamed and before the database commit can leave an unreferenced file. The orphan sweep removes those (see below); it is off unless `CUMULUS_CLOUD_ORPHAN_SWEEP` is set. The quota reserved for that upload is not given back yet.
+- A crash after the blob is renamed and before the database commit can leave an unreferenced file and a quota reservation. The orphan sweep removes the file and gives the quota back (see below); it is off unless `CUMULUS_CLOUD_ORPHAN_SWEEP` is set.
 - The sample server's Cumulus://ID sessions are in memory.
 - Encryption is off unless the master-key env name is set. There is no external KMS, rotation, or envelope-key audit.
 - Share links with no expiry last until someone revokes them.

@@ -3,7 +3,6 @@
   ". Everything it moves can be undone.": "。它移动的所有内容都可以撤销。",
   "· Cc": "· 抄送",
   "· last run {0}": "· 上次运行 {0}",
-  "{0} · {1} message{2}": "{0} · {1} 封邮件{2}",
   "{0} conversations archived.": "已归档 {0} 个会话。",
   "{0} conversations marked as read.": "已将 {0} 个会话标为已读。",
   "{0} conversations marked as unread.": "已将 {0} 个会话标为未读。",
@@ -13,7 +12,6 @@
   "{0} is over 25 MB. Larger files belong in Cloud.": "{0} 超过 25 MB。更大的文件请放在 Cloud 中。",
   "{0} KB": "{0} KB",
   "{0} MB": "{0} MB",
-  "{0} message{1} ready to clean": "{0} 封邮件可清理{1}",
   "{0} min ago": "{0} 分钟前",
   "{0} new": "{0} 条新",
   "{0} new conversations.": "{0} 个新会话。",
@@ -247,7 +245,6 @@
   "{0} B": "{0} B",
   "{0} copy": "{0} 副本",
   "{0} GB": "{0} GB",
-  "{0} word{1}": "{0} 个字{1}",
   "• List": "• 列表",
   "+ New slide": "+ 新建幻灯片",
   "1. List": "1. 列表",
@@ -493,5 +490,11 @@
   "Upload files": "上传文件",
   "Use letters, numbers, spaces and underscores.": "请使用字母、数字、空格和下划线。",
   "You're signed in": "您已登录",
-  "Yours": "归您"
+  "Yours": "归您",
+  "{0} messages": "{0} 封邮件",
+  "{0} messages ready to clean": "{0} 封邮件待清理",
+  "{0} words": "{0} 字",
+  "1 message": "1 封邮件",
+  "1 message ready to clean": "1 封邮件待清理",
+  "1 word": "1 字"
 }

@@ -27,3 +27,10 @@ test("locale folders", () => {
   assert.equal(chromeLocaleDir("pt"), "pt_BR");
   assert.equal(chromeLocaleDir("ar"), "ar");
 });
+
+test("a plural block counts as its placeholder", () => {
+  const src = { a: "{0} words", b: "{0} · {1} messages" };
+  const good = { a: "{0, plural, one {# слово} few {# слова} many {# слов} other {# слова}}", b: "{0} · {1, plural, one {# письмо} other {# письма}}" };
+  assert.deepEqual(findBadTranslations(src, good), []);
+  assert.deepEqual(findBadTranslations(src, { a: "{1, plural, one {# слово} other {# слов}}", b: "{0} · письма" }), ["a", "b"]);
+});

@@ -3,7 +3,6 @@
   ". Everything it moves can be undone.": ". Все, що він переміщує, можна скасувати.",
   "· Cc": "· Копія",
   "· last run {0}": "· останній запуск {0}",
-  "{0} · {1} message{2}": "{0} · {1} повідомлення{2}",
   "{0} conversations archived.": "{0} розмов архівовано.",
   "{0} conversations marked as read.": "{0} розмов позначено як прочитані.",
   "{0} conversations marked as unread.": "{0} розмов позначено як непрочитані.",
@@ -13,7 +12,6 @@
   "{0} is over 25 MB. Larger files belong in Cloud.": "{0} більше 25 МБ. Великі файли слід зберігати в Cloud.",
   "{0} KB": "{0} КБ",
   "{0} MB": "{0} МБ",
-  "{0} message{1} ready to clean": "{0} повідомлення{1} готово до очищення",
   "{0} min ago": "{0} хв тому",
   "{0} new": "{0} нових",
   "{0} new conversations.": "{0} нових розмов.",
@@ -247,7 +245,6 @@
   "{0} B": "{0} Б",
   "{0} copy": "{0} — копія",
   "{0} GB": "{0} ГБ",
-  "{0} word{1}": "{0} слів{1}",
   "• List": "• Список",
   "+ New slide": "+ Новий слайд",
   "1. List": "1. Список",
@@ -493,5 +490,11 @@
   "Upload files": "Завантажити файли",
   "Use letters, numbers, spaces and underscores.": "Використовуйте літери, цифри, пробіли та підкреслення.",
   "You're signed in": "Ви увійшли",
-  "Yours": "Ваші"
+  "Yours": "Ваші",
+  "{0} messages": "{0, plural, one {# лист} few {# листи} many {# листів} other {# листа}}",
+  "{0} messages ready to clean": "До очищення: {0, plural, one {# лист} few {# листи} many {# листів} other {# листа}}",
+  "{0} words": "{0, plural, one {# слово} few {# слова} many {# слів} other {# слова}}",
+  "1 message": "1 лист",
+  "1 message ready to clean": "До очищення: 1 лист",
+  "1 word": "1 слово"
 }

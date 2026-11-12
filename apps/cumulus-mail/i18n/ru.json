@@ -3,7 +3,6 @@
   ". Everything it moves can be undone.": ". Всё, что он перемещает, можно отменить.",
   "· Cc": "· Cc",
   "· last run {0}": "· последний запуск {0}",
-  "{0} · {1} message{2}": "{0} · {1} сообщение{2}",
   "{0} conversations archived.": "{0} бесед архивировано.",
   "{0} conversations marked as read.": "{0} бесед помечено как прочитанные.",
   "{0} conversations marked as unread.": "{0} бесед помечено как непрочитанные.",
@@ -13,7 +12,6 @@
   "{0} is over 25 MB. Larger files belong in Cloud.": "{0} превышает 25 МБ. Большие файлы следует хранить в Cloud.",
   "{0} KB": "{0} KB",
   "{0} MB": "{0} MB",
-  "{0} message{1} ready to clean": "{0} сообщение{1} готово к очистке",
   "{0} min ago": "{0} мин назад",
   "{0} new": "{0} новых",
   "{0} new conversations.": "{0} новых бесед.",
@@ -247,7 +245,6 @@
   "{0} B": "{0} Б",
   "{0} copy": "{0} — копия",
   "{0} GB": "{0} ГБ",
-  "{0} word{1}": "{0} слов{1}",
   "• List": "• Список",
   "+ New slide": "+ Новый слайд",
   "1. List": "1. Список",
@@ -493,5 +490,11 @@
   "Upload files": "Загрузить файлы",
   "Use letters, numbers, spaces and underscores.": "Используйте буквы, цифры, пробелы и подчёркивания.",
   "You're signed in": "Вы вошли",
-  "Yours": "Ваши"
+  "Yours": "Ваши",
+  "{0} messages": "{0, plural, one {# письмо} few {# письма} many {# писем} other {# письма}}",
+  "{0} messages ready to clean": "К очистке: {0, plural, one {# письмо} few {# письма} many {# писем} other {# письма}}",
+  "{0} words": "{0, plural, one {# слово} few {# слова} many {# слов} other {# слова}}",
+  "1 message": "1 письмо",
+  "1 message ready to clean": "К очистке: 1 письмо",
+  "1 word": "1 слово"
 }

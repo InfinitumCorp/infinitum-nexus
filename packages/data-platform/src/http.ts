@@ -3,6 +3,7 @@
  * HTTP surface:
  *
  *   POST /v1/events                  signed product ingestion (see signing.ts)
+ *   POST /api/v1/collect/events      same, with the Conjure EventEnvelope (see conjure.ts)
  *   GET  /v1/objects/:type/:id       one ontology object, if the viewer may read it
  *   GET  /v1/search?q=&type=         authorized ontology search
  *   GET  /v1/catalog                 dataset catalog (owners, lineage, quality)
@@ -14,10 +15,13 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { Platform } from "./index.ts";
 import { OBJECT_TYPES, type ObjectType, type Viewer } from "./ontology.ts";
+import { fromConjureEnvelope, toConjureResponse, type ConjureRegion } from "./conjure.ts";
 
 export interface HttpOptions {
   resolveViewer: (req: IncomingMessage) => Promise<Viewer | null>;
   maxBodyBytes?: number;
+  /** Region this deployment stores (Conjure route). Defaults to US. */
+  region?: ConjureRegion;
 }
 
 function send(res: ServerResponse, status: number, body: unknown): void {
@@ -55,6 +59,14 @@ export function createHttpHandler(p: Platform, o: HttpOptions) {
     try {
       const url = new URL(req.url ?? "/", "http://localhost");
       if (req.method === "GET" && url.pathname === "/healthz") return send(res, 200, { ok: true });
+      if (url.pathname === "/api/v1/collect/events") {
+        if (req.method !== "POST") return send(res, 405, { error: "method not allowed" });
+        const body = await readBody(req, limit);
+        if (body === null) return send(res, 413, { error: "body too large" });
+        const region = o.region ?? "US";
+        const r = await p.gateway.ingest(req.headers, body, (raw) => fromConjureEnvelope(raw, region));
+        return send(res, r.status, r.error ? { error: r.error } : toConjureResponse(r));
+      }
       if (url.pathname === "/v1/events") {
         if (req.method !== "POST") return send(res, 405, { error: "method not allowed" });
         const body = await readBody(req, limit);

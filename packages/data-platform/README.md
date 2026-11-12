@@ -59,6 +59,10 @@ import { Collector } from "@infinitum/data-platform/sdk";
   - `pseudonymSecret` and the credential secrets come from the secret manager, never from source.
 - **Product backends.** Use `new Collector({ endpoint, keyId, secret, product })`, then call `track(...)` and `flush()`.
   - Browser and mobile clients send through their own backend after Cumulus ID sign-in. They never hold a product credential.
+- **Conjure contract.** `POST /api/v1/collect/events` accepts the `EventEnvelope` from [`infra/data-platform/conjure/platform.yml`](../../infra/data-platform/conjure/platform.yml) and answers with its `IngestResponse`. Every native check still applies.
+  - `consent` is treated as a request. It maps to a purpose (ESSENTIAL → service_operation, ANALYTICS → product_analytics, AI_IMPROVEMENT → research, EXCHANGE → exchange_licensing), and the server then verifies that purpose against policy records. When several consents are listed, the narrowest is used.
+  - `region` must match the deployment's region (`createHttpServer(..., { region })`, default US). EU and RU data are refused rather than stored in the wrong place.
+  - Requests are still HMAC-signed (`signing.ts`).
 - **R2 or S3.** Use `new S3ObjectStore({ endpoint, bucket, accessKeyId, secretAccessKey, prefix })` as the `store`.
   - Requests are signed with SigV4 using only built-in Node APIs; the signer is tested against AWS's published example.
   - Table commits use conditional writes (`If-Match` / `If-None-Match`), so several gateway instances can share one bucket without losing commits.

@@ -16,6 +16,8 @@ export default defineConfig({
       VEIL_INDEX: bindings.d1({ name: "veil-index" }),
       // Workers AI writes VEIL Answers (src/answer.js) from the pages VEIL found.
       AI: bindings.ai(),
+      // The Android APK at /downloads/*.apk (src/worker.js), too big for a static asset. Private bucket.
+      DOWNLOADS: bindings.r2({ name: "veil-downloads" }),
     },
     observability: { enabled: true },
   },

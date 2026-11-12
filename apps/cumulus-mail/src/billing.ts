@@ -32,6 +32,7 @@ export const SELLABLE: Record<string, string> = {
   throne_care: "#THRONE",
   throne_book_lease: "#THRONE",
   academy_membership: "Infinitum Academy",
+  veil_premium: "VEIL",
 };
 
 /** Military-only products: never sold through public checkout. */

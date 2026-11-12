@@ -57,12 +57,18 @@ import { Collector } from "@infinitum/data-platform/sdk";
   - `pseudonymSecret` and the credential secrets come from the secret manager, never from source.
 - **Product backends.** Use `new Collector({ endpoint, keyId, secret, product })`, then call `track(...)` and `flush()`.
   - Browser and mobile clients send through their own backend after Cumulus ID sign-in. They never hold a product credential.
+- **R2 or S3.** Use `new S3ObjectStore({ endpoint, bucket, accessKeyId, secretAccessKey, prefix })` as the `store`.
+  - Requests are signed with SigV4 using only built-in Node APIs; the signer is tested against AWS's published example.
+  - Table commits use conditional writes (`If-Match` / `If-None-Match`), so several gateway instances can share one bucket without losing commits.
+- **Exchange.** `prepareOffer(...)` turns an exportable curated dataset into privacy-protected aggregate counts, never rows.
+  - It is refused unless the catalog marks the dataset exportable and not restricted, its latest quality report passed, and every contributing tenant's policy record allows export.
 - **Postgres.** `migrations/0001_ontology_policy.sql` creates the policy records, opt-ins, credential references, the ontology serving tables with row-level security, and the deletion log.
 
 ## Not yet
 
-- R2/S3 `ObjectStore` with conditional writes for multi-writer commits.
+- Cross-process deduplication in the raw zone. Commits are safe across processes, but two gateways that receive the same event at the same moment can both store it. The pipeline's normalized-zone check still counts it once.
 - Parquet data files (the table format already records `file_format`).
 - A Postgres-backed `PolicyService`, ontology store and Cumulus ID tenancy directory.
 - Contracts for the rest of the products' events.
-- Exchange listing of exportable curated datasets.
+- Publishing offers into `@infinitum/data-exchange` (consent records and revenue share live there).
+- Contracts for the other products' events. HRVST is not covered yet; it needs a decision on whether it belongs on the platform at all.

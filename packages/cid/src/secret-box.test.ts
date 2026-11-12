@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { Ledger, generateSigner } from "@infinitum/firmament";
 import { CidService, CidStore, hotp, base32Decode } from "./index.ts";
-import { cidSecretKeyFromEnv, deriveCidSecretKey, secretBox } from "./secret-box.ts";
+import { cidSecretKeyForHost, cidSecretKeyFromEnv, deriveCidSecretKey, secretBox } from "./secret-box.ts";
 import { exportCidAccounts } from "./account-export.ts";
 
 const START = new Date("2026-11-12T12:00:00Z");
@@ -39,6 +39,10 @@ describe("secretBox", () => {
     assert.deepEqual(cidSecretKeyFromEnv({ CID_SECRET_KEY: key.toString("base64url") }), key);
     assert.equal(cidSecretKeyFromEnv({}), undefined);
     assert.throws(() => cidSecretKeyFromEnv({ CID_SECRET_KEY: "c2hvcnQ=" }), /32 bytes/);
+    // Hosted products: CID_SECRET_KEY wins; otherwise derived from the ledger signing key they already hold.
+    assert.deepEqual(cidSecretKeyForHost({ CID_SECRET_KEY: key.toString("base64"), FIRMAMENT_SIGNER_KEY: "abc" }), key);
+    assert.deepEqual(cidSecretKeyForHost({ FIRMAMENT_SIGNER_KEY: "MC4CAQ" }), deriveCidSecretKey(Buffer.from("MC4CAQ")));
+    assert.equal(cidSecretKeyForHost({}), undefined);
     const master = randomBytes(32);
     assert.deepEqual(deriveCidSecretKey(master), deriveCidSecretKey(master));
     assert.notDeepEqual(deriveCidSecretKey(master), master);

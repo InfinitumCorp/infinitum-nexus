@@ -11,7 +11,7 @@ import type { Envelope } from "./envelope.ts";
 import type { Catalog } from "./catalog.ts";
 import { TRANSFORMATION_VERSION } from "./catalog.ts";
 import { partitionOf, type Lakehouse, type RawRow } from "./lakehouse.ts";
-import type { Ontology, OntologyObject } from "./ontology.ts";
+import type { Ontology, OntologyChange, OntologyObject } from "./ontology.ts";
 import { runChecks, type Check } from "./quality.ts";
 import type { Row } from "./table.ts";
 
@@ -33,6 +33,8 @@ export class Pipeline {
   readonly lakehouse: Lakehouse;
   readonly ontology: Ontology;
   readonly catalog: Catalog;
+  /** Optional serving copy that follows every ontology change (e.g. PgOntologyMirror). */
+  mirror?: { apply(changes: OntologyChange[]): Promise<void> };
 
   constructor(lakehouse: Lakehouse, ontology: Ontology, catalog: Catalog) {
     this.lakehouse = lakehouse;
@@ -105,6 +107,8 @@ export class Pipeline {
       }
     }
     if (touchedTenants.size) await this.rebuildCuratedFiles();
+    const changes = this.ontology.drainChanges();
+    if (this.mirror && changes.length) await this.mirror.apply(changes);
     return stats;
   }
 

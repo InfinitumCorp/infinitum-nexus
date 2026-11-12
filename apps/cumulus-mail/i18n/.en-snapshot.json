@@ -3,7 +3,6 @@
   ". Everything it moves can be undone.": ". Everything it moves can be undone.",
   "· Cc": "· Cc",
   "· last run {0}": "· last run {0}",
-  "{0} · {1} message{2}": "{0} · {1} message{2}",
   "{0} conversations archived.": "{0} conversations archived.",
   "{0} conversations marked as read.": "{0} conversations marked as read.",
   "{0} conversations marked as unread.": "{0} conversations marked as unread.",
@@ -13,7 +12,6 @@
   "{0} is over 25 MB. Larger files belong in Cloud.": "{0} is over 25 MB. Larger files belong in Cloud.",
   "{0} KB": "{0} KB",
   "{0} MB": "{0} MB",
-  "{0} message{1} ready to clean": "{0} message{1} ready to clean",
   "{0} min ago": "{0} min ago",
   "{0} new": "{0} new",
   "{0} new conversations.": "{0} new conversations.",
@@ -247,7 +245,6 @@
   "{0} B": "{0} B",
   "{0} copy": "{0} copy",
   "{0} GB": "{0} GB",
-  "{0} word{1}": "{0} word{1}",
   "• List": "• List",
   "+ New slide": "+ New slide",
   "1. List": "1. List",
@@ -493,5 +490,11 @@
   "Upload files": "Upload files",
   "Use letters, numbers, spaces and underscores.": "Use letters, numbers, spaces and underscores.",
   "You're signed in": "You're signed in",
-  "Yours": "Yours"
+  "Yours": "Yours",
+  "{0} messages": "{0} messages",
+  "{0} messages ready to clean": "{0} messages ready to clean",
+  "{0} words": "{0} words",
+  "1 message": "1 message",
+  "1 message ready to clean": "1 message ready to clean",
+  "1 word": "1 word"
 }

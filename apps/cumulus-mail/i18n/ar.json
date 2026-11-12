@@ -3,7 +3,6 @@
   ". Everything it moves can be undone.": ". كل ما ينقله يمكن التراجع عنه.",
   "· Cc": "· نسخة",
   "· last run {0}": "· آخر تشغيل {0}",
-  "{0} · {1} message{2}": "{0} · {1} رسالة{2}",
   "{0} conversations archived.": "تمت أرشفة {0} محادثات.",
   "{0} conversations marked as read.": "تم وضع علامة مقروءة على {0} محادثات.",
   "{0} conversations marked as unread.": "تم وضع علامة غير مقروءة على {0} محادثات.",
@@ -13,7 +12,6 @@
   "{0} is over 25 MB. Larger files belong in Cloud.": "{0} أكبر من 25 ميغابايت. الملفات الأكبر مكانها Cloud.",
   "{0} KB": "{0} KB",
   "{0} MB": "{0} MB",
-  "{0} message{1} ready to clean": "{0} رسالة جاهزة للتنظيف{1}",
   "{0} min ago": "قبل {0} دقيقة",
   "{0} new": "{0} جديد",
   "{0} new conversations.": "{0} محادثات جديدة.",
@@ -247,7 +245,6 @@
   "{0} B": "{0} B",
   "{0} copy": "نسخة من {0}",
   "{0} GB": "{0} GB",
-  "{0} word{1}": "{0} كلمة{1}",
   "• List": "• قائمة",
   "+ New slide": "+ شريحة جديدة",
   "1. List": "1. قائمة",
@@ -493,5 +490,11 @@
   "Upload files": "رفع الملفات",
   "Use letters, numbers, spaces and underscores.": "استخدم الأحرف والأرقام والمسافات والشرطات السفلية.",
   "You're signed in": "تم تسجيل دخولك",
-  "Yours": "الخاصة بك"
+  "Yours": "الخاصة بك",
+  "{0} messages": "{0, plural, zero {# رسالة} one {رسالة واحدة} two {رسالتان} few {# رسائل} many {# رسالة} other {# رسالة}}",
+  "{0} messages ready to clean": "جاهزة للتنظيف: {0, plural, zero {# رسالة} one {رسالة واحدة} two {رسالتان} few {# رسائل} many {# رسالة} other {# رسالة}}",
+  "{0} words": "{0, plural, zero {# كلمة} one {كلمة واحدة} two {كلمتان} few {# كلمات} many {# كلمة} other {# كلمة}}",
+  "1 message": "رسالة واحدة",
+  "1 message ready to clean": "جاهزة للتنظيف: رسالة واحدة",
+  "1 word": "كلمة واحدة"
 }

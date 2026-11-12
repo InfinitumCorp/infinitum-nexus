@@ -58,3 +58,8 @@ test("division is not mistaken for a regex", () => {
   const src = "const half = total / 2; const rate = done / all; x /= 3;\ntoast(\"Halfway there\");";
   assert.deepEqual(extractFromSource(src, ".js"), ["Halfway there"]);
 });
+
+test("isUiText keeps the singular half of a plural, not CSS", () => {
+  for (const s of ["1 word", "1 open deal expected to close later.", "1 introduction away"]) assert.ok(isUiText(s), s);
+  for (const s of ["1 auto", "1 1 auto", "1 solid"]) assert.ok(!isUiText(s), s);
+});

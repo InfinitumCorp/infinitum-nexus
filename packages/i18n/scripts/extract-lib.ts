@@ -5,7 +5,9 @@ const UI_ATTRS = /\b(placeholder|title|aria-label|alt|label|aria-description|dat
 /** Does this read like user-facing copy rather than code, a class list, an id or a URL? */
 export function isUiText(raw: string, lenient = false): boolean {
   const s = raw.trim();
-  const prose = lenient || /\{\d+\}/.test(s);
+  // "1 open deal": the singular half of `n === 1 ? "1 open deal" : `${n} open deals``.
+  const countOfOne = /^1 \p{L}{2,}/u.test(s) && !/\b(auto|solid|dashed|dotted|none|normal|inherit|initial|span|fr)\b/.test(s);
+  const prose = lenient || countOfOne || /\{\d+\}/.test(s);
   if (s.length < 2 || s.length > 400) return false;
   if (!/[A-Za-z]/.test(s.replace(/\{\d+\}/g, ""))) return false;
   if (/^(https?:|mailto:|data:|\.{0,2}\/|#|\.[a-z]|\[|@media|var\(|--)/i.test(s)) return false;

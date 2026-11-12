@@ -3,7 +3,6 @@
   ". Everything it moves can be undone.": ". Tout ce qu’il déplace peut être annulé.",
   "· Cc": "· Cc",
   "· last run {0}": "· dernière exécution {0}",
-  "{0} · {1} message{2}": "{0} · {1} message{2}",
   "{0} conversations archived.": "{0} conversations archivées.",
   "{0} conversations marked as read.": "{0} conversations marquées comme lues.",
   "{0} conversations marked as unread.": "{0} conversations marquées comme non lues.",
@@ -13,7 +12,6 @@
   "{0} is over 25 MB. Larger files belong in Cloud.": "{0} dépasse 25 Mo. Les fichiers plus volumineux doivent être stockés dans le Cloud.",
   "{0} KB": "{0} Ko",
   "{0} MB": "{0} Mo",
-  "{0} message{1} ready to clean": "{0} message{1} prêt à être nettoyé",
   "{0} min ago": "il y a {0} min",
   "{0} new": "{0} nouveau",
   "{0} new conversations.": "{0} nouvelles conversations.",
@@ -247,7 +245,6 @@
   "{0} B": "{0} o",
   "{0} copy": "Copie de {0}",
   "{0} GB": "{0} Go",
-  "{0} word{1}": "{0} mot{1}",
   "• List": "• Liste",
   "+ New slide": "+ Nouvelle diapositive",
   "1. List": "1. Liste",
@@ -493,5 +490,11 @@
   "Upload files": "Importer des fichiers",
   "Use letters, numbers, spaces and underscores.": "Utilisez des lettres, des chiffres, des espaces et des tirets bas.",
   "You're signed in": "Vous êtes connecté",
-  "Yours": "À vous"
+  "Yours": "À vous",
+  "{0} messages": "{0, plural, one {# message} other {# messages}}",
+  "{0} messages ready to clean": "{0, plural, one {# message prêt à nettoyer} other {# messages prêts à nettoyer}}",
+  "{0} words": "{0, plural, one {# mot} other {# mots}}",
+  "1 message": "1 message",
+  "1 message ready to clean": "1 message prêt à nettoyer",
+  "1 word": "1 mot"
 }

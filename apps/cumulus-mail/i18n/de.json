@@ -3,7 +3,6 @@
   ". Everything it moves can be undone.": ". Alles, was es bewegt, kann rückgängig gemacht werden.",
   "· Cc": "· Cc",
   "· last run {0}": "· letzter Durchlauf {0}",
-  "{0} · {1} message{2}": "{0} · {1} Nachricht{2}",
   "{0} conversations archived.": "{0} Unterhaltungen archiviert.",
   "{0} conversations marked as read.": "{0} Unterhaltungen als gelesen markiert.",
   "{0} conversations marked as unread.": "{0} Unterhaltungen als ungelesen markiert.",
@@ -13,7 +12,6 @@
   "{0} is over 25 MB. Larger files belong in Cloud.": "{0} ist über 25 MB. Größere Dateien gehören in die Cloud.",
   "{0} KB": "{0} KB",
   "{0} MB": "{0} MB",
-  "{0} message{1} ready to clean": "{0} Nachricht{1} zum Bereinigen bereit",
   "{0} min ago": "vor {0} Min.",
   "{0} new": "{0} neu",
   "{0} new conversations.": "{0} neue Unterhaltungen.",
@@ -247,7 +245,6 @@
   "{0} B": "{0} B",
   "{0} copy": "Kopie von {0}",
   "{0} GB": "{0} GB",
-  "{0} word{1}": "{0} Wort{1}",
   "• List": "• Liste",
   "+ New slide": "+ Neue Folie",
   "1. List": "1. Liste",
@@ -493,5 +490,11 @@
   "Upload files": "Dateien hochladen",
   "Use letters, numbers, spaces and underscores.": "Verwenden Sie Buchstaben, Zahlen, Leerzeichen und Unterstriche.",
   "You're signed in": "Sie sind angemeldet",
-  "Yours": "Ihre"
+  "Yours": "Ihre",
+  "{0} messages": "{0} Nachrichten",
+  "{0} messages ready to clean": "{0} Nachrichten zum Aufräumen",
+  "{0} words": "{0} Wörter",
+  "1 message": "1 Nachricht",
+  "1 message ready to clean": "1 Nachricht zum Aufräumen",
+  "1 word": "1 Wort"
 }

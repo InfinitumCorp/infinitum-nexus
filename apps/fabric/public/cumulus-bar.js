@@ -9,7 +9,7 @@
  * menu with their name and @cumuluscloud.app address, "Manage your Cumulus://ID", Cumulus://Mail,
  * the product launcher and "Sign out". data-client is the product's client id (src/clients.ts).
  * Optional: data-issuer (a mirror), data-product (highlights the current product in the launcher),
- * data-create="false".
+ * data-create="false", data-theme="dark" (on the host element or the script) for dark headers.
  *
  * Sign-in is OAuth 2.0 authorization code + PKCE through page navigations only (no fetch), so it
  * works under a strict CSP; styles live in a shadow root via a constructed stylesheet. The token
@@ -137,6 +137,11 @@ button,a{font:inherit;color:inherit}
 .tm{font-size:.38em;vertical-align:super;line-height:0;margin-left:.08em}
 .err{color:#111820;border-left:2px solid #111820;padding-left:8px;font-size:13px;flex-basis:100%}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+:host([data-theme="dark"]) .btn{border-color:#fff;color:#fff}
+:host([data-theme="dark"]) .btn.primary{background:#fff;color:#111820;border-color:#fff}
+:host([data-theme="dark"]) .btn:hover{background:#2454dd;border-color:#2454dd;color:#fff}
+:host([data-theme="dark"]) .avatar{background:#fff;color:#111820}
+:host([data-theme="dark"]) .avatar:hover{background:#2454dd;color:#fff}
 @media (prefers-reduced-motion:no-preference){.menu{animation:in .18s cubic-bezier(.22,1,.36,1)}@keyframes in{from{opacity:0;transform:translateY(-4px)}}}`;
 
   let sheet = null;
@@ -204,6 +209,7 @@ button,a{font:inherit;color:inherit}
     const s = current();
     const p = s && s.profile;
     for (const host of document.querySelectorAll("[data-cumulus-bar]")) {
+      if (ds.theme && !host.dataset.theme) host.dataset.theme = ds.theme;
       const root = host.shadowRoot || host.attachShadow({ mode: "open" });
       if (sheet) root.adoptedStyleSheets = [sheet];
       else if (!root.querySelector("style")) root.append(h("style", { text: CSS }));

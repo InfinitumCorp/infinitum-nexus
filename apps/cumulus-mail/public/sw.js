@@ -3,7 +3,7 @@
  * shows a friendly screen offline. Mail itself (anything under /api/) is never cached: it is
  * private and always comes from the server.
  */
-const SHELL = "cmail-shell-v5";
+const SHELL = "cmail-shell-v6";
 const FILES = ["/", "/app.css", "/app.js", "/id/bar.js", "/search.js", "/i18n.css", "/i18n.js", "/i18n-start.js", "/i18n-catalogs.js", "/icon.svg", "/icon-192.png", "/manifest.webmanifest"];
 
 self.addEventListener("install", (event) => {

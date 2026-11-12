@@ -166,12 +166,11 @@ function render() {
   root.replaceChildren();
   const selected = data.messages.find((message) => message.id === state.selected);
   const search = el("input", { placeholder: "Search mail", "aria-label": "Search mail", value: state.query, onInput: (event) => { state.query = event.target.value; render(); document.querySelector(".search input")?.focus(); } });
-  const initial = (data.me.name || data.me.email).trim().charAt(0).toUpperCase();
   root.append(
     el("header", {}, [
       el("div", { class: "brand" }, [el("div", { class: "mark" }, ["Cumulus://Mail", el("sup", { class: "tm" }, ["™"])])]),
       el("label", { class: "search" }, [el("span", { class: "glass", "aria-hidden": "true" }, ["⌕"]), search]),
-      el("button", { class: "avatar", title: `${data.me.name} · ${data.me.email}`, "aria-label": "Your Cumulus://ID", onClick: () => go("account") }, [initial]),
+      el("div", { class: "account-bar", "data-cumulus-bar": "" }),
     ]),
     el("div", { class: "layout" }, [
       sidebar(data),
@@ -189,6 +188,8 @@ function render() {
     el("button", { class: "x", "aria-label": "Dismiss", onClick: () => { state.toast = null; render(); } }, ["×"]),
   ]));
   if (state.help) root.append(helpDialog());
+  // The Cumulus://ID account bar (id/bar.js) in the header shows the signed-in person.
+  window.CumulusBar?.setProfile({ name: data.me.name, username: data.me.username, email: data.me.email });
   document.title = data.unread ? `Inbox (${data.unread}) · Cumulus://Mail™` : "Cumulus://Mail™";
 }
 
@@ -1031,7 +1032,20 @@ function takeNext() {
   try { return JSON.parse(sessionStorage.getItem(NEXT_KEY) || "null"); } catch { return null; }
 }
 
+/** The account bar's "Sign out" (here and in Drive) navigates to /#signout (data-signout). */
+async function signOutFromBar() {
+  if (location.hash !== "#signout") return false;
+  history.replaceState(null, "", "/");
+  await api("/api/auth/signout", {}).catch(() => {});
+  state.data = null;
+  window.CumulusBar?.setProfile(null);
+  renderAuth();
+  return true;
+}
+window.addEventListener("hashchange", () => void signOutFromBar());
+
 async function boot() {
+  if (await signOutFromBar()) return;
   const desktopChallenge = takeDesktopChallenge();
   const pending = takeNext();
   state.signInFor = pending?.for || "";

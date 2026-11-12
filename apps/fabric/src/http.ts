@@ -177,6 +177,9 @@ function startLogin(req: IncomingMessage, res: ServerResponse, deps: Deps, url: 
   auth.searchParams.set("code_challenge_method", "S256");
   const hint = url.searchParams.get("login_hint");
   if (hint && /^[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$/i.test(hint)) auth.searchParams.set("login_hint", hint.toLowerCase());
+  // "Create a Cumulus://ID" in the account bar opens account creation at the issuer.
+  const prompt = url.searchParams.get("prompt");
+  if (prompt === "create" || prompt === "login") auth.searchParams.set("prompt", prompt);
   res.writeHead(302, { ...SECURITY, location: auth.href });
   res.end();
   void req;
@@ -406,6 +409,7 @@ function loadAssets(dir: string): Map<string, { type: string; body: Buffer }> {
     "/app.css": ["app.css", "text/css; charset=utf-8"],
     "/firm-suite.js": ["firm-suite.js", "text/javascript; charset=utf-8"],
     "/firm-suite.css": ["firm-suite.css", "text/css; charset=utf-8"],
+    "/cumulus-bar.js": ["cumulus-bar.js", "text/javascript; charset=utf-8"],
   };
   const assets = new Map<string, { type: string; body: Buffer }>();
   for (const [path, [file, type]] of Object.entries(spec)) {

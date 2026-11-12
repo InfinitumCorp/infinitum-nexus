@@ -62,6 +62,7 @@
     <form class="search" role="search" id="search-form">
       <input id="q" type="search" enterkeyhint="search" placeholder="Search privately or enter address" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Search privately or enter address" />
     </form>
+    <div data-cumulus-bar data-create="false"></div>
   </header>
   <main id="main" aria-live="polite">
     <p class="meta" id="meta" hidden></p>
@@ -71,5 +72,6 @@
   <footer>VEIL searches for you: the search engine never sees your address, and nothing is kept.</footer>
   <script src="lib/trackers.js"></script>
   <script src="search.js"></script>
+  <script src="cumulus-bar.js" data-client="veil" defer></script>
 </body>
 </html>

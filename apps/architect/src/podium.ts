@@ -19,8 +19,6 @@ export const podiumHtml = `<!DOCTYPE html>
     #intent { min-height: 8rem; }
     #out { margin: 24px 0 0; padding: 16px; border: 1px solid var(--line); white-space: pre-wrap; overflow-x: auto; font-size: var(--text-sm); }
     #out:empty { display: none; }
-    #social:empty { display: none; }
-    #social { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 24px; }
   </style>
 </head>
 <body>
@@ -30,6 +28,7 @@ export const podiumHtml = `<!DOCTYPE html>
     <nav class="app-nav" aria-label="Main">
       <a href="/" aria-current="page">Podium</a>
     </nav>
+    <div class="app-actions"><div data-cumulus-bar></div></div>
   </header>
   <main id="main" class="app-main">
     <div class="app-head">
@@ -38,24 +37,14 @@ export const podiumHtml = `<!DOCTYPE html>
         <p>Write a Score intent in plain text. The executor will plan and simulate.</p>
       </div>
     </div>
-    <div id="social"></div>
     <label class="field" for="intent"><span>Score intent</span>
       <textarea id="intent" class="input" placeholder="Research the top 3 competitors of Acme and summarize"></textarea>
     </label>
     <button id="run" class="btn primary" type="button">Perform</button>
     <pre id="out"></pre>
   </main>
+  <script src="https://id.cumuluscloud.app/id/bar.js" data-client="architect" defer></script>
   <script>
-    // Social sign-in (shared Cumulus://ID™). Buttons appear when providers are configured on the CID origin.
-    const CID_ORIGIN = window.CID_ORIGIN || "http://localhost:3000";
-    fetch(CID_ORIGIN + "/api/auth/providers").then(r => r.json()).then(providers => {
-      const el = document.getElementById("social");
-      if (!providers.length) return;
-      el.innerHTML = "<strong>Sign in:</strong>" + providers.map(p =>
-        \`<a class="btn small" href="\${CID_ORIGIN}/api/auth/oauth/\${p.id}/start">Continue with \${p.label}</a>\`
-      ).join("");
-    }).catch(() => {});
-
     document.getElementById("run").onclick = async () => {
       const intent = document.getElementById("intent").value;
       const r = await fetch("/api/perform", {

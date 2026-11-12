@@ -114,6 +114,11 @@ async function boot() {
 
 function render() {
   const { page, id } = route();
+  // The account bar's "Sign out" comes here (data-signout="#/signout").
+  if (page === "signout") {
+    if (state.me) { signOut(); return; }
+    history.replaceState(null, "", "#/");
+  }
   if (!state.me) {
     if (page === "mfa" && id) return renderMfa(id);
     return renderAuth(page === "signin-error" && id ? decodeURIComponent(id) : "");
@@ -242,6 +247,40 @@ function renderMfa(mfaToken) {
   $("#code").onkeydown = (e) => { if (e.key === "Enter") submit(); };
 }
 
+/* ---------------- Cumulus://ID account bar ---------------- */
+
+async function signOut() {
+  let out = null;
+  try { out = await api("POST", "/api/auth/signout"); } catch { /* already signed out */ }
+  state.me = null;
+  window.CumulusBar?.setProfile(null);
+  // Client mode: end the app session at Cumulus://ID too.
+  if (out && typeof out.logoutUrl === "string" && out.logoutUrl.startsWith("https://")) { location.assign(out.logoutUrl); return; }
+  history.replaceState(null, "", "#/");
+  render();
+}
+
+/** The same account bar as every Infinitum product. +SPCTR keeps its own session and tells the bar who is signed in. */
+function mountAccountBar() {
+  const show = () => {
+    const me = state.me;
+    window.CumulusBar.setProfile(me ? { name: me.username, username: me.username, email: me.mailAddress, org_name: me.orgName || undefined } : null);
+    const host = $("[data-cumulus-bar]");
+    if (host) host.hidden = false;
+  };
+  if (window.CumulusBar) return show();
+  if ($("#cumulus-bar-js")) return;
+  const s = document.createElement("script");
+  s.id = "cumulus-bar-js";
+  s.src = "/id/bar.js";
+  s.dataset.client = "spectre";
+  s.dataset.product = "spectre";
+  s.dataset.signin = state.authMode === "oidc" ? "/api/auth/login" : "/";
+  s.dataset.signout = "#/signout";
+  s.onload = show;
+  document.body.append(s);
+}
+
 /* ---------------- shell ---------------- */
 
 function renderShell(page) {
@@ -271,16 +310,14 @@ function renderShell(page) {
           </div>
           <button class="btn ghost small" id="signout">Sign out</button>
         </aside>
-        <main></main>
+        <div class="content">
+          <header class="topbar"><div data-cumulus-bar hidden></div></header>
+          <main></main>
+        </div>
       </div>`;
     $("#menu").onclick = () => $(".shell").classList.toggle("open");
-    $("#signout").onclick = async () => {
-      const out = await api("POST", "/api/auth/signout");
-      state.me = null;
-      // Client mode: end the app session at Cumulus://ID too.
-      if (out && typeof out.logoutUrl === "string" && out.logoutUrl.startsWith("https://")) { location.assign(out.logoutUrl); return; }
-      render();
-    };
+    $("#signout").onclick = () => signOut();
+    mountAccountBar();
     const gs = $("#global-search");
     if (gs) {
       gs.onkeydown = async (e) => {

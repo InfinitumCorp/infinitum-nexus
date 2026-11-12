@@ -10,9 +10,14 @@
 </head>
 <body>
   <header>
-    <p class="mark">CNDCTR</p>
-    <h1>Conductor</h1>
-    <p class="brand">Infinitum Corporation®</p>
+    <div class="head-row">
+      <div>
+        <p class="mark">CNDCTR</p>
+        <h1>Conductor</h1>
+        <p class="brand">Infinitum Corporation®</p>
+      </div>
+      <div data-cumulus-bar></div>
+    </div>
   </header>
   <main>
     <p id="error" class="error" role="alert" hidden></p>
@@ -44,6 +49,7 @@
     <p>Infinitum Corporation®</p>
   </footer>
   <noscript>Sign in still works from the link above. Performing a score needs JavaScript.</noscript>
+  <script src="/cumulus-bar.js" data-client="cndctr" data-signin="/api/auth/login" data-signout="#signout" defer></script>
   <script type="module" src="/app.js"></script>
   <script type="module" src="/i18n-start.js"></script>
 </body>

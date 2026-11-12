@@ -7,6 +7,7 @@ import { createApp } from "./app.ts";
 import { aiConfigFromEnv } from "./ai.ts";
 import { providersFromEnv } from "../core/messaging.ts";
 import { RemoteState, HttpGateway, type NexusGateway } from "./remote.ts";
+import { cidStorageFromEnv } from "./cid-store.ts";
 
 /**
  * +SPCTR on Vercel (serverless). All data lives in Supabase behind the private
@@ -25,6 +26,8 @@ import { RemoteState, HttpGateway, type NexusGateway } from "./remote.ts";
  * CUMULUS_KEYCLOAK_REALM, CUMULUS_CLOUD_HOST, CUMULUS_MAIL_HOST, CUMULUS_MAIL_ORIGIN,
  * and the social sign-in variables (see main.ts). CID_OIDC_SIGNING_KEY is optional; when it is
  * unset, OpenID Connect stays off and sign-in still works. See docs/cumulus-id.md.
+ * CUMULUS_STORE=postgres (+ CID_DATABASE_URL) keeps Cumulus://ID in Postgres rows instead of the
+ * `cid` document; see cid-store.ts.
  */
 
 process.env.USE_METATRON ??= "1";
@@ -75,17 +78,19 @@ function build() {
   // The CID, Mail, Wallet and quota docs are shared by every hosted Infinitum product,
   // so an account made here has the same mailbox and wallet in Cumulus://Mail.
   const gateway = gatewayOverride ?? new HttpGateway(required("NEXUS_STORE_URL"), required("NEXUS_STORE_KEY"));
+  const cidStorage = cidStorageFromEnv();
   const state = new RemoteState(gateway, {
-    cid: cumulusStores.cid,
+    ...(cidStorage.inDocuments ? { cid: cumulusStores.cid } : {}),
     spectre: spectreStore,
     "cumulus-mail": cumulusStores.mail,
     "firm-wallet": cumulusStores.wallet,
     "cumulus-quota": cumulusStores.quota,
     "cumulus-suite": cumulusStores.suite,
   });
+  if (cidStorage.participant) state.participants.push(cidStorage.participant);
   const ledger = new Ledger(state.ledgerStore, { authorizedSigners: [signer.publicKey] });
   const suite = createCumulus({
-    ledger, signer, rpId, origins, stores: cumulusStores,
+    ledger, signer, rpId, origins, stores: cumulusStores, repository: cidStorage.repository,
     social: { providers: socialFromEnv() }, mailOrigin: process.env.CUMULUS_MAIL_ORIGIN,
   });
   const cid = suite.cid;

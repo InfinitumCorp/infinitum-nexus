@@ -7,6 +7,7 @@ import type { Entry } from "@infinitum/firmament";
 import type { WorkersAiBinding } from "@infinitum/ai";
 import handler, { useGateway } from "./vercel.ts";
 import { useWorkersAi } from "./ai.ts";
+import { useCidDatabaseUrl } from "./cid-store.ts";
 import { ConflictError, type DocRow, type NexusGateway } from "./remote.ts";
 import { initSchema, loadState, commitState, type CommitResult } from "./do-store.ts";
 import { STATIC_ASSET_CSP } from "./static-policy.ts";
@@ -37,6 +38,8 @@ interface Env {
   AI?: WorkersAiBinding;
   /** Service binding to lbrnth-host-us (US Labyrinth). Relay calls to lbrnth-us.cumuluscloud.app go through it. */
   LBRNTH_US?: LabyrinthServiceBinding;
+  /** Cloudflare Hyperdrive in front of Cumulus://ID's Postgres, used when CUMULUS_STORE=postgres. */
+  CID_DB?: { connectionString: string };
 }
 
 export class NexusStore extends DurableObject<Env> {
@@ -80,6 +83,7 @@ function configure(env: Env) {
   if (env.AI) useWorkersAi(env.AI);
   useLabyrinthServiceBinding("lbrnth-us.cumuluscloud.app", env.LBRNTH_US);
   if (configured) return;
+  if (env.CID_DB) useCidDatabaseUrl(env.CID_DB.connectionString);
   useGateway(new DurableGateway(env.NEXUS_STATE));
   configured = true;
 }

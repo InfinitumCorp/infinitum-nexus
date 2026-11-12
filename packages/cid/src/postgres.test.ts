@@ -5,7 +5,7 @@
  */
 import { describe, it, after } from "node:test";
 import assert from "node:assert/strict";
-import { cidSchemaSql, migrateCid, PgCidRepository } from "./postgres.ts";
+import { cidSchemaSql, migrateCid, PgCidRepository, PgRequestScope } from "./postgres.ts";
 import type { Account, Session } from "./service.ts";
 
 const url = process.env.CID_TEST_PG_URL;
@@ -77,6 +77,29 @@ describe("PgCidRepository on PostgreSQL", { skip: url ? false : "set CID_TEST_PG
     assert.equal(await repo.peekOneTime("challenge", "old"), undefined);
     assert.equal((await repo.peekOneTime("challenge", "new"))?.value, "n");
     assert.ok(await repo.peekOneTime("mfa", "old"), "each kind is swept on its own");
+  });
+
+  it("PgRequestScope: a request's writes commit together, roll back together, and an aborted transaction can't pass as committed", async () => {
+    const scope = new PgRequestScope(pool);
+    const repo = new PgCidRepository({ db: scope, schema });
+    await scope.begin();
+    await repo.putAccount(account("cid_tx1", "tx_one"));
+    assert.equal(await repo.cidForUsername("tx_one"), "cid_tx1", "the request sees its own write");
+    assert.equal(await new PgCidRepository({ db: pool, schema }).cidForUsername("tx_one"), undefined, "nobody else does yet");
+    await scope.rollback();
+    assert.equal(await repo.cidForUsername("tx_one"), undefined);
+
+    await scope.begin();
+    await repo.putAccount(account("cid_tx2", "tx_two"));
+    await scope.commit();
+    assert.equal(await new PgCidRepository({ db: pool, schema }).cidForUsername("tx_two"), "cid_tx2");
+
+    await scope.begin();
+    await repo.putAccount(account("cid_tx3", "tx_three"));
+    await assert.rejects(repo.putAccount(account("cid_tx4", "tx_two")), /duplicate key|unique/i);
+    await assert.rejects(scope.commit(), /aborted/);
+    assert.equal(await repo.cidForUsername("tx_three"), undefined, "nothing from the aborted request was saved");
+    assert.equal(scope.active, false);
   });
 
   it("keeps credential ids unique and grants keyed by account and app", async () => {

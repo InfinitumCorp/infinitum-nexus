@@ -3,6 +3,7 @@ import { Ledger, signerFromPrivateKey } from "@infinitum/firmament";
 import { socialFromEnv, upstreamIssuerFromEnv } from "@infinitum/cid";
 import { createCumulus, emptyCumulusStores } from "@infinitum/cumulus";
 import { RemoteState, HttpGateway } from "../../spectre/src/server/remote.ts";
+import { cidStorageFromEnv } from "../../spectre/src/server/cid-store.ts";
 import type { InboundMail } from "@infinitum/mail";
 import { createMailApp } from "./app.ts";
 import { deliverOutbound, type Sender } from "./outbound.ts";
@@ -70,8 +71,10 @@ function build() {
   const stores = emptyCumulusStores();
   const workspaceStore = new WorkspaceStore(); // Cumulus://Drive, Dox, Spreads and Podium (metadata; contents in R2)
   const billingStore = new BillingLinkStore(); // CID -> billing org (holds org API keys; server-side only)
+  // CUMULUS_STORE=postgres keeps Cumulus://ID in Postgres rows (see spectre/src/server/cid-store.ts).
+  const cidStorage = cidStorageFromEnv();
   const state = new RemoteState(new HttpGateway(required("NEXUS_STORE_URL"), required("NEXUS_STORE_KEY")), {
-    cid: stores.cid,
+    ...(cidStorage.inDocuments ? { cid: stores.cid } : {}),
     "cumulus-mail": stores.mail,
     "firm-wallet": stores.wallet,
     "cumulus-quota": stores.quota,
@@ -79,9 +82,10 @@ function build() {
     "cumulus-workspace": workspaceStore,
     "cumulus-billing": billingStore,
   });
+  if (cidStorage.participant) state.participants.push(cidStorage.participant);
   const ledger = new Ledger(state.ledgerStore, { authorizedSigners: [signer.publicKey] });
   const suite = createCumulus({
-    ledger, signer, rpId: new URL(origin).hostname, origins, stores,
+    ledger, signer, rpId: new URL(origin).hostname, origins, stores, repository: cidStorage.repository,
     social: { providers: socialFromEnv() }, mailOrigin: origin, upstreamIssuer: upstreamIssuerFromEnv(process.env),
   });
 

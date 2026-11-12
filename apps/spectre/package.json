@@ -24,11 +24,13 @@
     "@infinitum/lbrnth-client": "workspace:*",
     "@infinitum/metatron": "workspace:*",
     "@infinitum/scalus": "workspace:*",
-    "@infinitum/veil": "workspace:*"
+    "@infinitum/veil": "workspace:*",
+    "pg": "^8.16.3"
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.3.14",
     "@types/node": "^26.6.6",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "@types/pg": "^8.15.5"
   }
 }

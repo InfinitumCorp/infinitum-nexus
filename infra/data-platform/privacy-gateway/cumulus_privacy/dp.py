@@ -173,6 +173,7 @@ def release(
     per group. The whole epsilon is charged to the budget before any noise is drawn. Every
     group's mechanism gets the full epsilon with l0 sensitivity ``max_partitions``, which is
     what makes the release as a whole epsilon-DP for each privacy unit."""
+    metric = metric.lower()
     if metric not in ("count", "sum"):
         raise ValueError("metric must be 'count' or 'sum'")
     if metric == "sum" and not value_key:

@@ -48,7 +48,10 @@ class QualityReport:
     metrics: dict[str, float] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        """Wire form (Conjure QualityReport, camelCase)."""
+        d = asdict(self)
+        d["checkedAt"] = d.pop("checked_at")
+        return d
 
 
 def _parse_time(v: Any) -> datetime | None:
@@ -88,6 +91,14 @@ def uniqueness(rows: Sequence[Row], columns: Sequence[str]) -> float:
     return sum(1 for n in counts.values() if n == 1) / len(rows)
 
 
+def _opt(check: Mapping[str, Any], snake: str, default: Any = None) -> Any:
+    """Read a suite option in snake_case or the Conjure camelCase spelling."""
+    if snake in check:
+        return check[snake]
+    head, *rest = snake.split("_")
+    return check.get(head + "".join(w.title() for w in rest), default)
+
+
 def run_suite(
     suite: Mapping[str, Any],
     rows: Sequence[Row],
@@ -101,7 +112,7 @@ def run_suite(
     metrics: dict[str, float] = {"size": float(len(rows))}
 
     for check in suite.get("checks", []):
-        kind = check["kind"]
+        kind = str(check["kind"]).lower()
         if kind == "completeness":
             col = check["column"]
             m = completeness(rows, col)
@@ -140,7 +151,7 @@ def run_suite(
                 continue
             age_h = (now - max(times)).total_seconds() / 3600
             metrics[f"freshness_hours:{col}"] = age_h
-            limit = float(check["max_age_hours"])
+            limit = float(_opt(check, "max_age_hours"))
             results.append(CheckResult(kind, col, age_h <= limit, age_h, f"newest row {age_h:.1f} h old, limit {limit} h"))
         elif kind == "size":
             n = len(rows)
@@ -156,7 +167,7 @@ def run_suite(
                 results.append(CheckResult(kind, name, True, 0.0, "no history yet"))
                 continue
             change = abs(cur - prev) / prev if prev else (0.0 if cur == 0 else math.inf)
-            limit = float(check.get("max_relative_change", 0.5))
+            limit = float(_opt(check, "max_relative_change", 0.5))
             results.append(CheckResult(kind, name, change <= limit, change, f"changed {change:.1%} vs last run, limit {limit:.0%}"))
         else:
             raise ValueError(f"unknown check kind: {kind}")

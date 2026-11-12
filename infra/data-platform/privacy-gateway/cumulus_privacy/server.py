@@ -12,6 +12,7 @@ import hmac
 import json
 import os
 import sys
+import uuid
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable
@@ -24,16 +25,30 @@ from .redaction import Redactor
 MAX_BODY = 10 * 1024 * 1024
 
 
+# Conjure error code for each HTTP status we return.
+CONJURE_CODES = {
+    HTTPStatus.BAD_REQUEST: "INVALID_ARGUMENT",
+    HTTPStatus.UNAUTHORIZED: "UNAUTHORIZED",
+    HTTPStatus.NOT_FOUND: "NOT_FOUND",
+    HTTPStatus.CONFLICT: "CONFLICT",
+    HTTPStatus.REQUEST_ENTITY_TOO_LARGE: "REQUEST_ENTITY_TOO_LARGE",
+    HTTPStatus.INTERNAL_SERVER_ERROR: "INTERNAL",
+    HTTPStatus.SERVICE_UNAVAILABLE: "INTERNAL",
+}
+
+
 class ApiError(Exception):
-    def __init__(self, status: HTTPStatus, code: str, message: str) -> None:
+    """`name` is the Conjure error name without namespace, e.g. PrivacyBudgetExceeded."""
+
+    def __init__(self, status: HTTPStatus, name: str, message: str) -> None:
         super().__init__(message)
-        self.status, self.code, self.message = status, code, message
+        self.status, self.name, self.message = status, name, message
 
 
 def _require(body: dict[str, Any], key: str, kind: type | tuple[type, ...]) -> Any:
     v = body.get(key)
     if not isinstance(v, kind):
-        raise ApiError(HTTPStatus.BAD_REQUEST, "INVALID_ARGUMENT", f"{key} is required")
+        raise ApiError(HTTPStatus.BAD_REQUEST, "InvalidArgument", f"{key} is required")
     return v
 
 
@@ -91,9 +106,9 @@ class Gateway:
                 suppress_below=float(b.get("suppressBelow", 0.0)),
             )
         except BudgetExceeded as e:
-            raise ApiError(HTTPStatus.CONFLICT, "PRIVACY_BUDGET_EXCEEDED", str(e)) from e
+            raise ApiError(HTTPStatus.CONFLICT, "PrivacyBudgetExceeded", str(e)) from e
         except ImportError as e:
-            raise ApiError(HTTPStatus.SERVICE_UNAVAILABLE, "DP_LIBRARY_UNAVAILABLE", "Google DP library is not installed") from e
+            raise ApiError(HTTPStatus.SERVICE_UNAVAILABLE, "DpLibraryUnavailable", "Google DP library is not installed") from e
         return out.to_dict()
 
 
@@ -112,37 +127,47 @@ def make_handler(gw: Gateway) -> type[BaseHTTPRequestHandler]:
 
         def _error(self, e: ApiError) -> None:
             # Conjure SerializableError shape.
-            self._send(e.status, {"errorCode": e.status.phrase.upper().replace(" ", "_"), "errorName": f"Privacy:{e.code}", "errorInstanceId": "", "parameters": {"message": e.message}})
+            self._send(
+                e.status,
+                {
+                    "errorCode": CONJURE_CODES.get(e.status, "INTERNAL"),
+                    "errorName": f"Privacy:{e.name}",
+                    "errorInstanceId": str(uuid.uuid4()),
+                    "parameters": {"message": e.message},
+                },
+            )
 
         def do_GET(self) -> None:  # noqa: N802
             if self.path == "/api/v1/health":
                 self._send(HTTPStatus.OK, {"status": "ok"})
             else:
-                self._error(ApiError(HTTPStatus.NOT_FOUND, "NOT_FOUND", "no such endpoint"))
+                self._error(ApiError(HTTPStatus.NOT_FOUND, "NotFound", "no such endpoint"))
 
         def do_POST(self) -> None:  # noqa: N802
             try:
                 route = gw.routes.get(self.path)
                 if route is None:
-                    raise ApiError(HTTPStatus.NOT_FOUND, "NOT_FOUND", "no such endpoint")
+                    raise ApiError(HTTPStatus.NOT_FOUND, "NotFound", "no such endpoint")
                 if not gw.authorized(self.headers.get("Authorization")):
-                    raise ApiError(HTTPStatus.UNAUTHORIZED, "UNAUTHORIZED", "service token required")
+                    raise ApiError(HTTPStatus.UNAUTHORIZED, "Unauthorized", "service token required")
                 length = int(self.headers.get("Content-Length") or 0)
-                if length <= 0 or length > MAX_BODY:
-                    raise ApiError(HTTPStatus.BAD_REQUEST, "INVALID_ARGUMENT", "body must be 1 byte to 10 MB of JSON")
+                if length > MAX_BODY:
+                    raise ApiError(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, "InvalidArgument", "body over 10 MB")
+                if length <= 0:
+                    raise ApiError(HTTPStatus.BAD_REQUEST, "InvalidArgument", "JSON body required")
                 try:
                     body = json.loads(self.rfile.read(length))
                 except json.JSONDecodeError as e:
-                    raise ApiError(HTTPStatus.BAD_REQUEST, "INVALID_ARGUMENT", "body is not JSON") from e
+                    raise ApiError(HTTPStatus.BAD_REQUEST, "InvalidArgument", "body is not JSON") from e
                 if not isinstance(body, dict):
-                    raise ApiError(HTTPStatus.BAD_REQUEST, "INVALID_ARGUMENT", "body must be an object")
+                    raise ApiError(HTTPStatus.BAD_REQUEST, "InvalidArgument", "body must be an object")
                 self._send(HTTPStatus.OK, route(body))
             except ApiError as e:
                 self._error(e)
             except ValueError as e:
-                self._error(ApiError(HTTPStatus.BAD_REQUEST, "INVALID_ARGUMENT", str(e)))
+                self._error(ApiError(HTTPStatus.BAD_REQUEST, "InvalidArgument", str(e)))
             except Exception:  # noqa: BLE001 - never echo internals, which may include record data
-                self._error(ApiError(HTTPStatus.INTERNAL_SERVER_ERROR, "INTERNAL", "internal error"))
+                self._error(ApiError(HTTPStatus.INTERNAL_SERVER_ERROR, "Internal", "internal error"))
 
         def log_message(self, fmt: str, *args: Any) -> None:
             # Method, path and status only: bodies may contain personal data.

@@ -31,13 +31,25 @@ from presidio_anonymizer import AnonymizerEngine
 from presidio_anonymizer.entities import OperatorConfig
 
 
-class Destination(str, Enum):
+class _CaseInsensitive(str, Enum):
+    """Accepts Conjure's UPPER_CASE enum values as well as lower case."""
+
+    @classmethod
+    def _missing_(cls, value: object):
+        if isinstance(value, str):
+            for m in cls:
+                if m.value == value.lower():
+                    return m
+        return None
+
+
+class Destination(_CaseInsensitive):
     ANALYTICS = "analytics"
     AI = "ai"
     EXCHANGE = "exchange"
 
 
-class FieldRule(str, Enum):
+class FieldRule(_CaseInsensitive):
     KEEP = "keep"
     TEXT = "text"
     PSEUDONYMIZE = "pseudonymize"

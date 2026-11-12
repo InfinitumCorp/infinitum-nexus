@@ -52,7 +52,7 @@ def test_redact_endpoint(base):
 
 def test_bad_destination_is_400(base):
     status, body = call(base, "/api/v1/redact", {"destination": "twitter", "records": []})
-    assert status == 400 and body["errorName"] == "Privacy:INVALID_ARGUMENT"
+    assert status == 400 and body["errorName"] == "Privacy:InvalidArgument"
 
 
 def test_budget_exhaustion_is_409(base):
@@ -66,7 +66,7 @@ def test_budget_exhaustion_is_409(base):
         "rows": [],
     }
     status, body = call(base, "/api/v1/releases/dp", dp)
-    assert status == 409 and body["errorName"] == "Privacy:PRIVACY_BUDGET_EXCEEDED"
+    assert status == 409 and body["errorName"] == "Privacy:PrivacyBudgetExceeded"
 
 
 def test_verify_endpoint(base):

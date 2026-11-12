@@ -55,6 +55,21 @@ jobs:
       - name: Test redaction, quality, DP, the Conjure contract and the Postgres (Supabase) backends
         working-directory: infra/data-platform/privacy-gateway
         run: python -m pytest -W ignore::DeprecationWarning -rs
+      - name: Free-tier layout end to end (gateway on Postgres as the restricted role, no OpenSearch)
+        working-directory: infra/data-platform/privacy-gateway
+        run: |
+          # The tests above applied the migration and created data_platform_gateway (CI-only password).
+          python -c "import os,psycopg;psycopg.connect(os.environ['TEST_DATABASE_URL'],autocommit=True).execute('truncate data_platform.events, data_platform.datasets, data_platform.privacy_budget')"
+          r() { python -c "import secrets;print(secrets.token_hex(32))"; }
+          export PRIVACY_GATEWAY_TOKEN=$(r) PRIVACY_PSEUDONYM_KEY=$(r) SPECTRE=$(r) MAIL=$(r)
+          export PLATFORM_PRODUCT_TOKENS="spectre=$SPECTRE;cumulus-mail=$MAIL"
+          export DATABASE_URL="postgresql://data_platform_gateway:test-only-$(printf 'x%.0s' $(seq 24))@127.0.0.1:5432/postgres"
+          python -m cumulus_privacy.server 2> "$RUNNER_TEMP/gateway.log" &
+          for i in $(seq 60); do curl -fs http://127.0.0.1:8090/api/v1/health >/dev/null && break; sleep 2; done
+          grep -q "(postgres)" "$RUNNER_TEMP/gateway.log"
+          python ../smoke/platform_smoke.py http://127.0.0.1:8090 "$SPECTRE" "$MAIL" || { cat "$RUNNER_TEMP/gateway.log"; exit 1; }
+          rows=$(python -c "import os,psycopg;print(psycopg.connect(os.environ['TEST_DATABASE_URL']).execute('select count(*) from data_platform.events').fetchone()[0])")
+          echo "events stored in Postgres: $rows"; test "$rows" -gt 0
 
   conjure:
     runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}

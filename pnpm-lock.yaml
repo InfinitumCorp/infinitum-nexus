@@ -507,6 +507,15 @@ importers:
         specifier: ^7.0.2
         version: 7.0.2
 
+  packages/data-platform:
+    devDependencies:
+      '@types/node':
+        specifier: ^26.6.6
+        version: 26.6.6
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+
   packages/drone-backend:
     dependencies:
       '@infinitum/lbrnth':

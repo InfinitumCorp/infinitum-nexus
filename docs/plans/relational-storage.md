@@ -119,6 +119,21 @@ Size of the change, measured on `main`:
 
 Each phase keeps the full test suite green and can stop without leaving a half state.
 
+### Cutover runbook (Cumulus://ID, phase 4)
+
+1. Pick the Postgres host and create a database. On Cloudflare, put Hyperdrive in front of it and
+   bind it to `cumulus-id` and `cumulus-mail` as `CID_DB`; elsewhere set `CID_DATABASE_URL`.
+2. Dry run, then copy: `pnpm --filter @infinitum/cid backfill --from-nexus-docs` (needs
+   `NEXUS_DATABASE_URL`), then the same with `--write` and `CID_DATABASE_URL`. It creates the tables,
+   upserts every entity and exits non-zero unless every row reads back identical.
+3. Set `CUMULUS_STORE=postgres` on every product that shares the `cid` document (+SPCTR/Cumulus://ID
+   and Mail) in one deploy, right after a final `--write` run. From then on each request's ID writes
+   commit in the same step as the ledger (RemoteState participants) and the `cid` document is left
+   as it was.
+4. Watch the `nexus-store` metrics line: `participantFailures` must stay 0.
+5. Rollback: set `CUMULUS_STORE=document` again. Accounts created after the cutover exist only in
+   Postgres until a reverse copy is written, so roll back early or not at all.
+
 ### 4. Risks
 
 - **Sync → async refactor** (phase 1) touches many files. Done per package, with tests unchanged as

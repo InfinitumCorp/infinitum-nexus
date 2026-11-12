@@ -16,7 +16,7 @@ import type { CidRepository, OneTimeKind } from "./repository.ts";
 
 /** The part of a `pg` Pool or Client this repository needs. */
 export interface Queryable {
-  query(text: string, params?: unknown[]): Promise<{ rows: any[]; rowCount?: number | null }>;
+  query(text: string, params?: unknown[]): Promise<{ rows: any[]; rowCount?: number | null; command?: string }>;
 }
 
 const IDENT = /^[a-z_][a-z0-9_]{0,62}$/;
@@ -76,6 +76,83 @@ CREATE INDEX IF NOT EXISTS cid_pending_expiry ON ${t("cid_pending")} (kind, expi
 export async function migrateCid(db: Queryable, schema = "public"): Promise<void> {
   // One simple-protocol query: every statement runs on the same connection, in one transaction.
   await db.query(`BEGIN; SELECT pg_advisory_xact_lock(hashtext('cumulus-id-migrate')); ${cidSchemaSql(schema)} COMMIT;`);
+}
+
+/** A pooled connection, as `pg` hands out from Pool.connect(). */
+export interface PgPoolClient extends Queryable {
+  release(err?: Error | boolean): void;
+}
+
+/**
+ * One Postgres transaction per request, for hosts that save the rest of their state at the end of
+ * the request and may re-run it (RemoteState in +SPCTR and Mail). Give it to PgCidRepository as its
+ * `db`, and register it as a RemoteState participant: begin() opens a transaction on one pooled
+ * connection, every query in the request runs on it (so the request sees its own writes), and
+ * commit() / rollback() end it together with the ledger save. A re-run starts from a clean
+ * transaction, so nothing a discarded attempt wrote survives.
+ *
+ * Requests on one instance must not overlap (RemoteState serializes them). Queries outside a
+ * request (startup jobs) go straight to the pool.
+ */
+export class PgRequestScope implements Queryable {
+  readonly #pool: Queryable & { connect(): Promise<PgPoolClient> };
+  #client: PgPoolClient | null = null;
+
+  constructor(pool: Queryable & { connect(): Promise<PgPoolClient> }) {
+    this.#pool = pool;
+  }
+
+  get active(): boolean {
+    return this.#client !== null;
+  }
+
+  async begin(): Promise<void> {
+    if (this.#client) throw new Error("A request transaction is already open");
+    const client = await this.#pool.connect();
+    try {
+      await client.query("BEGIN");
+    } catch (err) {
+      client.release(err as Error);
+      throw err;
+    }
+    this.#client = client;
+  }
+
+  async commit(): Promise<void> {
+    const client = this.#take();
+    try {
+      const r = await client.query("COMMIT");
+      // After an error inside the transaction, Postgres answers COMMIT with ROLLBACK: nothing was saved.
+      if (r.command === "ROLLBACK") throw new Error("The request's Postgres transaction was aborted by an earlier error; its writes were rolled back");
+      client.release();
+    } catch (err) {
+      client.release(err as Error);
+      throw err;
+    }
+  }
+
+  async rollback(): Promise<void> {
+    const client = this.#client;
+    if (!client) return;
+    this.#client = null;
+    try {
+      await client.query("ROLLBACK");
+      client.release();
+    } catch (err) {
+      client.release(err as Error); // drop a broken connection instead of reusing it
+    }
+  }
+
+  query(text: string, params?: unknown[]) {
+    return (this.#client ?? this.#pool).query(text, params);
+  }
+
+  #take(): PgPoolClient {
+    const client = this.#client;
+    if (!client) throw new Error("No request transaction is open");
+    this.#client = null;
+    return client;
+  }
 }
 
 export interface PgCidRepositoryOptions {

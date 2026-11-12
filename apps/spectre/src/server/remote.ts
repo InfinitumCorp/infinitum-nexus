@@ -85,8 +85,21 @@ export interface StoreStats {
   /** Requests that still conflicted after every re-run and failed. */
   exhausted: number;
   commits: number;
+  /** Participant commits that failed after the ledger was saved (should stay 0; alert on it). */
+  participantFailures?: number;
   /** Per document: bytes written in total, size at the last write, and the largest size seen. */
   docs: Record<string, { writes: number; bytesWritten: number; lastBytes: number; maxBytes: number }>;
+}
+
+/**
+ * Another store that must commit or roll back with each request (e.g. Cumulus://ID's Postgres rows,
+ * see PgRequestScope in @infinitum/cid). begin() runs before the request; commit() only after the
+ * ledger and documents were saved; rollback() whenever they weren't, including before a re-run.
+ */
+export interface TransactionParticipant {
+  begin(): Promise<void>;
+  commit(): Promise<void>;
+  rollback(): Promise<void>;
 }
 
 export class RemoteState {
@@ -103,6 +116,8 @@ export class RemoteState {
   /** Serialized state as last loaded or saved, to detect changes and to roll back. */
   private baseline: Record<string, string> = {};
   private queue: Promise<unknown> = Promise.resolve();
+  /** Stores that commit and roll back with each request. Set before the first request. */
+  participants: TransactionParticipant[] = [];
 
   /** @param docs named stores to keep in sync, e.g. { cid: cidStore, spectre: spectreStore } */
   constructor(gateway: NexusGateway, docs: Record<string, object>) {
@@ -185,7 +200,15 @@ export class RemoteState {
    */
   transaction<T>(fn: () => Promise<T>): Promise<T> {
     const attempt = async (retries: number): Promise<T> => {
+      const begun: TransactionParticipant[] = [];
+      const rollbackParticipants = async () => {
+        for (const p of begun.splice(0)) await p.rollback().catch(() => undefined);
+      };
       try {
+        for (const p of this.participants) {
+          await p.begin();
+          begun.push(p);
+        }
         await this.sync();
         let outcome: { ok: true; value: T } | { ok: false; error: unknown };
         try {
@@ -194,9 +217,22 @@ export class RemoteState {
           outcome = { ok: false, error };
         }
         await this.commit();
+        // The ledger and documents are saved: now the participants. A failure here leaves them
+        // behind the ledger, which can't be undone any more; it is reported, never silent.
+        for (const p of begun.splice(0)) {
+          try {
+            await p.commit();
+          } catch (err) {
+            this.stats.participantFailures = (this.stats.participantFailures ?? 0) + 1;
+            this.emit("participant-commit-failed");
+            await rollbackParticipants();
+            throw err;
+          }
+        }
         if (!outcome.ok) throw outcome.error;
         return outcome.value;
       } catch (err) {
+        await rollbackParticipants();
         if (err instanceof ConflictError) {
           this.rollback();
           this.stats.conflicts++;

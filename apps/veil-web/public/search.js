@@ -201,6 +201,7 @@
       });
       t.root.appendChild(box);
     }
+    if (t.webSlot) t.root.appendChild(t.webSlot);
   }
 
   function failTurn(t, message) {
@@ -212,9 +213,14 @@
     n.appendChild(el("br"));
     var b = el("button", null, "Try again");
     b.type = "button";
-    b.addEventListener("click", function () { t.root.remove(); ask(t.q, true); });
+    b.addEventListener("click", function () {
+      if (t.webSlot) { $("main").appendChild(t.webSlot); t.webSlot.hidden = true; $("results").textContent = ""; shown = 0; }
+      t.root.remove();
+      ask(t.q, true);
+    });
     n.appendChild(b);
     t.answer.appendChild(n);
+    if (t.webSlot) t.root.appendChild(t.webSlot);
   }
 
   // ---------------- Talking to VEIL ----------------
@@ -277,7 +283,7 @@
       if (!res.ok) throw new Error("status " + res.status);
       return readEvents(res, function (ev) {
         if (ev.type === "sources") showSources(t, ev.sources || []);
-        else if (ev.type === "results" && first) showResults(q, ev);
+        else if (ev.type === "results" && first) showResults(q, ev, t);
         else if (ev.type === "text") { t.text += ev.t; if (!frame) frame = requestAnimationFrame(paint); }
         else if (ev.type === "related") related = ev.questions || [];
         else if (ev.type === "error") failed = ev.message || "Something went wrong.";
@@ -333,10 +339,12 @@
     shown += results.length;
   }
 
-  function showResults(q, data) {
+  /** The web results belong to the first question: they sit at the end of its turn, above any follow-ups. */
+  function showResults(q, data, turn) {
     webQuery = q;
     var results = data.results || [];
     if (!results.length) return;
+    turn.webSlot = $("web");
     $("web").hidden = false;
     renderResults(results);
     var from = (data.from || []).map(sourceName).join(", ");

@@ -93,14 +93,43 @@ export function cleanHistory(history) {
     .map((h) => ({ q: h.q.slice(0, 400), a: h.a.slice(0, 1500) }));
 }
 
+/** Question and filler words that search sources would otherwise require on every page. */
+const STOP = new Set(("a an the and or but of to in on at by for from with about as into over is are was were be been being am " +
+  "do does did doing done have has had can could should would will shall may might must " +
+  "how what why when where which who whom whose whats hows " +
+  "i me my we our you your it its this that these those there here them they their he she his her " +
+  "tell explain show give please vs versus between any some more most best way ways get use using work works " +
+  "different difference differences differ compare compared comparison like other else instead mean means " +
+  "and also just really very much many if then than so not no yes " +
+  "как что почему зачем когда где какой какая какие кто ли это в на и или не по для с о об у же бы").split(" "));
+
+/** The words of a question worth searching for: question and filler words dropped, at most 8. */
+export function keywords(q) {
+  const all = terms(q);
+  const kept = all.filter((w) => !STOP.has(w));
+  return (kept.length ? kept : all).slice(0, 8).join(" ");
+}
+
 /**
- * What the search should look for. A short follow-up such as "and on Android?" means little
- * on its own, so the previous question is put in front of it.
+ * What the search should look for: the question's keywords. A short follow-up such as "and on
+ * Android?" means little on its own, so the previous question's keywords are put in front of it.
  */
 export function searchQuery(q, history) {
   const last = history.length ? history[history.length - 1].q : "";
-  const short = terms(q).length <= 4;
-  return (last && short ? last + " " + q : q).slice(0, 400);
+  const own = keywords(q);
+  const short = own.split(" ").filter(Boolean).length <= 2;
+  return (last && short ? keywords(last + " " + q) : own || q).slice(0, 400);
+}
+
+/**
+ * Searches to try in order until one finds pages. Sources want every word on the page, so a
+ * long or combined question is retried with fewer words: this question's own keywords, then
+ * its first three, then its first two.
+ */
+export function searchPlan(q, history) {
+  const own = keywords(q).split(" ").filter(Boolean);
+  const plan = [searchQuery(q, history), own.join(" "), own.slice(0, 3).join(" "), own.slice(0, 2).join(" ")];
+  return [...new Set(plan.filter(Boolean))];
 }
 
 const SYSTEM = `You are VEIL Answers, the private answer engine in the VEIL browser.
@@ -125,8 +154,9 @@ export function buildMessages(q, sources, history = []) {
   return messages;
 }
 
-const RELATED_SYSTEM = `Suggest 3 short follow-up questions a curious person would ask next about the topic below.
-Each must be a complete question under 70 characters, in the same language as the question.
+const RELATED_SYSTEM = `Suggest 3 follow-up questions a curious person would ask next, after the question below.
+Each must name its subject explicitly (never "it" or "this"), go one step deeper or sideways from the original question, and make sense on its own.
+Each must be a complete question under 80 characters, in the same language as the question.
 Reply with the 3 questions only, one per line, no numbering, no other text.`;
 
 export function relatedMessages(q, sources) {

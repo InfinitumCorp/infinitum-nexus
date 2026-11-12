@@ -25,7 +25,7 @@ import {
   YANDEX_API, blend, decodeRaw, fromHackerNews, fromMojeek, fromStackOverflow, fromYandexXml, hnUrl, mojeekUrl, soUrl, yandexBody,
 } from "./sources.js";
 import {
-  MAX_SOURCES, MODEL, bestPassage, buildMessages, cleanHistory, noWiki, pageText, parseRelated, readSse, relatedMessages, replyText, searchQuery,
+  MAX_SOURCES, MODEL, bestPassage, buildMessages, cleanHistory, noWiki, pageText, parseRelated, readSse, relatedMessages, replyText, searchPlan,
 } from "./answer.js";
 
 const HEADERS = {
@@ -140,7 +140,11 @@ function answer(request, env) {
       if (!q) { await send({ type: "error", message: "Type a question." }); return; }
       const history = cleanHistory(body.history);
 
-      const found = await gather(searchQuery(q, history), 0, env);
+      let found = { sources: [], results: [], next: null };
+      for (const tryQ of searchPlan(q, history)) {
+        found = await gather(tryQ, 0, env);
+        if (found.results.length) break;
+      }
       const sources = await readSources(found.results, q, env);
       await send({ type: "sources", sources: sources.map(({ title, url, site, snippet }, i) => ({ n: i + 1, title, url, site, snippet })) });
       await send({ type: "results", from: found.sources, results: found.results, next: found.next });

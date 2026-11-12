@@ -56,12 +56,28 @@ export interface PolicyCheck {
 }
 
 export class PolicyService {
-  private records = new Map<string, PolicyRecord>();
+  private store = new Map<string, PolicyRecord>();
   private optIns = new Set<string>();
   readonly tenancy: TenancyDirectory;
+  /**
+   * How an opt-in is keyed. Defaults to the raw pair; pass a pseudonymous key (see
+   * `optInKeyFor` in postgres.ts) when opt-ins are persisted, so no raw Cumulus ID is stored.
+   */
+  readonly optInKey: (product: string, cid: string) => string;
 
-  constructor(tenancy: TenancyDirectory) {
+  constructor(tenancy: TenancyDirectory, options: { optInKey?: (product: string, cid: string) => string } = {}) {
     this.tenancy = tenancy;
+    this.optInKey = options.optInKey ?? ((p, c) => `${p}\u0000${c}`);
+  }
+
+  /** All records, for persistence. */
+  records(): PolicyRecord[] {
+    return [...this.store.values()];
+  }
+
+  /** Loads persisted opt-in keys (already in `optInKey` form). */
+  loadOptInKeys(keys: Iterable<string>): void {
+    for (const k of keys) this.optIns.add(k);
   }
 
   private key(tenantId: string, product: string): string {
@@ -71,29 +87,29 @@ export class PolicyService {
   put(record: PolicyRecord): void {
     if (EXCLUDED_PRODUCTS.has(record.product)) throw new Error(`${record.product} is excluded from the data platform`);
     if (!CONTRACTS[record.product]) throw new Error(`no collection contract for ${record.product}`);
-    this.records.set(this.key(record.tenant_id, record.product), { ...record, purposes: [...record.purposes] });
+    this.store.set(this.key(record.tenant_id, record.product), { ...record, purposes: [...record.purposes] });
   }
 
   get(tenantId: string, product: string): PolicyRecord | undefined {
-    return this.records.get(this.key(tenantId, product));
+    return this.store.get(this.key(tenantId, product));
   }
 
   byId(id: string): PolicyRecord | undefined {
-    for (const r of this.records.values()) if (r.id === id) return r;
+    for (const r of this.store.values()) if (r.id === id) return r;
     return undefined;
   }
 
-  /** Opt-in for products whose collection is opt-in only (VEIL). */
+  /** Opt-in for products whose collection is opt-in only (VEIL, HRVST). */
   optIn(product: string, cid: string): void {
-    this.optIns.add(`${product}\u0000${cid}`);
+    this.optIns.add(this.optInKey(product, cid));
   }
 
   optOut(product: string, cid: string): void {
-    this.optIns.delete(`${product}\u0000${cid}`);
+    this.optIns.delete(this.optInKey(product, cid));
   }
 
   hasOptIn(product: string, cid: string): boolean {
-    return this.optIns.has(`${product}\u0000${cid}`);
+    return this.optIns.has(this.optInKey(product, cid));
   }
 
   async decide(c: PolicyCheck): Promise<Decision> {

@@ -90,7 +90,12 @@ export const ID_CLIENTS: Record<string, IdClient> = {
   fabric: {
     name: "FabriC++",
     app: "fabric",
-    origins: ["https://infinitumfabric.app", "https://www.infinitumfabric.app"],
+    origins: [
+      "https://infinitumfabric.app",
+      "https://www.infinitumfabric.app",
+      // Fabric Russia (Yandex Cloud, fabric-russia): Synapse signs in from here (InfinitumCorp/fabric-ru).
+      "https://ru.infinitumfabric.app",
+    ],
   },
   "firm-wallet": {
     name: "$FIRM Wallet",

@@ -435,7 +435,8 @@ export function createApp(deps: AppDeps) {
     const a = ctx.user!.account;
     // The Cumulus account that comes with every CID: Mail (unread), Cloud storage, FIRM Wallet.
     const cumulus = deps.suite?.summary(a.cid);
-    return { cid: a.cid, username: a.username, mailAddress: a.mailAddress, handle: a.handle, workspace: ctx.user!.workspace, cumulus };
+    const orgName = cid.organizationMembership(a.cid)?.name;
+    return { cid: a.cid, username: a.username, mailAddress: a.mailAddress, handle: a.handle, workspace: ctx.user!.workspace, ...(orgName ? { orgName } : {}), cumulus };
   });
 
   /* ---------------- Today / dashboard ---------------- */

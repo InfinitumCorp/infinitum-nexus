@@ -149,6 +149,11 @@ export interface Organization {
   name: string;
   admins: string[];
   sso?: SsoConfig & { emailDomain?: string };
+  /**
+   * "issuer": the standalone Cumulus://ID issuer reports this organization (org_id in its ID
+   * tokens), so membership and admins follow the issuer. Unset: the organization exists only here.
+   */
+  source?: "issuer";
 }
 
 interface Challenge {
@@ -204,6 +209,10 @@ export interface IssuerClaims {
   username?: unknown;
   handle?: unknown;
   email?: unknown;
+  /** With the profile scope: the person's organization at the issuer (org_<uuid>), its name and their role. */
+  org_id?: unknown;
+  org_name?: unknown;
+  org_role?: unknown;
   [k: string]: unknown;
 }
 
@@ -718,6 +727,7 @@ export class CidService {
       await this.emit("account.created", cid);
       created = true;
     }
+    await this.syncIssuerOrg(cid, claims);
     const issued = await this.issueSession(cid, device, "oidc");
     if (idToken) issued.session.idTokenHint = idToken;
     return { ...issued, created };
@@ -926,6 +936,48 @@ export class CidService {
   async permissionHistory(cid: string) {
     const entries = await this.cfg.ledger.query({ product: "cid", subject: cid });
     return entries.filter((e) => e.type === "grant" || e.type === "revoke");
+  }
+
+  /**
+   * Organization membership from the issuer's org_id / org_name / org_role claims. The local
+   * organization is created if missing, the account joins it, and the local admin list follows
+   * org_role. Without org_id, a membership is cleared only when it came from the issuer: an
+   * organization that exists only here is left alone.
+   */
+  private async syncIssuerOrg(cid: string, claims: IssuerClaims) {
+    const account = this.account(cid);
+    const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
+    const orgId = str(claims.org_id);
+    const leave = (org: Organization | undefined) => {
+      if (org) org.admins = org.admins.filter((a) => a !== cid);
+    };
+    if (!/^org_[0-9a-f-]{36}$/.test(orgId)) {
+      const current = account.orgId ? this.store.orgs.get(account.orgId) : undefined;
+      if (current?.source === "issuer") {
+        leave(current);
+        account.orgId = undefined;
+        await this.record("audit", cid, current.id, { event: "org.member_left", via: "issuer" });
+      }
+      return;
+    }
+    const name = str(claims.org_name).slice(0, 120);
+    let org = this.store.orgs.get(orgId);
+    if (!org) {
+      org = { id: orgId, name: name || orgId, admins: [], source: "issuer" };
+      this.store.orgs.set(orgId, org);
+      await this.record("identity", cid, orgId, { event: "org.created", via: "issuer" });
+    } else {
+      // The issuer now reports it, so it follows the issuer from here on.
+      org.source = "issuer";
+      if (name) org.name = name;
+    }
+    if (account.orgId && account.orgId !== orgId) leave(this.store.orgs.get(account.orgId));
+    account.orgId = orgId;
+    const admin = str(claims.org_role) === "admin";
+    const wasAdmin = org.admins.includes(cid);
+    if (admin && !wasAdmin) org.admins = [...org.admins, cid];
+    if (!admin && wasAdmin) leave(org);
+    if (admin !== wasAdmin) await this.record("audit", cid, orgId, { event: admin ? "org.admin_added" : "org.admin_removed", via: "issuer" });
   }
 
   /* ---------------- Teams, organizations and SSO ---------------- */

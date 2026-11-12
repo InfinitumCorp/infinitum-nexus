@@ -270,8 +270,26 @@ In client mode (`apps/spectre/src/server/cid-oidc-client.ts` and `app.ts`):
   `manageAt: https://id.cumuluscloud.app/account`, and the page shows one "Sign in with
   Cumulus://ID" button plus "Create a Cumulus://ID" instead of the passkey form.
 
-Still open: organizations and org SSO are not at the new issuer, so a new member of an
-organization cannot be placed in its workspace by the issuer; existing members keep their local
-`orgId`. The product IdP routes (`/api/id/*`, `/realms/cumulus/*`) are still registered on +SPCTR's
+Organizations follow the issuer: with the `profile` scope its ID tokens carry `org_id`
+(`org_<uuid>`, the same ids as the export), `org_name` and `org_role` (`admin` | `member`). On each
+sign-in +SPCTR creates the local organization if it is missing (marked `source: "issuer"`), puts the
+account in it (so the CRM workspace is the organization's), and adds or removes the account from
+the local admins to match `org_role`. A token without `org_id` clears the account's organization
+only when that organization came from the issuer; an organization that exists only here is left
+alone. Org SSO settings are not carried by the token. The product IdP routes (`/api/id/*`, `/realms/cumulus/*`) are still registered on +SPCTR's
 host; after step (d) nothing should point at them, and with `CID_OIDC_SIGNING_KEY` deleted the
 `/realms/` routes are off.
+
+## The account bar in nexus product pages
+
+Every nexus web UI people use carries the Cumulus://ID account bar (`<div data-cumulus-bar>`) at
+the right of its header: +SPCTR, VEIL web (index and search), CNDCTR, FABRIC, $FIRM Wallet,
+Cumulus://Mail and Drive, and the :\ARCHITECT\ Podium. Their CSPs allow scripts only from
+`'self'`, so they load a vendored copy of `public/id/bar.js` from `InfinitumCorp/cumulus-id`: the
+canonical copy is `packages/ui/cumulus-bar.js`, `packages/ui/copies.json` lists the copies, `node
+packages/ui/scripts/sync.mjs` rewrites them and the `@infinitum/ui` tests fail if one drifts. The
+Podium has no CSP and loads `https://id.cumuluscloud.app/id/bar.js`. Apps with their own server
+session (+SPCTR, CNDCTR, FABRIC, Mail) pass `data-signin`, set `data-signout` to a `#signout`
+fragment that their page turns into the usual same-origin POST, and call
+`window.CumulusBar.setProfile(...)`. VEIL web, the Wallet and the Podium use the bar's own tab sign-in.
+

@@ -200,6 +200,68 @@ test("OIDC client mode: prompt=create reaches the issuer, and an existing in-pro
   }
 });
 
+test("OIDC client mode: organizations follow the issuer's org_id, org_name and org_role", async () => {
+  const { h, signIn } = await oidcHarness();
+  try {
+    const cid = h.suite.cid;
+    const orgId = `org_${randomUUID()}`;
+    const org = { org_id: orgId, org_name: "Acme Analytics" };
+
+    // A member lands in the organization's workspace, created locally from the claims.
+    const grace = person({ ...org, org_role: "member" });
+    const g = await signIn(grace);
+    const gMe = await h.call("GET", "/api/me", undefined, g.cookie);
+    assert.equal(gMe.body.workspace, orgId);
+    assert.equal(gMe.body.orgName, "Acme Analytics"); // shown in the account bar
+    assert.deepEqual(cid.store.orgs.get(orgId), { id: orgId, name: "Acme Analytics", admins: [], source: "issuer" });
+    assert.equal(cid.organizationMembership(grace.sub)?.admin, false);
+    assert.equal((await h.call("POST", "/api/companies", { name: "Shared Co" }, g.cookie)).status, 200);
+
+    // An admin becomes a local admin and shares the same CRM workspace.
+    const alan = person({ preferred_username: "alan", email: "alan@cumuluscloud.app", handle: "@alan.veil", ...org, org_role: "admin" });
+    const a = await signIn(alan);
+    assert.equal((await h.call("GET", "/api/me", undefined, a.cookie)).body.workspace, orgId);
+    assert.deepEqual(cid.store.orgs.get(orgId)!.admins, [alan.sub]);
+    assert.equal(cid.organizationMembership(alan.sub)?.admin, true);
+    const seen = (await h.call("GET", "/api/companies", undefined, a.cookie)).body.map((c: { name: string }) => c.name);
+    assert.deepEqual(seen, ["Shared Co"]);
+
+    // A demotion at the issuer is reflected on the next sign-in, and a rename follows the issuer.
+    await signIn({ ...alan, org_name: "Acme Analytics Ltd", org_role: "member" });
+    assert.deepEqual(cid.store.orgs.get(orgId)!.admins, []);
+    assert.equal(cid.organizationMembership(alan.sub)?.admin, false);
+    assert.equal(cid.store.orgs.get(orgId)!.name, "Acme Analytics Ltd");
+
+    // Removed from the organization at the issuer: back to a personal workspace.
+    const solo = await signIn({ ...grace, org_id: undefined, org_name: undefined, org_role: undefined });
+    assert.equal((await h.call("GET", "/api/me", undefined, solo.cookie)).body.workspace, grace.sub);
+    assert.equal(cid.getAccount(grace.sub).orgId, undefined);
+  } finally {
+    await h.close();
+  }
+});
+
+test("OIDC client mode: an organization that exists only locally is not cleared by a token without org_id", async () => {
+  const { h, signIn } = await oidcHarness();
+  try {
+    const cid = h.suite.cid;
+    const before = await cid.createAccount({ username: "lin" });
+    const local = await cid.createOrganization("Local Only Co", before.cid);
+    const r = await signIn(person({ sub: before.cid, cid: before.cid, preferred_username: "lin" }));
+    assert.equal((await h.call("GET", "/api/me", undefined, r.cookie)).body.workspace, local.id);
+    assert.equal(cid.getAccount(before.cid).orgId, local.id);
+    assert.deepEqual(cid.store.orgs.get(local.id)!.admins, [before.cid]);
+    assert.equal(cid.store.orgs.get(local.id)!.source, undefined);
+
+    // Once the issuer reports that same (imported) organization, it follows the issuer.
+    await signIn(person({ sub: before.cid, cid: before.cid, org_id: local.id, org_name: "Local Only Co", org_role: "member" }));
+    assert.equal(cid.store.orgs.get(local.id)!.source, "issuer");
+    assert.deepEqual(cid.store.orgs.get(local.id)!.admins, []);
+  } finally {
+    await h.close();
+  }
+});
+
 for (const [name, claims, message] of [
   ["a wrong nonce", { nonce: "not-the-nonce-we-sent" }, "nonce"],
   ["a wrong aud", { aud: "cumulus-mail" }, "aud"],
@@ -284,6 +346,10 @@ test("default mode is unchanged: in-process passkey sign-in, no OIDC client rout
     assert.equal(ids.body.passkeys, 1);
     assert.equal(ids.body.manageAt, undefined);
     assert.equal((await h.call("GET", "/api/auth/providers")).status, 200);
+    // The vendored Cumulus://ID account bar is served from this origin (CSP script-src 'self').
+    const bar = await fetch(h.base + "/id/bar.js");
+    assert.equal(bar.status, 200);
+    assert.match(await bar.text(), /window\.CumulusBar = api/);
     const out = await h.call("POST", "/api/auth/signout", {}, cookie);
     assert.deepEqual(out.body, { ok: true });
   } finally {

@@ -101,6 +101,11 @@ export class RevenueClient {
 
   entitlements() { return this.req<Entitlements>("GET", "/v1/me/entitlements"); }
 
+  /** Rename the org or switch it between individual and business (needed before business-only plans). */
+  updateOrg(input: { name?: string; kind?: "individual" | "business" }) {
+    return this.req<{ id: string; name: string; kind: OrgKind }>("POST", "/v1/me/org", input);
+  }
+
   /** Stripe Checkout for a subscription. `returnUrl` must be on an Infinitum product domain. */
   subscriptionCheckout(input: { planId: string; quantity?: number; returnUrl?: string }) {
     return this.req<CheckoutSession>("POST", "/v1/subscriptions/checkout", input);

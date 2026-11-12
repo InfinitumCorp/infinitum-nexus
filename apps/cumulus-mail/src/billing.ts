@@ -8,18 +8,21 @@
  * revenue API (infinitum-revenue) for a Stripe Checkout session, and the browser goes there.
  * Prices only ever appear on Stripe Checkout. Stripe keys live only in the revenue API.
  *
+ * Business plans (BUSINESS_PLANS) switch the buyer's billing org to a business org first and take
+ * `&seats=<n>` for per-seat plans.
+ *
  *   GET /api/billing/manage?return=<url>   Stripe customer portal: cards, invoices, change or cancel.
  *   GET /api/billing/me                    What this CID pays for, for apps to unlock features.
  *                                          Cookie session here, or "Authorization: Bearer <CID token>"
  *                                          from a product site (CORS for Infinitum product origins).
  *
  * Only the self-serve plans in SELLABLE can be bought this way. Military products are never sold
- * here, whatever the revenue catalog says; sales-assisted and business-only plans go through sales.
+ * here, whatever the revenue catalog says; sales-assisted plans go through sales.
  */
 import { ID_CLIENTS, type Account, type CidService } from "@infinitum/cid";
 import { BillingLinkStore, RevenueClient, RevenueError, billingFor, effectiveEntitlements } from "@infinitum/billing";
 
-/** Plan id -> product name shown on the sign-in page. Individual, self-serve, paid plans only. */
+/** Plan id -> product name shown on the sign-in page. Self-serve, paid plans only. */
 export const SELLABLE: Record<string, string> = {
   scalvs_pro: "SCALVS.ai",
   cndctr_pro: ":\\ARCHITECT\\",
@@ -33,7 +36,30 @@ export const SELLABLE: Record<string, string> = {
   throne_book_lease: "#THRONE",
   academy_membership: "Infinitum Academy",
   veil_premium: "VEIL",
+  // Business plans (self-serve): the buyer's billing org becomes a business org first.
+  scalvs_team: "SCALVS.ai",
+  cndctr_business: ":\\ARCHITECT\\",
+  spectre_starter: "+SPCTR",
+  spectre_growth: "+SPCTR",
+  fabric_business: "FABRIC",
+  metatron_business: "METATRON¹⁰⁰",
 };
+
+/** Plans only a business org may hold. Per-seat ones take `seats` (1..10000). */
+export const BUSINESS_PLANS: Record<string, { perSeat: boolean }> = {
+  scalvs_team: { perSeat: true },
+  cndctr_business: { perSeat: true },
+  spectre_starter: { perSeat: true },
+  spectre_growth: { perSeat: true },
+  fabric_business: { perSeat: true },
+  metatron_business: { perSeat: false },
+};
+
+export function seatsFor(plan: string, raw: string | null): number | undefined {
+  if (!BUSINESS_PLANS[plan]?.perSeat) return undefined;
+  const n = Math.floor(Number(raw ?? 1));
+  return Number.isFinite(n) ? Math.min(Math.max(n, 1), 10000) : 1;
+}
 
 /** Military-only products: never sold through public checkout. */
 export const MILITARY_PRODUCTS = new Set(["eidetic", "eon", "orbis", "pollen", "slug", "odin", "daemon", "argus", "aether"]);
@@ -95,7 +121,10 @@ export function registerBilling(h: BillingHelpers) {
     if (!who) return signInFirst(ctx, "/api/billing/subscribe", product);
     let session;
     try {
-      session = await (await billingFor(revenue, store, who)).subscriptionCheckout({ planId: plan, returnUrl });
+      const org = await billingFor(revenue, store, who);
+      if (BUSINESS_PLANS[plan]) await org.updateOrg({ kind: "business" });
+      const quantity = seatsFor(plan, q.get("seats"));
+      session = await org.subscriptionCheckout({ planId: plan, ...(quantity ? { quantity } : {}), returnUrl });
     } catch (e) { throw failed(e, "Checkout"); }
     if (!isStripeUrl(session.url)) throw new HttpError(502, "Checkout returned an unexpected address. Please contact us.");
     return new Redirect(session.url);

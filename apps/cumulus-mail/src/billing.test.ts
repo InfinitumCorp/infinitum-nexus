@@ -22,6 +22,7 @@ const fakeFetch = async (url: string, init?: RequestInit) => {
   const json = (status: number, data: unknown) => new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json" } });
   if (fail) return json(fail, { error: { code: "plan_not_allowed", message: "This plan is for business accounts." } });
   if (path === "/v1/signup") return json(200, { orgId: `org_${++signups}`, apiKey: `key_${signups}` });
+  if (path === "/v1/me/org") return json(200, { id: "org_x", name: "x", kind: body.kind ?? "individual" });
   if (path === "/v1/subscriptions/checkout") return json(200, { id: "cs_test_abc", url: checkoutUrl });
   if (path === "/v1/billing/portal") return json(200, { url: "https://billing.stripe.com/p/session/test_123" });
   if (path === "/v1/me/entitlements") return json(200, { orgId: "org_1", credits_cents: 500, products: [
@@ -124,6 +125,25 @@ describe("Buying Infinitum products with a Cumulus://ID", () => {
     fail = 503;
     assert.equal((await call("/api/billing/subscribe?plan=cndctr_pro", me)).status, 503);
     fail = null;
+  });
+
+  it("business plans switch the buyer to a business org first and take seats", async () => {
+    const me = await signUp("buyer6");
+    calls.length = 0;
+    const res = await call("/api/billing/subscribe?plan=spectre_growth&seats=12", me);
+    assert.equal(res.status, 302);
+    const org = calls.findIndex((c) => c.path === "/v1/me/org");
+    const co = calls.findIndex((c) => c.path === "/v1/subscriptions/checkout");
+    assert.ok(org >= 0 && org < co, "org becomes business before checkout");
+    assert.equal(calls[org]!.body.kind, "business");
+    assert.equal(calls[co]!.body.quantity, 12);
+    calls.length = 0;
+    await call("/api/billing/subscribe?plan=metatron_business&seats=40", me);
+    assert.equal(calls.find((c) => c.path === "/v1/subscriptions/checkout")!.body.quantity, undefined, "flat business plan has no seats");
+    calls.length = 0;
+    await call("/api/billing/subscribe?plan=scalvs_pro&seats=5", me);
+    assert.equal(calls.some((c) => c.path === "/v1/me/org"), false, "individual plans leave the org alone");
+    assert.equal(calls.find((c) => c.path === "/v1/subscriptions/checkout")!.body.quantity, undefined);
   });
 
   it("manage opens the Stripe portal; me reports what the CID pays for", async () => {

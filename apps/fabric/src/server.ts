@@ -17,12 +17,25 @@ import { loadConfig } from "./config.ts";
 import { createHandler } from "./http.ts";
 import { FabricService } from "./service.ts";
 import { FabricStore } from "./store.ts";
+import { TeamHub } from "./team-http.ts";
+import { TeamService } from "./team.ts";
 
 const config = loadConfig(process.env);
 mkdirSync(config.dataDir, { recursive: true });
 const masterKey = loadMasterKey(config.dataDir);
 const store = new FabricStore(config.databasePath);
 const service = new FabricService(store, masterKey);
+const hub = new TeamHub();
+const team = new TeamService(store, masterKey, { publish: hub.publish });
+hub.watch((sub, delta) => team.setConnected(sub, delta));
+const ticker = setInterval(() => {
+  try {
+    team.tick();
+  } catch (error) {
+    console.warn(`team tick failed: ${error instanceof Error ? error.message : "error"}`);
+  }
+}, 5_000);
+ticker.unref();
 let origin = config.publicOrigin;
 
 const server = createServer(createHandler({
@@ -33,6 +46,8 @@ const server = createServer(createHandler({
   },
   store,
   service,
+  team,
+  hub,
   publicDir: join(import.meta.dirname, "..", "public"),
 }));
 
@@ -47,6 +62,7 @@ server.listen(config.port, config.bind, () => {
 });
 
 function shutdown(): void {
+  clearInterval(ticker);
   server.close(() => {
     store.close();
     process.exit(0);

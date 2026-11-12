@@ -15,3 +15,14 @@ export { train, predictWith } from "./learn.ts";
 export type { LearnedModel, TrainingRow, TrainOptions } from "./learn.ts";
 export { backtestProbability, backtestSeries, naive, lastDelta, holt } from "./backtest.ts";
 export type { TimedRow, ProbabilityBacktest, Forecaster } from "./backtest.ts";
+
+// "What if?" scenario engine.
+export { simulate, compare, sensitivity, validateModel, LIMITS } from "./simulate.ts";
+export type {
+  ScenarioModel, AgentSpec, Intervention, SimulateOptions, ScenarioResult, Band, Summary,
+  EventResult, Comparison, Delta, SensitivityRow,
+} from "./simulate.ts";
+export type { Dist, DistInput } from "./distributions.ts";
+export { compile, ExprError, FUNCTION_NAMES } from "./expr.ts";
+export { createRng } from "./rng.ts";
+export type { Rng } from "./rng.ts";

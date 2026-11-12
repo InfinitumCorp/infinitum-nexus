@@ -8,7 +8,7 @@ Maps every product advertised on https://infinitumcorporation.ai/#products to cu
 
 | Product | URL | What is deployed | Source |
 |---|---|---|---|
-| Cumulus://ID / +SPCTR™ | https://id.cumuluscloud.app | Sign in with Cumulus://ID for the product sites (passkeys, and Google or Cognito when those secrets are set). The CRM is the same Worker. A newer build adds the free Workers AI binding for Ask Spectre; that build is not deployed until `wrangler deploy` runs. Payments and the $SPCTR token are off. Mirror: https://ru.id.cumuluscloud.app | `apps/spectre` Worker `cumulus-id` |
+| Cumulus://ID / +SPCTR™ | https://id.cumuluscloud.app | Sign in with Cumulus://ID for the product sites (passkeys, and Google or Cognito when those secrets are set). The CRM is the same Worker. A newer build adds the free Workers AI binding for Ask Spectre; that build is not deployed until `wrangler deploy` runs. Payments and the $SPCTR token are off. Mirror: https://ru.id.cumuluscloud.app. The issuer moves to its own repo `InfinitumCorp/cumulus-id` at a cut-over a person runs (DEPLOY.md); +SPCTR then moves to https://spectre.infinitumcorporation.ai. | `apps/spectre` Worker `cumulus-id` |
 | SCALVS.ai | https://scalvs.app | Full web app: agents and CONJURE forecasts on Workers AI (no provider key), rate-limited API | InfinitumCorp/scalvs-ai (Worker `scalvs-ai`), not `packages/scalus` |
 | :\ARCHITECT\ | https://rchtch.app | Public site | InfinitumCorp/architect |
 | Firmament Network / FIRM Wallet | https://firmnetwork.app, https://firmwallet.app | Public sites | InfinitumCorp/firmament-launch |
@@ -29,7 +29,7 @@ Each public domain needs a "(public)" Cloudflare Access bypass app; the account-
 | Product | Advertised task | Status | Evidence | Next steps |
 |---------|-----------------|--------|----------|------------|
 | Firmament Network | Append-only hash-chained Ed25519 ledger. | Core logic | `packages/firmament` + real Merkle root anchoring + Anchor.sol + anchor client + deploy-anchor.ts | Deploy anchor. |
-| Cumulus://ID (CID) | One account for every product. | Core logic | `packages/cid` | Wire into remaining apps. |
+| Cumulus://ID (CID) | One account for every product. | Core logic. The issuer moves to `InfinitumCorp/cumulus-id` (same issuer, client ids and cids; accounts imported through `POST /api/id/export`). | `packages/cid` stays here as the in-process library +SPCTR uses until +SPCTR signs in as OpenID Connect client `spectre`. | Cut-over in DEPLOY.md; then +SPCTR as an OIDC client (docs/cumulus-id.md). New products integrate against `InfinitumCorp/cumulus-id`. |
 | **Data Exchange** | Opt-in data licensing, 85% rev-share to users, CDAT tokens. | Partial | `packages/data-exchange` (catalog, Firmament-backed consent, marketplace, revshare, **14 collectors covering all software products**) + `apps/data-exchange` HTTP API | Persist sales/licenses on Firmament; issue CDAT tokens; wire collectors into live product runtimes; production storage. |
 
 ## Core software products

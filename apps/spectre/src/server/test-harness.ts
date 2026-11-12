@@ -15,7 +15,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const ORIGIN = "http://localhost";
 
 /** Shared harness for the growth-feature HTTP tests. */
-export async function harness(opts: { providers?: Providers; cronSecret?: string; twilioAuthToken?: string; labyrinth?: CumulusConfig["labyrinth"]; labyrinthEndpoint?: string | null; labyrinthDirectoryKeySha256?: string | null } = {}) {
+export async function harness(opts: { providers?: Providers; cronSecret?: string; twilioAuthToken?: string; labyrinth?: CumulusConfig["labyrinth"]; labyrinthEndpoint?: string | null; labyrinthDirectoryKeySha256?: string | null; cidExportKeySha256?: string | null } = {}) {
   const signer = generateSigner();
   const ledger = new Ledger(undefined, { authorizedSigners: [signer.publicKey] });
   const suite = createCumulus({ ledger, signer, rpId: "localhost", origins: [ORIGIN], labyrinth: opts.labyrinth });
@@ -26,7 +26,7 @@ export async function harness(opts: { providers?: Providers; cronSecret?: string
   let emitImpl = async (ws: string, event: GrowthEvent) => { events.push({ ws, event }); };
   const app = createApp({
     cid, suite, crm, ai: {}, publicDir: join(here, "../../public"), secureCookies: false, origin: ORIGIN,
-    labyrinthEndpoint: null, labyrinthDirectoryKeySha256: null,
+    labyrinthEndpoint: null, labyrinthDirectoryKeySha256: null, cidExportKeySha256: null,
     emit: (ws, e) => emitImpl(ws, e),
     ...opts,
   });

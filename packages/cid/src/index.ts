@@ -39,6 +39,8 @@ export { ID_CLIENTS, idClientFor, idClientOrigins } from "./id-clients.ts";
 export type { IdClient } from "./id-clients.ts";
 export { oidcDiscovery, profileOf, registerProductIdp, safeProductReturn } from "./product-idp.ts";
 export type { ProductIdpHelpers } from "./product-idp.ts";
+export { exportCidAccounts, CID_EXPORT_FORMAT, CID_EXPORT_VERSION } from "./account-export.ts";
+export type { CidExport, CidExportAccount, CidExportAuthenticator, CidExportIdentity, CidExportGrant } from "./account-export.ts";
 export { encodeCbor, decodeCbor } from "./cbor.ts";
 export {
   CUMULUS_DOMAIN_DEFAULTS,

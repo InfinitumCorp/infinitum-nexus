@@ -90,6 +90,11 @@ export interface AppDeps {
    * CID_DIRECTORY_KEY_SHA256; unset keeps POST /api/id/labyrinth-directory off.
    */
   labyrinthDirectoryKeySha256?: string | null;
+  /**
+   * SHA-256 (hex) of the account-export key. Omit to read CID_EXPORT_KEY_SHA256; unset keeps
+   * POST /api/id/export off. Set only for the move to InfinitumCorp/cumulus-id.
+   */
+  cidExportKeySha256?: string | null;
   /** Tests: scripted model for Conjure simulations. */
   conjureComplete?: Complete;
   /** Hosted Conjure for "@conjure" in Ask. Defaults to CONJURE_URL + CONJURE_PRODUCT_KEY; null turns it off. */
@@ -338,6 +343,7 @@ export function createApp(deps: AppDeps) {
     HttpError,
     signer: oidc,
     labyrinthDirectoryKeySha256: (deps.labyrinthDirectoryKeySha256 === undefined ? process.env.CID_DIRECTORY_KEY_SHA256 : deps.labyrinthDirectoryKeySha256) || undefined,
+    exportKeySha256: (deps.cidExportKeySha256 === undefined ? process.env.CID_EXPORT_KEY_SHA256 : deps.cidExportKeySha256) || undefined,
   });
 
   route("GET", "/api/me/identities", (ctx) => ({

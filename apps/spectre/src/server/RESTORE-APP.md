@@ -50,3 +50,4 @@ Optional, feature stays off when unset:
 - `CRON_SECRET`
 - `CONJURE_URL`, `CONJURE_PRODUCT_KEY`
 - `LBRNTH_ENDPOINT`, `CID_DIRECTORY_KEY_SHA256`
+- `CID_EXPORT_KEY_SHA256` (account export for the issuer move; set only during the cut-over)

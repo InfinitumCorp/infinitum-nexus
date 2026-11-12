@@ -18,6 +18,7 @@ import { idClientFor, idClientOrigins } from "./id-clients.ts";
 import type { OidcSigner } from "./oidc-sign.ts";
 import { verifyOidcToken } from "./oidc-sign.ts";
 import { answerLabyrinthDirectory, labyrinthDirectoryKeyMatches, LabyrinthDirectoryError } from "./labyrinth-directory.ts";
+import { exportCidAccounts } from "./account-export.ts";
 
 export const profileOf = (a: Account) => ({ cid: a.cid, username: a.username, email: a.mailAddress, name: a.username, handle: a.handle });
 
@@ -73,6 +74,11 @@ export interface ProductIdpHelpers {
    * POST /api/id/labyrinth-directory. Unset: the route is not registered.
    */
   labyrinthDirectoryKeySha256?: string;
+  /**
+   * SHA-256 (hex) of the one-off key for POST /api/id/export, the account export used to move
+   * Cumulus://ID to InfinitumCorp/cumulus-id. Unset (the default): the route is not registered.
+   */
+  exportKeySha256?: string;
 }
 
 const ALL_ORIGINS = idClientOrigins();
@@ -293,6 +299,20 @@ export function registerProductIdp(h: ProductIdpHelpers) {
   }, false, { csrf: false });
 
   route("GET", "/api/id/me", (ctx) => (ctx.user ? profileOf(ctx.user.account) : { signedIn: false }), false, { optionalAuth: true });
+
+  // Server-to-server only, for the move to InfinitumCorp/cumulus-id: every account with its passkeys,
+  // linked identities, confirmed authenticator app and grants. Never sessions, token hashes,
+  // challenges or OAuth state. Off unless CID_EXPORT_KEY_SHA256 is set; no CORS headers at all.
+  const exportKey = h.exportKeySha256;
+  if (exportKey) {
+    route("POST", "/api/id/export", (ctx) => {
+      for (const name of ["Access-Control-Allow-Origin", "Access-Control-Allow-Credentials", "Access-Control-Allow-Methods", "Access-Control-Allow-Headers", "Access-Control-Max-Age"]) {
+        ctx.res.removeHeader(name);
+      }
+      if (!labyrinthDirectoryKeyMatches(ctx.req.headers["x-cid-export-key"], exportKey)) throw new HttpError(401, "Unknown export client");
+      return exportCidAccounts(cid);
+    }, false, { csrf: false });
+  }
 
   // Server-to-server only: the hosted Labyrinth asks who a presented token belongs to.
   // No CORS headers are set, so a browser page can never read an answer.

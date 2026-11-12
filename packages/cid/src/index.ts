@@ -62,3 +62,6 @@ export type { LabyrinthDirectoryIdentity, LabyrinthDirectoryOrg, LabyrinthDirect
 /** Cumulus://ID on PostgreSQL (relational-storage phase 2). Off unless a CidService is given one. */
 export { PgCidRepository, PgRequestScope, migrateCid, cidSchemaSql } from "./postgres.ts";
 export type { Queryable, PgPoolClient, PgCidRepositoryOptions } from "./postgres.ts";
+/** Phase 3: copy the `cid` document into a repository and verify it (see backfill-cli.ts). */
+export { backfillCid, checkCidStore, cidStoreFromSnapshot } from "./backfill.ts";
+export type { BackfillReport, CidCheck, CidCounts } from "./backfill.ts";

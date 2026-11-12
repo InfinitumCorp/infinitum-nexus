@@ -78,6 +78,8 @@
     .app-link:hover::after, .app-link:focus-visible::after { transform: scaleX(1); }
     footer { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 6px 16px; margin: 0 14px; padding: 14px 0 max(14px, env(safe-area-inset-bottom, 0px)); border-top: 1px solid var(--rule); font-size: 12px; }
     .quiet { color: var(--ink-quiet); }
+    .footer-left { display: inline-flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .footer-left .lang-switch { font-size: 12px; padding: 2px 4px; }
     .footer-right { display: inline-flex; align-items: center; gap: 18px; flex-wrap: wrap; }
     .footer-link { color: var(--ink); text-decoration: none; background: none; border: 0; padding: 0; font-size: 12px; }
     .footer-link:hover, .footer-link:focus-visible { text-decoration: underline; text-underline-offset: 3px; }
@@ -89,7 +91,7 @@
       .apps { gap: 2px 18px; }
       /* Phones: the footer stacks, centered under the app names */
       footer { flex-direction: column; align-items: center; text-align: center; gap: 8px; }
-      .footer-right { justify-content: center; gap: 8px 18px; }
+      .footer-left, .footer-right { justify-content: center; gap: 8px 18px; }
     }
   </style>
   <link rel="stylesheet" href="i18n/i18n.css">
@@ -152,7 +154,10 @@
     <a class="app-link" data-panel href="https://infinitumfabric.app/" target="_blank" rel="noopener noreferrer">FABRIC++™</a>
   </nav>
   <footer>
-    <span>AI-powered. Blockchain-governed™.</span>
+    <span class="footer-left">
+      <span id="lang-switch"></span>
+      <span>AI-powered. Blockchain-governed™.</span>
+    </span>
     <span class="footer-right">
       <button type="button" class="footer-link" id="privacy-toggle" aria-expanded="false" aria-controls="privacy">Privacy</button>
       <span class="quiet">© 2026 Infinitum Corporation · <span id="build"></span></span>

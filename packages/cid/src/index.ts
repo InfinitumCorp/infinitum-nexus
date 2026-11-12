@@ -42,6 +42,9 @@ export type { ProductIdpHelpers } from "./product-idp.ts";
 export { exportCidAccounts, CID_EXPORT_FORMAT, CID_EXPORT_VERSION } from "./account-export.ts";
 export type { CidExport, CidExportAccount, CidExportAuthenticator, CidExportIdentity, CidExportGrant } from "./account-export.ts";
 export { encodeCbor, decodeCbor } from "./cbor.ts";
+export { MapCidRepository } from "./repository.ts";
+export type { CidRepository, OneTimeKind } from "./repository.ts";
+export type { CidOneTime } from "./service.ts";
 export { UpstreamIdClient, UpstreamIdError, parseUpstreamProfile, upstreamIssuerFromEnv } from "./upstream.ts";
 export type { UpstreamIdConfig, UpstreamProfile } from "./upstream.ts";
 export {

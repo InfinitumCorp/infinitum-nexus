@@ -183,6 +183,14 @@ interface DeviceHandoff {
   redirectUri?: string;
 }
 
+/** Short-lived, single-use items, by kind (see CidRepository's one-time methods). */
+export interface CidOneTime {
+  challenge: Challenge;
+  mfa: PendingMfa;
+  oauth: PendingAuth;
+  handoff: DeviceHandoff;
+}
+
 /** How long a browser-to-app sign-in code stays valid. */
 export const DEVICE_HANDOFF_TTL_MS = 2 * 60_000;
 

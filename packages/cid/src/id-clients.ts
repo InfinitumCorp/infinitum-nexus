@@ -151,6 +151,13 @@ export const ID_CLIENTS: Record<string, IdClient> = {
     app: "cumulus",
     origins: ["https://developer.infinitumcorporation.ai"],
   },
+  // Nøde: free community Wi-Fi (InfinitumCorp/node). A public product, so https only and no
+  // loopback. Its access tokens carry aud "node", which the Nøde API checks.
+  node: {
+    name: "Nøde",
+    app: "node",
+    origins: ["https://node.infinitumcorporation.ai"],
+  },
 };
 
 /** The client a redirect may go to, or null when it isn't one of ours. */

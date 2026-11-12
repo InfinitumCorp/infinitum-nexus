@@ -13,7 +13,7 @@ import type { CidLabyrinthOptions } from "@infinitum/lbrnth";
  * sign-ins, Cloud share notices and wallet receipts all arrive in the person's Cumulus inbox.
  * It is not a product listed on the public site; people reach it from inside the other products.
  */
-import { CidService, CidStore, FREE_ENTITLEMENTS, cumulusDomains, type CidConfig, type CidEvent, type Account } from "@infinitum/cid";
+import { CidService, CidStore, FREE_ENTITLEMENTS, cumulusDomains, deriveCidSecretKey, type CidConfig, type CidEvent, type Account } from "@infinitum/cid";
 import { CloudStore, QuotaStore, StorageQuota, formatBytes } from "@infinitum/cloud";
 import { WalletAccounts, WalletStore, WalletError, type WalletTransfer } from "@infinitum/firm";
 import { CumulusTunnel, PostOffice, PostOfficeStore, TunnelStore, openMailStore } from "@infinitum/mail";
@@ -100,7 +100,9 @@ export class CumulusSuite {
       notifier: { shared: ({ owner, recipient, key }) => this.cloudShared(owner, recipient, key) },
     });
     const { stores: _s, mailOrigin: _m, masterKey: _k, labyrinth: _l, ...cidConfig } = config;
-    this.cid = new CidService({ ...cidConfig, store: this.stores.cid, onEvent: (e) => this.onCidEvent(e) });
+    // Authenticator-app seeds are sealed at rest: with the given key, else one derived from the master key.
+    const secretKey = config.secretKey ?? (config.masterKey ? deriveCidSecretKey(config.masterKey) : undefined);
+    this.cid = new CidService({ ...cidConfig, secretKey, store: this.stores.cid, onEvent: (e) => this.onCidEvent(e) });
     if (config.labyrinth) this.labyrinth = new CidLabyrinth(this.cid.syncView(), { ...config.labyrinth, clock });
   }
 

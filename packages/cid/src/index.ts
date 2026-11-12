@@ -65,3 +65,6 @@ export type { Queryable, PgPoolClient, PgCidRepositoryOptions } from "./postgres
 /** Phase 3: copy the `cid` document into a repository and verify it (see backfill-cli.ts). */
 export { backfillCid, checkCidStore, cidStoreFromSnapshot } from "./backfill.ts";
 export type { BackfillReport, CidCheck, CidCounts } from "./backfill.ts";
+/** Sealing account secrets (authenticator-app seeds) at rest. */
+export { secretBox, deriveCidSecretKey, cidSecretKeyFromEnv } from "./secret-box.ts";
+export type { SecretBox } from "./secret-box.ts";

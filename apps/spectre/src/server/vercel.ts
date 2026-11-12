@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { Ledger, signerFromPrivateKey } from "@infinitum/firmament";
-import { socialFromEnv } from "@infinitum/cid";
+import { cidSecretKeyFromEnv, socialFromEnv } from "@infinitum/cid";
 import { createCumulus, emptyCumulusStores } from "@infinitum/cumulus";
 import { SpectreCRM, emptyStore } from "../core/crm.ts";
 import { createApp } from "./app.ts";
@@ -27,7 +27,8 @@ import { cidStorageFromEnv } from "./cid-store.ts";
  * and the social sign-in variables (see main.ts). CID_OIDC_SIGNING_KEY is optional; when it is
  * unset, OpenID Connect stays off and sign-in still works. See docs/cumulus-id.md.
  * CUMULUS_STORE=postgres (+ CID_DATABASE_URL) keeps Cumulus://ID in Postgres rows instead of the
- * `cid` document; see cid-store.ts.
+ * `cid` document; see cid-store.ts. CID_SECRET_KEY (32 bytes, base64; the same value on every product
+ * that shares Cumulus://ID) seals authenticator-app seeds at rest.
  */
 
 process.env.USE_METATRON ??= "1";
@@ -90,7 +91,7 @@ function build() {
   if (cidStorage.participant) state.participants.push(cidStorage.participant);
   const ledger = new Ledger(state.ledgerStore, { authorizedSigners: [signer.publicKey] });
   const suite = createCumulus({
-    ledger, signer, rpId, origins, stores: cumulusStores, repository: cidStorage.repository,
+    ledger, signer, rpId, origins, stores: cumulusStores, repository: cidStorage.repository, secretKey: cidSecretKeyFromEnv(),
     social: { providers: socialFromEnv() }, mailOrigin: process.env.CUMULUS_MAIL_ORIGIN,
   });
   const cid = suite.cid;

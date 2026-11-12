@@ -7,6 +7,7 @@ import {
   type AssertionResponse,
 } from "./webauthn.ts";
 import { generateTotpSecret, verifyTotp, otpauthUri } from "./totp.ts";
+import { noSecretBox, secretBox, type SecretBox } from "./secret-box.ts";
 import { verifyIdToken, type SsoConfig } from "./oidc.ts";
 import {
   assertExactOrigin,
@@ -228,6 +229,11 @@ export interface CidConfig {
    * (in memory). A database-backed repository replaces it without changing sign-in logic.
    */
   repository?: CidRepository;
+  /**
+   * 32-byte key that seals authenticator-app seeds at rest (AES-256-GCM, bound to the account).
+   * Without it they are stored as they are, as before. See secret-box.ts.
+   */
+  secretKey?: Buffer;
   clock?: () => Date;
   sessionDays?: number;
   /** Social sign-in providers with their client credentials. Only configured ones are offered. */
@@ -294,9 +300,10 @@ export class CidService {
   readonly mailDomain: string;
   /** Exact CORS origins for ID, Cloud and Mail. Never a wildcard. */
   readonly corsOrigins: readonly string[];
-  private readonly cfg: Required<Omit<CidConfig, "store" | "repository" | "social" | "onEvent" | "upstreamIssuer">>;
+  private readonly cfg: Required<Omit<CidConfig, "store" | "repository" | "secretKey" | "social" | "onEvent" | "upstreamIssuer">>;
   /** Every read and write of CID data goes through here. */
   readonly repo: CidRepository;
+  readonly #secrets: SecretBox;
   /** Issuer origin when this service only mirrors accounts from Cumulus://ID; undefined when it issues its own. */
   readonly upstreamIssuer?: string;
   private readonly socialProviders: Partial<Record<SocialProviderId, SocialCredentials>>;
@@ -308,6 +315,7 @@ export class CidService {
     this.upstreamIssuer = config.upstreamIssuer ? config.upstreamIssuer.replace(/\/$/, "") : undefined;
     this.store = config.store ?? new CidStore();
     this.repo = config.repository ?? new MapCidRepository(this.store);
+    this.#secrets = config.secretKey ? secretBox(config.secretKey) : noSecretBox;
     const domains = cumulusDomains();
     this.issuer = domains.issuer;
     this.jwksUri = domains.jwksUri;
@@ -659,12 +667,12 @@ export class CidService {
       throw new CidError("challenge_expired", "Sign-in request expired. Please try again.");
     }
     const account = await this.account(pending.cid);
-    const step = account.totp ? verifyTotp(account.totp.secret, code, this.now(), account.totp.lastStep) : null;
+    const step = account.totp ? verifyTotp(this.totpSecret(account), code, this.now(), account.totp.lastStep) : null;
     if (step === null) {
       await this.record("audit", account.cid, account.cid, { event: "mfa.failed" });
       throw new CidError("mfa_failed", "That code didn't match");
     }
-    account.totp!.lastStep = step;
+    account.totp = { ...account.totp!, secret: this.#sealed(account), lastStep: step };
     await this.repo.putAccount(account);
     await this.repo.deleteOneTime("mfa", mfaToken);
     return this.issueSession(account.cid, pending.device, pending.method);
@@ -672,11 +680,23 @@ export class CidService {
 
   /* ---------------- Multifactor (authenticator app) ---------------- */
 
+  /** The account's authenticator-app seed in the clear (for verifying codes and the account export). */
+  totpSecret(account: Account): string {
+    if (!account.totp) throw new CidError("not_enrolled", "Multifactor is not on");
+    return this.#secrets.open(account.totp.secret, account.cid);
+  }
+
+  /** The stored seed, sealed if it wasn't yet (values written before a key was configured). */
+  #sealed(account: Account): string {
+    const stored = account.totp!.secret;
+    return this.#secrets.isPlain(stored) ? this.#secrets.seal(stored, account.cid) : stored;
+  }
+
   async enrollTotp(cid: string) {
     const account = await this.account(cid);
     if (account.totp?.confirmed) throw new CidError("already_enabled", "Multifactor is already on");
     const secret = generateTotpSecret();
-    account.totp = { secret, confirmed: false, lastStep: -1 };
+    account.totp = { secret: this.#secrets.seal(secret, account.cid), confirmed: false, lastStep: -1 };
     await this.repo.putAccount(account);
     return { secret, uri: otpauthUri(secret, account.mailAddress) };
   }
@@ -684,9 +704,9 @@ export class CidService {
   async confirmTotp(cid: string, code: string) {
     const account = await this.account(cid);
     if (!account.totp) throw new CidError("not_enrolled", "Start multifactor setup first");
-    const step = verifyTotp(account.totp.secret, code, this.now(), account.totp.lastStep);
+    const step = verifyTotp(this.totpSecret(account), code, this.now(), account.totp.lastStep);
     if (step === null) throw new CidError("mfa_failed", "That code didn't match");
-    account.totp = { ...account.totp, confirmed: true, lastStep: step };
+    account.totp = { ...account.totp, secret: this.#sealed(account), confirmed: true, lastStep: step };
     await this.repo.putAccount(account);
     await this.record("audit", cid, cid, { event: "mfa.enabled", method: "totp" });
     await this.emit("mfa.enabled", cid, { method: "authenticator app" });
@@ -695,7 +715,7 @@ export class CidService {
   async disableTotp(cid: string, code: string) {
     const account = await this.account(cid);
     if (!account.totp?.confirmed) throw new CidError("not_enrolled", "Multifactor is not on");
-    if (verifyTotp(account.totp.secret, code, this.now(), account.totp.lastStep) === null) {
+    if (verifyTotp(this.totpSecret(account), code, this.now(), account.totp.lastStep) === null) {
       throw new CidError("mfa_failed", "That code didn't match");
     }
     account.totp = undefined;

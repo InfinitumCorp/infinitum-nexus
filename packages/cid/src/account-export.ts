@@ -120,7 +120,7 @@ export function exportCidAccounts(cid: CidService, now: Date = new Date()): CidE
       createdAt: a.createdAt,
       orgId: a.orgId ?? null,
       federated: a.federated ? { issuer: a.federated.issuer, subject: a.federated.subject } : null,
-      totp: a.totp?.confirmed ? { secret: a.totp.secret, lastStep: a.totp.lastStep } : null,
+      totp: a.totp?.confirmed ? { secret: cid.totpSecret(a), lastStep: a.totp.lastStep } : null,
       authenticators: authenticators.get(a.cid) ?? [],
       identities: (a.identities ?? []).map((i) => ({ provider: i.provider, subject: i.subject, email: i.email ?? null, linkedAt: i.linkedAt })),
       grants: grants.get(a.cid) ?? [],

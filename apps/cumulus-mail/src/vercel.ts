@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { Ledger, signerFromPrivateKey } from "@infinitum/firmament";
-import { socialFromEnv, upstreamIssuerFromEnv } from "@infinitum/cid";
+import { cidSecretKeyFromEnv, socialFromEnv, upstreamIssuerFromEnv } from "@infinitum/cid";
 import { createCumulus, emptyCumulusStores } from "@infinitum/cumulus";
 import { RemoteState, HttpGateway } from "../../spectre/src/server/remote.ts";
 import { cidStorageFromEnv } from "../../spectre/src/server/cid-store.ts";
@@ -85,7 +85,7 @@ function build() {
   if (cidStorage.participant) state.participants.push(cidStorage.participant);
   const ledger = new Ledger(state.ledgerStore, { authorizedSigners: [signer.publicKey] });
   const suite = createCumulus({
-    ledger, signer, rpId: new URL(origin).hostname, origins, stores, repository: cidStorage.repository,
+    ledger, signer, rpId: new URL(origin).hostname, origins, stores, repository: cidStorage.repository, secretKey: cidSecretKeyFromEnv(),
     social: { providers: socialFromEnv() }, mailOrigin: origin, upstreamIssuer: upstreamIssuerFromEnv(process.env),
   });
 

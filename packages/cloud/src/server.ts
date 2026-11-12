@@ -9,9 +9,9 @@
 import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { CidService, readCumulusDomain } from "@infinitum/cid";
+import { CidService, cumulusDomains, readCumulusDomain, upstreamIssuerFromEnv } from "@infinitum/cid";
 import { Ledger, MemoryStore, generateSigner } from "@infinitum/firmament";
-import { cidAuth } from "./drive/auth.ts";
+import { cidAuth, issuerAuth, type DriveAuth } from "./drive/auth.ts";
 import { readDriveConfig } from "./drive/config.ts";
 import { MasterKey } from "./drive/crypto.ts";
 import { migrate, openPool } from "./drive/db.ts";
@@ -46,10 +46,17 @@ const cid = new CidService({
   origins: [`http://${config.host}:${config.port}`],
 });
 
+// With CUMULUS_ID_ISSUER (as on Cumulus://Mail), Drive accepts the issuer's access tokens and keeps
+// no accounts of its own. Without it, the in-memory CID above signs people in, for local use only.
+const idOrigin = upstreamIssuerFromEnv(process.env);
+const auth: DriveAuth = idOrigin
+  ? issuerAuth({ issuer: `${idOrigin}${new URL(cumulusDomains().issuer).pathname}` })
+  : cidAuth(cid);
+
 const cumulus = readCumulusDomain();
 const app = createDriveApp({
   service,
-  auth: cidAuth(cid),
+  auth,
   rateLimit: config.rateLimit,
   rateWindowMs: config.rateWindowMs,
   publicOrigin: cumulus.cloudOrigin,
@@ -82,5 +89,5 @@ if (sweepMode === "delete" || sweepMode === "report") {
 }
 
 app.server().listen(config.port, config.host, () => {
-  console.log(`Cumulus://Cloud Drive listening on http://${config.host}:${config.port} (public ${cumulus.cloudOrigin}, local filesystem, encryption ${master ? "on" : "off"})`);
+  console.log(`Cumulus://Cloud Drive listening on http://${config.host}:${config.port} (public ${cumulus.cloudOrigin}, local filesystem, encryption ${master ? "on" : "off"}, sign-in ${idOrigin ? `Cumulus://ID tokens from ${idOrigin}` : "local CID"})`);
 });

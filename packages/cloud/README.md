@@ -54,6 +54,7 @@ First request with a new session: `POST /v1/access` grants `drive:read` and `dri
 | `CUMULUS_CLOUD_RATE_LIMIT` | no | `120` | Requests per window, per IP and per CID |
 | `CUMULUS_CLOUD_RATE_WINDOW_MS` | no | `60000` | Rate-limit window |
 | `CUMULUS_CLOUD_KMS_KEY_NAME` | no | unset | Name of the env var that holds the 32-byte base64 master key. Unset means encryption is off |
+| `CUMULUS_ID_ISSUER` | no | unset | Issuer origin, e.g. `https://id.cumuluscloud.app`. Drive then accepts that issuer's access tokens (JWT, `aud` `cumulus-cloud`) and keeps no accounts of its own. Unset: the sample server's in-memory CID. Same variable as Cumulus://Mail |
 | `CUMULUS_CLOUD_ORPHAN_SWEEP` | no | `off` | `report` logs, and `delete` removes, bytes no file version or upload points at (older than 24 h), every 6 hours. See "Orphan sweep" |
 | `CUMULUS_CLOUD_REQUIRE_INTEGRATION` | tests | unset | When `1`, the PostgreSQL tests fail instead of skipping if the database URL is missing |
 
@@ -125,6 +126,17 @@ Permissive dependencies only. Nothing from Nextcloud, Proton Mail WebClients, or
 | MinIO | Not used. Not a test dependency | Server is AGPL-3.0; it is not linked or copied |
 | Nextcloud, Proton clients | Not used | GPL / AGPL / GPL-3.0-or-later; excluded |
 
+## Sign-in with Cumulus://ID
+
+With `CUMULUS_ID_ISSUER` set, every request carries `Authorization: Bearer <access token>` from the
+Cumulus://ID issuer, obtained by the client through the normal "Sign in with Cumulus://ID" flow with
+`client_id=cumulus-cloud`. `issuerAuth()` checks the signature against the issuer's JWKS
+(`<issuer>/realms/cumulus/protocol/openid-connect/certs`, cached for 10 minutes and refetched when a
+token names an unknown key, at most every 30 seconds), the issuer, the audience `cumulus-cloud`,
+expiry, and that the subject is a cid. The issuer must have `CID_OIDC_SIGNING_KEY` set, or it only
+issues opaque tokens. Tokens last at most an hour; a sign-out at the issuer takes effect in Drive
+when the token expires.
+
 ## Orphan sweep
 
 `DriveService.sweepOrphanBlobs()` finds bytes in the data directory that no file version
@@ -152,7 +164,7 @@ been idle for the grace period, so a reservation for an upload in flight is neve
 - The rate limit and the upload-expiry timer are inside one process. A second host would not share them.
 - The filesystem driver is one machine. It does not replicate.
 - A crash after the blob is renamed and before the database commit can leave an unreferenced file and a quota reservation. The orphan sweep removes the file and gives the quota back (see below); it is off unless `CUMULUS_CLOUD_ORPHAN_SWEEP` is set.
-- The sample server's Cumulus://ID sessions are in memory.
+- Without `CUMULUS_ID_ISSUER`, the sample server's Cumulus://ID sessions are in memory.
 - Encryption is off unless the master-key env name is set. There is no external KMS, rotation, or envelope-key audit.
 - Share links with no expiry last until someone revokes them.
 - Malware scanning is not included.

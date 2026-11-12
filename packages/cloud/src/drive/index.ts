@@ -1,5 +1,5 @@
-export { cidAuth, DRIVE_APP } from "./auth.ts";
-export type { DriveAuth, DrivePrincipal } from "./auth.ts";
+export { cidAuth, issuerAuth, DRIVE_APP } from "./auth.ts";
+export type { DriveAuth, DrivePrincipal, IssuerAuthOptions } from "./auth.ts";
 export { readDriveConfig } from "./config.ts";
 export type { DriveConfig } from "./config.ts";
 export { MasterKey } from "./crypto.ts";

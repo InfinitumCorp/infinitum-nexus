@@ -162,7 +162,7 @@ function renderIssuerAuth(message) {
       <div class="divider">No Cumulus://ID<sup class="tm">™</sup> yet?</div>
       <a class="btn" id="signup" href="/api/auth/login?prompt=create${next ? `&${next}` : ""}">Create a Cumulus://ID<sup class="tm">™</sup></a>
       <div class="error" id="err"></div>
-      <p class="faint small">Passkeys, your authenticator app and linked accounts are managed at Cumulus://ID<sup class="tm">™</sup>.</p>
+      <p class="faint small">Your password, PIN, authenticator app and linked accounts are managed at Cumulus://ID<sup class="tm">™</sup>.</p>
     </div></div>`;
   $("#err").textContent = message;
   if (new URLSearchParams(location.search).get("create") === "1") $("#signup").focus();
@@ -924,7 +924,7 @@ async function renderSettings() {
       ${data.manageAt ? `<div class="section">
         <h2>Ways to sign in</h2>
         <div class="list">
-          <div class="item"><div class="main"><div class="title">Cumulus://ID<sup class="tm">™</sup></div><div class="sub">Passkeys, authenticator app and linked accounts</div></div>
+          <div class="item"><div class="main"><div class="title">Cumulus://ID<sup class="tm">™</sup></div><div class="sub">Password, PIN, authenticator app and linked accounts</div></div>
             <a class="btn small" href="${esc(data.manageAt)}" target="_blank" rel="noopener noreferrer">Manage</a></div>
         </div>
       </div>` : `<div class="section">

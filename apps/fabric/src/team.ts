@@ -185,10 +185,14 @@ export class TeamService {
   }
 
   setConnected(sub: string, delta: 1 | -1): void {
-    const n = Math.max(0, (this.connected.get(sub) ?? 0) + delta);
+    const before = this.connected.get(sub) ?? 0;
+    const n = Math.max(0, before + delta);
     if (n === 0) this.connected.delete(sub);
     else this.connected.set(sub, n);
     this.seen(sub);
+    if ((before === 0) !== (n === 0)) {
+      for (const workspaceId of this.workspaceIds(sub)) this.publish(this.workspaceSubs(workspaceId), { type: "presence", workspaceId, sub });
+    }
   }
 
   // ---------- workspaces ----------

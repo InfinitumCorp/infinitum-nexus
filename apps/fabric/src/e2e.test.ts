@@ -106,6 +106,101 @@ test("starts the server and runs login, conversation, send, and receive", async 
   }
 });
 
+test("team chat over HTTP: workspace, channel, thread, reaction, file, search and live events", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "fabric-team-e2e-"));
+  const idpPort = await freePort();
+  const appPort = await freePort();
+  const idp = await startTestIdp(idpPort, "fabric");
+  const origin = `http://127.0.0.1:${appPort}`;
+  const phrase = `team-phrase-${randomBytes(8).toString("hex")}`;
+  const env = childEnv({
+    PORT: String(appPort),
+    FABRIC_BIND: "127.0.0.1",
+    FABRIC_PUBLIC_ORIGIN: origin,
+    FABRIC_JWT_ISSUER: idp.issuer,
+    FABRIC_OIDC_CLIENT_ID: "fabric",
+    FABRIC_DATA_DIR: dir,
+    FABRIC_MASTER_KEY: randomBytes(32).toString("base64"),
+  });
+  let child: ChildProcess | undefined;
+  try {
+    child = await startServer(env);
+    const page = await (await fetch(`${origin}/team`)).text();
+    assert.match(page, /Sign in with Cumulus ID/);
+    assert.match(page, /Create a Cumulus ID/);
+    assert.equal((await fetch(`${origin}/team.js`)).status, 200);
+    assert.equal((await fetch(`${origin}/api/team/workspaces`)).status, 401);
+    const register = await fetch(`${origin}/api/auth/login?register=1&return=/team`, { redirect: "manual" });
+    assert.match(register.headers.get("location") ?? "", /\/protocol\/openid-connect\/registrations\?/);
+
+    const alice = new FabricClient(origin);
+    const bob = new FabricClient(origin);
+    await alice.login("alice");
+    await bob.login("bob");
+    const ws = await alice.api("POST", "/api/team/workspaces", { name: "Acme" });
+    await bob.api("POST", "/api/team/join", { code: ws.inviteCode });
+    const bar = await bob.api("GET", `/api/team/workspaces/${ws.id}`);
+    const general = bar.channels.find((c: { name: string }) => c.name === "general");
+    assert.ok(general);
+
+    const events = await bob.raw("/api/team/events");
+    assert.equal(events.headers.get("content-type"), "text/event-stream; charset=utf-8");
+    const reader = events.body!.getReader();
+    const seen: string[] = [];
+    const pump = (async () => {
+      const decoder = new TextDecoder();
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        seen.push(decoder.decode(value));
+      }
+    })().catch(() => {});
+
+    const sent = await alice.api("POST", `/api/team/channels/${general.id}/messages`, { text: `${phrase} @bob` });
+    assert.deepEqual(sent.message.mentions.length, 1);
+    await alice.api("POST", `/api/team/channels/${general.id}/messages`, { text: "reply", parentId: sent.message.id });
+    await bob.api("POST", `/api/team/messages/${sent.message.id}/reactions`, { emoji: "🎉" });
+    const thread = await bob.api("GET", `/api/team/messages/${sent.message.id}/thread`);
+    assert.equal(thread.replies.length, 1);
+    assert.equal(thread.parent.reactions[0].emoji, "🎉");
+
+    const file = await alice.api("POST", `/api/team/channels/${general.id}/files`, { name: "notes.txt", mime: "text/plain", data: Buffer.from("file body").toString("base64") });
+    await alice.api("POST", `/api/team/channels/${general.id}/messages`, { text: "see file", fileIds: [file.id] });
+    const download = await bob.raw(`/api/team/files/${file.id}`);
+    assert.equal(download.status, 200);
+    assert.match(download.headers.get("content-disposition") ?? "", /attachment/);
+    assert.equal(await download.text(), "file body");
+
+    const found = await bob.api("GET", `/api/team/workspaces/${ws.id}/search?q=${encodeURIComponent(phrase)}`);
+    assert.equal(found.messages.length, 1);
+    const help = await bob.api("POST", `/api/team/channels/${general.id}/messages`, { text: "/help" });
+    assert.match(help.ephemeral, /remind/);
+
+    const forged = await fetch(`${origin}/api/team/workspaces`, { method: "POST", headers: { "content-type": "application/json", origin: "https://evil.example" }, body: "{}" });
+    assert.equal(forged.status, 401);
+
+    await new Promise((r) => setTimeout(r, 200));
+    const stream = seen.join("");
+    assert.match(stream, /"type":"message"/);
+    assert.match(stream, /"type":"reaction"/);
+    assert.equal(stream.includes(phrase), false, "live events carry ids, not text");
+    await reader.cancel();
+    await pump;
+
+    if (!child) throw new Error("server missing");
+    await stop(child);
+    child = undefined;
+    for (const suffix of ["", "-wal", "-shm"]) {
+      const f = join(dir, "fabric.sqlite") + suffix;
+      if (existsSync(f)) assert.equal(readFileSync(f).includes(phrase), false, suffix || "db");
+    }
+  } finally {
+    if (child) await stop(child);
+    await idp.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 function childEnv(extra: Record<string, string>): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env, ...extra };
   for (const key of Object.keys(env)) {

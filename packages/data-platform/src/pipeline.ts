@@ -11,7 +11,7 @@ import type { Envelope } from "./envelope.ts";
 import type { Catalog } from "./catalog.ts";
 import { TRANSFORMATION_VERSION } from "./catalog.ts";
 import { partitionOf, type Lakehouse, type RawRow } from "./lakehouse.ts";
-import type { Ontology, OntologyObject } from "./ontology.ts";
+import type { Ontology, OntologyChange, OntologyObject } from "./ontology.ts";
 import { runChecks, type Check } from "./quality.ts";
 import type { Row } from "./table.ts";
 
@@ -33,6 +33,8 @@ export class Pipeline {
   readonly lakehouse: Lakehouse;
   readonly ontology: Ontology;
   readonly catalog: Catalog;
+  /** Optional serving copy that follows every ontology change (e.g. PgOntologyMirror). */
+  mirror?: { apply(changes: OntologyChange[]): Promise<void> };
 
   constructor(lakehouse: Lakehouse, ontology: Ontology, catalog: Catalog) {
     this.lakehouse = lakehouse;
@@ -93,12 +95,20 @@ export class Pipeline {
         stats.objects_upserted += r.upserted;
         stats.objects_deleted += r.deleted;
         touchedTenants.add(e.tenant_id);
+      } else if (e.object_id && e.event_type.endsWith(".deleted")) {
+        // Any product's deletion purges that object from every zone.
+        const purged = await this.lakehouse.purgeObject(e.tenant_id, e.object_id, e.event_id);
+        this.catalog.recordDeletion("raw.events", e.object_id, purged.raw);
+        this.catalog.recordDeletion("normalized.events", e.object_id, purged.normalized);
+        stats.objects_deleted++;
       } else if (e.product === "cumulus-id" && e.subject_id) {
         this.ontology.upsert(this.account(e));
         stats.objects_upserted++;
       }
     }
     if (touchedTenants.size) await this.rebuildCuratedFiles();
+    const changes = this.ontology.drainChanges();
+    if (this.mirror && changes.length) await this.mirror.apply(changes);
     return stats;
   }
 

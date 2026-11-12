@@ -5,7 +5,7 @@
  */
 import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join, relative, sep } from "node:path";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 export interface ObjectStore {
   get(key: string): Promise<Uint8Array | undefined>;
@@ -13,6 +13,26 @@ export interface ObjectStore {
   delete(key: string): Promise<void>;
   list(prefix: string): Promise<string[]>;
 }
+
+/** Stores that can write only if the object is unchanged (compare-and-swap). */
+export interface ConditionalStore {
+  getWithEtag(key: string): Promise<{ bytes: Uint8Array; etag: string } | undefined>;
+  /** `etag === null` means "only if the object does not exist yet". Throws PreconditionFailed otherwise. */
+  putIf(key: string, bytes: Uint8Array, etag: string | null): Promise<void>;
+}
+
+export class PreconditionFailed extends Error {
+  constructor(key: string) {
+    super(`object changed concurrently: ${key}`);
+    this.name = "PreconditionFailed";
+  }
+}
+
+export function isConditional(s: ObjectStore): s is ObjectStore & ConditionalStore {
+  return typeof (s as Partial<ConditionalStore>).putIf === "function" && typeof (s as Partial<ConditionalStore>).getWithEtag === "function";
+}
+
+const etagOf = (b: Uint8Array) => '"' + createHash("sha256").update(b).digest("hex").slice(0, 32) + '"';
 
 const KEY_RE = /^[A-Za-z0-9_][A-Za-z0-9_.=\-/]*$/;
 
@@ -23,8 +43,17 @@ export function checkKey(key: string): string {
   return key;
 }
 
-export class MemoryObjectStore implements ObjectStore {
+export class MemoryObjectStore implements ObjectStore, ConditionalStore {
   private objects = new Map<string, Uint8Array>();
+  async getWithEtag(key: string): Promise<{ bytes: Uint8Array; etag: string } | undefined> {
+    const v = this.objects.get(checkKey(key));
+    return v ? { bytes: new Uint8Array(v), etag: etagOf(v) } : undefined;
+  }
+  async putIf(key: string, bytes: Uint8Array, etag: string | null): Promise<void> {
+    const cur = this.objects.get(checkKey(key));
+    if (etag === null ? cur !== undefined : !cur || etagOf(cur) !== etag) throw new PreconditionFailed(key);
+    this.objects.set(key, new Uint8Array(bytes));
+  }
   async get(key: string): Promise<Uint8Array | undefined> {
     const v = this.objects.get(checkKey(key));
     return v ? new Uint8Array(v) : undefined;

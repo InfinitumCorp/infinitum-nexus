@@ -22,6 +22,7 @@ product backend ── Collector (sdk.ts) ──signed POST──▶ Gateway (ga
 - **No content collection.** Contracts list the allowed fields. A fixed denylist rejects content fields such as body, text, password and token. A value-level PII scan rejects personal data that is put into an allowed field.
 - **Each event is stored once.** Deduplication is keyed by (tenant, event_id). SDK retries reuse the same ids, and the Cloud adapter derives ids from (file, version, action).
 - **Deletion means deletion.** `file.deleted` removes the object from the normalized zone, the curated zone, the ontology, links and the search index. It also expires every older snapshot, so time travel cannot bring the data back. The raw zone keeps only the deletion tombstone.
+- **HRVST is opt-in only and metadata only.** Nothing is collected until the person opts in. Each packet must confirm the privacy filter ran (`filtered: true`). Media, text and location fields (geohash, plus code, coordinates) are refused. Withdrawing a packet purges it from every zone.
 - **Military products are excluded.** AETHER, ARGUS, E(O)N and ODIN are refused by credentials, policy records, `decide()` and a SQL check constraint.
 
 ## Ideas adopted from open-source data platforms
@@ -70,4 +71,5 @@ import { Collector } from "@infinitum/data-platform/sdk";
 - Parquet data files (the table format already records `file_format`).
 - A Postgres-backed `PolicyService`, ontology store and Cumulus ID tenancy directory.
 - Publishing offers into `@infinitum/data-exchange` (consent records and revenue share live there).
-- Contracts for the other products' events. HRVST is not covered yet; it needs a decision on whether it belongs on the platform at all.
+- Contracts for the other products' events (ARCHITECT, EIDETIC, SPECTRE and others), defined with each product's owner.
+- Opting out of HRVST stops new collection immediately, but does not yet purge that person's earlier packets. Today the owner withdraws packets one by one (`packet.deleted`).

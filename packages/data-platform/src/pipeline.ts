@@ -93,6 +93,12 @@ export class Pipeline {
         stats.objects_upserted += r.upserted;
         stats.objects_deleted += r.deleted;
         touchedTenants.add(e.tenant_id);
+      } else if (e.object_id && e.event_type.endsWith(".deleted")) {
+        // Any product's deletion purges that object from every zone.
+        const purged = await this.lakehouse.purgeObject(e.tenant_id, e.object_id, e.event_id);
+        this.catalog.recordDeletion("raw.events", e.object_id, purged.raw);
+        this.catalog.recordDeletion("normalized.events", e.object_id, purged.normalized);
+        stats.objects_deleted++;
       } else if (e.product === "cumulus-id" && e.subject_id) {
         this.ontology.upsert(this.account(e));
         stats.objects_upserted++;

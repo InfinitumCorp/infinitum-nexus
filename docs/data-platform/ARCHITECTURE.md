@@ -265,8 +265,12 @@ Exchange or to analytics.
 
 ## Decisions for William
 
-1. **Hosting for DataHub, Superset and OpenSearch.** The options are self-hosted VMs or the
-   managed versions (Acryl DataHub Cloud, AWS OpenSearch Service, Preset). All of them cost
-   money, so nothing has been created.
+1. **Hosting.** There is a $0 plan in [FREE-HOSTING.md](FREE-HOSTING.md):
+   - Events, search, the catalog and the DP budget go in the existing Supabase project in Ireland.
+   - The gateway and Superset run on the self-hosted box, behind a free Cloudflare Tunnel.
+   - DataHub runs on demand.
+
+   The managed options (Acryl DataHub Cloud, AWS OpenSearch Service, Preset) still cost money.
+   Nothing has been created yet: the production steps wait for William's OK.
 2. **Spark lakehouse (Hudi + Deequ).** Deferred until data volume or erasure needs justify it.
 3. **Russian NER model** for Presidio on RU tenants.

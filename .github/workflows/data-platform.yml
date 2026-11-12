@@ -98,6 +98,11 @@ jobs:
           echo "PLATFORM_PRODUCT_TOKENS=\"spectre=$SMOKE_SPECTRE_TOKEN;cumulus-mail=$SMOKE_MAIL_TOKEN\"" >> .env
       - name: Validate compose for every profile
         run: docker compose --profile bi config -q
+      - name: Validate the $0 box profile (dummy values)
+        run: |
+          cp deploy/box/.env.example "$RUNNER_TEMP/box.env"
+          sed -i 's/^\([A-Z_]*\)=$/\1=dummy/' "$RUNNER_TEMP/box.env"
+          docker compose -f deploy/box/compose.box.yml --env-file "$RUNNER_TEMP/box.env" config -q
       - name: Start core (privacy gateway + OpenSearch)
         run: |
           docker compose up -d --build --wait --wait-timeout 600 privacy-gateway opensearch

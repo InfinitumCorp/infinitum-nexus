@@ -28,7 +28,7 @@ const rpId = new URL(origin).hostname;
 const suite = createCumulus({ ledger, signer, rpId, origins: [origin], stores, mailOrigin: origin, masterKey: loadOrCreateMasterKey(dataDir) });
 
 async function account(username: string) {
-  const existing = stores.cid.byUsername.get(username);
+  const existing = await suite.cid.cidForUsername(username);
   if (existing) return existing;
   const auth = new VirtualAuthenticator();
   const a = await suite.cid.createAccount({ username });

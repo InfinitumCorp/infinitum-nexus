@@ -235,8 +235,8 @@ export function createMailApp(deps: MailAppDeps) {
     store: deps.workspaceStore ?? new WorkspaceStore(),
     quota: suite.quota,
     files: deps.files,
-    resolve: (who) => suite.stores.cid.byUsername.get(idName(who)),
-    label: (c) => suite.stores.cid.accounts.get(c)?.mailAddress ?? "a Cumulus user",
+    resolve: (who) => cid.cidForUsername(idName(who)),
+    label: async (c) => (await cid.findAccount(c))?.mailAddress ?? "a Cumulus user",
   });
   /** Drive turns on the first time someone opens it; after that the CID permissions dashboard decides. */
   const driveAccess = async (cidValue: string, write: boolean) => {
@@ -317,7 +317,7 @@ export function createMailApp(deps: MailAppDeps) {
   }, true, drive);
   route("POST", "/api/drive/items/:id/share", async (ctx) => {
     need(ctx, "with");
-    const { item, target } = workspace.share(me(ctx), ctx.params.id, idName(ctx.body.with));
+    const { item, target } = await workspace.share(me(ctx), ctx.params.id, idName(ctx.body.with));
     const from = ctx.user!.account;
     mail.notify(target, "cloud", {
       subject: `${from.username} shared “${item.name}” with you`,

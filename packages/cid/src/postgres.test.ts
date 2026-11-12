@@ -52,6 +52,7 @@ describe("PgCidRepository on PostgreSQL", { skip: url ? false : "set CID_TEST_PG
     assert.equal(await repo.cidForUsername("alex"), undefined);
     assert.equal(await repo.cidForUsername("alexandra"), "cid_a");
     assert.deepEqual((await repo.accountsInOrg("org_1")).map((a) => a.cid), ["cid_a", "cid_b"], "first-written order, as in memory");
+    assert.deepEqual((await repo.allAccounts()).map((a) => [a.cid, a.username]), [["cid_a", "alexandra"], ["cid_b", "sam"]]);
   });
 
   it("finds sessions by token hash and lists them in the order they were created", async () => {

@@ -491,6 +491,21 @@ export class CidService {
     return this.account(cid);
   }
 
+  /** The account, or undefined when there is no such CID (getAccount throws instead). */
+  async findAccount(cid: string): Promise<Account | undefined> {
+    return this.repo.account(cid);
+  }
+
+  /** The CID holding `username`, if any. */
+  async cidForUsername(username: string): Promise<string | undefined> {
+    return this.repo.cidForUsername(username.toLowerCase());
+  }
+
+  /** Every account, oldest first. For backfills and admin jobs, not per-request paths. */
+  async allAccounts(): Promise<Account[]> {
+    return this.repo.allAccounts();
+  }
+
   /* ---------------- Passkeys & security keys ---------------- */
 
   private async issueChallenge(purpose: Challenge["purpose"], cid?: string): Promise<string> {

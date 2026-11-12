@@ -96,9 +96,9 @@ export interface WorkspaceDeps {
   quota: StorageQuota;
   files?: FileStore;
   /** Turns a username or address into a CID, for sharing. */
-  resolve: (who: string) => string | undefined;
+  resolve: (who: string) => Promise<string | undefined> | string | undefined;
   /** Display name (address) of a CID, for "Shared with" lists. */
-  label: (cid: string) => string;
+  label: (cid: string) => Promise<string> | string;
   clock?: () => Date;
 }
 
@@ -166,14 +166,15 @@ export class Workspace {
 
   /* ---------------- listing ---------------- */
 
-  view(cid: string, item: DriveItem) {
+  async view(cid: string, item: DriveItem) {
     const role = item.owner === cid ? "owner" : "editor";
+    const label = (c: string) => this.d.label(c);
     return {
       id: item.id, name: item.name, kind: item.kind, size: item.size, type: item.type, version: item.version,
       parent: item.owner === cid ? item.parent : null, createdAt: item.createdAt, updatedAt: item.updatedAt,
       starred: item.owner === cid ? !!item.starred : false, trashed: !!item.trashedAt, role,
-      owner: this.d.label(item.owner), updatedBy: item.updatedBy ? this.d.label(item.updatedBy) : undefined,
-      sharedWith: role === "owner" ? item.sharedWith.map((c) => this.d.label(c)) : [],
+      owner: await label(item.owner), updatedBy: item.updatedBy ? await label(item.updatedBy) : undefined,
+      sharedWith: role === "owner" ? await Promise.all(item.sharedWith.map(label)) : [],
     };
   }
 
@@ -189,7 +190,7 @@ export class Workspace {
     return out;
   }
 
-  list(cid: string, opts: { folder?: string | null; view?: string; q?: string } = {}) {
+  async list(cid: string, opts: { folder?: string | null; view?: string; q?: string } = {}) {
     const all = [...this.items.values()];
     const sort = (a: DriveItem, b: DriveItem) => (a.kind === "folder" ? 0 : 1) - (b.kind === "folder" ? 0 : 1) || a.name.localeCompare(b.name);
     let list: DriveItem[];
@@ -218,11 +219,11 @@ export class Workspace {
       }
     }
     const usage = this.d.quota.usage(cid);
-    return { view, folder, path: this.path(cid, folder), items: list.map((i) => this.view(cid, i)), usage };
+    return { view, folder, path: this.path(cid, folder), items: await Promise.all(list.map((i) => this.view(cid, i))), usage };
   }
 
-  get(cid: string, id: string) {
-    return this.view(cid, this.find(cid, id, "read"));
+  async get(cid: string, id: string) {
+    return await this.view(cid, this.find(cid, id, "read"));
   }
 
   /* ---------------- creating ---------------- */
@@ -234,9 +235,9 @@ export class Workspace {
     return item;
   }
 
-  createFolder(cid: string, name: unknown, parent?: string | null) {
+  async createFolder(cid: string, name: unknown, parent?: string | null) {
     const p = this.folder(cid, parent);
-    return this.view(cid, this.add(cid, { parent: p, name: cleanName(name, "Untitled folder"), kind: "folder", size: 0 }));
+    return await this.view(cid, this.add(cid, { parent: p, name: cleanName(name, "Untitled folder"), kind: "folder", size: 0 }));
   }
 
   async createDoc(cid: string, kind: DocKind, name: unknown, parent?: string | null, content?: unknown) {
@@ -254,7 +255,7 @@ export class Workspace {
       this.d.quota.release(cid, "cloud", bytes.byteLength);
       throw err;
     }
-    return this.view(cid, item);
+    return await this.view(cid, item);
   }
 
   async upload(cid: string, name: unknown, parent: string | null | undefined, data: Uint8Array, type: string) {
@@ -269,7 +270,7 @@ export class Workspace {
       this.d.quota.release(cid, "cloud", data.byteLength);
       throw err;
     }
-    return this.view(cid, item);
+    return await this.view(cid, item);
   }
 
   /* ---------------- contents ---------------- */
@@ -292,7 +293,7 @@ export class Workspace {
         doc = JSON.parse(new TextDecoder().decode(blob.data));
       } catch { /* damaged: open empty rather than fail */ }
     }
-    return { item: this.view(cid, item), doc };
+    return { item: await this.view(cid, item), doc };
   }
 
   /** Saves a document. `baseVersion` must match, so two editors can't silently overwrite each other. */
@@ -302,7 +303,7 @@ export class Workspace {
     if (item.trashedAt) throw new DriveError(400, "trashed", "Restore this document from the trash to edit it.");
     if (!validDoc(item.kind as DocKind, doc)) throw new DriveError(400, "bad_doc", "That document couldn't be saved: its contents aren't valid.");
     if (baseVersion !== item.version) {
-      throw new DriveError(409, "conflict", `${item.updatedBy && item.updatedBy !== cid ? this.d.label(item.updatedBy) : "Someone"} changed this document since you opened it. Reload to see their changes.`);
+      throw new DriveError(409, "conflict", `${item.updatedBy && item.updatedBy !== cid ? await this.d.label(item.updatedBy) : "Someone"} changed this document since you opened it. Reload to see their changes.`);
     }
     const bytes = new TextEncoder().encode(JSON.stringify(doc));
     if (bytes.byteLength > MAX_DOC_BYTES) throw new DriveError(413, "too_large", "That document is too large to save (8 MB at most).");
@@ -320,12 +321,12 @@ export class Workspace {
     item.version += 1;
     item.updatedAt = this.now();
     item.updatedBy = cid;
-    return this.view(cid, item);
+    return await this.view(cid, item);
   }
 
   /* ---------------- organizing ---------------- */
 
-  update(cid: string, id: string, changes: { name?: unknown; parent?: unknown; starred?: unknown; trashed?: unknown }) {
+  async update(cid: string, id: string, changes: { name?: unknown; parent?: unknown; starred?: unknown; trashed?: unknown }) {
     const item = this.find(cid, id, "own");
     if (changes.name !== undefined) item.name = cleanName(changes.name, item.name);
     if (changes.parent !== undefined) {
@@ -345,7 +346,7 @@ export class Workspace {
       }
     }
     item.updatedAt = this.now();
-    return this.view(cid, item);
+    return await this.view(cid, item);
   }
 
   /** Deletes for good: the item and everything inside it. It must be in the trash first. */
@@ -371,23 +372,23 @@ export class Workspace {
 
   /* ---------------- sharing ---------------- */
 
-  share(cid: string, id: string, who: unknown) {
+  async share(cid: string, id: string, who: unknown) {
     const item = this.find(cid, id, "own");
-    const target = this.d.resolve(String(who ?? "").trim().toLowerCase());
+    const target = await this.d.resolve(String(who ?? "").trim().toLowerCase());
     if (!target) throw new DriveError(404, "no_such_user", "There's no Cumulus://ID with that name.");
     if (target === cid) throw new DriveError(400, "self", "That's you.");
     if (!item.sharedWith.includes(target)) {
       if (item.sharedWith.length >= 100) throw new DriveError(400, "too_many", "A file can be shared with 100 people at most.");
       item.sharedWith.push(target);
     }
-    return { item: this.view(cid, item), target };
+    return { item: await this.view(cid, item), target };
   }
 
-  unshare(cid: string, id: string, who: unknown) {
+  async unshare(cid: string, id: string, who: unknown) {
     const item = this.find(cid, id, "own");
-    const target = this.d.resolve(String(who ?? "").trim().toLowerCase());
+    const target = await this.d.resolve(String(who ?? "").trim().toLowerCase());
     item.sharedWith = item.sharedWith.filter((c) => c !== target);
-    return this.view(cid, item);
+    return await this.view(cid, item);
   }
 
   /** Someone leaves a file that was shared with them. */

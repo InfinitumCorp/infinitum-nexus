@@ -130,6 +130,9 @@ export class PgCidRepository implements CidRepository {
       [account.cid, account.username, account.orgId ?? null, JSON.stringify(account)],
     );
   }
+  allAccounts() {
+    return this.#many<Account>("SELECT data FROM T.cid_accounts ORDER BY seq", []);
+  }
   accountsInOrg(orgId: string) {
     return this.#many<Account>("SELECT data FROM T.cid_accounts WHERE org_id = $1 ORDER BY seq", [orgId]);
   }

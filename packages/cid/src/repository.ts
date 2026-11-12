@@ -20,6 +20,8 @@ export interface CidRepository {
   /** Insert or update. Keeps the username index in step. */
   putAccount(account: Account): Promise<void>;
   accountsInOrg(orgId: string): Promise<Account[]>;
+  /** Every account, in the order they were first written. */
+  allAccounts(): Promise<Account[]>;
 
   /** `${provider}|${subject}` -> cid, for social sign-in. */
   cidForIdentity(key: string): Promise<string | undefined>;
@@ -85,6 +87,9 @@ export class MapCidRepository implements CidRepository {
   }
   async accountsInOrg(orgId: string) {
     return [...this.store.accounts.values()].filter((a) => a.orgId === orgId);
+  }
+  async allAccounts() {
+    return [...this.store.accounts.values()];
   }
 
   async cidForIdentity(key: string) {

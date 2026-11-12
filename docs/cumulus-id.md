@@ -219,6 +219,12 @@ for the custom domain. Social sign-in providers (Google, Cognito) need
 `https://spectre.infinitumcorporation.ai/api/auth/oauth/<provider>/callback` registered while +SPCTR
 still signs in in-process.
 
+At the same time, delete `CID_OIDC_SIGNING_KEY` from the `cumulus-id` (+SPCTR) Worker:
+`npx wrangler secret delete CID_OIDC_SIGNING_KEY`. Otherwise two hosts sign tokens with the same
+issuer string and key, and +SPCTR could mint tokens for accounts the new issuer does not have.
+The wrangler commit also drops `SPECTRE_EXTRA_ORIGINS`: `ru.id.cumuluscloud.app` is not under the
+new relying-party id, and the Worker refuses to start with a mirror outside it.
+
 ## +SPCTR as a client (not built yet)
 
 What +SPCTR needs to sign in through the external issuer as client `spectre`. Estimated at

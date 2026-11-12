@@ -10,6 +10,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { Mailbox, type MailSnapshot, type SendInput } from "./mailbox.ts";
+import { refuseReason, type InboundAuth } from "./auth-results.ts";
 import type { Attachment, FolderId, MailMessage, MailPayment, Person } from "./model.ts";
 import { MAIL_DOMAIN } from "@infinitum/cid";
 import { isCumulus, parsePeople, tomorrowMorning, validEmail } from "./logic.ts";
@@ -139,6 +140,8 @@ export interface InboundMail {
   body: string;
   at?: string;
   attachments?: Attachment[];
+  /** Sender authentication from the receiving edge (see auth-results.ts). Absent = not checked. */
+  auth?: InboundAuth;
 }
 
 /** Longest inbound body kept (characters); the rest is cut. */
@@ -413,6 +416,8 @@ export class PostOffice {
     const sender = input.from.email.trim().toLowerCase();
     if (!validEmail(sender)) throw new MailError("bad_sender", "The sender address isn't valid.");
     if (isCumulus(sender)) throw new MailError("spoofed_sender", "Mail from a Cumulus address can't arrive from outside Cumulus.");
+    const refused = refuseReason(input.auth);
+    if (refused) throw new MailError("dmarc_fail", refused);
     const subject = input.subject.slice(0, 998);
     const body = input.body.slice(0, MAX_INBOUND_BODY);
     const size = messageBytes({ subject, body }) + attachmentBytes(input.attachments);
@@ -444,6 +449,7 @@ export class PostOffice {
         starred: false,
         labels: [],
         attachments: input.attachments?.length ? input.attachments : undefined,
+        auth: input.auth ? { ...input.auth } : undefined,
       });
       this.quota?.charge(cid, "mail", size);
       delivered.push(address);

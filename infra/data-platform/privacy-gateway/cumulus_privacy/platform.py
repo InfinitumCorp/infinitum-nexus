@@ -211,20 +211,24 @@ class Catalog:
     def get(self, name: str) -> dict[str, Any] | None:
         return self._load().get(name)
 
-    def register(self, caller: str, name: str, spec: Mapping[str, Any]) -> dict[str, str]:
-        clean = validate_spec(name, spec)
-        if clean["product"] != caller:
-            raise PlatformError(403, "TenantNotAuthorized", "a product can only register its own datasets")
+    def _put(self, name: str, spec: dict[str, Any]) -> None:
+        """Store the spec unless the name belongs to another product."""
         with self._lock:
             reg = self._load()
             existing = reg.get(name)
-            if existing and existing["product"] != caller:
+            if existing and existing["product"] != spec["product"]:
                 raise PlatformError(403, "TenantNotAuthorized", "dataset belongs to another product")
-            reg[name] = clean
+            reg[name] = spec
             self.path.parent.mkdir(parents=True, exist_ok=True)
             tmp = self.path.with_suffix(".tmp")
             tmp.write_text(json.dumps(reg, sort_keys=True, indent=1), "utf-8")
             tmp.replace(self.path)
+
+    def register(self, caller: str, name: str, spec: Mapping[str, Any]) -> dict[str, str]:
+        clean = validate_spec(name, spec)
+        if clean["product"] != caller:
+            raise PlatformError(403, "TenantNotAuthorized", "a product can only register its own datasets")
+        self._put(name, clean)
         if self.sink is not None:
             try:
                 self.sink.push(clean)

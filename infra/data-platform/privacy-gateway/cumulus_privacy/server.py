@@ -15,6 +15,8 @@ import json
 import os
 import re
 import sys
+import threading
+import time
 import uuid
 from dataclasses import dataclass
 from http import HTTPStatus
@@ -264,31 +266,51 @@ def make_handler(gw: Gateway) -> type[BaseHTTPRequestHandler]:
 
 def main() -> None:
     token = os.environ.get("PRIVACY_GATEWAY_TOKEN", "")
-    budget = PrivacyBudget(
-        os.environ.get("PRIVACY_BUDGET_FILE", "/var/lib/privacy-gateway/budget.json"),
-        float(os.environ.get("PRIVACY_TOTAL_EPSILON", "3.0")),
-    )
-    redactor = Redactor()
-    catalog = collector = searcher = None
-    products = parse_product_tokens(os.environ.get("PLATFORM_PRODUCT_TOKENS", ""))
-    if products:
-        gms = os.environ.get("DATAHUB_GMS_URL")
-        catalog = Catalog(
-            os.environ.get("PLATFORM_CATALOG_FILE", "/var/lib/privacy-gateway/catalog.json"),
-            DataHubSink(gms, os.environ.get("DATAHUB_GMS_TOKEN")) if gms else None,
-        )
+    dsn = os.environ.get("DATABASE_URL")  # Supabase pooler, data_platform_gateway role
+    epsilon = float(os.environ.get("PRIVACY_TOTAL_EPSILON", "3.0"))
+    gms = os.environ.get("DATAHUB_GMS_URL")
+    sink = DataHubSink(gms, os.environ.get("DATAHUB_GMS_TOKEN")) if gms else None
+    index: Any = None
+    if dsn:
+        # Free-tier layout: everything in Supabase Postgres (Ireland). No OpenSearch needed.
+        from .pgstore import PostgresBudget, PostgresCatalog, PostgresEventIndex
+
+        budget: Any = PostgresBudget(dsn, epsilon)
+        catalog: Any = PostgresCatalog(dsn, sink)
+        index = PostgresEventIndex(dsn)
+    else:
+        budget = PrivacyBudget(os.environ.get("PRIVACY_BUDGET_FILE", "/var/lib/privacy-gateway/budget.json"), epsilon)
+        catalog = Catalog(os.environ.get("PLATFORM_CATALOG_FILE", "/var/lib/privacy-gateway/catalog.json"), sink)
         index = OpenSearchIndex(
             os.environ.get("OPENSEARCH_URL", "http://localhost:9200"),
             refresh=os.environ.get("OPENSEARCH_REFRESH_ON_WRITE") == "1",
         )
+    redactor = Redactor()
+    collector = searcher = None
+    products = parse_product_tokens(os.environ.get("PLATFORM_PRODUCT_TOKENS", ""))
+    if products:
         collector = Collector(catalog, redactor, index, os.environ.get("PLATFORM_REGION", "EU"))
         searcher = Searcher(index)
+    else:
+        catalog = None
+    if dsn:
+        threading.Thread(target=_purge_daily, args=(index,), daemon=True).start()
     gw = Gateway(redactor, budget, token, catalog, collector, searcher, products)
     host = os.environ.get("HOST", "127.0.0.1")
     port = int(os.environ.get("PORT", "8090"))
     httpd = ThreadingHTTPServer((host, port), make_handler(gw))
-    print(f"privacy gateway on http://{host}:{port}", file=sys.stderr)
+    print(f"privacy gateway on http://{host}:{port} ({'postgres' if dsn else 'local files + opensearch'})", file=sys.stderr)
     httpd.serve_forever()
+
+
+def _purge_daily(index: Any) -> None:
+    """Retention: delete events past their dataset's retentionDays, once a day."""
+    while True:
+        try:
+            print(f"retention purge removed {index.purge_expired()} events", file=sys.stderr)
+        except Exception as e:  # noqa: BLE001 - keep serving; try again tomorrow
+            print(f"retention purge failed: {type(e).__name__}", file=sys.stderr)
+        time.sleep(24 * 3600)
 
 
 if __name__ == "__main__":

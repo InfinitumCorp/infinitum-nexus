@@ -5,3 +5,5 @@ spacy==3.8.18
 en_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl
 # Google's differential-privacy library. Linux/macOS wheels only.
 python-dp==1.1.5 ; sys_platform != "win32"
+# Postgres backend (Supabase). psycopg is LGPL-3.0, used unmodified as a library.
+psycopg[binary]==3.3.9

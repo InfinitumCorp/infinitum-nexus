@@ -5,6 +5,7 @@ on:
     paths:
       - "infra/data-platform/**"
       - "docs/data-platform/**"
+      - "supabase/migrations/20261113_data_platform.sql"
       - ".github/workflows/data-platform.yml"
   push:
     branches: [main]
@@ -33,6 +34,17 @@ jobs:
   gateway-tests:
     runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 15
+    services:
+      # Disposable stand-in for the Supabase free-tier database (same major version).
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: ci-only
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      TEST_DATABASE_URL: postgresql://postgres:ci-only@127.0.0.1:5432/postgres
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v6
@@ -40,7 +52,7 @@ jobs:
           python-version: "3.12"
       - name: Install (includes Google DP wheels, Linux only)
         run: pip install -r privacy-gateway/requirements-dev.txt
-      - name: Test Presidio redaction, quality checks, DP releases and the Conjure contract
+      - name: Test redaction, quality, DP, the Conjure contract and the Postgres (Supabase) backends
         working-directory: infra/data-platform/privacy-gateway
         run: python -m pytest -W ignore::DeprecationWarning -rs
 

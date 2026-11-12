@@ -1,0 +1,192 @@
+# Product <-> data platform contracts: collecting events, registering datasets in the
+# catalog, and searching authorized events. Products call these with a service token
+# issued per product; the acting person is identified by their Cumulus ID (cid) inside
+# the request, never by a separate login.
+types:
+  definitions:
+    default-package: app.infinitum.cumulus.data.platform
+    objects:
+      ProductId:
+        docs: Product slug, e.g. spectre, cumulus-mail, fabric, architect.
+        alias: string
+      TenantId:
+        alias: string
+      Cid:
+        docs: Cumulus ID of the person the event is about. Pseudonymized before analytics.
+        alias: string
+
+      Consent:
+        values:
+          - value: ESSENTIAL
+            docs: Needed to run the service. Never used for analytics or AI training.
+          - value: ANALYTICS
+          - value: AI_IMPROVEMENT
+          - value: EXCHANGE
+            docs: The tenant opted in to sharing aggregates through the Data Exchange.
+      Region:
+        docs: Where the record must be stored. EU data stays in Ireland; RU data stays in Yandex Cloud.
+        values: [EU, US, RU]
+
+      EventEnvelope:
+        fields:
+          eventId:
+            type: uuid
+            docs: Idempotency key. A repeated eventId is accepted once.
+          product: ProductId
+          tenant: TenantId
+          cid: optional<Cid>
+          eventType:
+            type: string
+            docs: Dotted name registered in the catalog, e.g. spectre.deal.stage_changed.
+          schemaVersion: integer
+          occurredAt: datetime
+          region: Region
+          consent: set<Consent>
+          objectType: optional<string>
+          objectId: optional<string>
+          payload:
+            type: map<string, any>
+            docs: Must match the registered schema. Free-text fields are redacted before analytics.
+      IngestRequest:
+        fields:
+          events: list<EventEnvelope>
+      IngestResponse:
+        fields:
+          accepted: integer
+          duplicates: integer
+          rejected: list<EventRejection>
+      EventRejection:
+        fields:
+          eventId: uuid
+          reason: string
+
+      Classification:
+        values: [PUBLIC, INTERNAL, CONFIDENTIAL, PERSONAL, SPECIAL_CATEGORY]
+      FieldSpec:
+        fields:
+          name: string
+          type: string
+          classification: Classification
+          rule:
+            type: string
+            docs: KEEP, TEXT, PSEUDONYMIZE or DROP (privacy FieldRule), applied on every export.
+          description: optional<string>
+      DatasetSpec:
+        docs: Registered in DataHub as a dataset with owners, glossary terms, tags and lineage.
+        fields:
+          name:
+            type: string
+            docs: product.entity, e.g. spectre.deals.
+          product: ProductId
+          owners:
+            type: list<string>
+            docs: Owner CIDs or team names.
+          description: string
+          fields: list<FieldSpec>
+          upstream:
+            type: list<string>
+            docs: Names of datasets this one is derived from (lineage).
+          retentionDays: integer
+          region: Region
+          glossaryTerms: list<string>
+      DatasetRef:
+        fields:
+          name: string
+          urn:
+            type: string
+            docs: DataHub URN, e.g. urn:li:dataset:(urn:li:dataPlatform:cumulus,spectre.deals,PROD).
+
+      SearchQuery:
+        fields:
+          tenant: TenantId
+          product: optional<ProductId>
+          eventType: optional<string>
+          objectType: optional<string>
+          objectId: optional<string>
+          from: datetime
+          to: datetime
+          text: optional<string>
+          pageSize: optional<integer>
+          pageToken: optional<string>
+      SearchHit:
+        fields:
+          eventId: uuid
+          product: ProductId
+          eventType: string
+          occurredAt: datetime
+          objectType: optional<string>
+          objectId: optional<string>
+          payload:
+            type: map<string, any>
+            docs: Redacted for the caller's role.
+      SearchResponse:
+        fields:
+          hits: list<SearchHit>
+          nextPageToken: optional<string>
+
+    errors:
+      SchemaMismatch:
+        namespace: DataPlatform
+        code: INVALID_ARGUMENT
+        safe-args:
+          eventType: string
+      DatasetNotFound:
+        namespace: DataPlatform
+        code: NOT_FOUND
+        safe-args:
+          name: string
+      TenantNotAuthorized:
+        namespace: DataPlatform
+        code: PERMISSION_DENIED
+
+services:
+  CollectionService:
+    name: Collection Service
+    package: app.infinitum.cumulus.data.platform
+    base-path: /api/v1/collect
+    default-auth: header
+    docs: Products send events here. Each event is checked against its registered schema and consent before storage.
+    endpoints:
+      ingest:
+        http: POST /events
+        args:
+          request:
+            type: IngestRequest
+            param-type: body
+        returns: IngestResponse
+
+  CatalogService:
+    name: Catalog Service
+    package: app.infinitum.cumulus.data.platform
+    base-path: /api/v1/catalog
+    default-auth: header
+    docs: Dataset inventory, ownership, classification and lineage, stored in DataHub.
+    endpoints:
+      registerDataset:
+        http: PUT /datasets/{name}
+        args:
+          name: string
+          spec:
+            type: DatasetSpec
+            param-type: body
+        returns: DatasetRef
+      getDataset:
+        http: GET /datasets/{name}
+        args:
+          name: string
+        returns: DatasetSpec
+
+  SearchService:
+    name: Search Service
+    package: app.infinitum.cumulus.data.platform
+    base-path: /api/v1/search
+    default-auth: header
+    docs: Search authorized events by time, product, tenant and object, backed by OpenSearch with one index alias per tenant.
+    endpoints:
+      search:
+        http: POST /events
+        args:
+          query:
+            type: SearchQuery
+            param-type: body
+        returns: SearchResponse

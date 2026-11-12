@@ -9,7 +9,9 @@
     "./learn": "./src/learn.ts",
     "./evaluate": "./src/evaluate.ts",
     "./backtest": "./src/backtest.ts",
-    "./simulate": "./src/simulate.ts"
+    "./simulate": "./src/simulate.ts",
+    "./forecast": "./src/forecast.ts",
+    "./signals": "./src/signals.ts"
   },
   "private": true,
   "engines": {

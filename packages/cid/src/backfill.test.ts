@@ -8,6 +8,7 @@ import { describe, it, after } from "node:test";
 import assert from "node:assert/strict";
 import { Ledger, generateSigner } from "@infinitum/firmament";
 import { backfillCid, checkCidStore, cidStoreFromSnapshot } from "./backfill.ts";
+import { exportCidAccounts } from "./account-export.ts";
 import { CidService, CidStore } from "./service.ts";
 import { CopyingCidRepository } from "./testing/copying-repository.ts";
 import { PgCidRepository, migrateCid } from "./postgres.ts";
@@ -59,6 +60,9 @@ async function roundTrip(target: CidRepository) {
   assert.equal((await svc.getAccount(alex.cid)).username, "alex");
   assert.equal((await svc.listSessions(alex.cid)).length, 2);
   assert.equal(await svc.can(alex.cid, "LBRNTH", "repo:read"), true);
+  // The migration export reads through the repository too, so it sees the copied accounts.
+  const exported = await exportCidAccounts(svc);
+  assert.deepEqual(exported.counts, { accounts: 2, authenticators: 1, identities: 0, grants: 1 });
 }
 
 describe("Cumulus://ID backfill", () => {

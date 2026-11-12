@@ -305,12 +305,12 @@ export function registerProductIdp(h: ProductIdpHelpers) {
   // challenges or OAuth state. Off unless CID_EXPORT_KEY_SHA256 is set; no CORS headers at all.
   const exportKey = h.exportKeySha256;
   if (exportKey) {
-    route("POST", "/api/id/export", (ctx) => {
+    route("POST", "/api/id/export", async (ctx) => {
       for (const name of ["Access-Control-Allow-Origin", "Access-Control-Allow-Credentials", "Access-Control-Allow-Methods", "Access-Control-Allow-Headers", "Access-Control-Max-Age"]) {
         ctx.res.removeHeader(name);
       }
       if (!labyrinthDirectoryKeyMatches(ctx.req.headers["x-cid-export-key"], exportKey)) throw new HttpError(401, "Unknown export client");
-      return exportCidAccounts(cid);
+      return await exportCidAccounts(cid);
     }, false, { csrf: false });
   }
 

@@ -1,0 +1,20 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  // Labyrinth *LBRNTH hosted service, US copy (src/worker.ts), for users outside Russia.
+  // Russia keeps its own server (InfinitumCorp/labyrinth-ru, lbrnth.cumuluscloud.app).
+  // Secrets, set with `wrangler secret put`, never here: LBRNTH_MASTER_KEY, CID_DIRECTORY_KEY.
+  "name": "lbrnth-host-us",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-11-01",
+  "compatibility_flags": ["nodejs_compat"],
+  // Global users run on US servers (Ashburn, Virginia); Russia is served by the ru.* copies on Yandex Cloud.
+  "placement": { "region": "gcp:us-east4" },
+  "observability": { "enabled": true },
+  "workers_dev": false,
+  "routes": [{ "pattern": "lbrnth-us.cumuluscloud.app", "custom_domain": true }],
+  // Supabase project "Infinitum Corp", schema lbrnth, login role lbrnth_host, through the
+  // session pooler. Caching off: every read must see the latest committed envelope.
+  "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "03a6e0f762994b1186494c94e66b1ba8" }],
+  // Cumulus ID directory (POST /api/id/labyrinth-directory) over a service binding.
+  "services": [{ "binding": "CID", "service": "cumulus-id" }]
+}

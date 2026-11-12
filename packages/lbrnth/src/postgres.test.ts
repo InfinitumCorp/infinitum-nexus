@@ -213,3 +213,13 @@ test("hosted Labyrinth: a second instance picks up the first one's commit before
   const files = (await call(a, { action: "history", repo: repoId })).body as { tree: Record<string, string> }[];
   assert.deepEqual(Object.keys(files[0].tree).sort(), ["products/architect/a.txt", "products/architect/b.txt"]);
 });
+
+test("directory key check accepts one of several hashes (Russia and US hosts)", () => {
+  const hash = (v: string) => createHash("sha256").update(v).digest("hex");
+  const ru = "r".repeat(40), us = "u".repeat(40);
+  assert.equal(labyrinthDirectoryKeyMatches(us, `${hash(ru)},${hash(us)}`), true);
+  assert.equal(labyrinthDirectoryKeyMatches(ru, `${hash(ru)}, ${hash(us)}`), true);
+  assert.equal(labyrinthDirectoryKeyMatches("x".repeat(40), `${hash(ru)},${hash(us)}`), false);
+  assert.equal(labyrinthDirectoryKeyMatches(us, `${hash(ru)},not-a-hash`), false);
+  assert.equal(labyrinthDirectoryKeyMatches(us, ","), false);
+});

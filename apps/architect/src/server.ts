@@ -1,13 +1,13 @@
 import { serveNodeLabyrinthProxy } from "@infinitum/lbrnth";
 /**
- * Architect server: serves the Podium UI and /api/perform.
+ * Architect server: serves the web app and /api/perform.
  * Records evidence on Firmament.
  */
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { Ledger, MemoryStore } from "@infinitum/firmament";
 import { perform } from "./executor.ts";
 import { recordEvidence } from "./firmament.ts";
-import { appShellCss, podiumHtml } from "./podium.ts";
+import { appShellCss, webHtml } from "./web.ts";
 import { planScore } from "./plan.ts";
 import { registerDefaultInstruments } from "./instruments.ts";
 import type { Autonomy } from "./score.ts";
@@ -43,7 +43,7 @@ const server = createServer(async (req, res) => {
     }
     if (url.pathname === "/" ) {
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-      return res.end(podiumHtml);
+      return res.end(webHtml);
     }
     if (url.pathname === "/app-shell.css") {
       res.writeHead(200, { "content-type": "text/css; charset=utf-8" });

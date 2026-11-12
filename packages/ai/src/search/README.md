@@ -28,6 +28,7 @@ To write answers with the product's own `@infinitum/ai` router, pass `chat: (mes
 
 | Variable | What it does |
 | --- | --- |
+| `VEIL_SEARCH_URL` | Infinitum's own engine: `https://infinitumveil.app/api/search`. VEILBot's index first, blended with the web APIs VEIL holds keys for, Hacker News, Stack Overflow and Wikipedia. Needs no key here. |
 | `SEARXNG_URL` | Self-hosted SearXNG with `json` in `search.formats`. Host it on the Yandex VM for Russia. |
 | `YANDEX_SEARCH_API_KEY`, `YANDEX_FOLDER_ID` | Yandex Search API v2. The service account needs `search-api.webSearch.user`. Works in Russia. |
 | `BRAVE_SEARCH_API_KEY` | Brave Search API. |

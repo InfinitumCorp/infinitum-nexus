@@ -32,7 +32,7 @@ export async function serveNodeLabyrinthProxy(req: IncomingMessage, res: ServerR
     } catch { /* malformed JSON or unknown product: keep the pinned product; the relay rejects bad JSON */ }
   }
   const headers = new Headers({ authorization });
-  for (const key of ["content-type", "x-labyrinth"]) { const value = req.headers[key]; if (typeof value === "string") headers.set(key, value); }
+  for (const key of ["content-type", "x-labyrinth", "cf-ipcountry"]) { const value = req.headers[key]; if (typeof value === "string") headers.set(key, value); }
   const response = await proxyLabyrinthRequest(new Request("https://product.invalid/api/labyrinth", { method: "POST", headers, body }), endpoint, pinned);
   res.writeHead(response.status, Object.fromEntries(response.headers)); res.end(await response.text());
 }

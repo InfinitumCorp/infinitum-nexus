@@ -1,5 +1,6 @@
 import { serveNodeLabyrinthUI } from "@infinitum/lbrnth";
 import { AiError, sharedRouter, type AiRouter } from "@infinitum/ai";
+import { searchFromEnv, type ChatMessage, type Search } from "@infinitum/ai/search";
 import { serveNodeLabyrinth, serveNodeLabyrinthProxy } from "@infinitum/lbrnth";
 /**
  * Cumulus://Mail HTTP app. Sign-in is Cumulus://ID; every request is scoped to the signed-in CID,
@@ -56,6 +57,8 @@ export interface MailAppDeps {
   onChange?: () => void;
   /** Open-model router for SCALVS; defaults to the shared router built from the environment. */
   ai?: AiRouter;
+  /** Infinitum Search (cited web answers). Defaults to SEARXNG_URL / YANDEX_* / BRAVE_* from the environment; null turns it off. */
+  search?: Search | null;
   /** Hosted mode: wraps each API request (sync, run, save). See src/vercel.ts. */
   transaction?: <T>(fn: () => Promise<T>) => Promise<T>;
   /** Serverless hosts can't keep a timer running; they call sendDue from a cron route instead. */
@@ -178,12 +181,29 @@ function routerScalvs(router: AiRouter) {
   };
 }
 
+/** Infinitum Search from the environment, answering with SCALVS on the open-model router. */
+function mailSearchFromEnv(router: AiRouter): Search | null {
+  const chat = async (messages: ChatMessage[]) => {
+    const system = messages.filter((m) => m.role === "system").map((m) => m.content).join("\n\n");
+    const user = messages.filter((m) => m.role !== "system").map((m) => m.content).join("\n\n");
+    return router.complete(system, user, { maxTokens: 1200, tier: "fast", temperature: 0.2 });
+  };
+  try {
+    return searchFromEnv(process.env, router.connected ? { chat } : {});
+  } catch (err) {
+    console.warn(`Infinitum Search is off: ${(err as Error).message}`);
+    return null;
+  }
+}
+
 export function createMailApp(deps: MailAppDeps) {
   const { suite } = deps;
   const { cid, mail } = suite;
   const ai = deps.ai ?? sharedRouter();
   const scalvs = deps.scalvs ?? routerScalvs(ai);
   const cleanAgent = deps.cleanAgent ?? scalvsCleanAgent({ router: ai });
+  const search = deps.search !== undefined ? deps.search : mailSearchFromEnv(ai);
+  const searchTimes = new Map<string, number[]>();
   const suggestions = new Map<string, { list: CleanSuggestion[]; note: string }>(); // per CID, in memory until approved
   const routes: { method: string; pattern: RegExp; keys: string[]; auth: boolean; optionalAuth: boolean; csrf: boolean; drive: boolean; handler: Handler }[] = [];
   const route = (method: string, path: string, handler: Handler, auth = true, opts: { csrf?: boolean; optionalAuth?: boolean; drive?: boolean } = {}) => {
@@ -633,6 +653,24 @@ export function createMailApp(deps: MailAppDeps) {
     if (!result.ok) throw new HttpError(400, result.error);
     if (mode === "summary") briefs.set(`${me(ctx)}|${thread.map((m) => m.id).join(":")}`, result.text);
     return result;
+  });
+
+  /* ---------------- Infinitum Search ---------------- */
+
+  /** Is web search on, and which engines answer. */
+  route("GET", "/api/web-search", () => ({ connected: Boolean(search), engines: search?.engines ?? [], answers: Boolean(search?.answers) }));
+  /** A Perplexity-style answer: the engine finds pages, SCALVS reads them and answers with [n] citations. */
+  route("POST", "/api/web-search", async (ctx) => {
+    if (!search) throw new HttpError(503, "Web search isn't connected. Set SEARXNG_URL, YANDEX_SEARCH_API_KEY + YANDEX_FOLDER_ID, or BRAVE_SEARCH_API_KEY.");
+    const query = str(ctx.body.query, 1000).trim();
+    if (!query) throw new HttpError(400, "Type something to search for");
+    const now = Date.now();
+    const times = (searchTimes.get(me(ctx)) ?? []).filter((t) => now - t < 60_000);
+    if (times.length >= 12) throw new HttpError(429, "Too many searches. Try again in a minute.");
+    times.push(now);
+    searchTimes.set(me(ctx), times);
+    const r = await search.ask(query);
+    return { query: r.query, answer: r.answer, cited: r.cited, sources: r.sources, engine: r.engine, read: r.read };
   });
 
   /* ---------------- SCALVS Clean ---------------- */

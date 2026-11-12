@@ -41,9 +41,13 @@ const SHORT = /^[A-Za-z0-9_:.-]{1,200}$/;
 /** True when `presented` hashes to `expectedSha256Hex`. Constant time; an unset hash never matches. */
 export function labyrinthDirectoryKeyMatches(presented: unknown, expectedSha256Hex: string | undefined): boolean {
   if (typeof presented !== "string" || presented.length < 32 || presented.length > 512) return false;
-  if (!expectedSha256Hex || !/^[0-9a-f]{64}$/.test(expectedSha256Hex)) return false;
+  // One hash, or several separated by commas (one per hosted Labyrinth: Russia, US). Any malformed entry disables the check.
+  const expected = (expectedSha256Hex ?? "").split(",").map(h => h.trim()).filter(Boolean);
+  if (!expected.length || expected.length > 8 || !expected.every(h => /^[0-9a-f]{64}$/.test(h))) return false;
   const got = createHash("sha256").update(presented).digest();
-  return timingSafeEqual(got, Buffer.from(expectedSha256Hex, "hex"));
+  let match = false;
+  for (const h of expected) match = timingSafeEqual(got, Buffer.from(h, "hex")) || match; // compare all, no early exit
+  return match;
 }
 
 async function membership(cid: CidService, who: string): Promise<LabyrinthDirectoryOrg | null> {

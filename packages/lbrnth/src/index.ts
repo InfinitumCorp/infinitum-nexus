@@ -10,7 +10,7 @@ export type { LabyrinthProduct } from "@infinitum/lbrnth-client";
 export { createLabyrinthClient } from "./client.ts";
 export type { LabyrinthClientOptions, LabyrinthCommand, RepositoryInfo, ArtifactCommit, RepositoryRole, RepositoryMember, RepositoryAuditEntry, RepositorySession, EncodedArtifact, ArtifactChanges } from "./client.ts";
 export { serveNodeLabyrinth } from "./node.ts";
-export { proxyLabyrinthRequest } from "./proxy.ts";
+export { proxyLabyrinthRequest, useLabyrinthServiceBinding } from "./proxy.ts";
 export { labyrinthFromEnvironment } from "./configuration.ts";
 export { serveNodeLabyrinthProxy } from "./node-proxy.ts";
 export type { CidLabyrinthOptions, CidAuthority, DelegationGrant, DelegationStore } from "./auth.ts";

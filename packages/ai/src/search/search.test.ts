@@ -361,3 +361,27 @@ describe("searchFromEnv", () => {
     assert.throws(() => searchFromEnv({ SEARXNG_URL: "http://searx.example" }), /https/);
   });
 });
+
+describe("VEIL engine", () => {
+  it("POSTs the query in the body, keeps http(s) results, and is picked up from VEIL_SEARCH_URL", async () => {
+    const { veilEngine, enginesFromEnv } = await import("./search.mjs");
+    const calls: { url: string; init: RequestInit }[] = [];
+    const fetchImpl = (async (url: string, init: RequestInit) => {
+      calls.push({ url, init });
+      return Response.json({ q: "x", sources: ["veil", "wikipedia"], results: [
+        { title: "<b>Gemma</b> 4", url: "https://example.org/gemma", snippet: "31B &amp; 26B", sources: ["veil"] },
+        { title: "bad", url: "javascript:alert(1)" },
+      ] });
+    }) as unknown as typeof fetch;
+    const engine = veilEngine({ url: "https://veil.test/api/search", fetch: fetchImpl });
+    assert.deepEqual(await engine.search("gemma 4 sizes"), [{ title: "Gemma 4", url: "https://example.org/gemma", snippet: "31B & 26B" }]);
+    assert.equal(calls[0]!.url, "https://veil.test/api/search");
+    assert.equal(calls[0]!.init.method, "POST");
+    assert.equal(JSON.parse(String(calls[0]!.init.body)).q, "gemma 4 sizes");
+
+    assert.deepEqual(enginesFromEnv({ VEIL_SEARCH_URL: "https://infinitumveil.app/api/search" }).map((e: { name: string }) => e.name), ["veil"]);
+    assert.throws(() => enginesFromEnv({ VEIL_SEARCH_URL: "http://infinitumveil.app/api/search" }), /https/);
+    const failing = veilEngine({ fetch: (async () => new Response("no", { status: 500 })) as unknown as typeof fetch });
+    await assert.rejects(failing.search("q"), /VEIL Search returned 500/);
+  });
+});

@@ -24,7 +24,10 @@
   const [label, href] = labels[os];
   const link = document.getElementById("suggest-link");
   link.textContent = label;
-  link.href = href;
+  // Installer buttons stay disabled, with no link, until the manifest lists that installer.
+  const suggestKey = href.startsWith("get/") ? href.slice(4) : null;
+  if (suggestKey) { link.removeAttribute("href"); link.setAttribute("aria-disabled", "true"); link.textContent = `${label} · coming soon`; }
+  else link.href = href;
   document.getElementById("suggest-note").textContent = os === "web" ? "" : "Other platforms are below.";
   document.getElementById("suggest").hidden = false;
 
@@ -35,9 +38,11 @@
       const files = new Map((manifest?.files || []).map((f) => [f.key, f]));
       document.querySelectorAll("[data-key]").forEach((a) => {
         const f = files.get(a.dataset.key);
-        if (!f) { a.setAttribute("aria-disabled", "true"); a.title = "Coming soon"; return; }
+        if (!f) { a.removeAttribute("href"); a.setAttribute("aria-disabled", "true"); a.title = "Coming soon"; return; }
         a.href = `files/${encodeURIComponent(f.name)}`;
+        a.removeAttribute("aria-disabled"); a.removeAttribute("title");
       });
+      if (suggestKey && files.has(suggestKey)) { link.href = href; link.removeAttribute("aria-disabled"); link.textContent = label; }
       document.querySelectorAll("[data-meta]").forEach((p) => {
         const f = files.get(p.dataset.meta);
         p.textContent = f ? `Version ${f.version} · ${size(f.size)} · SHA-256 ${f.sha256}` : "Coming soon";

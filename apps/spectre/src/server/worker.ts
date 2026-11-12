@@ -1,4 +1,6 @@
 import { createServer } from "node:http";
+import { useLabyrinthServiceBinding } from "@infinitum/lbrnth-client";
+import type { LabyrinthServiceBinding } from "@infinitum/lbrnth-client";
 import { httpServerHandler } from "cloudflare:node";
 import { DurableObject } from "cloudflare:workers";
 import type { Entry } from "@infinitum/firmament";
@@ -33,6 +35,8 @@ interface Env {
   NEXUS_STATE: { idFromName(name: string): unknown; get(id: unknown): NexusStoreStub };
   /** Free Workers AI binding (`ai.binding` = AI in wrangler.jsonc). Absent when the binding is not declared. */
   AI?: WorkersAiBinding;
+  /** Service binding to lbrnth-host-us (US Labyrinth). Relay calls to lbrnth-us.cumuluscloud.app go through it. */
+  LBRNTH_US?: LabyrinthServiceBinding;
 }
 
 export class NexusStore extends DurableObject<Env> {
@@ -74,6 +78,7 @@ let configured = false;
 function configure(env: Env) {
   // Refresh the binding each request. The router calls through to whatever is current.
   if (env.AI) useWorkersAi(env.AI);
+  useLabyrinthServiceBinding("lbrnth-us.cumuluscloud.app", env.LBRNTH_US);
   if (configured) return;
   useGateway(new DurableGateway(env.NEXUS_STATE));
   configured = true;

@@ -23,6 +23,7 @@ import { OPEN_STAGES, STAGES } from "../core/model.ts";
 import { askSpectre, aiConnected, AiNotConnected, type AiConfig } from "./ai.ts";
 import { registerGrowthRoutes, type GrowthEvent } from "./growth-routes.ts";
 import { registerConjureRoutes, dealSeed } from "./conjure-routes.ts";
+import { registerMetatronRoutes } from "./metatron-routes.ts";
 import { registerEngageRoutes, RawResponse } from "./engage-routes.ts";
 import { dispatch, runDue, type AutomationEngine } from "../core/automations.ts";
 import type { Providers } from "../core/messaging.ts";
@@ -349,7 +350,10 @@ export function createApp(deps: AppDeps) {
     Redirect,
     HttpError,
     signer: oidc,
-    labyrinthDirectoryKeySha256: (deps.labyrinthDirectoryKeySha256 === undefined ? process.env.CID_DIRECTORY_KEY_SHA256 : deps.labyrinthDirectoryKeySha256) || undefined,
+    // CID_DIRECTORY_KEY_SHA256 (Russia host) plus CID_DIRECTORY_KEY_SHA256_US (US host, lbrnth-host-us).
+    labyrinthDirectoryKeySha256: (deps.labyrinthDirectoryKeySha256 === undefined
+      ? [process.env.CID_DIRECTORY_KEY_SHA256, process.env.CID_DIRECTORY_KEY_SHA256_US].filter(Boolean).join(",")
+      : deps.labyrinthDirectoryKeySha256) || undefined,
     exportKeySha256: (deps.cidExportKeySha256 === undefined ? process.env.CID_EXPORT_KEY_SHA256 : deps.cidExportKeySha256) || undefined,
   });
 
@@ -1230,7 +1234,9 @@ export function createApp(deps: AppDeps) {
     origin: deps.origin,
   });
 
-  registerConjureRoutes({ route, crm, ai: deps.ai, httpError: (status, message) => new HttpError(status, message), complete: deps.conjureComplete });
+  registerConjureRoutes({ route, crm, ai: deps.ai, httpError: (status, message) => new HttpError(status, message), complete: deps.conjureComplete, search });
+
+  registerMetatronRoutes({ route, crm, httpError: (status, message) => new HttpError(status, message), scoresFor });
 
   const veilControl = createVeilControl({
     cid: deps.cid,

@@ -74,7 +74,28 @@ export class RemoteLedgerStore implements LedgerStore {
   }
 }
 
+/**
+ * Phase 0 of docs/plans/relational-storage.md: how big each whole-store document is and how often
+ * concurrent requests collide. Byte counts and counters only; never any content.
+ */
+export interface StoreStats {
+  transactions: number;
+  /** Commits refused because another instance saved first (each one re-runs the request). */
+  conflicts: number;
+  /** Requests that still conflicted after every re-run and failed. */
+  exhausted: number;
+  commits: number;
+  /** Per document: bytes written in total, size at the last write, and the largest size seen. */
+  docs: Record<string, { writes: number; bytesWritten: number; lastBytes: number; maxBytes: number }>;
+}
+
 export class RemoteState {
+  /** Counters since this instance started. */
+  readonly stats: StoreStats = { transactions: 0, conflicts: 0, exhausted: 0, commits: 0, docs: {} };
+  /** Where metrics lines go. Default console.log; null turns them off. */
+  metricsLog: ((line: string) => void) | null = (line) => console.log(line);
+  /** A metrics line every this many transactions (and on every conflict). */
+  metricsEvery = 100;
   readonly ledgerStore = new RemoteLedgerStore();
   private readonly gateway: NexusGateway;
   private readonly docs: Record<string, object>;
@@ -128,11 +149,30 @@ export class RemoteState {
     const entries = this.ledgerStore.pending;
     if (!changed.length && !entries.length) return;
     const versions = await this.gateway.commit(entries, changed);
+    this.stats.commits++;
+    for (const d of changed) {
+      const bytes = Buffer.byteLength(serialized[d.id]!, "utf8");
+      const s = (this.stats.docs[d.id] ??= { writes: 0, bytesWritten: 0, lastBytes: 0, maxBytes: 0 });
+      s.writes++;
+      s.bytesWritten += bytes;
+      s.lastBytes = bytes;
+      s.maxBytes = Math.max(s.maxBytes, bytes);
+    }
     this.ledgerStore.committed.push(...entries);
     this.ledgerStore.pending = [];
     for (const [id, v] of Object.entries(versions)) {
       this.versions[id] = v;
       if (serialized[id]) this.baseline[id] = serialized[id];
+    }
+  }
+
+  /** One JSON line with the counters, tagged so it can be filtered in Workers/Vercel logs. */
+  private emit(reason: string) {
+    if (!this.metricsLog) return;
+    try {
+      this.metricsLog(JSON.stringify({ metric: "nexus-store", reason, ...this.stats }));
+    } catch {
+      // Metrics must never break a request.
     }
   }
 
@@ -159,7 +199,10 @@ export class RemoteState {
       } catch (err) {
         if (err instanceof ConflictError) {
           this.rollback();
+          this.stats.conflicts++;
+          this.emit("conflict");
           if (retries > 0) return attempt(retries - 1);
+          this.stats.exhausted++;
           throw new Error("The data store is busy. Please try again.");
         }
         // Handler errors were already committed above; anything else (e.g. the store is down)
@@ -168,11 +211,14 @@ export class RemoteState {
         throw err;
       }
     };
+    this.stats.transactions++;
+    if (this.metricsEvery > 0 && this.stats.transactions % this.metricsEvery === 0) this.emit("periodic");
     const run = this.queue.then(() => attempt(2));
     this.queue = run.catch(() => undefined);
     return run;
   }
 }
+
 
 /** In-memory gateway with the same rules as the database function (tests, local runs). */
 export class MemoryGateway implements NexusGateway {

@@ -11,7 +11,7 @@
   },
   "scripts": {
     "typecheck": "tsc -p . --noEmit",
-    "test": "node --test --experimental-strip-types $(find src -name \"*.test.ts\" 2>/dev/null || true)"
+    "test": "node --test --experimental-strip-types $(find src -name \"*.test.ts\" 2>/dev/null || true) && CID_TEST_COPYING_REPO=1 node --test --experimental-strip-types src/cid.test.ts src/social.test.ts"
   },
   "dependencies": {
     "@infinitum/firmament": "workspace:*"

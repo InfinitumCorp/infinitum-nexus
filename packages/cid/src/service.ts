@@ -25,6 +25,7 @@ import {
   type SocialProfile,
   type SocialProviderId,
 } from "./social.ts";
+import { MapCidRepository, type CidRepository } from "./repository.ts";
 
 export { MAIL_DOMAIN };
 
@@ -222,6 +223,11 @@ export interface CidConfig {
   /** Exact origins allowed to run passkey ceremonies. Wildcards are rejected. */
   origins: string[];
   store?: CidStore;
+  /**
+   * Where accounts, sessions, keys and grants live. Defaults to MapCidRepository over `store`
+   * (in memory). A database-backed repository replaces it without changing sign-in logic.
+   */
+  repository?: CidRepository;
   clock?: () => Date;
   sessionDays?: number;
   /** Social sign-in providers with their client credentials. Only configured ones are offered. */
@@ -288,7 +294,9 @@ export class CidService {
   readonly mailDomain: string;
   /** Exact CORS origins for ID, Cloud and Mail. Never a wildcard. */
   readonly corsOrigins: readonly string[];
-  private readonly cfg: Required<Omit<CidConfig, "store" | "social" | "onEvent" | "upstreamIssuer">>;
+  private readonly cfg: Required<Omit<CidConfig, "store" | "repository" | "social" | "onEvent" | "upstreamIssuer">>;
+  /** Every read and write of CID data goes through here. */
+  readonly repo: CidRepository;
   /** Issuer origin when this service only mirrors accounts from Cumulus://ID; undefined when it issues its own. */
   readonly upstreamIssuer?: string;
   private readonly socialProviders: Partial<Record<SocialProviderId, SocialCredentials>>;
@@ -299,6 +307,7 @@ export class CidService {
     this.onEvent = config.onEvent;
     this.upstreamIssuer = config.upstreamIssuer ? config.upstreamIssuer.replace(/\/$/, "") : undefined;
     this.store = config.store ?? new CidStore();
+    this.repo = config.repository ?? new MapCidRepository(this.store);
     const domains = cumulusDomains();
     this.issuer = domains.issuer;
     this.jwksUri = domains.jwksUri;
@@ -333,6 +342,9 @@ export class CidService {
    * Labyrinth a per-request view instead. Everything else uses the async methods.
    */
   syncView() {
+    if (!(this.repo instanceof MapCidRepository) || this.repo.store !== this.store) {
+      throw new CidError("sync_unavailable", "A synchronous CID view needs the in-memory store; resolve the caller first instead");
+    }
     return {
       authenticate: (token: string) => this.authenticateNow(token),
       isSessionActive: (cid: string, sessionId: string) => this.isSessionActiveNow(cid, sessionId),
@@ -372,7 +384,14 @@ export class CidService {
     }
   }
 
-  private account(cid: string): Account {
+  private async account(cid: string): Promise<Account> {
+    const a = await this.repo.account(cid);
+    if (!a) throw new CidError("not_found", "No such CID");
+    return a;
+  }
+
+  /** In-memory only, for syncView(). */
+  private accountNow(cid: string): Account {
     const a = this.store.accounts.get(cid);
     if (!a) throw new CidError("not_found", "No such CID");
     return a;
@@ -392,7 +411,7 @@ export class CidService {
       throw new CidError("invalid_username", "Usernames are 3-30 characters: letters, numbers, dot, dash, underscore");
     }
     if (RESERVED.has(username)) throw new CidError("reserved", "That username is reserved");
-    if (this.store.byUsername.has(username)) throw new CidError("taken", "That username is taken");
+    if (await this.repo.cidForUsername(username)) throw new CidError("taken", "That username is taken");
 
     const account: Account = {
       cid: `cid_${randomUUID()}`,
@@ -407,8 +426,7 @@ export class CidService {
   }
 
   private async insertAccount(account: Account, ledgerPayload: Record<string, unknown>): Promise<Account> {
-    this.store.accounts.set(account.cid, account);
-    this.store.byUsername.set(account.username, account.cid);
+    await this.repo.putAccount(account);
     // Only the event is recorded; the CID is never sold and personal details stay off the ledger.
     await this.record("identity", account.cid, account.cid, ledgerPayload);
     await this.emit("account.created", account.cid);
@@ -433,14 +451,17 @@ export class CidService {
       throw new CidError("bad_profile", "Cumulus://ID returned an account this product can't use.");
     }
     let created = false;
-    const existing = this.store.accounts.get(profile.cid);
+    const existing = await this.repo.account(profile.cid);
     if (existing) {
       if (existing.username !== username) {
         throw new CidError("username_conflict", "This Cumulus://ID doesn't match the account stored here. Contact support.");
       }
-      if (!existing.upstream) existing.upstream = { issuer, adoptedAt: this.now().toISOString() };
+      if (!existing.upstream) {
+        existing.upstream = { issuer, adoptedAt: this.now().toISOString() };
+        await this.repo.putAccount(existing);
+      }
     } else {
-      const holder = this.store.byUsername.get(username);
+      const holder = await this.repo.cidForUsername(username);
       if (holder && holder !== profile.cid) {
         throw new CidError(
           "username_conflict",
@@ -472,21 +493,20 @@ export class CidService {
 
   /* ---------------- Passkeys & security keys ---------------- */
 
-  private issueChallenge(purpose: Challenge["purpose"], cid?: string): string {
+  private async issueChallenge(purpose: Challenge["purpose"], cid?: string): Promise<string> {
     const value = randomBytes(32).toString("base64url");
-    this.store.challenges.set(value, { value, cid, purpose, expiresAt: this.now().getTime() + CHALLENGE_TTL_MS });
+    await this.repo.putOneTime("challenge", value, { value, cid, purpose, expiresAt: this.now().getTime() + CHALLENGE_TTL_MS });
     return value;
   }
 
-  private takeChallenge(clientDataJSON: string, purpose: Challenge["purpose"]): Challenge {
+  private async takeChallenge(clientDataJSON: string, purpose: Challenge["purpose"]): Promise<Challenge> {
     let challenge: string;
     try {
       challenge = JSON.parse(Buffer.from(clientDataJSON, "base64url").toString("utf8")).challenge;
     } catch {
       throw new CidError("bad_request", "Malformed client data");
     }
-    const c = this.store.challenges.get(challenge);
-    this.store.challenges.delete(challenge); // single use
+    const c = await this.repo.takeOneTime("challenge", challenge); // single use
     if (!c || c.purpose !== purpose || c.expiresAt < this.now().getTime()) {
       throw new CidError("challenge_expired", "Sign-in request expired. Please try again.");
     }
@@ -495,10 +515,10 @@ export class CidService {
 
   /** Options for navigator.credentials.create() in the browser. */
   async startAuthenticatorRegistration(cid: string, kind: Authenticator["kind"] = "passkey") {
-    const account = this.account(cid);
-    const existing = [...this.store.authenticators.values()].filter((a) => a.cid === cid);
+    const account = await this.account(cid);
+    const existing = await this.repo.authenticatorsOf(cid);
     return {
-      challenge: this.issueChallenge("register", cid),
+      challenge: await this.issueChallenge("register", cid),
       rp: { id: this.cfg.rpId, name: "Infinitum" },
       user: { id: Buffer.from(cid).toString("base64url"), name: account.mailAddress, displayName: account.username },
       pubKeyCredParams: [{ type: "public-key", alg: -8 }, { type: "public-key", alg: -7 }, { type: "public-key", alg: -257 }],
@@ -517,7 +537,7 @@ export class CidService {
     response: RegistrationResponse,
     meta: { kind?: Authenticator["kind"]; label?: string } = {},
   ): Promise<Authenticator> {
-    const challenge = this.takeChallenge(response.clientDataJSON, "register");
+    const challenge = await this.takeChallenge(response.clientDataJSON, "register");
     if (challenge.cid !== cid) throw new CidError("challenge_expired", "Registration request does not match this account");
     const kind = meta.kind ?? "passkey";
     let verified;
@@ -531,7 +551,7 @@ export class CidService {
     } catch (err) {
       throw new CidError("webauthn_failed", (err as Error).message);
     }
-    if (this.store.byCredentialId.has(verified.credentialId)) {
+    if (await this.repo.authenticatorByCredential(verified.credentialId)) {
       throw new CidError("duplicate", "This key is already registered");
     }
     const auth: Authenticator = {
@@ -545,28 +565,24 @@ export class CidService {
       backedUp: verified.backedUp,
       addedAt: this.now().toISOString(),
     };
-    this.store.authenticators.set(auth.id, auth);
-    this.store.byCredentialId.set(auth.credentialId, auth.id);
+    await this.repo.putAuthenticator(auth);
     await this.record("audit", cid, cid, { event: "authenticator.added", kind, authenticator: auth.id });
     await this.emit("authenticator.added", cid, { kind, label: auth.label });
     return auth;
   }
 
   async listAuthenticators(cid: string): Promise<Omit<Authenticator, "publicKeyCose">[]> {
-    return [...this.store.authenticators.values()]
-      .filter((a) => a.cid === cid)
-      .map(({ publicKeyCose: _k, ...rest }) => rest);
+    return (await this.repo.authenticatorsOf(cid)).map(({ publicKeyCose: _k, ...rest }) => rest);
   }
 
   async removeAuthenticator(cid: string, authenticatorId: string) {
-    const auth = this.store.authenticators.get(authenticatorId);
+    const auth = await this.repo.authenticator(authenticatorId);
     if (!auth || auth.cid !== cid) throw new CidError("not_found", "No such key on this account");
-    const acct = this.account(cid);
+    const acct = await this.account(cid);
     if ((await this.listAuthenticators(cid)).length === 1 && !acct.federated && !acct.identities?.length) {
       throw new CidError("last_key", "Add another passkey or security key before removing your last one");
     }
-    this.store.authenticators.delete(authenticatorId);
-    this.store.byCredentialId.delete(auth.credentialId);
+    await this.repo.deleteAuthenticator(auth);
     await this.record("audit", cid, cid, { event: "authenticator.removed", authenticator: authenticatorId });
     await this.emit("authenticator.removed", cid, { kind: auth.kind, label: auth.label });
   }
@@ -575,16 +591,14 @@ export class CidService {
   async startSignIn(username?: string) {
     let allowCredentials: { type: string; id: string }[] = [];
     if (username) {
-      const cid = this.store.byUsername.get(username.toLowerCase());
+      const cid = await this.repo.cidForUsername(username.toLowerCase());
       // Unknown usernames get the same response shape so accounts can't be enumerated.
       if (cid) {
-        allowCredentials = [...this.store.authenticators.values()]
-          .filter((a) => a.cid === cid)
-          .map((a) => ({ type: "public-key", id: a.credentialId }));
+        allowCredentials = (await this.repo.authenticatorsOf(cid)).map((a) => ({ type: "public-key", id: a.credentialId }));
       }
     }
     return {
-      challenge: this.issueChallenge("login"),
+      challenge: await this.issueChallenge("login"),
       rpId: this.cfg.rpId,
       allowCredentials,
       userVerification: "preferred",
@@ -596,9 +610,8 @@ export class CidService {
     response: AssertionResponse,
     device: string,
   ): Promise<{ status: "ok"; token: string; session: Session } | { status: "mfa_required"; mfaToken: string }> {
-    const challenge = this.takeChallenge(response.clientDataJSON, "login");
-    const authId = this.store.byCredentialId.get(response.credentialId);
-    const auth = authId ? this.store.authenticators.get(authId) : undefined;
+    const challenge = await this.takeChallenge(response.clientDataJSON, "login");
+    const auth = await this.repo.authenticatorByCredential(response.credentialId);
     if (!auth) throw new CidError("unknown_key", "This key isn't registered to a CID");
 
     let result;
@@ -610,13 +623,14 @@ export class CidService {
     }
     auth.signCount = result.signCount;
     auth.lastUsedAt = this.now().toISOString();
+    await this.repo.putAuthenticator(auth);
 
-    const account = this.account(auth.cid);
+    const account = await this.account(auth.cid);
     // A user-verified passkey (biometric or PIN on the device) is already two factors.
     // A security key tap without verification needs the authenticator-app code too.
     if (account.totp?.confirmed && !result.userVerified) {
       const mfaToken = randomBytes(24).toString("base64url");
-      this.store.pendingMfa.set(mfaToken, { cid: account.cid, method: "passkey+totp", device, expiresAt: this.now().getTime() + CHALLENGE_TTL_MS });
+      await this.repo.putOneTime("mfa", mfaToken, { cid: account.cid, method: "passkey+totp", device, expiresAt: this.now().getTime() + CHALLENGE_TTL_MS });
       return { status: "mfa_required", mfaToken };
     }
     const issued = await this.issueSession(account.cid, device, auth.kind);
@@ -624,49 +638,53 @@ export class CidService {
   }
 
   async completeMfa(mfaToken: string, code: string) {
-    const pending = this.store.pendingMfa.get(mfaToken);
+    const pending = await this.repo.peekOneTime("mfa", mfaToken);
     if (!pending || pending.expiresAt < this.now().getTime()) {
-      this.store.pendingMfa.delete(mfaToken);
+      await this.repo.deleteOneTime("mfa", mfaToken);
       throw new CidError("challenge_expired", "Sign-in request expired. Please try again.");
     }
-    const account = this.account(pending.cid);
+    const account = await this.account(pending.cid);
     const step = account.totp ? verifyTotp(account.totp.secret, code, this.now(), account.totp.lastStep) : null;
     if (step === null) {
       await this.record("audit", account.cid, account.cid, { event: "mfa.failed" });
       throw new CidError("mfa_failed", "That code didn't match");
     }
     account.totp!.lastStep = step;
-    this.store.pendingMfa.delete(mfaToken);
+    await this.repo.putAccount(account);
+    await this.repo.deleteOneTime("mfa", mfaToken);
     return this.issueSession(account.cid, pending.device, pending.method);
   }
 
   /* ---------------- Multifactor (authenticator app) ---------------- */
 
   async enrollTotp(cid: string) {
-    const account = this.account(cid);
+    const account = await this.account(cid);
     if (account.totp?.confirmed) throw new CidError("already_enabled", "Multifactor is already on");
     const secret = generateTotpSecret();
     account.totp = { secret, confirmed: false, lastStep: -1 };
+    await this.repo.putAccount(account);
     return { secret, uri: otpauthUri(secret, account.mailAddress) };
   }
 
   async confirmTotp(cid: string, code: string) {
-    const account = this.account(cid);
+    const account = await this.account(cid);
     if (!account.totp) throw new CidError("not_enrolled", "Start multifactor setup first");
     const step = verifyTotp(account.totp.secret, code, this.now(), account.totp.lastStep);
     if (step === null) throw new CidError("mfa_failed", "That code didn't match");
     account.totp = { ...account.totp, confirmed: true, lastStep: step };
+    await this.repo.putAccount(account);
     await this.record("audit", cid, cid, { event: "mfa.enabled", method: "totp" });
     await this.emit("mfa.enabled", cid, { method: "authenticator app" });
   }
 
   async disableTotp(cid: string, code: string) {
-    const account = this.account(cid);
+    const account = await this.account(cid);
     if (!account.totp?.confirmed) throw new CidError("not_enrolled", "Multifactor is not on");
     if (verifyTotp(account.totp.secret, code, this.now(), account.totp.lastStep) === null) {
       throw new CidError("mfa_failed", "That code didn't match");
     }
     account.totp = undefined;
+    await this.repo.putAccount(account);
     await this.record("audit", cid, cid, { event: "mfa.disabled", method: "totp" });
     await this.emit("mfa.disabled", cid, { method: "authenticator app" });
   }
@@ -685,8 +703,7 @@ export class CidService {
       createdAt: now.toISOString(),
       expiresAt: new Date(now.getTime() + this.cfg.sessionDays * 86_400_000).toISOString(),
     };
-    this.store.sessions.set(session.id, session);
-    this.store.byTokenHash.set(session.tokenHash, session.id);
+    await this.repo.putSession(session);
     await this.record("audit", cid, cid, { event: "session.created", session: session.id, method });
     await this.emit("session.created", cid, { device, method, session: session.id });
     return { token, session };
@@ -697,13 +714,13 @@ export class CidService {
    * one-time code to hand it. `challenge` is base64url(SHA-256(verifier)) from the app.
    */
   async grantDeviceHandoff(cid: string, challenge: string, app: string, meta?: { idp?: string; nonce?: string; redirectUri?: string }) {
-    this.account(cid);
+    await this.account(cid);
     if (!/^[A-Za-z0-9_-]{43}$/.test(challenge)) throw new CidError("invalid_request", "The app's sign-in request isn't valid. Start again from the app.");
     const now = this.now().getTime();
-    for (const [k, h] of this.store.deviceHandoffs) if (h.expiresAt < now) this.store.deviceHandoffs.delete(k);
+    await this.repo.sweepOneTime("handoff", now);
     const code = randomBytes(32).toString("base64url");
     const idp = meta?.idp && /^[a-z0-9_-]{1,32}$/.test(meta.idp) ? meta.idp : undefined;
-    this.store.deviceHandoffs.set(hashToken(code), {
+    await this.repo.putOneTime("handoff", hashToken(code), {
       cid, challenge, app, expiresAt: now + DEVICE_HANDOFF_TTL_MS, idp, nonce: meta?.nonce, redirectUri: meta?.redirectUri,
     });
     await this.record("audit", cid, cid, { event: "device_handoff.granted", app });
@@ -713,8 +730,7 @@ export class CidService {
   /** App side: trade the code plus the verifier for a session of its own. Each code works once. */
   async redeemDeviceHandoff(code: string, verifier: string, device: string) {
     const key = hashToken(code);
-    const handoff = this.store.deviceHandoffs.get(key);
-    this.store.deviceHandoffs.delete(key); // single use, even when the verifier is wrong
+    const handoff = await this.repo.takeOneTime("handoff", key); // single use, even when the verifier is wrong
     const expected = handoff ? Buffer.from(handoff.challenge) : Buffer.alloc(0);
     const actual = Buffer.from(createHash("sha256").update(verifier).digest("base64url"));
     if (!handoff || handoff.expiresAt < this.now().getTime() || verifier.length < 43 || expected.length !== actual.length || !timingSafeEqual(expected, actual)) {
@@ -726,27 +742,31 @@ export class CidService {
 
   /** Called by every Infinitum product on each request. Returns null for unknown, expired or revoked tokens. */
   async authenticate(token: string): Promise<{ account: Account; session: Session } | null> {
-    return this.authenticateNow(token);
+    const session = await this.repo.sessionByTokenHash(hashToken(token));
+    if (!session || session.revokedAt || new Date(session.expiresAt) <= this.now()) return null;
+    const account = await this.repo.account(session.cid);
+    return account ? { account, session } : null;
   }
 
   private authenticateNow(token: string): { account: Account; session: Session } | null {
     const id = this.store.byTokenHash.get(hashToken(token));
     const session = id ? this.store.sessions.get(id) : undefined;
     if (!session || session.revokedAt || new Date(session.expiresAt) <= this.now()) return null;
-    return { account: this.account(session.cid), session };
+    return { account: this.accountNow(session.cid), session };
   }
 
   async listSessions(cid: string): Promise<Omit<Session, "tokenHash">[]> {
-    return [...this.store.sessions.values()]
-      .filter((s) => s.cid === cid && !s.revokedAt && new Date(s.expiresAt) > this.now())
+    return (await this.repo.sessionsOf(cid))
+      .filter((s) => !s.revokedAt && new Date(s.expiresAt) > this.now())
       .map(({ tokenHash: _t, ...rest }) => rest);
   }
 
   async revokeSession(cid: string, sessionId: string, actor = cid) {
-    const s = this.store.sessions.get(sessionId);
+    const s = await this.repo.session(sessionId);
     if (!s || s.cid !== cid) throw new CidError("not_found", "No such session");
     if (!s.revokedAt) {
       s.revokedAt = this.now().toISOString();
+      await this.repo.putSession(s);
       await this.record("audit", actor, cid, { event: "session.revoked", session: sessionId });
     }
   }
@@ -754,9 +774,10 @@ export class CidService {
   /** "Sign out everywhere", optionally keeping the current device signed in. */
   async revokeAllSessions(cid: string, keepSessionId?: string, actor = cid) {
     let count = 0;
-    for (const s of this.store.sessions.values()) {
-      if (s.cid === cid && !s.revokedAt && s.id !== keepSessionId) {
+    for (const s of await this.repo.sessionsOf(cid)) {
+      if (!s.revokedAt && s.id !== keepSessionId) {
         s.revokedAt = this.now().toISOString();
+        await this.repo.putSession(s);
         count++;
       }
     }
@@ -787,7 +808,7 @@ export class CidService {
    */
   async startSocialSignIn(provider: string, redirectUri: string, linkToCid?: string) {
     const { spec, creds } = this.providerCreds(provider);
-    if (linkToCid) this.account(linkToCid);
+    if (linkToCid) await this.account(linkToCid);
     const { verifier, challenge } = pkcePair();
     const pending: PendingAuth = {
       state: randomBytes(24).toString("base64url"),
@@ -798,7 +819,7 @@ export class CidService {
       expiresAt: this.now().getTime() + 10 * 60_000,
       linkToCid,
     };
-    this.store.oauthPending.set(pending.state, pending);
+    await this.repo.putOneTime("oauth", pending.state, pending);
     const url = await this.socialClient.authorizeUrl(spec, creds, pending, challenge);
     return { url, state: pending.state };
   }
@@ -813,8 +834,7 @@ export class CidService {
     | { status: "linked"; cid: string }
   > {
     const { spec, creds } = this.providerCreds(provider);
-    const pending = this.store.oauthPending.get(params.state);
-    this.store.oauthPending.delete(params.state); // single use
+    const pending = await this.repo.takeOneTime("oauth", params.state); // single use
     // The state must be one we issued, for this provider, unexpired, and started in this same browser.
     if (!pending || pending.provider !== spec.id || pending.expiresAt < this.now().getTime() || params.browserState !== params.state) {
       throw new CidError("challenge_expired", "Sign-in request expired. Please try again.");
@@ -826,7 +846,7 @@ export class CidService {
       throw new CidError("social_failed", (err as Error).message);
     }
     const key = `${profile.provider}|${profile.subject}`;
-    const existing = this.store.byIdentity.get(key);
+    const existing = await this.repo.cidForIdentity(key);
 
     if (pending.linkToCid) {
       if (existing && existing !== pending.linkToCid) {
@@ -841,32 +861,32 @@ export class CidService {
     if (!cid) {
       // A new provider account always gets a new CID. Accounts are never joined by matching email,
       // which would let anyone who controls an email at one provider take over another person's CID.
-      const account = await this.createAccount({ username: this.freeUsername(profile.usernameHint ?? `${spec.id}-user`) });
+      const account = await this.createAccount({ username: await this.freeUsername(profile.usernameHint ?? `${spec.id}-user`) });
       await this.attachIdentity(account.cid, profile);
       cid = account.cid;
       created = true;
     }
-    const account = this.account(cid);
+    const account = await this.account(cid);
     const method = `social:${spec.id}` as const;
     if (account.totp?.confirmed) {
       const mfaToken = randomBytes(24).toString("base64url");
-      this.store.pendingMfa.set(mfaToken, { cid, method: `${method}+totp`, device, expiresAt: this.now().getTime() + CHALLENGE_TTL_MS });
+      await this.repo.putOneTime("mfa", mfaToken, { cid, method: `${method}+totp`, device, expiresAt: this.now().getTime() + CHALLENGE_TTL_MS });
       return { status: "mfa_required", mfaToken };
     }
     const issued = await this.issueSession(cid, device, method);
     return { status: "ok", ...issued, created };
   }
 
-  private freeUsername(hint: string): string {
+  private async freeUsername(hint: string): Promise<string> {
     let base = hint.toLowerCase().replace(/[^a-z0-9._-]/g, "").replace(/^[._-]+/, "").slice(0, 24);
     if (base.length < 3) base = `${base}user`.slice(0, 24);
     let name = base;
-    for (let i = 2; this.store.byUsername.has(name) || RESERVED.has(name); i++) name = `${base}${i}`;
+    for (let i = 2; (await this.repo.cidForUsername(name)) || RESERVED.has(name); i++) name = `${base}${i}`;
     return name;
   }
 
   private async attachIdentity(cid: string, profile: SocialProfile) {
-    const account = this.account(cid);
+    const account = await this.account(cid);
     const identity: LinkedIdentity = {
       provider: profile.provider,
       subject: profile.subject,
@@ -874,24 +894,26 @@ export class CidService {
       linkedAt: this.now().toISOString(),
     };
     account.identities = [...(account.identities ?? []).filter((i) => i.provider !== profile.provider), identity];
-    this.store.byIdentity.set(`${profile.provider}|${profile.subject}`, cid);
+    await this.repo.putAccount(account);
+    await this.repo.setIdentity(`${profile.provider}|${profile.subject}`, cid);
     // The provider's account ID and email stay off the ledger; only the event is recorded.
     await this.record("audit", cid, cid, { event: "identity.linked", provider: profile.provider });
     await this.emit("identity.linked", cid, { provider: PROVIDERS[profile.provider]?.label ?? profile.provider });
   }
 
   async linkedIdentities(cid: string): Promise<LinkedIdentity[]> {
-    return [...(this.account(cid).identities ?? [])];
+    return [...((await this.account(cid)).identities ?? [])];
   }
 
   async unlinkIdentity(cid: string, provider: string) {
-    const account = this.account(cid);
+    const account = await this.account(cid);
     const identity = account.identities?.find((i) => i.provider === provider);
     if (!identity) throw new CidError("not_found", "That account isn't linked");
     const otherWays = (await this.listAuthenticators(cid)).length + (account.identities!.length - 1) + (account.federated ? 1 : 0);
     if (otherWays === 0) throw new CidError("last_key", "Add a passkey or another sign-in option before removing your last one");
     account.identities = account.identities!.filter((i) => i.provider !== provider);
-    this.store.byIdentity.delete(`${identity.provider}|${identity.subject}`);
+    await this.repo.putAccount(account);
+    await this.repo.deleteIdentity(`${identity.provider}|${identity.subject}`);
     await this.record("audit", cid, cid, { event: "identity.unlinked", provider });
     await this.emit("identity.unlinked", cid, { provider: PROVIDERS[provider as SocialProviderId]?.label ?? provider });
   }
@@ -906,33 +928,32 @@ export class CidService {
 
   /** Grant an app access, app by app. Every grant is recorded on Firmament Network. */
   async grant(cid: string, appName: string, scopes: string[]): Promise<Grant> {
-    this.account(cid);
+    await this.account(cid);
     const app = this.appId(appName);
     if (scopes.length === 0 || scopes.some((s) => !/^[a-z0-9-]+:[a-z0-9-]+$/.test(s))) {
       throw new CidError("invalid_scope", "Scopes look like 'contacts:read'");
     }
-    const key = `${cid}|${app}`;
-    const merged = [...new Set([...(this.store.grants.get(key)?.scopes ?? []), ...scopes])].sort();
+    const merged = [...new Set([...((await this.repo.grant(cid, app))?.scopes ?? []), ...scopes])].sort();
     const entry = await this.record("grant", cid, cid, { app, scopes: merged });
     const grant: Grant = { cid, app, scopes: merged, grantedAt: entry.timestamp, ledgerHash: entry.hash };
-    this.store.grants.set(key, grant);
+    await this.repo.putGrant(grant);
     return grant;
   }
 
   /** Revoke some scopes, or all access when scopes are omitted. Recorded on Firmament. */
   async revoke(cid: string, appName: string, scopes?: string[]) {
     const app = this.appId(appName);
-    const key = `${cid}|${app}`;
-    const current = this.store.grants.get(key);
+    const current = await this.repo.grant(cid, app);
     if (!current) return;
     const remaining = scopes ? current.scopes.filter((s) => !scopes.includes(s)) : [];
     const entry = await this.record("revoke", cid, cid, { app, revoked: scopes ?? current.scopes, remaining });
-    if (remaining.length === 0) this.store.grants.delete(key);
-    else this.store.grants.set(key, { ...current, scopes: remaining, grantedAt: entry.timestamp, ledgerHash: entry.hash });
+    if (remaining.length === 0) await this.repo.deleteGrant(cid, app);
+    else await this.repo.putGrant({ ...current, scopes: remaining, grantedAt: entry.timestamp, ledgerHash: entry.hash });
   }
 
   async can(cid: string, app: string, scope: string): Promise<boolean> {
-    return this.canNow(cid, app, scope);
+    const id = LEGACY_APP_IDS[app] ?? app;
+    return (await this.repo.grant(cid, id))?.scopes.includes(scope) ?? false;
   }
 
   private canNow(cid: string, app: string, scope: string): boolean {
@@ -942,7 +963,7 @@ export class CidService {
 
   /** One permissions dashboard: which product can use what. */
   async permissions(cid: string): Promise<Grant[]> {
-    return this.permissionsNow(cid);
+    return (await this.repo.grantsOf(cid)).sort((a, b) => a.app.localeCompare(b.app));
   }
 
   private permissionsNow(cid: string): Grant[] {
@@ -958,30 +979,32 @@ export class CidService {
   /* ---------------- Teams, organizations and SSO ---------------- */
 
   async createOrganization(name: string, adminCid: string): Promise<Organization> {
-    const admin = this.account(adminCid);
+    const admin = await this.account(adminCid);
     const org: Organization = { id: `org_${randomUUID()}`, name, admins: [adminCid] };
-    this.store.orgs.set(org.id, org);
+    await this.repo.putOrg(org);
     admin.orgId = org.id;
+    await this.repo.putAccount(admin);
     await this.record("identity", adminCid, org.id, { event: "org.created" });
     return org;
   }
 
-  private org(orgId: string, adminCid?: string): Organization {
-    const org = this.store.orgs.get(orgId);
+  private async org(orgId: string, adminCid?: string): Promise<Organization> {
+    const org = await this.repo.org(orgId);
     if (!org) throw new CidError("not_found", "No such organization");
     if (adminCid && !org.admins.includes(adminCid)) throw new CidError("forbidden", "Organization admins only");
     return org;
   }
 
   async configureSso(orgId: string, adminCid: string, sso: NonNullable<Organization["sso"]>) {
-    const org = this.org(orgId, adminCid);
+    const org = await this.org(orgId, adminCid);
     org.sso = sso;
+    await this.repo.putOrg(org);
     await this.record("audit", adminCid, orgId, { event: "org.sso_configured", issuer: sso.issuer });
   }
 
   /** Sign in with the organization's identity provider; creates the member's CID on first sign-in. */
   async signInWithSso(orgId: string, idToken: string, device: string, nonce?: string) {
-    const org = this.org(orgId);
+    const org = await this.org(orgId);
     if (!org.sso) throw new CidError("sso_not_configured", "This organization hasn't set up single sign-on");
     let claims;
     try {
@@ -996,27 +1019,30 @@ export class CidService {
       }
     }
     const fedKey = `${claims.iss}|${claims.sub}`;
-    let cid = this.store.byFederation.get(fedKey);
+    let cid = await this.repo.cidForFederation(fedKey);
     if (!cid) {
       const base = (claims.email?.split("@")[0] ?? claims.sub).toLowerCase().replace(/[^a-z0-9._-]/g, "").slice(0, 24) || "member";
       let username = base.length >= 3 ? base : `${base}-user`;
-      for (let i = 2; this.store.byUsername.has(username) || RESERVED.has(username); i++) username = `${base}${i}`;
+      for (let i = 2; (await this.repo.cidForUsername(username)) || RESERVED.has(username); i++) username = `${base}${i}`;
       const account = await this.createAccount({ username, orgId });
       account.federated = { issuer: claims.iss, subject: claims.sub };
-      this.store.byFederation.set(fedKey, account.cid);
+      await this.repo.putAccount(account);
+      await this.repo.setFederation(fedKey, account.cid);
       cid = account.cid;
     }
     return this.issueSession(cid, device, "sso");
   }
 
   async orgMembers(orgId: string, adminCid: string): Promise<Account[]> {
-    this.org(orgId, adminCid);
-    return [...this.store.accounts.values()].filter((a) => a.orgId === orgId);
+    await this.org(orgId, adminCid);
+    return this.repo.accountsInOrg(orgId);
   }
 
   /** Server-side linked-credential checks; a session id by itself is never a login token. */
   async isSessionActive(cid: string, sessionId: string): Promise<boolean> {
-    return this.isSessionActiveNow(cid, sessionId);
+    const session = await this.repo.session(sessionId);
+    const expiresAt = session ? Date.parse(session.expiresAt) : NaN;
+    return !!session && session.cid === cid && !session.revokedAt && Number.isFinite(expiresAt) && expiresAt > this.now().getTime() && !!(await this.repo.account(cid));
   }
 
   private isSessionActiveNow(cid: string, sessionId: string): boolean {
@@ -1027,19 +1053,21 @@ export class CidService {
 
   /** Trusted current directory membership; never infer organizations by email. */
   async organizationMembership(cid: string): Promise<{ id: string; name: string; admin: boolean } | null> {
-    return this.organizationMembershipNow(cid);
+    const account = await this.account(cid);
+    const org = account.orgId ? await this.repo.org(account.orgId) : undefined;
+    return org ? { id: org.id, name: org.name, admin: org.admins.includes(cid) } : null;
   }
 
   private organizationMembershipNow(cid: string): { id: string; name: string; admin: boolean } | null {
-    const account = this.account(cid);
+    const account = this.accountNow(cid);
     const org = account.orgId ? this.store.orgs.get(account.orgId) : undefined;
     return org ? { id: org.id, name: org.name, admin: org.admins.includes(cid) } : null;
   }
 
   /** Admin control: sign a member out of every device (e.g. a lost laptop or offboarding). */
   async adminRevokeMemberSessions(orgId: string, adminCid: string, memberCid: string) {
-    this.org(orgId, adminCid);
-    if (this.account(memberCid).orgId !== orgId) throw new CidError("forbidden", "Not a member of this organization");
+    await this.org(orgId, adminCid);
+    if ((await this.account(memberCid)).orgId !== orgId) throw new CidError("forbidden", "Not a member of this organization");
     return this.revokeAllSessions(memberCid, undefined, adminCid);
   }
 }

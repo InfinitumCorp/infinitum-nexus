@@ -1,4 +1,5 @@
 import { describe, it } from "node:test";
+import { testRepository } from "./testing/copying-repository.ts";
 import assert from "node:assert/strict";
 import { generateKeyPairSync, sign, verify } from "node:crypto";
 import { Ledger, generateSigner } from "@infinitum/firmament";
@@ -130,7 +131,7 @@ function setup(only?: SocialProviderId[]) {
   let now = new Date();
   const signer = generateSigner();
   const ledger = new Ledger(undefined, { authorizedSigners: [signer.publicKey] });
-  const cid = new CidService({ ledger, signer, rpId: "infinitum.example", origins: ["https://infinitum.example"], clock: () => now, social: { providers, fetchImpl: fake.fetchImpl } });
+  const cid = new CidService({ ledger, signer, rpId: "infinitum.example", origins: ["https://infinitum.example"], clock: () => now, social: { providers, fetchImpl: fake.fetchImpl }, repository: testRepository() });
   return { cid, ledger, fake, applePublic: apple.publicKey, advance: (ms: number) => { now = new Date(now.getTime() + ms); }, now: () => now };
 }
 

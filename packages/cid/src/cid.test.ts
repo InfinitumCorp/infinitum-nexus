@@ -4,6 +4,7 @@ import { generateKeyPairSync, sign } from "node:crypto";
 import { Ledger, generateSigner } from "@infinitum/firmament";
 import { CidService, CidError, MAIL_DOMAIN, hotp, verifyTotp, base32Decode, base32Encode } from "./index.ts";
 import { VirtualAuthenticator } from "./testing/virtual-authenticator.ts";
+import { testRepository } from "./testing/copying-repository.ts";
 
 const RP_ID = "id.cumuluscloud.app";
 const ORIGIN = "https://id.cumuluscloud.app";
@@ -12,7 +13,7 @@ function setup(start = new Date("2026-11-04T12:00:00Z")) {
   let now = start;
   const signer = generateSigner();
   const ledger = new Ledger(undefined, { authorizedSigners: [signer.publicKey] });
-  const cid = new CidService({ ledger, signer, rpId: RP_ID, origins: [ORIGIN], clock: () => now });
+  const cid = new CidService({ ledger, signer, rpId: RP_ID, origins: [ORIGIN], clock: () => now, repository: testRepository() });
   return { cid, ledger, advance: (ms: number) => { now = new Date(now.getTime() + ms); }, now: () => now };
 }
 
@@ -198,6 +199,10 @@ describe("CID multifactor", () => {
     const next = new Date(now().getTime() + 30_000);
     const done = await cid.completeMfa(first.mfaToken, codeAt(next));
     assert.equal(done.session.method, "passkey+totp");
+    // A code that completed one sign-in can't complete another (the used step is saved).
+    const second = await signIn(cid, auth, key.credentialId);
+    if (second.status !== "mfa_required") throw new Error("expected another MFA prompt");
+    await rejectsWith(cid.completeMfa(second.mfaToken, codeAt(next)), "mfa_failed");
   });
 
   it("treats a user-verified passkey as already two-factor", async () => {
@@ -375,4 +380,15 @@ it("registers LBRNTH with explicit scopes, no free access, and live revocation",
   assert.equal(await cid.can(account.cid, "LBRNTH", "repo:read"), true);
   await cid.revoke(account.cid, "LBRNTH");
   assert.equal(await cid.can(account.cid, "LBRNTH", "repo:read"), false);
+});
+
+describe("CID storage boundary", () => {
+  it("refuses a synchronous view on a repository that isn't the in-memory store", async () => {
+    const { CopyingCidRepository } = await import("./testing/copying-repository.ts");
+    const signer = generateSigner();
+    const cid = new CidService({ ledger: new Ledger(undefined, { authorizedSigners: [signer.publicKey] }), signer, rpId: RP_ID, origins: [ORIGIN], repository: new CopyingCidRepository() });
+    assert.throws(() => cid.syncView(), (e: CidError) => e.code === "sync_unavailable");
+    const memory = setup().cid;
+    if (!process.env.CID_TEST_COPYING_REPO) assert.equal(typeof memory.syncView().can, "function");
+  });
 });

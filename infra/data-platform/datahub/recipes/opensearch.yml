@@ -1,0 +1,15 @@
+# Ingest the OpenSearch event indexes (mappings only) so search is in the catalog too.
+source:
+  type: elasticsearch # DataHub's source works with OpenSearch's REST API
+  config:
+    host: ${OPENSEARCH_URL:-http://localhost:9200}
+    env: PROD
+    index_pattern:
+      allow: ["^cumulus-events-.*"]
+    ingest_index_templates: true
+pipeline_name: cumulus-opensearch
+sink:
+  type: datahub-rest
+  config:
+    server: ${DATAHUB_GMS_URL:-http://localhost:8080}
+    token: ${DATAHUB_GMS_TOKEN:-}

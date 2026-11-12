@@ -1,0 +1,129 @@
+name: Data platform
+
+on:
+  pull_request:
+    paths:
+      - "infra/data-platform/**"
+      - "docs/data-platform/**"
+      - ".github/workflows/data-platform.yml"
+  push:
+    branches: [main]
+    paths:
+      - "infra/data-platform/**"
+      - ".github/workflows/data-platform.yml"
+  workflow_dispatch:
+    inputs:
+      datahub:
+        description: Also boot the DataHub quickstart (heavy, about 10 minutes)
+        type: boolean
+        default: false
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: infra/data-platform
+
+jobs:
+  gateway-tests:
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install (includes Google DP wheels, Linux only)
+        run: pip install -r privacy-gateway/requirements-dev.txt
+      - name: Test Presidio redaction, quality checks, DP releases and the Conjure contract
+        working-directory: infra/data-platform/privacy-gateway
+        run: python -m pytest -W ignore::DeprecationWarning -rs
+
+  conjure:
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 10
+    env:
+      CONJURE_VERSION: "4.66.0"
+      CONJURE_SHA256: 108fd6481d49f098e71067519331d9d34a257f11a24e3b46e45579fefba09231
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: Fetch the Conjure compiler from Maven Central (checksum pinned)
+        run: |
+          curl -fsSLo "$RUNNER_TEMP/conjure.tgz" "https://repo1.maven.org/maven2/com/palantir/conjure/conjure/$CONJURE_VERSION/conjure-$CONJURE_VERSION.tgz"
+          echo "$CONJURE_SHA256  $RUNNER_TEMP/conjure.tgz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/conjure.tgz" -C "$RUNNER_TEMP"
+      - name: Compile the contracts to Conjure IR
+        run: |
+          "$RUNNER_TEMP/conjure-$CONJURE_VERSION/bin/conjure" compile conjure "$RUNNER_TEMP/cumulus-data-platform.conjure.json"
+          python3 -c "import json,sys;ir=json.load(open(sys.argv[1]));print('services:',[s['serviceName']['name'] for s in ir['services']])" "$RUNNER_TEMP/cumulus-data-platform.conjure.json"
+
+  stack-smoke:
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - name: Write a throwaway .env with random values
+        run: |
+          r() { python3 -c "import secrets;print(secrets.token_hex(32))"; }
+          {
+            echo "PRIVACY_GATEWAY_TOKEN=$(r)"
+            echo "PRIVACY_PSEUDONYM_KEY=$(r)"
+            echo "SUPERSET_SECRET_KEY=$(r)"
+            echo "SUPERSET_DB_PASSWORD=$(r)"
+          } > .env
+      - name: Validate compose for every profile
+        run: docker compose --profile bi config -q
+      - name: Start core (privacy gateway + OpenSearch)
+        run: |
+          docker compose up -d --build --wait --wait-timeout 600 privacy-gateway opensearch
+          docker compose run --rm opensearch-init
+      - name: Redaction works end to end through the container
+        run: |
+          set -a; . ./.env; set +a
+          out=$(curl -fsS http://127.0.0.1:8090/api/v1/redact \
+            -H "Authorization: Bearer $PRIVACY_GATEWAY_TOKEN" -H 'Content-Type: application/json' \
+            -d '{"destination":"EXCHANGE","records":[{"note":"Ask Jane Doe at jane@example.com or +44 20 7946 0958"}]}')
+          echo "$out"
+          echo "$out" | python3 -c "import json,sys;b=json.load(sys.stdin);t=b['records'][0]['note'];assert 'jane@example.com' not in t and '7946' not in t, t"
+          dp=$(curl -fsS http://127.0.0.1:8090/api/v1/releases/dp \
+            -H "Authorization: Bearer $PRIVACY_GATEWAY_TOKEN" -H 'Content-Type: application/json' \
+            -d '{"dataset":"smoke","metric":"COUNT","unitKey":"cid","groupKey":"p","publicGroups":["a"],"epsilon":0.5,"rows":[{"cid":"u1","p":"a"},{"cid":"u2","p":"a"}]}')
+          echo "$dp"
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:8090/api/v1/redact -d '{}')" = 401
+      - name: Search template installed
+        run: curl -fsS http://127.0.0.1:9200/_index_template/cumulus-events | python3 -c "import json,sys;print(json.load(sys.stdin)['index_templates'][0]['name'])"
+      - name: Start Superset (profile bi)
+        run: |
+          docker compose --profile bi up -d --build --wait --wait-timeout 900 superset
+          curl -fsS http://127.0.0.1:8088/health
+          # Sign-in is Cumulus ID only: the login page must offer the cumulus provider.
+          curl -fsS http://127.0.0.1:8088/login/ | grep -q cumulus
+      - name: Logs on failure
+        if: failure()
+        run: docker compose --profile bi logs --tail 200
+      - name: Stop
+        if: always()
+        run: docker compose --profile bi down -v
+
+  datahub-quickstart:
+    if: github.event_name == 'workflow_dispatch' && inputs.datahub
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Boot DataHub from the pinned quickstart
+        run: bash datahub/quickstart.sh
+      - name: GMS is healthy
+        run: curl -fsS http://localhost:8080/health

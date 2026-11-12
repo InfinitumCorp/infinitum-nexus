@@ -132,6 +132,38 @@ export function verifyRegistration(
   };
 }
 
+/** True when `sig` is a well-formed ASN.1 DER ECDSA-Sig-Value: SEQUENCE { INTEGER r, INTEGER s }. */
+export function isDerEcdsaSignature(sig: Uint8Array): boolean {
+  if (sig.length < 8 || sig.length > 72 || sig[0] !== 0x30 || sig[1] !== sig.length - 2) return false;
+  let pos = 2;
+  for (let i = 0; i < 2; i++) {
+    if (sig[pos] !== 0x02) return false;
+    const len = sig[pos + 1];
+    if (len < 1 || len > 33 || pos + 2 + len > sig.length) return false;
+    pos += 2 + len;
+  }
+  return pos === sig.length;
+}
+
+/**
+ * ES256 assertion signatures are ASN.1 DER (WebAuthn §6.5.6), which is what real passkeys and
+ * security keys send. A raw 64-byte r||s (IEEE P1363) is still accepted for credentials signed
+ * by older test tooling. DER key bytes rather than { key: KeyObject }: Cloudflare Workers
+ * accept only the former.
+ */
+function verifyEs256(signed: Uint8Array, key: KeyObject, sig: Buffer): boolean {
+  const spki = key.export({ type: "spki", format: "der" });
+  const check = (dsaEncoding: "der" | "ieee-p1363") => {
+    try {
+      return verify("sha256", signed, { key: spki, format: "der", type: "spki", dsaEncoding }, sig);
+    } catch {
+      return false;
+    }
+  };
+  if (isDerEcdsaSignature(sig) && check("der")) return true;
+  return sig.length === 64 && check("ieee-p1363");
+}
+
 export interface AssertionResponse {
   credentialId: string;
   clientDataJSON: string;
@@ -152,13 +184,11 @@ export function verifyAssertion(
   const signed = Buffer.concat([authData, sha256(fromB64u(response.clientDataJSON))]);
   const { key, alg } = coseToKey(fromB64u(credential.publicKeyCose));
   const sig = Buffer.from(response.signature, "base64url");
-  // Authenticators send ES256 as raw r||s (IEEE P1363), not DER. RS256 is PKCS#1.
   const ok = alg === COSE_ALG.EdDSA
     ? verify(null, signed, key, sig)
     : alg === COSE_ALG.ES256
-      // DER bytes rather than { key: KeyObject }: Cloudflare Workers accept only the former.
-      ? verify("sha256", signed, { key: key.export({ type: "spki", format: "der" }), format: "der", type: "spki", dsaEncoding: "ieee-p1363" }, sig)
-      : verify("sha256", signed, key, sig);
+      ? verifyEs256(signed, key, sig)
+      : verify("sha256", signed, key, sig); // RS256 is PKCS#1 v1.5.
   if (!ok) throw new Error("WebAuthn: signature check failed");
 
   // A counter that fails to increase signals a cloned authenticator. Synced passkeys report 0.

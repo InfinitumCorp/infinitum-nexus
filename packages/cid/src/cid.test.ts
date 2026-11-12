@@ -4,6 +4,7 @@ import { generateKeyPairSync, sign } from "node:crypto";
 import { Ledger, generateSigner } from "@infinitum/firmament";
 import { CidService, CidError, MAIL_DOMAIN, hotp, verifyTotp, base32Decode, base32Encode } from "./index.ts";
 import { VirtualAuthenticator } from "./testing/virtual-authenticator.ts";
+import { isDerEcdsaSignature } from "./webauthn.ts";
 
 const RP_ID = "id.cumuluscloud.app";
 const ORIGIN = "https://id.cumuluscloud.app";
@@ -76,11 +77,38 @@ describe("CID passkeys and security keys", () => {
     const { account, auth, key } = await withPasskey(cid, "alex");
     const { challenge } = cid.startSignIn();
     const assertion = auth.get({ credentialId: key.credentialId, challenge, origin: ORIGIN });
-    assert.equal(Buffer.from(assertion.signature, "base64url").length, 64, "ES256 signatures are raw r||s");
+    // WebAuthn §6.5.6: ES256 assertion signatures are ASN.1 DER, as real passkeys send them.
+    const sig = Buffer.from(assertion.signature, "base64url");
+    assert.equal(sig[0], 0x30, "ES256 signatures are a DER SEQUENCE");
+    assert.ok(isDerEcdsaSignature(sig));
     const result = await cid.finishSignIn(assertion, "MacBook · VEIL");
     assert.equal(result.status, "ok");
     if (result.status !== "ok") return;
     assert.equal(cid.authenticate(result.token)?.account.cid, account.cid);
+  });
+
+  it("still accepts ES256 signatures sent as raw 64-byte r||s", async () => {
+    const { cid } = setup();
+    const { account, auth, key } = await withPasskey(cid, "alex");
+    const { challenge } = cid.startSignIn();
+    const assertion = auth.get({ credentialId: key.credentialId, challenge, origin: ORIGIN, signatureEncoding: "ieee-p1363" });
+    assert.equal(Buffer.from(assertion.signature, "base64url").length, 64);
+    const result = await cid.finishSignIn(assertion, "MacBook · VEIL");
+    assert.equal(result.status, "ok");
+    if (result.status !== "ok") return;
+    assert.equal(cid.authenticate(result.token)?.account.cid, account.cid);
+  });
+
+  it("rejects a tampered ES256 signature in either encoding", async () => {
+    const { cid } = setup();
+    const { auth, key } = await withPasskey(cid, "alex");
+    for (const signatureEncoding of ["der", "ieee-p1363"] as const) {
+      const { challenge } = cid.startSignIn();
+      const assertion = auth.get({ credentialId: key.credentialId, challenge, origin: ORIGIN, signatureEncoding });
+      const sig = Buffer.from(assertion.signature, "base64url");
+      sig[sig.length - 1] ^= 0x01;
+      await rejectsWith(cid.finishSignIn({ ...assertion, signature: sig.toString("base64url") }, "MacBook · VEIL"), "webauthn_failed");
+    }
   });
 
   it("supports Ed25519 passkeys", async () => {

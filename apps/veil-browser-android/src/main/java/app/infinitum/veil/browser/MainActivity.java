@@ -135,7 +135,10 @@ public class MainActivity extends Activity {
         // White bars with dark icons, like the other Infinitum apps.
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
         torMissing = !new java.io.File(getApplicationInfo().nativeLibraryDir, "libTor.so").exists();
-        torOff = torMissing || !settings().getBoolean("tor", false);
+        // Tor is optional and never connects by itself: every launch starts direct, and Tor
+        // runs only after the person turns it on in this session.
+        torOff = true;
+        settings().edit().remove("tor").apply(); // older versions remembered "on" and reconnected at launch
         earn = new Earn(this);
         setContentView(wrapWithPanel(buildUi()));
         configureWebView();
@@ -143,16 +146,10 @@ public class MainActivity extends Activity {
         Uri data = getIntent() != null ? getIntent().getData() : null;
         if (data != null && Privacy.isWeb(data.toString())) pendingUrl = data.toString();
 
-        // Direct by default (fast). With Tor on, point every WebView at Tor before anything loads.
-        if (torOff) {
-            updateTorBox();
-            web.loadUrl(HUB);
-            if (pendingUrl != null) { String u = pendingUrl; pendingUrl = null; open(u); }
-            return;
-        }
-        startProxy();
-        tor.setListener(this::onTorState);
-        tor.start(this);
+        // Direct (fast). Tor starts only from setTor(true), which points every WebView at Tor first.
+        updateTorBox();
+        web.loadUrl(HUB);
+        if (pendingUrl != null) { String u = pendingUrl; pendingUrl = null; open(u); }
     }
 
     // ---------------- Tor ----------------
@@ -168,7 +165,6 @@ public class MainActivity extends Activity {
     void setTor(boolean on) {
         if (on == !torOff) return;
         if (on && torMissing) { torTapped(); return; }
-        settings().edit().putBoolean("tor", on).apply();
         closeOtherTabs();
         wipe();
         pendingUrl = null;
@@ -297,8 +293,8 @@ public class MainActivity extends Activity {
         if (torOff) {
             new AlertDialog.Builder(this).setTitle("Browse over Tor?")
                 .setMessage("VEIL connects directly by default, for speed. Trackers, ads and tracking parameters are blocked either way.\n\n"
-                    + "Tor hides this phone's IP address from sites, and hides the sites you visit from your network. It is slower, and the first connection can take a minute.\n\n"
-                    + "Turning Tor on clears cookies and site data. VEIL over Tor is not Tor Browser: sites can still fingerprint the browser.")
+                    + "Tor hides this phone's IP address from sites, and hides the sites you visit from your network. Pages load more slowly over Tor.\n\n"
+                    + "Tor stays on until you turn it off or close VEIL; VEIL always opens without it. Turning Tor on clears cookies and site data. VEIL over Tor is not Tor Browser: sites can still fingerprint the browser.")
                 .setPositiveButton("Turn on Tor", (d, w) -> setTor(true))
                 .setNegativeButton("Not now", null).show();
             return;

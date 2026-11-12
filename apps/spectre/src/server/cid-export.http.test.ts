@@ -35,6 +35,11 @@ test("POST /api/id/export returns accounts for migration and nothing a session c
     const adaAccount = cid.store.accounts.get(ada.cid)!;
     adaAccount.identities = [{ provider: "google", subject: "g-123", email: "ada@gmail.example", linkedAt: "2026-11-05T09:00:00.000Z" }];
     cid.store.byIdentity.set("google|g-123", ada.cid);
+    // Bob runs an organization with SSO; Ada's org has none. The provider's keys must not leave.
+    const orgB = await cid.createOrganization("Bob Industries", bob.cid);
+    const ssoJwk = { kty: "EC", crv: "P-256", x: "sso-jwk-x-marker", y: "sso-jwk-y-marker", kid: "sso-kid-marker" };
+    await cid.configureSso(orgB.id, bob.cid, { issuer: "https://idp.bob.example", audience: "bob-client", jwks: [ssoJwk], emailDomain: "bob.example" });
+    const orgA = await cid.createOrganization("Ada Labs", ada.cid);
     // A pending sign-in challenge exists right now; it must not be exported.
     const pending = await h.call("POST", "/api/auth/signin", {});
     assert.equal(pending.status, 200);
@@ -59,7 +64,18 @@ test("POST /api/id/export returns accounts for migration and nothing a session c
     assert.equal(out.format, "cumulus-id.export");
     assert.equal(out.version, 1);
     assert.equal(out.issuer, cid.issuer);
-    assert.deepEqual(out.counts, { accounts: 2, authenticators: 2, identities: 1, grants: 2 });
+    assert.deepEqual(out.counts, { accounts: 2, authenticators: 2, identities: 1, grants: 2, organizations: 2 });
+    assert.deepEqual(Object.keys(out).sort(), ["accounts", "counts", "exportedAt", "format", "issuer", "organizations", "version"]);
+    const expectedOrgs = [
+      { id: orgA.id, name: "Ada Labs", admins: [ada.cid], sso: null },
+      { id: orgB.id, name: "Bob Industries", admins: [bob.cid], sso: { issuer: "https://idp.bob.example", audience: "bob-client", emailDomain: "bob.example" } },
+    ].sort((x, y) => (x.id < y.id ? -1 : 1));
+    assert.deepEqual(out.organizations, expectedOrgs);
+    for (const o of out.organizations) {
+      assert.match(o.id, /^org_[0-9a-f-]{36}$/);
+      assert.deepEqual(Object.keys(o).sort(), ["admins", "id", "name", "sso"]);
+      if (o.sso) assert.deepEqual(Object.keys(o.sso).sort(), ["audience", "emailDomain", "issuer"]);
+    }
     assert.deepEqual(out.accounts.map((a: { cid: string }) => a.cid).sort(), [ada.cid, bob.cid].sort());
     assert.match(ada.cid, /^cid_[0-9a-f-]{36}$/);
 
@@ -69,7 +85,7 @@ test("POST /api/id/export returns accounts for migration and nothing a session c
     assert.equal(a.mailAddress, adaAccount.mailAddress);
     assert.equal(a.handle, adaAccount.handle);
     assert.equal(a.createdAt, adaAccount.createdAt);
-    assert.equal(a.orgId, null);
+    assert.equal(a.orgId, orgA.id);
     assert.equal(a.federated, null);
     assert.deepEqual(a.totp, { secret: adaTotp.secret, lastStep: adaAccount.totp!.lastStep });
     assert.deepEqual(a.identities, [{ provider: "google", subject: "g-123", email: "ada@gmail.example", linkedAt: "2026-11-05T09:00:00.000Z" }]);
@@ -102,7 +118,8 @@ test("POST /api/id/export returns accounts for migration and nothing a session c
     for (const value of cid.store.challenges.keys()) assert.ok(!text.includes(value), "challenge leaked");
     assert.ok(cid.store.challenges.size > 0);
     for (const cookie of [ada.cookie, bob.cookie]) assert.ok(!text.includes(cookie.split("=")[1]!), "session token leaked");
-    for (const field of ["tokenHash", "sessions", "challenges", "pendingMfa", "oauthPending", "deviceHandoffs", "entitlements"]) {
+    for (const marker of ["sso-jwk-x-marker", "sso-jwk-y-marker", "sso-kid-marker"]) assert.ok(!text.includes(marker), "SSO signing key leaked");
+    for (const field of ["jwks", "tokenHash", "sessions", "challenges", "pendingMfa", "oauthPending", "deviceHandoffs", "issuerLogins", "idTokenHint", "entitlements"]) {
       assert.ok(!text.includes(`"${field}"`), `${field} leaked`);
     }
   } finally {

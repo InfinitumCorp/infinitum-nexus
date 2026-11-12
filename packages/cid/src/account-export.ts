@@ -65,13 +65,24 @@ export interface CidExportAccount {
   grants: CidExportGrant[];
 }
 
+/** An organization and its SSO link. The provider's signing keys are left out: the new issuer
+ * re-discovers them from `sso.issuer`. */
+export interface CidExportOrganization {
+  id: string;
+  name: string;
+  admins: string[];
+  sso: { issuer: string; audience: string; emailDomain: string | null } | null;
+}
+
 export interface CidExport {
   format: typeof CID_EXPORT_FORMAT;
   version: typeof CID_EXPORT_VERSION;
   issuer: string;
   exportedAt: string;
-  counts: { accounts: number; authenticators: number; identities: number; grants: number };
+  counts: { accounts: number; authenticators: number; identities: number; grants: number; organizations: number };
   accounts: CidExportAccount[];
+  /** Added in place to version 1: older importers ignore it. Sorted by id. */
+  organizations: CidExportOrganization[];
 }
 
 function algOf(publicKeyCose: string): number | null {
@@ -109,7 +120,7 @@ export function exportCidAccounts(cid: CidService, now: Date = new Date()): CidE
     grants.set(g.cid, list);
   }
 
-  const counts = { accounts: 0, authenticators: 0, identities: 0, grants: 0 };
+  const counts = { accounts: 0, authenticators: 0, identities: 0, grants: 0, organizations: 0 };
   const accounts: CidExportAccount[] = [];
   for (const a of [...store.accounts.values()].sort((x, y) => x.createdAt.localeCompare(y.createdAt) || x.cid.localeCompare(y.cid))) {
     const account: CidExportAccount = {
@@ -131,5 +142,15 @@ export function exportCidAccounts(cid: CidService, now: Date = new Date()): CidE
     counts.grants += account.grants.length;
     accounts.push(account);
   }
-  return { format: CID_EXPORT_FORMAT, version: CID_EXPORT_VERSION, issuer: cid.issuer, exportedAt: now.toISOString(), counts, accounts };
+  const organizations: CidExportOrganization[] = [...store.orgs.values()]
+    .sort((x, y) => (x.id < y.id ? -1 : x.id > y.id ? 1 : 0))
+    .map((o) => ({
+      id: o.id,
+      name: o.name,
+      admins: [...o.admins],
+      // Only these three fields: never the provider's jwks.
+      sso: o.sso ? { issuer: o.sso.issuer, audience: o.sso.audience, emailDomain: o.sso.emailDomain ?? null } : null,
+    }));
+  counts.organizations = organizations.length;
+  return { format: CID_EXPORT_FORMAT, version: CID_EXPORT_VERSION, issuer: cid.issuer, exportedAt: now.toISOString(), counts, accounts, organizations };
 }

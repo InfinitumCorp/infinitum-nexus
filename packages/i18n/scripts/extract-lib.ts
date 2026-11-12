@@ -65,16 +65,55 @@ export function scanLiterals(src: string): Lit[] {
   const n = src.length;
   function code(stopAtBrace: boolean): void {
     let depth = 0;
+    let prev = ""; // last significant character, to tell a regex from division
     while (i < n) {
       const c = src[i];
+      // A regex literal is skipped whole, so `//` or quotes inside it ("/^cid:\/\/x\//") are not read
+      // as a comment or a string. Checked before comments for that reason.
+      if (c === "/" && !"/*>".includes(src[i + 1] ?? "") && regexAllowed(prev) && regex()) { prev = "/"; continue; }
       if (c === "/" && src[i + 1] === "/") { while (i < n && src[i] !== "\n") i++; continue; }
       if (c === "/" && src[i + 1] === "*") { const e = src.indexOf("*/", i + 2); i = e < 0 ? n : e + 2; continue; }
-      if (c === "'" || c === '"') { quoted(c); continue; }
-      if (c === "`") { template(); continue; }
+      if (c === "'" || c === '"') { quoted(c); prev = c; continue; }
+      if (c === "`") { template(); prev = c; continue; }
       if (c === "{") depth++;
       if (c === "}") { if (stopAtBrace && depth === 0) return; depth--; }
+      if (/[A-Za-z0-9_$]/.test(c)) {
+        const start = i;
+        while (i < n && /[A-Za-z0-9_$]/.test(src[i])) i++;
+        prev = src.slice(start, i);
+        continue;
+      }
+      if (!/\s/.test(c)) prev = c;
       i++;
     }
+  }
+  // After an operator, an opening bracket, a keyword or nothing, `/` starts a regex; after a value it divides.
+  // After `<` it is a JSX closing tag (`</p>`), and before `>` a self-closing one (`<Copy text={a} />`), never a regex.
+  function regexAllowed(prev: string): boolean {
+    if (prev === "") return true;
+    if (/^[A-Za-z_$]/.test(prev)) return /^(return|typeof|instanceof|in|of|case|delete|void|throw|new|yield|await|else|do)$/.test(prev);
+    if (/^[0-9]/.test(prev)) return false;
+    return "(,=:[!&|?{};+-*%~^>".includes(prev);
+  }
+  // Skip a regex literal at i (body, character classes, escapes, flags). A regex never spans lines,
+  // so if the line ends first this was not a regex: leave i where it was and return false.
+  function regex(): boolean {
+    let j = i + 1;
+    let inClass = false;
+    while (j < n && src[j] !== "\n") {
+      const ch = src[j];
+      if (ch === "\\") { j += 2; continue; }
+      if (ch === "[") inClass = true;
+      else if (ch === "]") inClass = false;
+      else if (ch === "/" && !inClass) {
+        j++;
+        while (j < n && /[a-z]/i.test(src[j])) j++;
+        i = j;
+        return true;
+      }
+      j++;
+    }
+    return false;
   }
   function quoted(q: string) {
     let s = ""; i++;

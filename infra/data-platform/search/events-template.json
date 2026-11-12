@@ -1,0 +1,28 @@
+{
+  "index_patterns": ["cumulus-events-*"],
+  "priority": 100,
+  "template": {
+    "settings": {
+      "number_of_shards": 1,
+      "number_of_replicas": 0
+    },
+    "mappings": {
+      "dynamic": "strict",
+      "properties": {
+        "eventId": { "type": "keyword" },
+        "product": { "type": "keyword" },
+        "tenant": { "type": "keyword" },
+        "cid": { "type": "keyword", "doc_values": false },
+        "eventType": { "type": "keyword" },
+        "schemaVersion": { "type": "integer" },
+        "occurredAt": { "type": "date" },
+        "region": { "type": "keyword" },
+        "consent": { "type": "keyword" },
+        "objectType": { "type": "keyword" },
+        "objectId": { "type": "keyword" },
+        "text": { "type": "text" },
+        "payload": { "type": "flat_object" }
+      }
+    }
+  }
+}

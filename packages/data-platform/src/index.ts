@@ -13,6 +13,10 @@ export * from "./signing.ts";
 export * from "./gateway.ts";
 export * from "./pipeline.ts";
 export * from "./privacy.ts";
+export * from "./exchange.ts";
+export * from "./s3.ts";
+export * from "./postgres.ts";
+export * from "./tenancy.ts";
 export * from "./http.ts";
 export * from "./adapters/cloud.ts";
 

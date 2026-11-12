@@ -17,7 +17,6 @@ switched on:
 | Repo | What was added | Where |
 |---|---|---|
 | `Conjure` | `OpenWeightsProvider` — the forge loop (plan → forge → verify → repair) can now run on open-weight models with zero API keys; provider selection in `makeProvider`; `CONJURE_OPEN_WEIGHTS_URL` / `CONJURE_PROVIDER=open-weights`; 6 new tests | `src/providers.js`, `src/config.js`, `.env.example`, `test/open-weights.test.js` |
-| `zerkalo` | `OpenWeightsLLM` — persona agents, analyst and interview turns over any OpenAI-compatible server; `ZERKALO_OPEN_WEIGHTS_URL`; structured output via json_schema; `<think>` stripping; 6 new tests | `zerkalo/llm.py`, `tests/test_open_weights.py`, `README.md` |
 | `scalvs-ai` | Keyless tier 3 for the agent runtime: plain chat (streaming SSE), reasoning path, and the connected-app tool loop against the operator's server; `OPEN_WEIGHTS_URL` / `OPEN_WEIGHTS_MODEL` / `OPEN_WEIGHTS_THINK_MODEL`; 6 new tests | `api/_open-weights.js`, `api/run.js`, `.env.example`, `tests/open-weights.test.js` |
 | `architect` | Model registry example refreshed with today's flagship open-weight families across fast/balanced/strong tiers | `architect.models.example.json` |
 
@@ -95,7 +94,7 @@ Grounded in what these organizations actually publish today (stars noted where s
 
 ### The keyless pattern itself (landed today)
 46. `OpenWeightsProvider` in Conjure — forge loop with zero keys — this repo family
-47. `OpenWeightsLLM` in zerkalo — persona simulation without API spend
+47. (Removed.)
 48. Keyless tier 3 (chat, reasoning, tool loop) in scalvs-ai
 49. Refreshed open-weight model registry in architect (fast/balanced/strong tiers)
 50. Architect's free-model endpoint (Workers AI behind an OpenAI-compatible route, no key) — already live at `rchtch.app/free/v1`; today's work extends the same idea to operator-run servers

@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FABRIC Teams</title>
+  <link rel="stylesheet" href="/app-shell.css">
+  <link rel="stylesheet" href="/team.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="app-bar">
+    <a class="app-wordmark" href="/team">FABRIC<sup class="tm">™</sup></a>
+    <nav class="app-nav" aria-label="Main">
+      <a href="/">Messages</a>
+      <a href="/team" aria-current="page">Teams</a>
+    </nav>
+    <form id="search-form" class="t-search" role="search" hidden>
+      <label for="search" class="sr">Search</label>
+      <input id="search" class="input" type="search" placeholder="Search messages, people, channels, files" autocomplete="off">
+    </form>
+    <div class="app-actions">
+      <button id="me-button" class="btn small" type="button" hidden></button>
+      <button id="logout" class="btn small" type="button" hidden>Sign out</button>
+    </div>
+  </header>
+  <main id="main" class="t-main">
+    <p id="error" class="notice" role="alert" hidden></p>
+
+    <section id="signed-out" class="t-empty" hidden>
+      <h1>Teams</h1>
+      <p>Channels, threads and direct messages for your team. Message bodies and files are sealed before they are stored.</p>
+      <p class="t-row">
+        <a class="btn primary" href="/api/auth/login?return=/team">Sign in with Cumulus ID</a>
+        <a class="btn" href="/api/auth/login?register=1&amp;return=/team">Create a Cumulus ID</a>
+      </p>
+    </section>
+
+    <section id="onboard" class="t-empty" hidden>
+      <h1>Start a workspace</h1>
+      <form id="create-ws" class="t-row">
+        <label for="ws-name" class="sr">Workspace name</label>
+        <input id="ws-name" class="input" maxlength="60" placeholder="Workspace name" required>
+        <button class="btn primary" type="submit">Create</button>
+      </form>
+      <p class="meta">or join one with an invite code</p>
+      <form id="join-ws" class="t-row">
+        <label for="ws-code" class="sr">Invite code</label>
+        <input id="ws-code" class="input" maxlength="64" placeholder="Invite code" required>
+        <button class="btn" type="submit">Join</button>
+      </form>
+    </section>
+
+    <section id="app" class="t-app" hidden>
+      <aside class="t-side" aria-label="Workspace">
+        <div class="t-ws">
+          <label for="ws-select" class="sr">Workspace</label>
+          <select id="ws-select" class="input"></select>
+          <button id="ws-menu" class="btn small" type="button" aria-label="Workspace settings">…</button>
+        </div>
+        <nav class="t-views" aria-label="Views">
+          <button type="button" data-view="activity">Activity <span class="badge" id="badge-activity" hidden></span></button>
+          <button type="button" data-view="threads">Threads</button>
+          <button type="button" data-view="unreads">All unreads</button>
+          <button type="button" data-view="saved">Later <span class="count" id="count-saved"></span></button>
+          <button type="button" data-view="scheduled">Scheduled <span class="count" id="count-scheduled"></span></button>
+          <button type="button" data-view="reminders">Reminders <span class="count" id="count-reminders"></span></button>
+          <button type="button" data-view="files">Files</button>
+          <button type="button" data-view="people">People</button>
+        </nav>
+        <div class="t-section">
+          <div class="t-section-head"><span>Starred</span></div>
+          <ul id="starred" class="t-list"></ul>
+        </div>
+        <div class="t-section">
+          <div class="t-section-head"><span>Channels</span>
+            <span><button id="browse" class="link" type="button">Browse</button> <button id="new-channel" class="link" type="button" aria-label="New channel">+</button></span>
+          </div>
+          <ul id="channels" class="t-list"></ul>
+        </div>
+        <div class="t-section">
+          <div class="t-section-head"><span>Direct messages</span><button id="new-dm" class="link" type="button" aria-label="New message">+</button></div>
+          <ul id="direct" class="t-list"></ul>
+        </div>
+      </aside>
+
+      <section class="t-center" aria-live="polite">
+        <header class="t-head" id="head"></header>
+        <ul class="t-bookmarks" id="bookmarks"></ul>
+        <div class="t-scroll" id="scroll">
+          <button id="older" class="btn small t-older" type="button" hidden>Load older messages</button>
+          <ol id="messages" class="t-messages"></ol>
+        </div>
+        <p id="typing" class="t-typing meta" aria-live="polite"></p>
+        <form id="composer" class="t-composer" hidden>
+          <div id="attachments" class="t-attachments"></div>
+          <label for="text" class="sr">Message</label>
+          <textarea id="text" class="input" rows="2" maxlength="4000" placeholder="Message"></textarea>
+          <ul id="suggest" class="t-suggest" hidden></ul>
+          <div class="t-composer-bar">
+            <span class="meta">*bold* _italic_ ~strike~ `code` &gt; quote · /help</span>
+            <span class="t-row">
+              <label class="btn small t-file">Attach<input id="file" type="file" hidden></label>
+              <button id="schedule" class="btn small" type="button">Schedule</button>
+              <button id="send" class="btn primary small" type="submit">Send</button>
+            </span>
+          </div>
+        </form>
+      </section>
+
+      <aside class="t-panel" id="panel" hidden>
+        <div class="t-panel-head"><h2 id="panel-title"></h2><button id="panel-close" class="btn small" type="button">Close</button></div>
+        <div id="panel-body" class="t-panel-body"></div>
+      </aside>
+    </section>
+
+    <dialog id="dialog" class="t-dialog">
+      <form method="dialog" id="dialog-form">
+        <h2 id="dialog-title"></h2>
+        <div id="dialog-body"></div>
+        <p class="t-row t-dialog-actions">
+          <button class="btn" value="cancel" type="submit" formnovalidate>Cancel</button>
+          <button class="btn primary" value="ok" id="dialog-ok" type="submit">OK</button>
+        </p>
+      </form>
+    </dialog>
+  </main>
+  <script type="module" src="/team.js"></script>
+</body>
+</html>

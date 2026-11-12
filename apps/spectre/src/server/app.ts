@@ -23,6 +23,7 @@ import { OPEN_STAGES, STAGES } from "../core/model.ts";
 import { askSpectre, aiConnected, AiNotConnected, type AiConfig } from "./ai.ts";
 import { registerGrowthRoutes, type GrowthEvent } from "./growth-routes.ts";
 import { registerConjureRoutes, dealSeed } from "./conjure-routes.ts";
+import { registerMetatronRoutes } from "./metatron-routes.ts";
 import { registerEngageRoutes, RawResponse } from "./engage-routes.ts";
 import { dispatch, runDue, type AutomationEngine } from "../core/automations.ts";
 import type { Providers } from "../core/messaging.ts";
@@ -1231,6 +1232,8 @@ export function createApp(deps: AppDeps) {
   });
 
   registerConjureRoutes({ route, crm, ai: deps.ai, httpError: (status, message) => new HttpError(status, message), complete: deps.conjureComplete });
+
+  registerMetatronRoutes({ route, crm, httpError: (status, message) => new HttpError(status, message), scoresFor });
 
   const veilControl = createVeilControl({
     cid: deps.cid,

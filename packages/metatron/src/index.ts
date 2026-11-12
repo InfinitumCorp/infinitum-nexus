@@ -27,5 +27,7 @@ export type {
 } from "./simulate.ts";
 export type { Dist, DistInput } from "./distributions.ts";
 export { compile, ExprError, FUNCTION_NAMES } from "./expr.ts";
+export { TEMPLATES, templateById } from "./templates.ts";
+export type { ScenarioTemplate } from "./templates.ts";
 export { createRng } from "./rng.ts";
 export type { Rng } from "./rng.ts";

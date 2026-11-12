@@ -81,17 +81,18 @@ test("the Worker asks every source with a key and blends; a failing source is sk
     assert.equal(res.status, 200);
     assert.deepEqual(data.sources, ["yandex", "brave"]);
     assert.deepEqual(data.results[0].sources, ["yandex", "brave"]);
-    assert.equal(asked.length, 6, "three keyed sources and the two free ones, then Wikipedia fills in (fewer than 10 results)");
+    assert.equal(asked.length, 5, "three keyed sources and the two free ones; never Wikipedia");
+    assert.ok(!data.results.some((r) => r.url.includes("wikipedia.org")), "Wikipedia results are taken out");
     assert.ok(!JSON.stringify(data).includes("yk"));
   } finally {
     globalThis.fetch = real;
   }
 });
 
-test("VEIL's own index is asked first, and Wikipedia fills in when results are few", async () => {
+test("VEIL's own index is asked first, and nothing fills in from Wikipedia", async () => {
   const real = globalThis.fetch;
   globalThis.fetch = async (url) => {
-    if (String(url).startsWith("https://en.wikipedia.org/")) return Response.json({ query: { search: [{ title: "Zebra", snippet: "animal" }] } });
+    if (/wiki/i.test(String(url))) throw new Error("Wikipedia must never be asked");
     throw new Error("unexpected " + url);
   };
   const index = {
@@ -99,7 +100,7 @@ test("VEIL's own index is asked first, and Wikipedia fills in when results are f
   };
   try {
     const data = await (await worker.fetch(post({ q: "zebra" }), { VEIL_INDEX: index })).json();
-    assert.deepEqual(data.sources, ["veil", "wikipedia"]);
+    assert.deepEqual(data.sources, ["veil"]);
     assert.equal(data.results[0].url, "https://zoo.example.org/");
     assert.deepEqual(data.results[0].sources, ["veil"]);
   } finally {

@@ -2,7 +2,7 @@
  * VEIL search: results come from the Brave Search API (an independent index, made for apps
  * like this), fetched by the VEIL server, and are shown on VEIL's own page. The person never
  * loads a search engine's page, and the search API sees VEIL's server, not the person's
- * address. Nothing here is logged or kept.
+ * address. Nothing here is logged or kept. VEIL never falls back to Wikipedia.
  */
 export const BRAVE_API = "https://api.search.brave.com/res/v1/web/search";
 export const MAX_QUERY = 400;
@@ -64,34 +64,5 @@ export function fromBrave(data, offset) {
     results.push({ title, url, snippet: text(r?.description) });
   }
   const more = data?.query?.more_results_available === true && offset < MAX_OFFSET && results.length > 0;
-  return { results, next: more ? { offset: offset + 1 } : null };
-}
-
-/**
- * Fallback when no Brave key is set or Brave fails: Wikipedia's own search API (free, no key).
- * Results are Wikipedia articles only, and the page credits Wikipedia (CC BY-SA).
- */
-export const WIKI_API = "https://en.wikipedia.org/w/api.php";
-/** Wikimedia asks API clients to name themselves; this names the service, not the person. */
-export const WIKI_UA = "VEIL-Search/1.0 (+https://infinitumveil.app)";
-
-export function wikiUrl(q, offset) {
-  const u = new URL(WIKI_API);
-  for (const [k, v] of Object.entries({
-    action: "query", list: "search", format: "json", formatversion: "2", utf8: "1",
-    srsearch: q, srlimit: String(PAGE_SIZE), sroffset: String(offset * PAGE_SIZE), srprop: "snippet",
-  })) u.searchParams.set(k, v);
-  return u.toString();
-}
-
-/** VEIL's result list from a Wikipedia search answer. */
-export function fromWikipedia(data, offset) {
-  const results = [];
-  for (const r of data?.query?.search ?? []) {
-    const title = text(r?.title);
-    if (!title) continue;
-    results.push({ title, url: "https://en.wikipedia.org/wiki/" + encodeURIComponent(title.replace(/ /g, "_")), snippet: text(r?.snippet) });
-  }
-  const more = Number.isInteger(data?.continue?.sroffset) && offset < MAX_OFFSET && results.length > 0;
   return { results, next: more ? { offset: offset + 1 } : null };
 }

@@ -57,7 +57,7 @@ describe("CidService with a secret key", () => {
     await cid.confirmTotp(account.cid, code(secret, now()));
     tick();
     await assert.rejects(cid.disableTotp(account.cid, "000000"), /didn't match/);
-    assert.equal(exportCidAccounts(cid).accounts[0]!.totp!.secret, secret, "the account export still carries the real seed");
+    assert.equal((await exportCidAccounts(cid)).accounts[0]!.totp!.secret, secret, "the account export still carries the real seed");
     await cid.disableTotp(account.cid, code(secret, now()));
     assert.equal(store.accounts.get(account.cid)!.totp, undefined);
   });

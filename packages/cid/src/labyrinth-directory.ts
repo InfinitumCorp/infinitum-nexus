@@ -51,7 +51,7 @@ export function labyrinthDirectoryKeyMatches(presented: unknown, expectedSha256H
 }
 
 async function membership(cid: CidService, who: string): Promise<LabyrinthDirectoryOrg | null> {
-  if (!cid.store.accounts.has(who)) return null;
+  if (!(await cid.findAccount(who))) return null;
   return await cid.organizationMembership(who);
 }
 
@@ -83,7 +83,7 @@ export async function answerLabyrinthDirectory(cid: CidService, resolveToken: Ci
     case "session": {
       const who = short(b.cid);
       const sessionId = short(b.sessionId);
-      const active = cid.store.accounts.has(who) && (await cid.isSessionActive(who, sessionId));
+      const active = !!(await cid.findAccount(who)) && (await cid.isSessionActive(who, sessionId));
       return { active, organization: active ? await membership(cid, who) : null, scopes: active ? await scopes(cid, who) : [] };
     }
     case "membership":

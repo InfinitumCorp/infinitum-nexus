@@ -63,6 +63,18 @@ const timer = setInterval(() => {
 }, 60_000);
 timer.unref();
 
+// Orphan sweep (bytes left by a crash between the write and the database commit). Off unless
+// CUMULUS_CLOUD_ORPHAN_SWEEP=delete; "report" only logs what it would remove.
+const sweepMode = (process.env.CUMULUS_CLOUD_ORPHAN_SWEEP ?? "off").trim().toLowerCase();
+if (sweepMode === "delete" || sweepMode === "report") {
+  const sweep = () =>
+    service.sweepOrphanBlobs({ dryRun: sweepMode !== "delete" })
+      .then((r) => { if (r.orphans.length || r.temps.length) console.log(`Cumulus://Cloud orphan sweep (${sweepMode}): ${r.orphans.length} objects, ${r.temps.length} temp files, ${r.deleted} removed`); })
+      .catch(() => console.error("Cumulus://Cloud orphan sweep failed"));
+  setTimeout(() => void sweep(), 5 * 60_000).unref();
+  setInterval(() => void sweep(), 6 * 60 * 60_000).unref();
+}
+
 app.server().listen(config.port, config.host, () => {
   console.log(`Cumulus://Cloud Drive listening on http://${config.host}:${config.port} (public ${cumulus.cloudOrigin}, local filesystem, encryption ${master ? "on" : "off"})`);
 });

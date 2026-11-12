@@ -54,6 +54,7 @@ First request with a new session: `POST /v1/access` grants `drive:read` and `dri
 | `CUMULUS_CLOUD_RATE_LIMIT` | no | `120` | Requests per window, per IP and per CID |
 | `CUMULUS_CLOUD_RATE_WINDOW_MS` | no | `60000` | Rate-limit window |
 | `CUMULUS_CLOUD_KMS_KEY_NAME` | no | unset | Name of the env var that holds the 32-byte base64 master key. Unset means encryption is off |
+| `CUMULUS_CLOUD_ORPHAN_SWEEP` | no | `off` | `report` logs, and `delete` removes, bytes no file version or upload points at (older than 24 h), every 6 hours. See "Orphan sweep" |
 | `CUMULUS_CLOUD_REQUIRE_INTEGRATION` | tests | unset | When `1`, the PostgreSQL tests fail instead of skipping if the database URL is missing |
 
 No AWS, R2, or other paid storage variables are read.
@@ -124,6 +125,20 @@ Permissive dependencies only. Nothing from Nextcloud, Proton Mail WebClients, or
 | MinIO | Not used. Not a test dependency | Server is AGPL-3.0; it is not linked or copied |
 | Nextcloud, Proton clients | Not used | GPL / AGPL / GPL-3.0-or-later; excluded |
 
+## Orphan sweep
+
+`DriveService.sweepOrphanBlobs()` finds bytes in the data directory that no file version
+(`cloud_versions`) or open upload part (`cloud_upload_parts`) points at, plus temporary files
+from interrupted writes. Only objects older than the grace period (24 hours by default, at least
+one hour) are considered, so an upload in flight is never touched. Symlinks and names the driver
+never generates are skipped. Each batch is checked against the database just before deletion.
+Storage keys are random and never reused, so a key that is old and unreferenced stays that way.
+
+```sh
+node --experimental-strip-types scripts/sweep-orphans.ts            # report only
+node --experimental-strip-types scripts/sweep-orphans.ts --delete   # remove them
+```
+
 ## Launch gaps
 
 - Where the disk and PostgreSQL run is undecided. This build does not provision a host, a volume, or a paid bucket.
@@ -131,7 +146,7 @@ Permissive dependencies only. Nothing from Nextcloud, Proton Mail WebClients, or
 - There is no monitoring, alerting, or request metrics.
 - The rate limit and the upload-expiry timer are inside one process. A second host would not share them.
 - The filesystem driver is one machine. It does not replicate.
-- A crash after the blob is renamed and before the database commit can leave an unreferenced file. There is no garbage collector for those yet.
+- A crash after the blob is renamed and before the database commit can leave an unreferenced file. The orphan sweep removes those (see below); it is off unless `CUMULUS_CLOUD_ORPHAN_SWEEP` is set. The quota reserved for that upload is not given back yet.
 - The sample server's Cumulus://ID sessions are in memory.
 - Encryption is off unless the master-key env name is set. There is no external KMS, rotation, or envelope-key audit.
 - Share links with no expiry last until someone revokes them.

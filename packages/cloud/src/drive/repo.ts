@@ -184,6 +184,18 @@ export class DriveRepo {
     }
   }
 
+  /** The subset of `keys` that a file version or an open upload part still points at. */
+  async referencedStorageKeys(keys: string[]): Promise<Set<string>> {
+    if (!keys.length) return new Set();
+    const res = await this.pool.query<{ storage_key: string }>(
+      `SELECT storage_key FROM cloud_versions WHERE storage_key = ANY($1::text[])
+       UNION
+       SELECT storage_key FROM cloud_upload_parts WHERE storage_key = ANY($1::text[])`,
+      [keys],
+    );
+    return new Set(res.rows.map((r) => r.storage_key));
+  }
+
   async ping(): Promise<void> {
     await this.pool.query("SELECT 1");
   }

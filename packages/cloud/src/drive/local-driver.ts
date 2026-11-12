@@ -1,14 +1,16 @@
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
-import { lstat, mkdir, open, rename, rm, writeFile } from "node:fs/promises";
-import { dirname, join, resolve, sep } from "node:path";
+import { lstat, mkdir, open, opendir, rename, rm, writeFile } from "node:fs/promises";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import type { BlobRange, BlobStore, StoredBlob } from "./driver.ts";
+import type { BlobListing, BlobRange, BlobStore, StoredBlob } from "./driver.ts";
 import { DriveError } from "./errors.ts";
 
 /** Generated keys only: lowercase, no dot segments, no absolute paths. */
 const KEY = /^[a-z0-9][a-z0-9/_-]{0,180}$/;
+/** Names putStream gives its temporary files (and their checksum sidecars). */
+const TEMP_NAME = /^\.[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.tmp(\.sha256)?$/;
 
 /**
  * Durable local bytes. A write lands in a temporary file in the same directory,
@@ -142,5 +144,49 @@ export class LocalFsBlobStore implements BlobStore {
 
   async size(key: string): Promise<number> {
     return (await this.fileStat(key)).st.size;
+  }
+
+  /**
+   * Walks the data directory. Yields objects (by key, never their .sha256 sidecar) and putStream's
+   * leftover temporary files. Symlinks, other file types and names this driver never generates are
+   * skipped, so the sweep can't touch anything it doesn't own.
+   */
+  async *list(): AsyncIterable<BlobListing> {
+    const walk = async function* (this: LocalFsBlobStore, dir: string): AsyncIterable<BlobListing> {
+      let handle;
+      try {
+        handle = await opendir(dir);
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === "ENOENT") return;
+        throw err;
+      }
+      for await (const entry of handle) {
+        const full = join(dir, entry.name);
+        if (entry.isSymbolicLink()) continue;
+        if (entry.isDirectory()) {
+          yield* walk.call(this, full);
+          continue;
+        }
+        if (!entry.isFile()) continue;
+        const rel = relative(this.root, full).split(sep).join("/");
+        if (TEMP_NAME.test(entry.name)) {
+          yield { kind: "temp", key: rel, modifiedAt: (await lstat(full)).mtime };
+          continue;
+        }
+        if (entry.name.endsWith(".sha256")) continue;
+        if (!KEY.test(rel) || rel.includes("..")) continue;
+        yield { kind: "object", key: rel, modifiedAt: (await lstat(full)).mtime };
+      }
+    };
+    yield* walk.call(this, this.root);
+  }
+
+  async deleteTemp(path: string): Promise<void> {
+    const name = path.split("/").pop() ?? "";
+    const full = resolve(this.root, path);
+    if (!TEMP_NAME.test(name) || !full.startsWith(this.root + sep)) {
+      throw new DriveError(400, "invalid_key", "Not a temporary file this store wrote");
+    }
+    await rm(full, { force: true });
   }
 }

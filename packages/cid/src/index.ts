@@ -59,3 +59,6 @@ export {
 export type { CidIssuerMetadata, CumulusDomains } from "./domains.ts";
 export { answerLabyrinthDirectory, labyrinthDirectoryKeyMatches, LabyrinthDirectoryError, LABYRINTH_SCOPES } from "./labyrinth-directory.ts";
 export type { LabyrinthDirectoryIdentity, LabyrinthDirectoryOrg, LabyrinthDirectoryScope, CidTokenResolver } from "./labyrinth-directory.ts";
+/** Cumulus://ID on PostgreSQL (relational-storage phase 2). Off unless a CidService is given one. */
+export { PgCidRepository, migrateCid, cidSchemaSql } from "./postgres.ts";
+export type { Queryable, PgCidRepositoryOptions } from "./postgres.ts";

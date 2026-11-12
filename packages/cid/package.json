@@ -11,7 +11,8 @@
   },
   "scripts": {
     "typecheck": "tsc -p . --noEmit",
-    "test": "node --test --experimental-strip-types $(find src -name \"*.test.ts\" 2>/dev/null || true) && CID_TEST_COPYING_REPO=1 node --test --experimental-strip-types src/cid.test.ts src/social.test.ts && if [ -n \"$CID_TEST_PG_URL\" ]; then CID_TEST_PG=1 node --test --experimental-strip-types src/cid.test.ts src/social.test.ts src/postgres.test.ts; fi"
+    "test": "node --test --experimental-strip-types $(find src -name \"*.test.ts\" 2>/dev/null || true) && CID_TEST_COPYING_REPO=1 node --test --experimental-strip-types src/cid.test.ts src/social.test.ts && if [ -n \"$CID_TEST_PG_URL\" ]; then CID_TEST_PG=1 node --test --experimental-strip-types src/cid.test.ts src/social.test.ts src/postgres.test.ts; fi",
+    "backfill": "node --experimental-strip-types src/backfill-cli.ts"
   },
   "dependencies": {
     "@infinitum/firmament": "workspace:*"

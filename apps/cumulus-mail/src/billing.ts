@@ -20,7 +20,7 @@
  * here, whatever the revenue catalog says; sales-assisted plans go through sales.
  */
 import { ID_CLIENTS, type Account, type CidService } from "@infinitum/cid";
-import { BillingLinkStore, RevenueClient, RevenueError, billingFor, effectiveEntitlements } from "@infinitum/billing";
+import { BillingLinkStore, RevenueClient, RevenueError, billingFor, effectiveEntitlements, hasBilling } from "@infinitum/billing";
 
 /** Plan id -> product name shown on the sign-in page. Self-serve, paid plans only. */
 export const SELLABLE: Record<string, string> = {
@@ -154,10 +154,9 @@ export function registerBilling(h: BillingHelpers) {
     const who = await account(ctx);
     if (!who) throw new HttpError(401, "Not signed in");
     // No billing org yet means nothing bought yet: don't create one just to look.
-    const link = store.links.get(who.cid);
-    if (!link) return { cid: who.cid, plans: {}, features: [], creditsCents: 0, products: [] };
+    if (!hasBilling(revenue, store, who.cid)) return { cid: who.cid, plans: {}, features: [], creditsCents: 0, products: [] };
     let ent;
-    try { ent = await revenue.withApiKey(link.apiKey).entitlements(); } catch (e) { throw failed(e, "Billing"); }
+    try { ent = await (await billingFor(revenue, store, who)).entitlements(); } catch (e) { throw failed(e, "Billing"); }
     const eff = effectiveEntitlements({ storageGb: 0 }, ent);
     return {
       cid: who.cid,

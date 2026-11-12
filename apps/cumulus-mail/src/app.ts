@@ -345,7 +345,8 @@ export function createMailApp(deps: MailAppDeps) {
   registerBilling({
     route, cid, origin: deps.origin, str, Redirect, HttpError,
     store: deps.billingStore ?? new BillingLinkStore(),
-    revenue: deps.revenue ?? new RevenueClient(),
+    // REVENUE_CID_PARTNER_KEY: one billing org per Cumulus ID, shared with product apps (server-side secret).
+    revenue: deps.revenue ?? new RevenueClient({ cidPartnerKey: process.env.REVENUE_CID_PARTNER_KEY }),
   });
 
   /**

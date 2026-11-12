@@ -82,3 +82,62 @@ test("merges paid plans over the CID free tier", () => {
     products: [p("cumulus", "cumulus_drive_free", "free", { meters: { cumulus_storage_gb_month: { included: 5, used: 0 } } })] });
   assert.equal(small.storageGb, 15);
 });
+
+test("with a partner key the hub uses the revenue API's own Cumulus ID mapping", async () => {
+  const PARTNER = "p".repeat(40);
+  const seen: { path: string; headers: Record<string, string> }[] = [];
+  let linkAnswer: { status: number; body: unknown } = { status: 200, body: { linked: true, orgId: "org_old" } };
+  const fetch = async (url: string, init: RequestInit = {}) => {
+    const headers = (init.headers ?? {}) as Record<string, string>;
+    const path = new URL(url).pathname;
+    seen.push({ path, headers });
+    const json = (status: number, b: unknown) => new Response(JSON.stringify(b), { status, headers: { "content-type": "application/json" } });
+    if (path === "/v1/me/cid-link") return json(linkAnswer.status, linkAnswer.body);
+    if (path === "/v1/subscriptions/checkout") return json(200, { id: "cs_1", url: "https://checkout.stripe.com/c/cs_1" });
+    return json(404, { error: { code: "not_found", message: "nope" } });
+  };
+  const client = new RevenueClient({ baseUrl: "https://rev.test", fetch, cidPartnerKey: PARTNER });
+  const store = new BillingLinkStore();
+  const ada = { cid: "cid_ada", username: "ada", mailAddress: "ada@cumuluscloud.app" };
+
+  // No old org: no signup, the call goes out as the Cumulus ID.
+  await (await billingFor(client, store, ada)).subscriptionCheckout({ planId: "scalvs_pro" });
+  const co = seen.find((s) => s.path === "/v1/subscriptions/checkout")!;
+  assert.equal(co.headers.authorization, `Bearer ${PARTNER}`);
+  assert.equal(co.headers["x-cumulus-id"], "cid_ada");
+  assert.ok(!seen.some((s) => s.path === "/v1/signup"));
+
+  // An org the hub made before is handed over once, with its own key plus the partner key.
+  const bob = { cid: "cid_bob", username: "bob", mailAddress: "bob@cumuluscloud.app" };
+  store.links.set("cid_bob", { cid: "cid_bob", orgId: "org_old", apiKey: "ik_old", linkedAt: "2026-11-01" });
+  seen.length = 0;
+  await billingFor(client, store, bob);
+  await billingFor(client, store, bob);
+  const links = seen.filter((s) => s.path === "/v1/me/cid-link");
+  assert.equal(links.length, 1);
+  assert.equal(links[0]!.headers.authorization, "Bearer ik_old");
+  assert.equal(links[0]!.headers["x-cid-partner-key"], PARTNER);
+  assert.equal(store.links.get("cid_bob")!.handedOver, "linked");
+
+  // Already linked elsewhere: the revenue mapping wins, the old org is marked superseded.
+  const cy = { cid: "cid_cy", username: "cy", mailAddress: "cy@cumuluscloud.app" };
+  store.links.set("cid_cy", { cid: "cid_cy", orgId: "org_cy_old", apiKey: "ik_cy", linkedAt: "2026-11-01" });
+  linkAnswer = { status: 409, body: { error: { code: "cid_already_linked", message: "taken" } } };
+  seen.length = 0;
+  await (await billingFor(client, store, cy)).subscriptionCheckout({ planId: "scalvs_pro" });
+  assert.equal(store.links.get("cid_cy")!.handedOver, "superseded");
+  assert.equal(seen.find((s) => s.path === "/v1/subscriptions/checkout")!.headers["x-cumulus-id"], "cid_cy");
+
+  // Revenue down during handover: keep working on the old org, try again next time.
+  const dee = { cid: "cid_dee", username: "dee", mailAddress: "dee@cumuluscloud.app" };
+  store.links.set("cid_dee", { cid: "cid_dee", orgId: "org_dee", apiKey: "ik_dee", linkedAt: "2026-11-01" });
+  linkAnswer = { status: 503, body: { error: { code: "unavailable", message: "down" } } };
+  seen.length = 0;
+  await (await billingFor(client, store, dee)).subscriptionCheckout({ planId: "scalvs_pro" });
+  assert.equal(seen.find((s) => s.path === "/v1/subscriptions/checkout")!.headers.authorization, "Bearer ik_dee");
+  assert.equal(store.links.get("cid_dee")!.handedOver, undefined);
+});
+
+test("a short partner key is ignored", () => {
+  assert.equal(new RevenueClient({ cidPartnerKey: "short" }).cidPartnerKey, undefined);
+});

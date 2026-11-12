@@ -43,6 +43,16 @@ test("forecast uses the seasonal pattern when given a period", () => {
   assert.deepEqual(sn, values.slice(63, 70));
 });
 
+test("forecast never goes below zero for a non-negative series unless told to", () => {
+  const counts = noisy(40, () => 1, 1.5, 9).map((v) => Math.max(0, Math.round(v)));
+  const f = forecast(counts, 6, { level: 0.95 });
+  assert.ok(f.lower.every((v) => v >= 0) && f.point.every((v) => v >= 0));
+  const free = forecast(counts, 6, { level: 0.95, floor: -Infinity });
+  assert.ok(free.lower.some((v) => v < 0), "without the floor the range would dip below zero");
+  const signedSeries = counts.map((v) => v - 1);
+  assert.ok(forecast(signedSeries, 3, { level: 0.95 }).lower.some((v) => v < 0), "series with negatives keep them");
+});
+
 test("forecast with very short history falls back to an approximate range", () => {
   const f = forecast([5, 6, 7], 3);
   assert.equal(f.intervals, "approximate");

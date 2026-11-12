@@ -78,6 +78,12 @@ export interface ForecastOptions {
   period?: number;
   /** Shortest history a forecaster is judged from. */
   minHistory?: number;
+  /**
+   * Floor for forecasts and ranges. Defaults to 0 when the whole history is
+   * non-negative (counts, money booked), so a range never shows impossible
+   * negative values; pass -Infinity to turn that off.
+   */
+  floor?: number;
 }
 
 export interface ForecastResult {
@@ -120,6 +126,7 @@ export function forecast(values: readonly number[], horizon: number, opts: Forec
   if (values.some((v) => !Number.isFinite(v))) throw new Error("history has a missing or non-numeric value");
   if (opts.period !== undefined && (!Number.isInteger(opts.period) || opts.period < 2 || opts.period > 366)) throw new Error("period must be from 2 to 366");
   const period = opts.period && values.length >= 2 * opts.period ? opts.period : undefined;
+  const floor = opts.floor ?? (values.every((v) => v >= 0) ? 0 : -Infinity);
   const pool = candidates(period);
   const minHistory = Math.max(opts.minHistory ?? 4, period ?? 0, 2);
   const lo = (1 - level) / 2;
@@ -136,7 +143,7 @@ export function forecast(values: readonly number[], horizon: number, opts: Forec
     const steps = values.slice(1).map((v, i) => v - values[i]!);
     const sd = steps.length >= 2 ? Math.sqrt(steps.reduce((s, d) => s + (d - avg(steps)) ** 2, 0) / (steps.length - 1)) : Math.abs(values[0]!) * 0.1;
     const z = normalQuantile(hi);
-    return {
+    return floored({
       model,
       horizon,
       level,
@@ -145,7 +152,7 @@ export function forecast(values: readonly number[], horizon: number, opts: Forec
       upper: point.map((p, k) => p + z * sd * Math.sqrt(k + 1)),
       candidates: [],
       intervals: "approximate",
-    };
+    }, floor);
   }
 
   const scored = Object.entries(pool).map(([model, f]) => {
@@ -194,7 +201,7 @@ export function forecast(values: readonly number[], horizon: number, opts: Forec
     if (point[k]! - lower[k]! < lPrev) lower[k] = point[k]! - lPrev;
   }
 
-  return {
+  return floored({
     model: best.model,
     horizon,
     level,
@@ -204,7 +211,13 @@ export function forecast(values: readonly number[], horizon: number, opts: Forec
     error: best.error,
     candidates: scored.map((s) => ({ model: s.model, mae: s.error.mae })),
     intervals: empirical ? "empirical" : "approximate",
-  };
+  }, floor);
+}
+
+function floored(r: ForecastResult, floor: number): ForecastResult {
+  if (floor === -Infinity) return r;
+  const f = (xs: number[]) => xs.map((v) => Math.max(floor, v));
+  return { ...r, point: f(r.point), lower: f(r.lower), upper: f(r.upper) };
 }
 
 /** Inverse standard normal CDF (Acklam's approximation, |error| < 1.2e-9). */

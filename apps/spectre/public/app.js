@@ -46,6 +46,7 @@ const icon = {
   accounts: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 21V7l8-4 8 4v14"/><path d="M9 21v-6h6v6"/></svg>',
   people: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.5 3.4-5.5 6.5-5.5s5.7 2 6.5 5.5"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.8c1.8.7 3 2.4 3.5 5.2"/></svg>',
   conjure: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 8c3-3 5-3 7 0M12 6c3-3 5-3 7 0M6 15c3-3 5-3 7 0M15 13c2-2 4-2 6 0"/></svg>',
+  metatron: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 20h18"/><path d="M4 16c4-1 6-7 10-8s5 1 6 0"/><path d="M4 16c4 0 7-3 10-3s4 2 6 2" opacity=".45"/></svg>',
   agents: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="7" width="16" height="12" rx="3"/><path d="M12 3v4M9 12h.01M15 12h.01M9 16h6"/></svg>',
   health: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 12h4l3-7 4 14 3-7h4"/></svg>',
   send: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 19V5M5 12l7-7 7 7"/></svg>',
@@ -114,7 +115,7 @@ function render() {
     return renderAuth(page === "signin-error" && id ? decodeURIComponent(id) : "");
   }
   renderShell(page);
-  const views = { today: renderToday, pipeline: renderPipeline, accounts: id ? () => renderAccount(id) : renderAccounts, people: renderPeople, health: renderHealth, agents: renderAgents, conjure: id ? () => renderSimulation(id) : renderConjure, settings: renderSettings };
+  const views = { today: renderToday, pipeline: renderPipeline, accounts: id ? () => renderAccount(id) : renderAccounts, people: renderPeople, health: renderHealth, agents: renderAgents, conjure: id ? () => renderSimulation(id) : renderConjure, metatron: renderMetatron, settings: renderSettings };
   (views[page] || renderToday)().catch((e) => { $("main").innerHTML = `<div class="page"><div class="empty">${esc(e.message)}</div></div>`; });
 }
 
@@ -236,6 +237,7 @@ function renderShell(page) {
             <a href="#/health" data-p="health">${icon.health}Data health</a>
             <a href="#/agents" data-p="agents">${icon.agents}Agents<span class="badge hidden" id="agents-badge"></span></a>
             <a href="#/conjure" data-p="conjure">${icon.conjure}<span>CONJURE<sup class="tm">™</sup></span></a>
+            <a href="#/metatron" data-p="metatron">${icon.metatron}<span>METATRON¹⁰⁰<sup class="tm">™</sup></span></a>
           </nav>
           <div class="spacer"></div>
           <nav class="nav"><a href="/labyrinth">Labyrinth *LBRNTH<sup class="tm">™</sup></a><a href="#/settings" data-p="settings">${icon.settings}Settings</a></nav>
@@ -1037,6 +1039,198 @@ function stanceChart(stats, poles) {
     <polyline points="${pts}" class="line"/>
     ${stats.map((s, i) => `<circle cx="${x(i)}" cy="${y(s.meanStance)}" r="3" class="dot"><title>Round ${s.round}: ${s.meanStance}</title></circle>`).join("")}
   </svg>`;
+}
+
+/* ---------------- METATRON¹⁰⁰ ---------------- */
+
+const moneyCompact = (n, cur = "USD") => new Intl.NumberFormat(undefined, { style: "currency", currency: cur, notation: "compact", maximumFractionDigits: 1 }).format(n || 0);
+const compact = (n) => new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 }).format(n || 0);
+const signed = (n, f = compact) => `${n > 0 ? "+" : n < 0 ? "−" : ""}${f(Math.abs(n))}`;
+
+/**
+ * Fan chart: the first line gets its 50% and 90% bands shaded, every line
+ * draws its median. Lines are told apart by dash pattern as well as color.
+ */
+function fanChart(lines, { unit = "step", start = 1, height = 220, shade = 0, ends, note } = {}) {
+  const W = 640, H = height, L = 48, R = 12, T = 10, B = 26;
+  const n = lines[0].band.p50.length;
+  const vals = lines.flatMap((l, i) => (i === shade ? [...l.band.p5, ...l.band.p95] : l.band.p50)).filter(Number.isFinite);
+  let lo = Math.min(...vals), hi = Math.max(...vals);
+  if (lo === hi) { lo -= 1; hi += 1; }
+  const pad = (hi - lo) * 0.06; lo -= pad; hi += pad;
+  const x = (i) => L + (n === 1 ? (W - L - R) / 2 : (i * (W - L - R)) / (n - 1));
+  const y = (v) => T + ((hi - v) * (H - T - B)) / (hi - lo);
+  // Gaps (NaN) lift the pen, so one chart can hold history and forecast side by side.
+  const path = (arr) => {
+    let d = "", pen = false;
+    arr.forEach((v, i) => {
+      if (!Number.isFinite(v)) { pen = false; return; }
+      d += `${pen ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`;
+      pen = true;
+    });
+    return d;
+  };
+  const area = (top, bottom) => {
+    const idx = top.map((_, i) => i).filter((i) => Number.isFinite(top[i]) && Number.isFinite(bottom[i]));
+    if (idx.length < 2) return "";
+    return `M${idx.map((i) => `${x(i).toFixed(1)},${y(top[i]).toFixed(1)}`).join("L")}L${[...idx].reverse().map((i) => `${x(i).toFixed(1)},${y(bottom[i]).toFixed(1)}`).join("L")}Z`;
+  };
+  const ticks = [lo + pad, (lo + hi) / 2, hi - pad];
+  const first = lines[shade].band;
+  return `<svg class="mt-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(lines.map((l) => l.name).join(" vs "))}">
+    ${ticks.map((t) => `<line class="mt-grid" x1="${L}" x2="${W - R}" y1="${y(t)}" y2="${y(t)}"/><text class="mt-axis" x="${L - 6}" y="${y(t) + 4}" text-anchor="end">${esc(compact(t))}</text>`).join("")}
+    <path class="mt-band90" d="${area(first.p95, first.p5)}"/>
+    <path class="mt-band50" d="${area(first.p75, first.p25)}"/>
+    ${lines.map((l, i) => `<path class="mt-line mt-l${i % 5}" d="${path(l.band.p50)}"/>`).join("")}
+    <text class="mt-axis" x="${L}" y="${H - 6}">${esc(ends ? ends[0] : `${unit} ${start}`)}</text>
+    <text class="mt-axis" x="${W - R}" y="${H - 6}" text-anchor="end">${esc(ends ? ends[1] : `${unit} ${start + n - 1}`)}</text>
+  </svg>
+  <div class="mt-legend">${lines.map((l, i) => `<span><i class="mt-key mt-l${i % 5}"></i>${esc(l.name)}</span>`).join("")}<span class="faint">${esc(note ?? `Shaded: ${lines[shade].name}, middle 50% and 90% of futures`)}</span></div>`;
+}
+
+/** History (solid) then forecast (dashed) with its range shaded. `weeks` are the history's week-start dates. */
+function forecastChart(history, f, weeks) {
+  const nan = (k) => Array(k).fill(NaN);
+  const h = history.length;
+  // Join the forecast to the last actual so the lines meet.
+  const last = history[h - 1];
+  const band = {
+    p5: [...nan(h - 1), last, ...f.lower], p25: [...nan(h - 1), last, ...f.lower], p75: [...nan(h - 1), last, ...f.upper], p95: [...nan(h - 1), last, ...f.upper],
+    p50: [...nan(h - 1), last, ...f.point],
+  };
+  const hist = { p50: [...history, ...nan(f.point.length)] };
+  const end = new Date(Date.parse(weeks[weeks.length - 1]) + f.point.length * 7 * 86400000).toISOString();
+  return fanChart([{ name: "Actual", band: hist }, { name: "Forecast", band }], {
+    height: 180, shade: 1, ends: [date(weeks[0]), date(end)],
+    note: `Shaded: ${Math.round(f.level * 100)}% range from the model's own past errors`,
+  });
+}
+
+function tornado(rows, output) {
+  if (!rows.length) return `<div class="faint small">No uncertain inputs to test.</div>`;
+  const W = 640, rowH = 26, L = 150, R = 12;
+  const lo = Math.min(...rows.flatMap((r) => [r.outputAtLow, r.outputAtHigh]));
+  const hi = Math.max(...rows.flatMap((r) => [r.outputAtLow, r.outputAtHigh]));
+  const x = (v) => L + ((v - lo) * (W - L - R)) / (hi - lo || 1);
+  return `<svg class="mt-chart" viewBox="0 0 ${W} ${rows.length * rowH + 8}" role="img" aria-label="Which inputs move ${esc(output)} most">
+    ${rows.map((r, i) => {
+      const a = x(Math.min(r.outputAtLow, r.outputAtHigh)), b = x(Math.max(r.outputAtLow, r.outputAtHigh));
+      return `<text class="mt-axis" x="${L - 8}" y="${i * rowH + 17}" text-anchor="end">${esc(r.variable)}</text>
+        <rect class="${r.outputAtHigh >= r.outputAtLow ? "mt-up" : "mt-down"}" x="${a}" y="${i * rowH + 5}" width="${Math.max(2, b - a)}" height="${rowH - 10}"/>
+        <title>${esc(r.variable)} from ${esc(compact(r.low))} to ${esc(compact(r.high))} moves ${esc(output)} from ${esc(compact(r.outputAtLow))} to ${esc(compact(r.outputAtHigh))}</title>`;
+    }).join("")}
+  </svg>
+  <div class="faint small">Each bar: ${esc(output)} at the end when that input is at its 10th vs. 90th percentile. Longest bar matters most.</div>`;
+}
+
+async function renderMetatron() {
+  const [tpl, sig] = await Promise.all([api("GET", "/api/metatron/templates"), api("GET", "/api/metatron/signals?weeks=26")]);
+  const stageOpts = OPEN.map((s) => `<option value="${s}">${STAGE_LABEL[s]}</option>`).join("");
+  main().innerHTML = `
+    <div class="page narrow mt">
+      <div class="page-head"><h1>METATRON¹⁰⁰<sup class="tm">™</sup></h1><span class="faint small">Prediction engine</span></div>
+      <p class="muted">Runs your pipeline and your “what if?” questions forward thousands of times. The answers are ranges and chances that support your judgment, not certainties.</p>
+
+      <div class="section"><h2>Pipeline outlook</h2>
+        <form id="mt-outlook" class="mt-controls">
+          <label class="field">Closing within<select class="input" name="horizonDays"><option value="30">30 days</option><option value="90" selected>90 days</option><option value="180">180 days</option><option value="365">a year</option></select></label>
+          <label class="field">Target<input class="input" name="target" inputmode="numeric" placeholder="Optional"></label>
+          <label class="field">What if<select class="input" name="whatIfStage"><option value="">No change</option>${stageOpts}</select></label>
+          <label class="field">win rate<select class="input" name="whatIfChange">${[-20, -10, 10, 20, 30].map((v) => `<option value="${v}" ${v === 10 ? "selected" : ""}>${v > 0 ? "+" : ""}${v} pts</option>`).join("")}</select></label>
+        </form>
+        <div id="mt-outlook-out"><div class="faint small">Running…</div></div>
+      </div>
+
+      <div class="section"><h2>What changed</h2>
+        ${sig.notable.length ? `<div class="list">${sig.notable.map((n) => `<div class="item"><span class="pill ${n.direction === "up" ? "low" : "high"}">${n.kind === "shift" ? "new level" : n.direction === "up" ? "spike" : "dip"}</span><div class="main"><div class="title">${esc(n.headline)}</div><div class="sub">Week of ${date(n.week)}</div></div></div>`).join("")}</div>`
+          : `<div class="empty">Nothing unusual in the last few weeks.</div>`}
+        ${sig.bookings ? `<h2 class="mt-sub">Bookings, next 8 weeks</h2>${forecastChart(sig.series.wonValue.slice(0, -1), sig.bookings, sig.weeks.slice(0, -1))}
+          <div class="faint small">Model chosen by backtest out of ${sig.bookings.candidates.length}: ${esc(sig.bookings.model)}${sig.bookings.error ? `, typically off by ${money(sig.bookings.error.mae)} a week` : ""}.</div>` : ""}
+      </div>
+
+      <div class="section"><h2>What if?</h2>
+        <form id="mt-scn" class="mt-controls">
+          <label class="field mt-wide">Scenario<select class="input" name="template">${tpl.templates.map((t) => `<option value="${esc(t.id)}">${esc(t.title)}</option>`).join("")}</select></label>
+          <button class="btn primary">Run</button>
+        </form>
+        <p class="muted" id="mt-question"></p>
+        <details class="mt-edit"><summary class="small">Edit the model</summary>
+          <p class="faint small">Variables are uncertain inputs, shocks change every step, derived values are computed in order, and update says how each stock moves. Formulas use + − × ÷ ^, comparisons, <code>a ? b : c</code> and min, max, clamp, exp, log, sqrt, normal, bernoulli.</p>
+          <textarea class="input mono" id="mt-json" rows="16" spellcheck="false"></textarea>
+        </details>
+        <div class="error" id="mt-err"></div>
+        <div id="mt-scn-out"></div>
+      </div>
+    </div>`;
+
+  const of = $("#mt-outlook");
+  const runOutlook = async () => {
+    const q = new URLSearchParams({ horizonDays: of.horizonDays.value });
+    const target = Number(String(of.target.value).replace(/[^\d.]/g, ""));
+    if (target > 0) q.set("target", String(target));
+    if (of.whatIfStage.value) { q.set("whatIfStage", of.whatIfStage.value); q.set("whatIfChange", of.whatIfChange.value); }
+    try {
+      const o = await api("GET", `/api/metatron/outlook?${q}`);
+      $("#mt-outlook-out").innerHTML = o.byCurrency.length ? o.byCurrency.map((c, i) => {
+        const w = o.whatIf?.byCurrency.find((x) => x.currency === c.currency);
+        return `<div class="section stats">
+            <div class="stat"><div class="muted small">Most likely</div><div class="v">${money(c.p50, c.currency)}</div><div class="faint small">expected ${money(c.expected, c.currency)}</div></div>
+            <div class="stat"><div class="muted small">Likely range (80%)</div><div class="v">${moneyCompact(c.p10, c.currency)}–${moneyCompact(c.p90, c.currency)}</div><div class="faint small">${c.deals} deals · ${money(c.pipeline, c.currency)} in play</div></div>
+            <div class="stat"><div class="muted small">${c.probTarget !== undefined ? `Chance of ${money(target, c.currency)}` : "What if"}</div><div class="v">${c.probTarget !== undefined ? pct(c.probTarget) : w ? signed(w.expected - c.expected) : "—"}</div>
+              <div class="faint small">${w ? `${STAGE_LABEL[o.whatIf.stage]} ${o.whatIf.winRateChange > 0 ? "+" : ""}${o.whatIf.winRateChange} pts: expected ${money(w.expected, c.currency)}${w.probTarget !== undefined ? `, ${pct(w.probTarget)} chance` : ""}` : "Pick a stage to test a change"}</div></div>
+          </div>
+          ${i === 0 && c.drivers.length ? `<div class="list">${c.drivers.map((d) => `<button class="item" data-deal="${esc(d.dealId)}"><span class="pill">${esc(STAGE_LABEL[d.stage])}</span><div class="main"><div class="title">${esc(d.name)}</div><div class="sub">${pct(d.probability)} × ${money(d.amount, c.currency)}</div></div><div class="muted small">${money(d.expectedValue, c.currency)}</div></button>`).join("")}</div>` : ""}`;
+      }).join("") + (o.later ? `<div class="faint small">${o.later} open deal${o.later === 1 ? "" : "s"} expected to close later.</div>` : "")
+        : `<div class="empty">No open deals close in this window. <a href="#/pipeline">Add deals</a> to see an outlook.</div>`;
+      $("#mt-outlook-out").querySelectorAll("[data-deal]").forEach((b) => (b.onclick = () => openDeal(b.dataset.deal)));
+    } catch (e) { $("#mt-outlook-out").innerHTML = `<div class="error">${esc(e.message)}</div>`; }
+  };
+  of.onchange = runOutlook;
+  of.target.oninput = () => { clearTimeout(runOutlook.t); runOutlook.t = setTimeout(runOutlook, 500); };
+  of.onsubmit = (e) => { e.preventDefault(); runOutlook(); };
+  runOutlook();
+
+  const sf = $("#mt-scn");
+  const fill = () => {
+    const t = tpl.templates.find((x) => x.id === sf.template.value);
+    $("#mt-question").textContent = t.question;
+    $("#mt-json").value = JSON.stringify({ model: t.model, interventions: t.interventions, events: t.events, focus: t.focus }, null, 2);
+    $("#mt-scn-out").innerHTML = "";
+  };
+  sf.template.onchange = fill;
+  fill();
+  sf.onsubmit = async (e) => {
+    e.preventDefault();
+    $("#mt-err").textContent = "";
+    let spec;
+    try { spec = JSON.parse($("#mt-json").value); } catch { $("#mt-err").textContent = "The model isn't valid JSON."; return; }
+    const btn = sf.querySelector("button");
+    btn.disabled = true; btn.textContent = "Running futures…";
+    try {
+      const focus = spec.focus || spec.model?.outputs?.[0] || Object.keys(spec.model?.state || {})[0];
+      const r = await api("POST", "/api/metatron/compare", { model: spec.model, interventions: spec.interventions, events: spec.events, sensitivity: focus, runs: 1000 });
+      const unit = spec.model.stepUnit || "step";
+      const all = [r.baseline, ...r.scenarios];
+      const evNames = Object.keys(r.baseline.events);
+      const fmt = (v) => compact(v);
+      $("#mt-scn-out").innerHTML = `
+        <h2 class="mt-sub">${esc(focus)}</h2>
+        ${fanChart(all.map((s) => ({ name: s.name, band: s.series[focus] })), { unit })}
+        <div class="mt-table-wrap"><table class="mt-table">
+          <thead><tr><th>Scenario</th><th>${esc(focus)} at end</th><th>vs. ${esc(r.baseline.name)}</th><th>Chance higher</th>${evNames.map((n) => `<th>${esc(n)}</th>`).join("")}</tr></thead>
+          <tbody>${all.map((s, i) => {
+            const f = s.final[focus], d = s.delta?.[focus];
+            return `<tr><td><i class="mt-key mt-l${i % 5}"></i>${esc(s.name)}${s.description ? `<div class="faint small">${esc(s.description)}</div>` : ""}</td>
+              <td>${fmt(f.p50)}<div class="faint small">${fmt(f.p5)}–${fmt(f.p95)}</div></td>
+              <td>${d ? `${signed(d.mean)}${Number.isFinite(d.pct) ? ` (${d.pct > 0 ? "+" : ""}${Math.round(d.pct)}%)` : ""}<div class="faint small">${signed(d.p5)} to ${signed(d.p95)}</div>` : "—"}</td>
+              <td>${d ? pct(d.probHigher) : "—"}</td>
+              ${evNames.map((n) => `<td>${pct(s.events[n].probability)}${Number.isFinite(s.events[n].medianFirstStep) ? `<div class="faint small">by ${esc(unit)} ${Math.round(s.events[n].medianFirstStep)}</div>` : ""}</td>`).join("")}</tr>`;
+          }).join("")}</tbody></table></div>
+        <div class="faint small">${r.runs.toLocaleString()} futures per scenario${r.capped ? " (lowered to fit the time limit)" : ""}, the same luck in each, so differences come from the change. Event columns: chance it happens at any point.</div>
+        ${r.sensitivity ? `<h2 class="mt-sub">What moves ${esc(focus)} most</h2>${tornado(r.sensitivity.rows, focus)}` : ""}`;
+    } catch (err) { $("#mt-err").textContent = err.message; }
+    btn.disabled = false; btn.textContent = "Run";
+  };
 }
 
 function splitBar(split) {

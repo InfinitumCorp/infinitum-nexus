@@ -56,7 +56,7 @@ The issuer moves to its own repository and Worker, `InfinitumCorp/cumulus-id` (`
 - [ ] (a) Deploy `cumulus-id-v2` from `InfinitumCorp/cumulus-id` on workers.dev, no routes, with the same `CID_OIDC_SIGNING_KEY` and `CID_RP_ID=id.cumuluscloud.app`.
 - [ ] (b) Deploy this Worker with the export route, set `CID_EXPORT_KEY_SHA256`, `POST /api/id/export` with `x-cid-export-key`, run the importer in `InfinitumCorp/cumulus-id`, compare counts, then delete the secret and the export file.
 - [ ] (c) Move the `id.cumuluscloud.app` custom domain from `cumulus-id` to `cumulus-id-v2`, and point the `ru.id.cumuluscloud.app` mirror at the new Worker.
-- [ ] (d) Deploy the separate wrangler commit that moves this Worker to `spectre.infinitumcorporation.ai`. Only at cut-over: deployed earlier it takes `id.cumuluscloud.app` away from the live issuer.
+- [ ] (d) Merge and deploy branch `cumulus-id-cutover-spectre-route` (one wrangler commit), which moves this Worker to `spectre.infinitumcorporation.ai`. Only at cut-over: deployed earlier it takes `id.cumuluscloud.app` away from the live issuer.
 
 ## Architect (:\ARCHITECT\\)
 - [x] `pnpm --filter @infinitum/architect typecheck`

@@ -212,7 +212,7 @@ the old issuer resumes with the state it had at the export.
 ### (d) Move +SPCTR to spectre.infinitumcorporation.ai
 
 `https://spectre.infinitumcorporation.ai` is already the registered origin of client `spectre`.
-A separate commit on the cut-over branch changes `apps/spectre/wrangler.jsonc` (route and
+The branch `cumulus-id-cutover-spectre-route` holds one commit that changes `apps/spectre/wrangler.jsonc` (route and
 `SPECTRE_ORIGIN`). Deploy it only in this step: deploying it earlier takes `id.cumuluscloud.app`
 away from the live issuer. The `infinitumcorporation.ai` zone must be on the Cloudflare account
 for the custom domain. Social sign-in providers (Google, Cognito) need

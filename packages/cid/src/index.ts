@@ -40,6 +40,8 @@ export type { IdClient } from "./id-clients.ts";
 export { oidcDiscovery, profileOf, registerProductIdp, safeProductReturn } from "./product-idp.ts";
 export type { ProductIdpHelpers } from "./product-idp.ts";
 export { encodeCbor, decodeCbor } from "./cbor.ts";
+export { UpstreamIdClient, UpstreamIdError, parseUpstreamProfile, upstreamIssuerFromEnv } from "./upstream.ts";
+export type { UpstreamIdConfig, UpstreamProfile } from "./upstream.ts";
 export {
   CUMULUS_DOMAIN_DEFAULTS,
   MAIL_DOMAIN as CUMULUS_MAIL_DOMAIN,

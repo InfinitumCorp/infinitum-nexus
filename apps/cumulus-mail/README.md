@@ -26,6 +26,7 @@ Open http://localhost:3010 and sign in with a passkey.
 | `CUMULUS_MAIL_HOST` | Cumulus://Mail host, default `mail.cumuluscloud.app` |
 | `MAIL_DATA_DIR` | Where stores and the Firmament ledger live, default `./data` |
 | `OMNIROUTE_API_KEY` | Turns on SCALVS briefs and Clean suggestions on open-weight models (see `packages/ai` for backup hosts) |
+| `CUMULUS_ID_ISSUER` | Upstream mode: issuer origin, e.g. `https://id.cumuluscloud.app`. Mail then signs people in there and keeps the issuer's cid; it never creates an ID itself. See docs/cumulus-id.md |
 | `CUMULUS_MAIL_MASTER_KEY` | Base64 32-byte Cumulus Tunnel master key. Without it, one is created at `MAIL_DATA_DIR/tunnel-master.key`; in production set it from a secrets manager instead |
 | `SCALVS_MODEL` | Model for SCALVS Clean, default `claude-opus-5-5` |
 | Social sign-in | Same variables as +SPCTR; callback `{MAIL_ORIGIN}/api/auth/oauth/{provider}/callback` |

@@ -16,7 +16,7 @@ import { labyrinthFromEnvironment } from "@infinitum/lbrnth";
 import { existsSync, readFileSync, writeFileSync, mkdirSync, chmodSync } from "node:fs";
 import { join } from "node:path";
 import { Ledger, FileStore, generateSigner, signerFromPrivateKey } from "@infinitum/firmament";
-import { cookieDomainForHost, readCumulusDomain, socialFromEnv } from "@infinitum/cid";
+import { cookieDomainForHost, readCumulusDomain, socialFromEnv, upstreamIssuerFromEnv } from "@infinitum/cid";
 import { createCumulus, emptyCumulusStores, loadCumulusStores, loadOrCreateMasterKey, saveCumulusStores } from "@infinitum/cumulus";
 import { createMailApp } from "./app.ts";
 
@@ -44,7 +44,7 @@ if (!verified.ok) {
 const stores = loadCumulusStores(dataDir, emptyCumulusStores());
 const social = socialFromEnv();
 const masterKey = loadOrCreateMasterKey(dataDir);
-const suite = createCumulus({ labyrinth: labyrinthFromEnvironment(process.env, process.env.LBRNTH_SNAPSHOT_FILE ?? join(dataDir, "labyrinth.json")), ledger, signer, rpId: new URL(origin).hostname, origins: [origin], stores, social: { providers: social }, mailOrigin: origin, masterKey });
+const suite = createCumulus({ labyrinth: labyrinthFromEnvironment(process.env, process.env.LBRNTH_SNAPSHOT_FILE ?? join(dataDir, "labyrinth.json")), ledger, signer, rpId: new URL(origin).hostname, origins: [origin], stores, social: { providers: social }, mailOrigin: origin, masterKey, upstreamIssuer: upstreamIssuerFromEnv(process.env) });
 const backfilled = suite.provisionAll();
 
 const app = createMailApp({

@@ -87,6 +87,8 @@ export interface Account {
   orgId?: string;
   /** Link to the organization identity provider, for SSO members. */
   federated?: { issuer: string; subject: string };
+  /** Set on a product's local mirror of an account issued by Cumulus://ID (see adoptUpstreamAccount). */
+  upstream?: { issuer: string; adoptedAt: string };
   /** Google, GitHub, Microsoft, Apple, ChatGPT or Amazon Cognito accounts linked for sign-in. */
   identities?: LinkedIdentity[];
   createdAt: string;
@@ -105,7 +107,9 @@ export interface LinkedIdentity {
 export type SessionMethod =
   | "passkey" | "security-key" | "sso" | "passkey+totp"
   | `social:${SocialProviderId}` | `social:${SocialProviderId}+totp`
-  | "device-handoff";
+  | "device-handoff"
+  /** Signed in at the Cumulus://ID issuer; this product holds a local mirror of the account. */
+  | "cumulus-id";
 
 export interface Authenticator {
   id: string;
@@ -220,6 +224,13 @@ export interface CidConfig {
    * A failing listener never blocks sign-in.
    */
   onEvent?: (event: CidEvent) => void | Promise<void>;
+  /**
+   * Upstream mode. When set to the Cumulus://ID issuer origin (https://id.cumuluscloud.app), this
+   * service never creates an account of its own: createAccount, new social sign-ins and new SSO
+   * members are refused, and accounts arrive only through adoptUpstreamAccount with the issuer's cid.
+   * Accounts that already exist locally keep signing in.
+   */
+  upstreamIssuer?: string;
 }
 
 export type CidEventName =
@@ -269,13 +280,16 @@ export class CidService {
   readonly mailDomain: string;
   /** Exact CORS origins for ID, Cloud and Mail. Never a wildcard. */
   readonly corsOrigins: readonly string[];
-  private readonly cfg: Required<Omit<CidConfig, "store" | "social" | "onEvent">>;
+  private readonly cfg: Required<Omit<CidConfig, "store" | "social" | "onEvent" | "upstreamIssuer">>;
+  /** Issuer origin when this service only mirrors accounts from Cumulus://ID; undefined when it issues its own. */
+  readonly upstreamIssuer?: string;
   private readonly socialProviders: Partial<Record<SocialProviderId, SocialCredentials>>;
   private readonly socialClient: SocialClient;
   private readonly onEvent?: CidConfig["onEvent"];
 
   constructor(config: CidConfig) {
     this.onEvent = config.onEvent;
+    this.upstreamIssuer = config.upstreamIssuer ? config.upstreamIssuer.replace(/\/$/, "") : undefined;
     this.store = config.store ?? new CidStore();
     const domains = cumulusDomains();
     this.issuer = domains.issuer;
@@ -341,6 +355,9 @@ export class CidService {
   /* ---------------- Accounts ---------------- */
 
   async createAccount(input: { username: string; orgId?: string; accountType?: string }): Promise<Account> {
+    if (this.upstreamIssuer) {
+      throw new CidError("signup_at_issuer", `New Cumulus://IDs are created at ${this.upstreamIssuer}. Sign in there and you'll come straight back.`);
+    }
     if (input.accountType === "odin" || input.accountType === "military") {
       throw new CidError("odin_separate", "ODIN° accounts are issued separately, outside consumer accounts");
     }
@@ -360,12 +377,67 @@ export class CidService {
       createdAt: this.now().toISOString(),
       entitlements: FREE_ENTITLEMENTS,
     };
+    return this.insertAccount(account, { event: "account.created", org: input.orgId ?? null });
+  }
+
+  private async insertAccount(account: Account, ledgerPayload: Record<string, unknown>): Promise<Account> {
     this.store.accounts.set(account.cid, account);
-    this.store.byUsername.set(username, account.cid);
+    this.store.byUsername.set(account.username, account.cid);
     // Only the event is recorded; the CID is never sold and personal details stay off the ledger.
-    await this.record("identity", account.cid, account.cid, { event: "account.created", org: input.orgId ?? null });
+    await this.record("identity", account.cid, account.cid, ledgerPayload);
     await this.emit("account.created", account.cid);
     return account;
+  }
+
+  /**
+   * Upstream mode: sign in a person whose account was issued by Cumulus://ID. The profile must come
+   * from the issuer's token endpoint over a direct call (UpstreamIdClient.finish), never from the
+   * browser. The local account keeps the issuer's cid, so Mail, Cloud and Wallet line up with every
+   * other product. A local account that already uses the same username under a different cid (a
+   * Mail-only account from before the cutover) is never merged automatically.
+   */
+  async adoptUpstreamAccount(
+    profile: { cid: string; username: string; email: string; handle: string },
+    device: string,
+  ): Promise<{ token: string; session: Session; created: boolean }> {
+    const issuer = this.upstreamIssuer;
+    if (!issuer) throw new CidError("upstream_off", "This product issues its own Cumulus://IDs");
+    const username = profile.username.toLowerCase();
+    if (!/^cid_[0-9a-f-]{36}$/.test(profile.cid) || !USERNAME.test(username) || profile.email !== `${username}@${this.mailDomain}`) {
+      throw new CidError("bad_profile", "Cumulus://ID returned an account this product can't use.");
+    }
+    let created = false;
+    const existing = this.store.accounts.get(profile.cid);
+    if (existing) {
+      if (existing.username !== username) {
+        throw new CidError("username_conflict", "This Cumulus://ID doesn't match the account stored here. Contact support.");
+      }
+      if (!existing.upstream) existing.upstream = { issuer, adoptedAt: this.now().toISOString() };
+    } else {
+      const holder = this.store.byUsername.get(username);
+      if (holder && holder !== profile.cid) {
+        throw new CidError(
+          "username_conflict",
+          `${username}@${this.mailDomain} belongs to an older account on this service. Sign in with your passkey here, or contact support to move it to your Cumulus://ID.`,
+        );
+      }
+      const now = this.now().toISOString();
+      await this.insertAccount(
+        {
+          cid: profile.cid,
+          username,
+          mailAddress: `${username}@${this.mailDomain}`,
+          handle: /^@[a-z0-9._-]{3,40}$/.test(profile.handle) ? profile.handle : `@${username}.veil`,
+          createdAt: now,
+          entitlements: FREE_ENTITLEMENTS,
+          upstream: { issuer, adoptedAt: now },
+        },
+        { event: "account.adopted", issuer },
+      );
+      created = true;
+    }
+    const issued = await this.issueSession(profile.cid, device, "cumulus-id");
+    return { ...issued, created };
   }
 
   getAccount(cid: string): Account {

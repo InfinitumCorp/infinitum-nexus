@@ -15,7 +15,7 @@ import { scalvsCleanAgent, type CleanAgent, type CleanSuggestion } from "./clean
 import { bulkSenders, classify, inboxMix, THREAD_ACTIONS, type ThreadAction, type ThreadSnapshot } from "@infinitum/mail";
 import { readFile } from "node:fs/promises";
 import { extname, join, normalize, sep } from "node:path";
-import { CidError, MAIL_DOMAIN, cumulusCorsHeaders, type Account } from "@infinitum/cid";
+import { CidError, MAIL_DOMAIN, UpstreamIdClient, UpstreamIdError, cumulusCorsHeaders, type Account } from "@infinitum/cid";
 import { QuotaError } from "@infinitum/cloud";
 import { WalletError } from "@infinitum/firm";
 import { MailError, isE2E, threadOf, transcript, type MailMessage } from "@infinitum/mail";
@@ -32,6 +32,12 @@ export const DRIVE_APP = "cumulus-cloud";
 export const DRIVE_SCOPES = ["drive:read", "drive:write"];
 const COOKIE = "cmail_session";
 const OAUTH_COOKIE = "cmail_oauth";
+const UPSTREAM_COOKIE = "cmail_cid";
+/** The legacy "Sign in with Cumulus://ID" alias. In upstream mode each one forwards to the issuer. */
+const ID_ALIAS_ROUTES: [method: string, path: string][] = [
+  ["GET", "/api/id/authorize"], ["GET", "/api/id/redeem"], ["GET", "/api/id/end"], ["GET", "/api/id/userinfo"], ["GET", "/api/id/me"],
+  ["POST", "/api/id/token"], ["POST", "/api/id/signout"],
+];
 const MAX_BODY = 25_000_000;
 const MUTATING = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
@@ -66,6 +72,8 @@ export interface MailAppDeps {
   billingStore?: BillingLinkStore;
   /** Infinitum revenue API (Stripe Checkout, portal, entitlements). Defaults to the production API. */
   revenue?: RevenueClient;
+  /** Upstream mode only: how Mail calls the Cumulus://ID token endpoint. Defaults to fetch (tests inject one). */
+  upstreamFetch?: typeof fetch;
 }
 
 class HttpError extends Error {
@@ -77,8 +85,11 @@ class HttpError extends Error {
 }
 class Redirect {
   readonly location: string;
-  constructor(location: string) {
+  /** 302 by default; 307 keeps the method and body (used to forward POSTs to the issuer). */
+  readonly status: 302 | 307;
+  constructor(location: string, status: 302 | 307 = 302) {
     this.location = location;
+    this.status = status;
   }
 }
 
@@ -297,7 +308,15 @@ export function createMailApp(deps: MailAppDeps) {
 
   /* ---------------- "Sign in with Cumulus://ID" for every Infinitum product ---------------- */
 
-  registerIdProvider({ route, cid, origin: deps.origin, sessionCookie, device, need, str, Redirect, HttpError });
+  if (cid.upstreamIssuer) {
+    // Upstream mode: id.cumuluscloud.app is the only issuer. Buttons that still point at Mail are
+    // forwarded there unchanged (307 keeps POST bodies), so every product gets the issuer's cid.
+    for (const [method, path] of ID_ALIAS_ROUTES) {
+      route(method, path, (ctx) => new Redirect(`${cid.upstreamIssuer}${path}${ctx.query.size ? `?${ctx.query}` : ""}`, 307), false, { csrf: false });
+    }
+  } else {
+    registerIdProvider({ route, cid, origin: deps.origin, sessionCookie, device, need, str, Redirect, HttpError });
+  }
 
   /* ---------------- Buying Infinitum products with a Cumulus://ID (see billing.ts) ---------------- */
 
@@ -448,6 +467,46 @@ export function createMailApp(deps: MailAppDeps) {
   }, false);
 
   route("GET", "/api/auth/providers", () => cid.socialProvidersEnabled(), false);
+
+  /* ---------------- Upstream mode: sign in at id.cumuluscloud.app ---------------- */
+
+  /** Where the sign-in page should send people, or null when Mail still issues its own IDs. */
+  route("GET", "/api/auth/issuer", () => ({ issuer: cid.upstreamIssuer ?? null }), false);
+  if (cid.upstreamIssuer) {
+    const upstream = new UpstreamIdClient({
+      issuer: cid.upstreamIssuer,
+      clientId: "cumulus-mail",
+      redirectUri: `${deps.origin}/api/auth/cid/callback`,
+      mailDomain: cid.mailDomain,
+      fetchImpl: deps.upstreamFetch,
+    });
+    const upstreamCookie = (value: string, maxAge: number) =>
+      `${UPSTREAM_COOKIE}=${value}; HttpOnly; Path=/api/auth/cid; SameSite=Lax; Max-Age=${maxAge}${deps.secureCookies ? "; Secure" : ""}`;
+    route("GET", "/api/auth/cid/start", (ctx) => {
+      const { url, cookie } = upstream.start({ create: ctx.query.get("create") === "1" });
+      ctx.res.setHeader("Set-Cookie", upstreamCookie(cookie, 600));
+      return new Redirect(url);
+    }, false);
+    route("GET", "/api/auth/cid/callback", async (ctx) => {
+      const q = ctx.query;
+      const clear = upstreamCookie("", 0);
+      if (q.get("error")) {
+        ctx.res.setHeader("Set-Cookie", clear);
+        return new Redirect(`/#/signin-error/${encodeURIComponent("Sign-in was cancelled.")}`);
+      }
+      try {
+        const profile = await upstream.finish({ code: q.get("code"), state: q.get("state"), cookie: parseCookies(ctx.req.headers.cookie)[UPSTREAM_COOKIE] });
+        const { token, session } = await cid.adoptUpstreamAccount(profile, device(ctx));
+        ctx.res.setHeader("Set-Cookie", [clear, sessionCookie(token)]);
+        await ensureGrant(cid.getAccount(session.cid));
+        return new Redirect("/");
+      } catch (err) {
+        ctx.res.setHeader("Set-Cookie", clear);
+        const message = err instanceof CidError || err instanceof UpstreamIdError ? err.message : "Sign-in failed. Please try again.";
+        return new Redirect(`/#/signin-error/${encodeURIComponent(message)}`);
+      }
+    }, false);
+  }
 
   const oauthCookie = (provider: string, value: string, maxAge: number) => {
     const sameSite = provider === "apple" && deps.secureCookies ? "None" : "Lax";
@@ -745,7 +804,7 @@ export function createMailApp(deps: MailAppDeps) {
       const result = deps.transaction ? await deps.transaction(run) : await run();
       if (MUTATING.has(req.method!) || result instanceof Redirect) deps.onChange?.();
       if (result instanceof Redirect) {
-        res.writeHead(302, { Location: result.location, "Cache-Control": "no-store" });
+        res.writeHead(result.status, { Location: result.location, "Cache-Control": "no-store" });
         res.end();
         return;
       }

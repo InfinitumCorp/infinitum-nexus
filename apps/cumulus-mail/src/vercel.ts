@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { Ledger, signerFromPrivateKey } from "@infinitum/firmament";
-import { socialFromEnv } from "@infinitum/cid";
+import { socialFromEnv, upstreamIssuerFromEnv } from "@infinitum/cid";
 import { createCumulus, emptyCumulusStores } from "@infinitum/cumulus";
 import { RemoteState, HttpGateway } from "../../spectre/src/server/remote.ts";
 import type { InboundMail } from "@infinitum/mail";
@@ -82,7 +82,7 @@ function build() {
   const ledger = new Ledger(state.ledgerStore, { authorizedSigners: [signer.publicKey] });
   const suite = createCumulus({
     ledger, signer, rpId: new URL(origin).hostname, origins, stores,
-    social: { providers: socialFromEnv() }, mailOrigin: origin,
+    social: { providers: socialFromEnv() }, mailOrigin: origin, upstreamIssuer: upstreamIssuerFromEnv(process.env),
   });
 
   // Refuse to serve if the stored ledger fails verification (tampering or a wrong signing key).

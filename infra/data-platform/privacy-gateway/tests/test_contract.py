@@ -1,4 +1,4 @@
-"""The gateway must serve exactly what conjure/privacy.yml declares."""
+"""The gateway must serve exactly what conjure/privacy.yml and platform.yml declare."""
 from pathlib import Path
 
 import pytest
@@ -11,6 +11,7 @@ SPEC = yaml.safe_load((Path(__file__).parents[2] / "conjure" / "privacy.yml").re
 OBJECTS = SPEC["types"]["definitions"]["objects"]
 SERVICE = SPEC["services"]["PrivacyGatewayService"]
 ERRORS = SPEC["types"]["definitions"]["errors"]
+PLATFORM = yaml.safe_load((Path(__file__).parents[2] / "conjure" / "platform.yml").read_text("utf-8"))
 
 
 def fields(name):
@@ -27,9 +28,24 @@ def gw(redactor, tmp_path, monkeypatch):
 
 
 def test_every_endpoint_is_routed(gw):
-    declared = {SERVICE["base-path"] + e["http"].split(" ", 1)[1] for e in SERVICE["endpoints"].values()}
-    assert declared == set(gw.routes)
-    assert all(e["http"].startswith("POST ") for e in SERVICE["endpoints"].values())
+    declared = set()
+    for spec in (SPEC, PLATFORM):
+        for svc in spec["services"].values():
+            for e in svc["endpoints"].values():
+                method, path = e["http"].split(" ", 1)
+                declared.add((method, svc["base-path"] + path))
+    assert declared == {(r.method, r.template) for r in gw.routes}
+
+
+def test_platform_error_names_are_declared():
+    import inspect
+    import re
+
+    import cumulus_privacy.platform as platform
+
+    raised = set(re.findall(r'PlatformError\(\s*\d+,\s*"(\w+)"', inspect.getsource(platform)))
+    raised.add("InvalidArgument")  # via _bad()
+    assert raised <= set(PLATFORM["types"]["definitions"]["errors"])
 
 
 def test_responses_match_declared_objects(gw):

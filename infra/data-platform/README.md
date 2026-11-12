@@ -5,7 +5,8 @@ This directory holds the running pieces. The design, licenses and adopt/defer de
 
 | Path | What |
 |---|---|
-| `privacy-gateway/` | Python service. Uses Presidio for redaction, runs Deequ-style quality suites and makes Google DP releases. Serves `conjure/privacy.yml` |
+| `privacy-gateway/` | Python service. Uses Presidio for redaction, runs Deequ-style quality suites and makes Google DP releases. Also runs catalog, collection and search. Serves `conjure/privacy.yml` and `conjure/platform.yml` |
+| `smoke/` | End-to-end check of catalog, collection and search against the running stack |
 | `conjure/` | Palantir Conjure API definitions for the product ↔ data platform contracts |
 | `docker-compose.yml` | Privacy gateway and OpenSearch. Profile `bi` adds Superset (Cumulus ID sign-in) |
 | `search/` | OpenSearch events index template and bootstrap |

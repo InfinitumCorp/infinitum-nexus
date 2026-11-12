@@ -17,6 +17,7 @@
         "schemaVersion": { "type": "integer" },
         "occurredAt": { "type": "date" },
         "region": { "type": "keyword" },
+        "consent": { "type": "keyword" },
         "objectType": { "type": "keyword" },
         "objectId": { "type": "keyword" },
         "text": { "type": "text" },

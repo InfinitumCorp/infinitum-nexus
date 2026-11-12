@@ -875,25 +875,28 @@ function renderAuth(message = "") {
   const fail = (e) => { err.textContent = e.name === "NotAllowedError" ? "Passkey request was cancelled." : e.message; };
   const username = el("input", { placeholder: `name@${MAIL_DOMAIN}`, "aria-label": "Your new Cumulus://ID", autocomplete: "username webauthn", autocapitalize: "none", spellcheck: "false" });
   const social = el("div", { class: "social" });
-  const issuerBox = el("div", { class: "social" });
-  const createBox = el("div", {});
   api("/api/auth/providers")
     .then((providers) => social.replaceChildren(...providers.map((p) => el("a", { class: "outline", href: `/api/auth/oauth/${encodeURIComponent(p.id)}/start` }, [`Continue with ${p.label}`]))))
     .catch(() => {});
-  // Upstream mode: Cumulus://IDs are created and signed in at the issuer, never here.
-  api("/api/auth/issuer")
-    .then(({ issuer }) => {
-      if (!issuer) return;
-      issuerBox.replaceChildren(el("a", { class: "primary", href: "/api/auth/cid/start" }, ["Continue with Cumulus://ID"]));
-      createBox.replaceChildren(el("a", { class: "outline", href: "/api/auth/cid/start?create=1" }, ["Create my Cumulus://ID"]));
-      for (const node of [divider, username, createButton]) node.remove();
-      // Only accounts made on Mail before the switch still use a passkey stored here.
-      passkeyButton.className = "outline";
-      passkeyButton.textContent = "Older Mail account? Use your passkey";
-    })
-    .catch(() => {});
-  const divider = el("p", { class: "muted divider" }, ["New here? Pick your address. It's your Cumulus://ID."]);
-  const createButton = el("button", { class: "outline", onClick: async () => {
+  root.replaceChildren(el("div", { class: "auth" }, [el("div", { class: "auth-card" }, [
+    el("div", { class: "mark" }, ["Cumulus://Mail", el("sup", { class: "tm" }, ["™"])]),
+    el("p", { class: "muted" }, [state.signInFor ? `Sign in with your Cumulus://ID to continue to ${state.signInFor}` : "Sign in with your Cumulus://ID"]),
+    el("button", { class: "primary", onClick: async () => {
+      err.textContent = "";
+      try {
+        const { options } = await api("/api/auth/signin", {});
+        await finishSignIn(await usePasskey(options));
+      } catch (e) { fail(e); }
+    } }, ["Continue with passkey"]),
+    window.cumulusDesktop ? el("button", { class: "outline", onClick: () => {
+      err.textContent = "";
+      window.cumulusDesktop.signInWithBrowser().catch(fail);
+      err.textContent = "Finish signing in in your browser, then come back here.";
+    } }, ["Sign in with your browser"]) : null,
+    social,
+    el("p", { class: "muted divider" }, ["New here? Pick your address. It's your Cumulus://ID."]),
+    username,
+    el("button", { class: "outline", onClick: async () => {
       err.textContent = "";
       const name = username.value.trim();
       if (!name) { err.textContent = "Pick your address first."; return; }
@@ -902,29 +905,7 @@ function renderAuth(message = "") {
         const done = await api("/api/auth/signup/finish", { cid, response: await createPasskey(options) });
         await finishSignIn(await usePasskey(done.options));
       } catch (e) { fail(e); }
-    } }, ["Create my Cumulus://ID"]);
-  const passkeyButton = el("button", { class: "primary", onClick: async () => {
-      err.textContent = "";
-      try {
-        const { options } = await api("/api/auth/signin", {});
-        await finishSignIn(await usePasskey(options));
-      } catch (e) { fail(e); }
-    } }, ["Continue with passkey"]);
-  root.replaceChildren(el("div", { class: "auth" }, [el("div", { class: "auth-card" }, [
-    el("div", { class: "mark" }, ["Cumulus://Mail", el("sup", { class: "tm" }, ["™"])]),
-    el("p", { class: "muted" }, [state.signInFor ? `Sign in with your Cumulus://ID to continue to ${state.signInFor}` : "Sign in with your Cumulus://ID"]),
-    issuerBox,
-    passkeyButton,
-    window.cumulusDesktop ? el("button", { class: "outline", onClick: () => {
-      err.textContent = "";
-      window.cumulusDesktop.signInWithBrowser().catch(fail);
-      err.textContent = "Finish signing in in your browser, then come back here.";
-    } }, ["Sign in with your browser"]) : null,
-    social,
-    divider,
-    createBox,
-    username,
-    createButton,
+    } }, ["Create my Cumulus://ID"]),
     err,
     el("p", { class: "muted small" }, [`Your @${MAIL_DOMAIN} address is your Cumulus://ID. It comes with 15 GB shared with Cumulus://Cloud and a FIRM Wallet. Free.`]),
   ])]));

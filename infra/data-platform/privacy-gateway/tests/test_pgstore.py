@@ -30,10 +30,16 @@ def gateway_dsn():
     sql = MIGRATION.read_text("utf-8")
     with psycopg.connect(ADMIN, autocommit=True) as c:
         c.execute(sql)  # first run: tables, no role yet (notice only)
-        if not c.execute("select 1 from pg_roles where rolname = 'data_platform_gateway'").fetchone():
-            c.execute(f"create role data_platform_gateway login noinherit password '{GATEWAY_PASSWORD}'")
+        for role in ("data_platform_gateway", "data_platform_reader"):
+            if not c.execute("select 1 from pg_roles where rolname = %s", (role,)).fetchone():
+                c.execute(f"create role {role} login noinherit password '{GATEWAY_PASSWORD}'")
         c.execute(sql)  # second run: grants and policies
     return psycopg.conninfo.make_conninfo(ADMIN, user="data_platform_gateway", password=GATEWAY_PASSWORD)
+
+
+@pytest.fixture()
+def reader_dsn(gateway_dsn):
+    return psycopg.conninfo.make_conninfo(ADMIN, user="data_platform_reader", password=GATEWAY_PASSWORD)
 
 
 @pytest.fixture()
@@ -86,6 +92,21 @@ def test_gateway_role_cannot_rewrite_events(stack, clean):
     collector.ingest("spectre", [event()])
     with psycopg.connect(clean) as c, pytest.raises(psycopg.errors.InsufficientPrivilege):
         c.execute("update data_platform.events set text = 'tampered'")
+
+
+def test_bi_reader_sees_only_safe_columns(stack, reader_dsn):
+    _, collector, *_ = stack
+    collector.ingest("spectre", [event(), event(tenant="globex")])
+    with psycopg.connect(reader_dsn, autocommit=True) as c:
+        rows = c.execute("select product, tenant, event_type from data_platform.events_bi order by tenant").fetchall()
+        assert [r[1] for r in rows] == ["acme", "globex"]
+        for sql in ("select cid from data_platform.events", "select payload from data_platform.events",
+                    "select text from data_platform.events", "select spec from data_platform.datasets",
+                    "select * from data_platform.privacy_budget"):
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                c.execute(sql)
+        with pytest.raises((psycopg.errors.InsufficientPrivilege, psycopg.errors.ReadOnlySqlTransaction)):
+            c.execute("delete from data_platform.events")
 
 
 def test_retention_purge(stack):

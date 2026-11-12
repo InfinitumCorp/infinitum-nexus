@@ -88,3 +88,37 @@ begin
     execute 'create policy gateway_all on data_platform.privacy_budget for all to data_platform_gateway using (true) with check (true)';
   end if;
 end $$;
+
+-- Dashboards (Superset) read through this view only. security_invoker makes the reader's own
+-- column grants and RLS policy apply, so the pseudonym (cid), free text and payload are never
+-- readable by the BI role, even with hand-written SQL.
+create or replace view data_platform.events_bi with (security_invoker = true) as
+  select event_id, product, tenant, event_type, schema_version, occurred_at, region,
+         object_type, object_id, ingested_at
+  from data_platform.events;
+
+-- Optional read-only role for Superset, created the same way as the gateway role:
+--   create role data_platform_reader login noinherit password '<SCRAM-SHA-256 verifier>';
+do $$
+begin
+  if not exists (select 1 from pg_roles where rolname = 'data_platform_reader') then
+    raise notice 'data_platform_reader does not exist; skipping BI grants';
+    return;
+  end if;
+  execute 'alter role data_platform_reader set search_path = data_platform';
+  execute 'alter role data_platform_reader set default_transaction_read_only = on';
+  execute 'alter role data_platform_reader connection limit 5';
+  execute 'grant usage on schema data_platform to data_platform_reader';
+  execute 'grant select (event_id, product, tenant, event_type, schema_version, occurred_at, region,
+                         object_type, object_id, ingested_at) on data_platform.events to data_platform_reader';
+  execute 'grant select (name, product, updated_at) on data_platform.datasets to data_platform_reader';
+  execute 'grant select on data_platform.events_bi to data_platform_reader';
+  execute 'alter table data_platform.events force row level security';
+  execute 'alter table data_platform.datasets force row level security';
+  if not exists (select 1 from pg_policies where schemaname = 'data_platform' and tablename = 'events' and policyname = 'reader_select') then
+    execute 'create policy reader_select on data_platform.events for select to data_platform_reader using (true)';
+  end if;
+  if not exists (select 1 from pg_policies where schemaname = 'data_platform' and tablename = 'datasets' and policyname = 'reader_select') then
+    execute 'create policy reader_select on data_platform.datasets for select to data_platform_reader using (true)';
+  end if;
+end $$;

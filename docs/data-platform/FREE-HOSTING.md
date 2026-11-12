@@ -79,6 +79,14 @@ So this needs William's OK before anything is created.
    - Copy the example env file: `cp infra/data-platform/deploy/box/.env.example infra/data-platform/deploy/box/.env`
    - Fill in the values in that `.env`.
    - Start it: `docker compose -f infra/data-platform/deploy/box/compose.box.yml --env-file infra/data-platform/deploy/box/.env up -d`
+6. **Optional: connect dashboards.** Create the read-only role:
+   `create role data_platform_reader login noinherit password '<generated>';`
+
+   Re-run the migration, then add the database in Superset (Settings > Database Connections)
+   with that role's pooler URL. Build charts on `data_platform.events_bi`. That role:
+   - can't read the pseudonym, the text or the payload;
+   - can't read the privacy budget;
+   - can't write anything.
 
 Steps 1–3 change production systems, so nothing here has been run.
 
@@ -87,5 +95,7 @@ Steps 1–3 change production systems, so nothing here has been run.
 - The gateway connects as `data_platform_gateway`. That role can't update events (they are
   append-only) and has no access outside the `data_platform` schema. Row-level security is
   forced on, so the Supabase `anon` and `authenticated` API roles see nothing.
+- Superset reads as `data_platform_reader`. That role is read-only and has column-level grants
+  only: it sees no pseudonyms, text or payloads.
 - Every event is redacted by Presidio before it is written. No raw text reaches Supabase.
 - No ports are open on the box. The tunnel only dials out.

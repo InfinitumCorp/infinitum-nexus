@@ -30,5 +30,15 @@
                 <data android:scheme="https" android:host="mttrn.app" />
             </intent-filter>
         </activity>
+        <!-- Starts ProcessLifecycleOwner for Amplitude analytics: the entry Gradle's manifest merger
+             would add from androidx.lifecycle:lifecycle-process. -->
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            android:authorities="com.infinitum.metatron.androidx-startup"
+            android:exported="false">
+            <meta-data
+                android:name="androidx.lifecycle.ProcessLifecycleInitializer"
+                android:value="androidx.startup" />
+        </provider>
     </application>
 </manifest>

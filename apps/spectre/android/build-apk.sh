@@ -20,6 +20,8 @@ MIRROR_URL="${MIRROR_URL-https://ru.id.cumuluscloud.app}"
 OUT="$HERE/build"
 EXE=""; [ -f "$BT/aapt2.exe" ] && EXE=".exe"
 BAT=""; [ -f "$BT/d8.bat" ] && BAT=".bat"
+# Amplitude analytics (official SDK, vendored and SHA-256 pinned): apps/android-shared/amplitude.
+. "$HERE/../../android-shared/amplitude/env.sh"
 
 rm -rf "$OUT" && mkdir -p "$OUT/res" "$OUT/gen" "$OUT/classes" "$OUT/dex"
 cp -r "$HERE/res/." "$OUT/res/"
@@ -27,11 +29,12 @@ sed -i "s#<string name=\"spctr_url\" translatable=\"false\">[^<]*</string>#<stri
 sed -i "s#<string name=\"mirror_url\" translatable=\"false\">[^<]*</string>#<string name=\"mirror_url\" translatable=\"false\">${MIRROR_URL}</string>#" "$OUT/res/values/strings.xml"
 
 "$BT/aapt2$EXE" compile --dir "$OUT/res" -o "$OUT/res.zip"
+"$BT/aapt2$EXE" compile --dir "$AMP_RES" -o "$OUT/res-amplitude.zip"
 "$BT/aapt2$EXE" link -o "$OUT/unsigned.apk" -I "$JAR" --manifest "$HERE/AndroidManifest.xml" --java "$OUT/gen" \
-  --min-sdk-version 24 --target-sdk-version 35 "$OUT/res.zip"
-javac -source 11 -target 11 -nowarn -Xlint:-options -classpath "$JAR" -d "$OUT/classes" $(find "$HERE/src" "$OUT/gen" -name "*.java")
-"$BT/d8$BAT" --release --min-api 24 --lib "$JAR" --output "$OUT/dex" $(find "$OUT/classes" -name "*.class")
-(cd "$OUT/dex" && jar uf "$OUT/unsigned.apk" classes.dex)
+  --min-sdk-version 24 --target-sdk-version 35 --extra-packages "$AMP_PKGS" "$OUT/res.zip" "$OUT/res-amplitude.zip"
+javac -source 11 -target 11 -nowarn -Xlint:-options -classpath "$(amp_path "$JAR")$AMP_CP" -d "$OUT/classes" $(find "$HERE/src" "$AMP_SRC" "$OUT/gen" -name "*.java")
+"$BT/d8$BAT" --release --min-api 24 --lib "$JAR" --output "$OUT/dex" $(find "$OUT/classes" -name "*.class") $AMP_JARS
+(cd "$OUT/dex" && jar uf "$OUT/unsigned.apk" classes*.dex)
 "$BT/zipalign$EXE" -f -p 4 "$OUT/unsigned.apk" "$OUT/aligned.apk"
 
 KS="${KEYSTORE:-$HOME/.android/debug.keystore}"

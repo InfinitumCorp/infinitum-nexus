@@ -22,6 +22,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.HashMap;
 import java.util.Map;
+import app.infinitum.analytics.Analytics;
 
 /**
  * METATRON¹⁰⁰ for Android: a full-screen WebView on https://mttrn.app.
@@ -53,6 +54,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
+        Analytics.start(this); // app opens and sessions only; see apps/android-shared/amplitude
         requestWindowFeature(Window.FEATURE_NO_TITLE);
         Window w = getWindow();
         w.setStatusBarColor(Color.WHITE);

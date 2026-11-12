@@ -14,6 +14,7 @@ import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.List;
+import app.infinitum.analytics.Analytics;
 
 /**
  * Cumulus Mail for Android. Opens Cumulus://Mail in a Chrome Custom Tab: the full browser engine,
@@ -38,6 +39,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
+        Analytics.start(this); // app opens and sessions only; see apps/android-shared/amplitude
         final Intent intent = getIntent();
         final String main = getString(R.string.mail_url);
         final String mirror = getString(R.string.mirror_url);

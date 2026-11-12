@@ -15,23 +15,26 @@ EXE=""; BAT=""
 case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) EXE=".exe"; BAT=".bat";; esac
 echo "build-tools: $BT"
 echo "platform:    $PLATFORM"
+# Amplitude analytics (official SDK, vendored and SHA-256 pinned): apps/android-shared/amplitude.
+. ../android-shared/amplitude/env.sh
 
 rm -rf build && mkdir -p build/res build/classes build/dex
 
 "$BT/aapt2$EXE" compile --dir res -o build/res.zip
+"$BT/aapt2$EXE" compile --dir "$AMP_RES" -o build/res-amplitude.zip
 "$BT/aapt2$EXE" link -I "$JAR" --manifest AndroidManifest.xml -o build/unsigned.apk \
-  --java build/gen build/res.zip --auto-add-overlay
+  --java build/gen --extra-packages "$AMP_PKGS" build/res.zip build/res-amplitude.zip --auto-add-overlay
 # Bundled site. Added with jar, not aapt2 -A, which writes backslash paths on Windows.
 jar uf build/unsigned.apk assets
 
-javac --release 11 -nowarn -cp "$JAR" -d build/classes \
-  $(find src build/gen -name '*.java')
+javac --release 11 -nowarn -cp "$(amp_path "$JAR")$AMP_CP" -d build/classes \
+  $(find src "$AMP_SRC" build/gen -name '*.java')
 
 "$BT/d8$BAT" --release --min-api 24 --lib "$JAR" --output build/dex \
-  $(find build/classes -name '*.class')
+  $(find build/classes -name '*.class') $AMP_JARS
 
-cp build/dex/classes.dex build/classes.dex
-(cd build && jar uf unsigned.apk classes.dex 2>/dev/null || zip -q unsigned.apk classes.dex)
+cp build/dex/classes*.dex build/
+(cd build && jar uf unsigned.apk classes*.dex 2>/dev/null || zip -q unsigned.apk classes*.dex)
 
 "$BT/zipalign$EXE" -f -p 4 build/unsigned.apk build/aligned.apk
 

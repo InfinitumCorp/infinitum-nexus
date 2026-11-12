@@ -14,6 +14,7 @@ import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.List;
+import app.infinitum.analytics.Analytics;
 
 /**
  * +SPCTR for Android. Opens +SPCTR (id.cumuluscloud.app) in a Chrome Custom Tab: the full browser
@@ -37,6 +38,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
+        Analytics.start(this); // app opens and sessions only; see apps/android-shared/amplitude
         // A visible white window: some OEM power managers (TECNO Hiber) freeze an app whose only
         // window is translucent and empty, which would stop the probe below.
         getWindow().getDecorView().setBackgroundColor(0xFFFFFFFF);

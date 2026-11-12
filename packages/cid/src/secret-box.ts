@@ -56,6 +56,19 @@ export function deriveCidSecretKey(masterKey: Buffer): Buffer {
   return Buffer.from(hkdfSync("sha256", masterKey, Buffer.alloc(0), "cumulus-id secret box v1", 32));
 }
 
+/**
+ * The key hosted products seal with: CID_SECRET_KEY when set, else one derived (HKDF) from
+ * FIRMAMENT_SIGNER_KEY, the ledger signing key every hosted product already holds as a secret, so
+ * sealing needs no extra secret. Rotating the signing key without setting CID_SECRET_KEY to the old
+ * derived value would make sealed seeds unreadable, so pin it first (see deriveCidSecretKey).
+ */
+export function cidSecretKeyForHost(env: Record<string, string | undefined> = process.env): Buffer | undefined {
+  const explicit = cidSecretKeyFromEnv(env);
+  if (explicit) return explicit;
+  const signer = env.FIRMAMENT_SIGNER_KEY?.trim();
+  return signer ? deriveCidSecretKey(Buffer.from(signer, "utf8")) : undefined;
+}
+
 /** CID_SECRET_KEY: 32 bytes, base64 or base64url. Undefined when unset. */
 export function cidSecretKeyFromEnv(env: Record<string, string | undefined> = process.env): Buffer | undefined {
   const v = env.CID_SECRET_KEY?.trim();

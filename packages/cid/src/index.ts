@@ -66,5 +66,5 @@ export type { Queryable, PgPoolClient, PgCidRepositoryOptions } from "./postgres
 export { backfillCid, checkCidStore, cidStoreFromSnapshot } from "./backfill.ts";
 export type { BackfillReport, CidCheck, CidCounts } from "./backfill.ts";
 /** Sealing account secrets (authenticator-app seeds) at rest. */
-export { secretBox, deriveCidSecretKey, cidSecretKeyFromEnv } from "./secret-box.ts";
+export { secretBox, deriveCidSecretKey, cidSecretKeyFromEnv, cidSecretKeyForHost } from "./secret-box.ts";
 export type { SecretBox } from "./secret-box.ts";

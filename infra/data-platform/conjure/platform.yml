@@ -138,6 +138,21 @@ types:
       TenantNotAuthorized:
         namespace: DataPlatform
         code: PERMISSION_DENIED
+        docs: A product may only touch its own datasets and events. Military and defense products are excluded.
+      InvalidArgument:
+        namespace: DataPlatform
+        code: INVALID_ARGUMENT
+      CatalogUnavailable:
+        namespace: DataPlatform
+        code: INTERNAL
+        docs: The spec was saved, but DataHub did not accept it. Repeat the PUT; it is idempotent.
+      SearchUnavailable:
+        namespace: DataPlatform
+        code: INTERNAL
+      NotConfigured:
+        namespace: DataPlatform
+        code: INTERNAL
+        docs: The gateway runs without PLATFORM_PRODUCT_TOKENS, so these services are off.
 
 services:
   CollectionService:

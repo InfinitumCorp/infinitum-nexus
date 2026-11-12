@@ -90,7 +90,7 @@ const suite = createCumulus({
   mailOrigin: process.env.CUMULUS_MAIL_ORIGIN ?? cumulus.mailOrigin,
   masterKey: loadOrCreateMasterKey(dataDir),
 });
-suite.provisionAll();
+await suite.provisionAll();
 const cid = suite.cid;
 const crm = new SpectreCRM({ ledger, signer, store: spectreStore });
 

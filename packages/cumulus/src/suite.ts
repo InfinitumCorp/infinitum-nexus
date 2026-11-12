@@ -144,9 +144,9 @@ export class CumulusSuite {
   }
 
   /** Backfill: provision every existing CID that doesn't have a mailbox or wallet yet. */
-  provisionAll(): number {
+  async provisionAll(): Promise<number> {
     let n = 0;
-    for (const account of this.stores.cid.accounts.values()) {
+    for (const account of await this.cid.allAccounts()) {
       if (!this.mail.has(account.cid) || !this.wallets.get(account.cid)) {
         this.provision(account);
         n++;

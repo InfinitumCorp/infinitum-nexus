@@ -19,6 +19,7 @@ export class CopyingCidRepository implements CidRepository {
   async cidForUsername(u: string) { return this.#inner.cidForUsername(u); }
   async putAccount(a: Parameters<CidRepository["putAccount"]>[0]) { return this.#inner.putAccount(copy(a)); }
   async accountsInOrg(orgId: string) { return copy(await this.#inner.accountsInOrg(orgId)); }
+  async allAccounts() { return copy(await this.#inner.allAccounts()); }
 
   async cidForIdentity(k: string) { return this.#inner.cidForIdentity(k); }
   async setIdentity(k: string, cid: string) { return this.#inner.setIdentity(k, cid); }

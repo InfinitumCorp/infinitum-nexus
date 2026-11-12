@@ -67,7 +67,7 @@ describe("every Cumulus://ID comes with Mail, Cloud and a FIRM Wallet", () => {
     const { account } = await signUp(suite, "old");
     suite.stores.mail.mailboxes.clear();
     suite.stores.mail.addresses.clear();
-    assert.equal(suite.provisionAll(), 1);
+    assert.equal(await suite.provisionAll(), 1);
     assert.equal(suite.mail.resolve("old@cumuluscloud.app"), account.cid);
   });
 });

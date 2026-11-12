@@ -35,9 +35,21 @@ moving needs no API change.
 
 - **Supabase free plan:** 500 MB per database, and a project pauses after 7 days with no
   activity. The gateway writes every day (events plus the daily retention purge), so an active
-  platform doesn't pause. Watch the database size in the Supabase dashboard. Retention is enforced
-  per dataset (`retentionDays` in the spec) by `data_platform.purge_expired_events()`, which the
-  gateway runs once a day.
+  platform doesn't pause. Retention is enforced per dataset (`retentionDays` in the spec) by
+  `data_platform.purge_expired_events()`. The gateway runs it once a day; pg_cron also runs it
+  when that extension is enabled (step 7).
+- **Guards so the free database can't overflow.** These are in the gateway and set in the box
+  profile:
+
+  | Setting | Default | When reached |
+  |---|---|---|
+  | `PLATFORM_STORAGE_LIMIT_MB` | 450 | New events get 503 `StorageQuotaReached` with `Retry-After` |
+  | `PLATFORM_DAILY_EVENT_QUOTA` (per product, per UTC day) | 200,000 | 429 `IngestQuotaExceeded` with `Retry-After` set to UTC midnight |
+  | `PLATFORM_MAX_BATCH` (events per request) | 1,000 | 413 |
+
+  `GET /api/v1/health` reports `storage: ok | nearly_full | full`. `nearly_full` starts at 80%
+  of the limit. Products keep refused events and send them again later; event IDs make that
+  safe.
 - **The box** is the one single point of failure. While it is offline, collection and dashboards
   are down, but no data is lost, because events live in Supabase. Products must retry
   `POST /api/v1/collect` (event IDs make retries safe).
@@ -57,7 +69,11 @@ pointing at Supabase. Two catches:
 - Cloud Run needs a billing account attached, even at $0.
 - Presidio with spaCy needs about 1 GiB of memory and has a cold start of several seconds.
 
-So this needs William's OK before anything is created.
+So this needs William's OK before anything is created. The ready template is
+`infra/data-platform/deploy/cloudrun/service.yaml`. It runs one instance at most, scales to
+zero, and takes its secrets from Secret Manager (free for up to 6 active secret versions).
+Cloud Run throttles CPU between requests, so the gateway's background daily purge won't run
+reliably there. Enable pg_cron (step 7) before you use it.
 
 ## Steps for William (not done: each one touches production or an account)
 
@@ -77,8 +93,15 @@ So this needs William's OK before anything is created.
    `https://bi.<domain>/oauth-authorized/cumulus`.
 5. **Start the stack on the box.**
    - Copy the example env file: `cp infra/data-platform/deploy/box/.env.example infra/data-platform/deploy/box/.env`
-   - Fill in the values in that `.env`.
-   - Start it: `docker compose -f infra/data-platform/deploy/box/compose.box.yml --env-file infra/data-platform/deploy/box/.env up -d`
+   - Fill in the values in that `.env`, then run `chmod 600` on it.
+   - Run `bash infra/data-platform/deploy/box/box.sh up`. The script first checks the `.env`:
+     - every required value is set;
+     - the tokens are long enough;
+     - the database URL uses TLS and the restricted role (never `postgres`).
+
+     Then it builds, starts the stack and prints its health.
+   - Day to day, use the same script: `box.sh status`, `box.sh logs [service]`, `box.sh update`
+     (fast-forward pull and restart) and `box.sh down`.
 6. **Optional: connect dashboards.** Create the read-only role:
    `create role data_platform_reader login noinherit password '<generated>';`
 
@@ -87,8 +110,27 @@ So this needs William's OK before anything is created.
    - can't read the pseudonym, the text or the payload;
    - can't read the privacy budget;
    - can't write anything.
+7. **Optional: schedule retention in the database.** In Supabase, enable the `pg_cron` extension
+   (Database > Extensions; free), then re-run the migration. It schedules the purge every day
+   at 03:17 UTC, but only if the role running the migration can bypass RLS. Otherwise it prints
+   a notice and the gateway keeps doing the purge. Check that it ran with
+   `select * from cron.job_run_details order by start_time desc limit 5;`.
 
 Steps 1–3 change production systems, so nothing here has been run.
+
+## Right to erasure
+
+When a person asks to be forgotten, products call the `ErasureService` (`conjure/platform.yml`):
+
+- `POST /api/v1/erasure/subjects` with `{"cid": "<Cumulus ID>"}` and the product's own token.
+  It deletes that product's events about the person, in every tenant.
+- `POST /api/v1/erasure/subjects/all-products` with the pipeline token. It deletes the
+  person's events from every product. Call it when someone deletes their Cumulus ID.
+
+Events store only a keyed pseudonym of the CID, so the gateway pseudonymizes the CID it
+receives and deletes on that. Both calls return `{"deleted": n}` and are safe to repeat.
+Rotating `PRIVACY_PSEUDONYM_KEY` breaks this matching for older events, so don't rotate it
+without first erasing the events or re-keying them.
 
 ## Security notes
 

@@ -241,7 +241,8 @@ When we adopt it, pin Opacus with PyTorch, set a target epsilon of 8 or less wit
 | `PrivacyGatewayService` (redact, prepareExport, verifyQuality, releaseDp) | `/api/v1` | Yes, in `privacy-gateway`. A contract test checks routes and response fields against the YAML |
 | `CollectionService` (ingest events) | `/api/v1/collect` | Yes. Checks each event against its registered schema, product and region, redacts the payload with the dataset's field rules, and indexes it idempotently by `eventId` |
 | `CatalogService` (register and get datasets in DataHub) | `/api/v1/catalog` | Yes. A product registers and reads only its own datasets |
-| `SearchService` (search events in OpenSearch) | `/api/v1/search` | Yes. Tenant and product filters are added on the server |
+| `SearchService` (search events: Postgres full-text on the free tier, or OpenSearch) | `/api/v1/search` | Yes. Tenant and product filters are added on the server |
+| `ErasureService` (right to erasure by Cumulus ID) | `/api/v1/erasure` | Yes. A product erases its own events; the pipeline token erases across products |
 
 Products call these three with their own token (`PLATFORM_PRODUCT_TOKENS`), which decides
 which product's data a caller can touch. The privacy endpoints keep their separate pipeline

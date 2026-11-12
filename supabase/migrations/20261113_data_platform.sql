@@ -124,3 +124,20 @@ begin
     execute 'create policy reader_select on data_platform.datasets for select to data_platform_reader using (true)';
   end if;
 end $$;
+
+-- Retention without depending on the gateway being up (or on Cloud Run, where background
+-- threads are throttled): when pg_cron is enabled (Database > Extensions in Supabase, free),
+-- purge daily at 03:17 UTC. Rescheduling under the same name replaces the job.
+do $$
+begin
+  if exists (select 1 from pg_extension where extname = 'pg_cron') then
+    -- RLS is forced on events, so the job's role must bypass it or the purge deletes nothing.
+    if not (select rolsuper or rolbypassrls from pg_roles where rolname = current_user) then
+      raise notice '% cannot bypass RLS; not scheduling the purge (the gateway runs it)', current_user;
+      return;
+    end if;
+    perform cron.schedule('data-platform-purge', '17 3 * * *', 'select data_platform.purge_expired_events()');
+  else
+    raise notice 'pg_cron is not enabled; the gateway runs the daily purge instead';
+  end if;
+end $$;

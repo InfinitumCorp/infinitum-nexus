@@ -123,6 +123,22 @@ jobs:
           cp deploy/box/.env.example "$RUNNER_TEMP/box.env"
           sed -i 's/^\([A-Z_]*\)=$/\1=dummy/' "$RUNNER_TEMP/box.env"
           docker compose -f deploy/box/compose.box.yml --env-file "$RUNNER_TEMP/box.env" config -q
+      - name: Box ops script accepts a good .env and refuses unsafe ones
+        run: |
+          r() { python3 -c "import secrets;print(secrets.token_hex(32))"; }
+          good="$RUNNER_TEMP/good.env"
+          cp deploy/box/.env.example "$good"
+          sed -i "s|^PRIVACY_GATEWAY_TOKEN=.*|PRIVACY_GATEWAY_TOKEN=$(r)|; s|^PRIVACY_PSEUDONYM_KEY=.*|PRIVACY_PSEUDONYM_KEY=$(r)|" "$good"
+          sed -i "s|^DATABASE_URL=.*|DATABASE_URL=postgresql://data_platform_gateway.ref:pw@db.example:5432/postgres?sslmode=require|" "$good"
+          sed -i "s|^SUPERSET_SECRET_KEY=.*|SUPERSET_SECRET_KEY=$(r)|; s|^SUPERSET_DB_PASSWORD=.*|SUPERSET_DB_PASSWORD=$(r)|; s|^CLOUDFLARE_TUNNEL_TOKEN=.*|CLOUDFLARE_TUNNEL_TOKEN=$(r)|" "$good"
+          chmod 600 "$good"
+          BOX_ENV_FILE="$good" bash deploy/box/box.sh check
+          bad() { sed "$1" "$good" > "$RUNNER_TEMP/bad.env"; chmod 600 "$RUNNER_TEMP/bad.env"
+                  if BOX_ENV_FILE="$RUNNER_TEMP/bad.env" bash deploy/box/box.sh check; then echo "accepted: $1"; exit 1; fi; }
+          bad 's|sslmode=require||'                       # no TLS
+          bad 's|data_platform_gateway.ref|postgres.ref|'  # superuser instead of the restricted role
+          bad 's|^CLOUDFLARE_TUNNEL_TOKEN=.*|CLOUDFLARE_TUNNEL_TOKEN=|'
+          bad 's|^PRIVACY_PSEUDONYM_KEY=.*|PRIVACY_PSEUDONYM_KEY=short|'
       - name: Start core (privacy gateway + OpenSearch)
         run: |
           docker compose up -d --build --wait --wait-timeout 600 privacy-gateway opensearch

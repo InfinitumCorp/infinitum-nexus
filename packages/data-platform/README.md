@@ -69,6 +69,5 @@ import { Collector } from "@infinitum/data-platform/sdk";
 - Cross-process deduplication in the raw zone. Commits are safe across processes, but two gateways that receive the same event at the same moment can both store it. The pipeline's normalized-zone check still counts it once.
 - Parquet data files (the table format already records `file_format`).
 - A Postgres-backed `PolicyService`, ontology store and Cumulus ID tenancy directory.
-- Contracts for the rest of the products' events.
 - Publishing offers into `@infinitum/data-exchange` (consent records and revenue share live there).
 - Contracts for the other products' events. HRVST is not covered yet; it needs a decision on whether it belongs on the platform at all.

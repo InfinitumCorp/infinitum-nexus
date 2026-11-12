@@ -13,7 +13,11 @@ export const REVENUE_PRODUCT: Record<string, string> = {
   firmWallet: "firm_wallet",
 };
 
-export interface BillingLink { cid: string; orgId: string; apiKey: string; linkedAt: string }
+export interface BillingLink {
+  cid: string; orgId: string; apiKey: string; linkedAt: string;
+  /** Set once the revenue API's own Cumulus ID mapping knows about this org (or already had another). */
+  handedOver?: "linked" | "superseded";
+}
 
 /** Plain Map so it persists with the same snapshot helpers as the CID store. Server-side only: it holds org API keys. */
 export class BillingLinkStore {
@@ -43,9 +47,34 @@ export async function ensureBillingOrg(client: RevenueClient, store: BillingLink
   return p;
 }
 
-/** A client bound to the CID's billing org. */
+/**
+ * A client bound to the CID's billing org.
+ *
+ * With a partner key, the revenue API's own Cumulus ID mapping is the one source of truth (the same
+ * org product apps reach with the person's Cumulus ID token). An org this hub created earlier is
+ * handed over once; if the person already had another org there, that one wins and the old org is
+ * marked superseded (Infinitum support reconciles any subscription left on it).
+ * Without a partner key, the hub keeps its own links, as before.
+ */
 export async function billingFor(client: RevenueClient, store: BillingLinkStore, account: CidLike) {
-  return client.withApiKey((await ensureBillingOrg(client, store, account)).apiKey);
+  if (!client.cidPartnerKey) return client.withApiKey((await ensureBillingOrg(client, store, account)).apiKey);
+  const legacy = store.links.get(account.cid);
+  if (legacy && !legacy.handedOver) {
+    try {
+      await client.withApiKey(legacy.apiKey).linkCid(account.cid);
+      legacy.handedOver = "linked";
+    } catch (e) {
+      const code = (e as { code?: string }).code;
+      if (code === "cid_already_linked" || code === "org_already_linked") legacy.handedOver = "superseded";
+      else return client.withApiKey(legacy.apiKey); // revenue unreachable: keep working on the old org
+    }
+  }
+  return client.asCid(account.cid);
+}
+
+/** True when this hub can read the CID's billing without creating anything new. */
+export function hasBilling(client: RevenueClient, store: BillingLinkStore, cid: string) {
+  return Boolean(client.cidPartnerKey) || store.links.has(cid);
 }
 
 const PAID = new Set(["trialing", "active", "past_due", "bundled"]);

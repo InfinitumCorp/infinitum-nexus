@@ -94,7 +94,7 @@ async function usePasskey(o) {
 
 /* ---------------- state & routing ---------------- */
 
-const state = { me: undefined, thread: [] };
+const state = { me: undefined, thread: [], authMode: "cid" };
 
 function route() {
   const [page, id] = location.hash.replace(/^#\/?/, "").split("/");
@@ -103,6 +103,11 @@ function route() {
 window.addEventListener("hashchange", () => render());
 
 async function boot() {
+  // "oidc": this host signs in at the standalone Cumulus://ID issuer. The route is absent otherwise.
+  try {
+    const res = await fetch("/api/auth/mode", { credentials: "same-origin" });
+    if (res.ok && (await res.json()).mode === "oidc") state.authMode = "oidc";
+  } catch { /* in-process sign-in */ }
   try { state.me = await api("GET", "/api/me"); } catch { state.me = null; }
   render();
 }
@@ -140,7 +145,26 @@ function goAfterSignIn(apiNext) {
   render();
 }
 
+/** Client mode: one link to the issuer, and one that opens its account creation (prompt=create). */
+function renderIssuerAuth(message) {
+  const back = productReturn();
+  const next = back ? `next=${encodeURIComponent(back)}` : "";
+  root.innerHTML = `
+    <div class="auth"><div class="auth-card">
+      <div class="logo">+SPCTR<sup class="tm">™</sup></div>
+      <p class="muted">One Cumulus://ID<sup class="tm">™</sup> for every Infinitum product</p>
+      <a class="btn primary" id="signin" href="/api/auth/login${next ? `?${next}` : ""}">Sign in with Cumulus://ID<sup class="tm">™</sup></a>
+      <div class="divider">No Cumulus://ID<sup class="tm">™</sup> yet?</div>
+      <a class="btn" id="signup" href="/api/auth/login?prompt=create${next ? `&${next}` : ""}">Create a Cumulus://ID<sup class="tm">™</sup></a>
+      <div class="error" id="err"></div>
+      <p class="faint small">Passkeys, your authenticator app and linked accounts are managed at Cumulus://ID<sup class="tm">™</sup>.</p>
+    </div></div>`;
+  $("#err").textContent = message;
+  if (new URLSearchParams(location.search).get("create") === "1") $("#signup").focus();
+}
+
 function renderAuth(message = "") {
+  if (state.authMode === "oidc") return renderIssuerAuth(message);
   root.innerHTML = `
     <div class="auth"><div class="auth-card">
       <div class="logo">+SPCTR<sup class="tm">™</sup></div>
@@ -250,7 +274,13 @@ function renderShell(page) {
         <main></main>
       </div>`;
     $("#menu").onclick = () => $(".shell").classList.toggle("open");
-    $("#signout").onclick = async () => { await api("POST", "/api/auth/signout"); state.me = null; render(); };
+    $("#signout").onclick = async () => {
+      const out = await api("POST", "/api/auth/signout");
+      state.me = null;
+      // Client mode: end the app session at Cumulus://ID too.
+      if (out && typeof out.logoutUrl === "string" && out.logoutUrl.startsWith("https://")) { location.assign(out.logoutUrl); return; }
+      render();
+    };
     const gs = $("#global-search");
     if (gs) {
       gs.onkeydown = async (e) => {
@@ -854,7 +884,13 @@ async function renderSettings() {
         <h2>FIRM Wallet<sup class="tm">™</sup></h2>
         <firm-suite product="spectre metatron"></firm-suite>
       </div>`}
-      <div class="section">
+      ${data.manageAt ? `<div class="section">
+        <h2>Ways to sign in</h2>
+        <div class="list">
+          <div class="item"><div class="main"><div class="title">Cumulus://ID<sup class="tm">™</sup></div><div class="sub">Passkeys, authenticator app and linked accounts</div></div>
+            <a class="btn small" href="${esc(data.manageAt)}" target="_blank" rel="noopener noreferrer">Manage</a></div>
+        </div>
+      </div>` : `<div class="section">
         <h2>Ways to sign in</h2>
         <div class="list">
           <div class="item"><div class="main"><div class="title">Passkeys</div><div class="sub">${data.passkeys ? `${data.passkeys} on this account` : "None yet"}</div></div></div>
@@ -867,7 +903,7 @@ async function renderSettings() {
           }).join("")}
         </div>
         <p class="faint small mt10">Linked accounts sign you in to this same Cumulus://ID<sup class="tm">™</sup>. Your multifactor setting still applies.</p>
-      </div>
+      </div>`}
       <div class="section">
         <h2>Data</h2>
         <button class="btn" id="export-data">Export workspace JSON</button>

@@ -105,7 +105,9 @@ export interface LinkedIdentity {
 export type SessionMethod =
   | "passkey" | "security-key" | "sso" | "passkey+totp"
   | `social:${SocialProviderId}` | `social:${SocialProviderId}+totp`
-  | "device-handoff";
+  | "device-handoff"
+  /** Signed in at the standalone Cumulus://ID issuer; this host is its OpenID Connect client. */
+  | "oidc";
 
 export interface Authenticator {
   id: string;
@@ -129,6 +131,8 @@ export interface Session {
   createdAt: string;
   expiresAt: string;
   revokedAt?: string;
+  /** "oidc" sessions: the issuer's ID token, sent back as id_token_hint at sign-out. */
+  idTokenHint?: string;
 }
 
 export interface Grant {
@@ -179,6 +183,30 @@ interface DeviceHandoff {
   redirectUri?: string;
 }
 
+/**
+ * A sign-in this host started at the standalone Cumulus://ID issuer (OpenID Connect client mode).
+ * Kept server side, keyed by the SHA-256 of `state`, and taken once by the callback.
+ */
+export interface IssuerLogin {
+  nonce: string;
+  /** PKCE code_verifier. */
+  verifier: string;
+  redirectUri: string;
+  /** Same-origin path to return to after sign-in. */
+  next?: string;
+  expiresAt: number;
+}
+
+/** Claims of a verified ID token from the standalone Cumulus://ID issuer. */
+export interface IssuerClaims {
+  sub: string;
+  preferred_username?: unknown;
+  username?: unknown;
+  handle?: unknown;
+  email?: unknown;
+  [k: string]: unknown;
+}
+
 /** How long a browser-to-app sign-in code stays valid. */
 export const DEVICE_HANDOFF_TTL_MS = 2 * 60_000;
 
@@ -198,6 +226,7 @@ export class CidStore {
   byIdentity = new Map<string, string>(); // `${provider}|${subject}` -> cid
   oauthPending = new Map<string, PendingAuth>();
   deviceHandoffs = new Map<string, DeviceHandoff>(); // key: SHA-256 of the code
+  issuerLogins = new Map<string, IssuerLogin>(); // key: SHA-256 of the state
 }
 
 /* ------------------------------------------------------------------ */
@@ -634,10 +663,64 @@ export class CidService {
     return { account: this.account(session.cid), session };
   }
 
-  listSessions(cid: string): Omit<Session, "tokenHash">[] {
+  listSessions(cid: string): Omit<Session, "tokenHash" | "idTokenHint">[] {
     return [...this.store.sessions.values()]
       .filter((s) => s.cid === cid && !s.revokedAt && new Date(s.expiresAt) > this.now())
-      .map(({ tokenHash: _t, ...rest }) => rest);
+      .map(({ tokenHash: _t, idTokenHint: _i, ...rest }) => rest);
+  }
+
+  /* ---------------- OpenID Connect client mode (standalone Cumulus://ID issuer) ---------------- */
+
+  /** Keeps a started issuer sign-in until its callback. Expired ones are dropped here. */
+  rememberIssuerLogin(state: string, login: Omit<IssuerLogin, "expiresAt">, ttlMs = 10 * 60_000) {
+    const now = this.now().getTime();
+    for (const [k, v] of this.store.issuerLogins) if (v.expiresAt < now) this.store.issuerLogins.delete(k);
+    this.store.issuerLogins.set(hashToken(state), { ...login, expiresAt: now + ttlMs });
+  }
+
+  /** The sign-in started with `state`, once: a second call, or an expired one, returns null. */
+  takeIssuerLogin(state: string): IssuerLogin | null {
+    const key = hashToken(state);
+    const login = this.store.issuerLogins.get(key);
+    this.store.issuerLogins.delete(key);
+    return login && login.expiresAt >= this.now().getTime() ? login : null;
+  }
+
+  /**
+   * Session for someone the issuer signed in. The caller has already verified the ID token
+   * (signature, iss, aud, exp, nonce). The local account is keyed by `sub`, which is the same
+   * cid this store uses; it is created from the claims on first sign-in, so grants, workspaces
+   * and CRM data keyed by cid keep working.
+   */
+  async signInFromIssuer(claims: IssuerClaims, device: string, idToken?: string): Promise<{ token: string; session: Session; created: boolean }> {
+    const cid = claims.sub;
+    if (typeof cid !== "string" || !/^cid_[0-9a-f-]{36}$/.test(cid)) throw new CidError("invalid_subject", "The ID token's subject is not a Cumulus://ID");
+    let created = false;
+    if (!this.store.accounts.has(cid)) {
+      const str = (v: unknown) => (typeof v === "string" ? v : "");
+      const wanted = str(claims.preferred_username || claims.username).trim().toLowerCase();
+      const username = USERNAME.test(wanted) && !RESERVED.has(wanted) && !this.store.byUsername.has(wanted)
+        ? wanted
+        : this.freeUsername(wanted || "member");
+      const email = str(claims.email).toLowerCase();
+      const handle = str(claims.handle);
+      const account: Account = {
+        cid,
+        username,
+        mailAddress: email.endsWith(`@${this.mailDomain}`) ? email : `${username}@${this.mailDomain}`,
+        handle: /^@[a-z0-9._-]{1,64}$/.test(handle) ? handle : `@${username}.veil`,
+        createdAt: this.now().toISOString(),
+        entitlements: FREE_ENTITLEMENTS,
+      };
+      this.store.accounts.set(cid, account);
+      this.store.byUsername.set(username, cid);
+      await this.record("identity", cid, cid, { event: "account.created", org: null, via: "issuer" });
+      await this.emit("account.created", cid);
+      created = true;
+    }
+    const issued = await this.issueSession(cid, device, "oidc");
+    if (idToken) issued.session.idTokenHint = idToken;
+    return { ...issued, created };
   }
 
   async revokeSession(cid: string, sessionId: string, actor = cid) {

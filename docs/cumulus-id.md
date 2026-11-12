@@ -143,9 +143,9 @@ A person runs this. Every step below is a production deploy, a secret, or a DNS/
 its in-process `CidService` (`packages/cid`) against the `NexusStore` CID store, and its passkeys
 are bound to the relying-party id `id.cumuluscloud.app`. After step (c) that store stops receiving
 new accounts, and on `spectre.infinitumcorporation.ai` those passkeys no longer work. So the clean
-order is: land +SPCTR as the OpenID Connect client `spectre` (not done yet; see "+SPCTR as a
-client" below), then run (a) to (d) in one window. Running (d) earlier leaves +SPCTR with its own,
-diverging account store.
+order is: merge +SPCTR's OpenID Connect client mode (built, off by default; see "+SPCTR as a
+client" below), then run (a) to (d) in one window, with (d) setting `SPECTRE_AUTH=oidc`. Running
+(d) without it leaves +SPCTR with its own, diverging account store.
 
 The new issuer does not serve these routes that the nexus Worker serves on `id.cumuluscloud.app`
 today. They move with +SPCTR in step (d), and their callers must be pointed at the new host:
@@ -153,8 +153,8 @@ today. They move with +SPCTR in step (d), and their callers must be pointed at t
 `packages/lbrnth-openclaw` defaults to `https://id.cumuluscloud.app/api/labyrinth`),
 `/api/id/labyrinth-directory` (the hosted Labyrinth's `RemoteCidDirectory` URL, see
 `docs/LBRNTH-HOSTED.md`), `/api/drones/*` and `/api/veil/*`. Organizations (`orgId`, org SSO)
-are not in the new issuer's store; the export carries `orgId` and `federated` so they can be
-re-created or dropped deliberately.
+are not in the new issuer's store; the export carries each account's `orgId` and `federated`, and
+a top-level `organizations` list, so they can be re-created or dropped deliberately.
 
 ### (a) Deploy the new Worker beside the old one
 
@@ -193,9 +193,12 @@ keep working. Check discovery on the `workers.dev` host.
 4. Delete the secret: `npx wrangler secret delete CID_EXPORT_KEY_SHA256`. Shred both files.
 
 The format is `exportCidAccounts()` in `packages/cid/src/account-export.ts`:
-`{ format: "cumulus-id.export", version: 1, issuer, exportedAt, counts, accounts: [...] }`, one
-entry per account with its `authenticators`, `identities`, `grants` and confirmed `totp` nested
-inside.
+`{ format: "cumulus-id.export", version: 1, issuer, exportedAt, counts, accounts: [...], organizations: [...] }`,
+one entry per account with its `authenticators`, `identities`, `grants` and confirmed `totp` nested
+inside. `organizations` (added to version 1; importers that predate it ignore it) is sorted by id:
+`{ id: "org_<uuid>", name, admins: ["cid_..."], sso: { issuer, audience, emailDomain } | null }`.
+The organization's SSO signing keys (`jwks`) are not exported: the new issuer re-discovers them
+from `sso.issuer`.
 
 ### (c) Move the ID hostnames to the new Worker
 
@@ -215,9 +218,15 @@ the old issuer resumes with the state it had at the export.
 The branch `cumulus-id-cutover-spectre-route` holds one commit that changes `apps/spectre/wrangler.jsonc` (route and
 `SPECTRE_ORIGIN`). Deploy it only in this step: deploying it earlier takes `id.cumuluscloud.app`
 away from the live issuer. The `infinitumcorporation.ai` zone must be on the Cloudflare account
-for the custom domain. Social sign-in providers (Google, Cognito) need
-`https://spectre.infinitumcorporation.ai/api/auth/oauth/<provider>/callback` registered while +SPCTR
-still signs in in-process.
+for the custom domain.
+
+In the same deploy, set `SPECTRE_AUTH=oidc` (a plain var in `apps/spectre/wrangler.jsonc`, not a
+secret; add it to the route commit). +SPCTR then signs people in at the new issuer as client
+`spectre`, and the passkey, MFA and social sign-in routes answer 404. `CID_ISSUER` and
+`CID_CLIENT_ID` default to `https://id.cumuluscloud.app/realms/cumulus` and `spectre`; set them only
+to test against another issuer. Without `SPECTRE_AUTH=oidc`, social sign-in providers (Google,
+Cognito) would need `https://spectre.infinitumcorporation.ai/api/auth/oauth/<provider>/callback`
+registered, and passkeys bound to `id.cumuluscloud.app` would not work there.
 
 At the same time, delete `CID_OIDC_SIGNING_KEY` from the `cumulus-id` (+SPCTR) Worker:
 `npx wrangler secret delete CID_OIDC_SIGNING_KEY`. Otherwise two hosts sign tokens with the same
@@ -225,31 +234,44 @@ issuer string and key, and +SPCTR could mint tokens for accounts the new issuer 
 The wrangler commit also drops `SPECTRE_EXTRA_ORIGINS`: `ru.id.cumuluscloud.app` is not under the
 new relying-party id, and the Worker refuses to start with a mirror outside it.
 
-## +SPCTR as a client (not built yet)
+## +SPCTR as a client
 
-What +SPCTR needs to sign in through the external issuer as client `spectre`. Estimated at
-roughly 600 to 900 changed lines, most of it in tests:
++SPCTR can sign in as the OpenID Connect client `spectre` of the standalone issuer. It is **off by
+default**: with `SPECTRE_AUTH` unset, +SPCTR runs Cumulus://ID in process exactly as before, so this
+code is safe to deploy before the cut-over.
 
-- `apps/spectre/src/server/app.ts`, sign-in routes (`/api/auth/signup*`, `/signin*`, `/mfa`,
-  `/oauth/:provider/*`, about 100 lines): replace with `/api/auth/login` (redirect to the issuer's
-  `authorize` with PKCE S256, `state` and `nonce` in a short cookie) and `/api/auth/callback`
-  (exchange the code, verify the ID token against the issuer's JWKS; `verifyIdToken` in
-  `packages/cid/src/oidc.ts` already verifies an external issuer's tokens), then set +SPCTR's own
-  session cookie keyed by `sub`. `/api/auth/signout` also calls the issuer's `revoke`/`logout`.
-- Request authentication (the `cid.authenticate(token)` / `cid.can(..., "spectre", "crm:*")` block
-  near the end of `app.ts`, and `ensureGrant`): a small local session table plus local CRM
-  permissions, since grants and organizations no longer come from the CID store. `ctx.user.account`
-  becomes a profile built from the ID token (`cid`, `username`, `email`, `handle`). Workspaces are
-  keyed by `orgId ?? cid` today; with no organizations at the issuer, existing org workspaces need a
-  local org table or a mapping.
-- `/api/me/identities` and unlink: link to `https://id.cumuluscloud.app/account` instead.
-- `apps/spectre/public/app.js` (about 60 lines: passkey ceremonies, MFA prompt, social buttons):
-  one "Sign in with Cumulus://ID" button.
-- The hosted Labyrinth relay and `/api/id/labyrinth-directory` resolve the +SPCTR cookie through
-  the CID store. They need either the issuer's access token plus a directory on +SPCTR's host, or a
-  directory at the new issuer. This is the largest open design question.
-- Tests: `test-harness.ts` signs up with a virtual passkey and 14 HTTP test files use it. The
-  harness needs a fake issuer (authorize, token, JWKS) so `signUp` returns a +SPCTR cookie.
-- `main.ts`, `vercel.ts`, `worker.ts`: new variables `CID_ISSUER` and `CID_CLIENT_ID=spectre`.
-  `suite.summary(cid)` and the CRM keep working unchanged because they are keyed by the same cid.
+| Variable | Default | |
+|---|---|---|
+| `SPECTRE_AUTH` | unset (in-process Cumulus://ID) | `oidc` turns on client mode. Set at cut-over step (d). |
+| `CID_ISSUER` | `https://id.cumuluscloud.app/realms/cumulus` | Discovery and JWKS are read from here. |
+| `CID_CLIENT_ID` | `spectre` | Registered in `InfinitumCorp/cumulus-id` `src/clients.ts` with origin `https://spectre.infinitumcorporation.ai`. |
 
+No client secret: `spectre` is a public client and every code exchange is bound by PKCE S256.
+
+In client mode (`apps/spectre/src/server/cid-oidc-client.ts` and `app.ts`):
+
+- `GET /api/auth/login` (`?prompt=create` opens account creation at the issuer) redirects to the
+  issuer's `authorize` with PKCE S256, `state` and `nonce`. The verifier and nonce stay on the
+  server (CID store `issuerLogins`, keyed by the SHA-256 of `state`, 10 minutes, single use); the
+  browser holds only `state` in an HttpOnly, SameSite=Lax cookie (`Secure` on https) scoped to
+  `/api/auth`.
+- `GET /api/auth/callback` checks `state` against the cookie and the server copy, exchanges the
+  code at the token endpoint (form-encoded, `client_id`, no secret), verifies the ES256 ID token
+  against the issuer's JWKS (`iss`, `aud` = `spectre`, `exp`, `nonce`), and issues +SPCTR's own
+  session cookie for `sub`. The session is an ordinary in-process CID session, so request
+  authentication, the `spectre` CRM grant (granted the same way sign-up does), workspaces
+  (`orgId ?? cid`), the hosted Labyrinth relay and `/api/id/labyrinth-directory` keep working on
+  the in-process store unchanged. A cid seen for the first time gets a local account record built
+  from the claims (`preferred_username`, `email`, `handle`); an existing one (from before the
+  cut-over) keeps its username, organization and data.
+- `POST /api/auth/signout` ends the local session and returns `logoutUrl`, the issuer's `logout`
+  with `id_token_hint`; the page then sends the browser there.
+- The passkey, MFA and social sign-in routes answer 404. `/api/me/identities` returns
+  `manageAt: https://id.cumuluscloud.app/account`, and the page shows one "Sign in with
+  Cumulus://ID" button plus "Create a Cumulus://ID" instead of the passkey form.
+
+Still open: organizations and org SSO are not at the new issuer, so a new member of an
+organization cannot be placed in its workspace by the issuer; existing members keep their local
+`orgId`. The product IdP routes (`/api/id/*`, `/realms/cumulus/*`) are still registered on +SPCTR's
+host; after step (d) nothing should point at them, and with `CID_OIDC_SIGNING_KEY` deleted the
+`/realms/` routes are off.

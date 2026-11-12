@@ -37,6 +37,15 @@ describe("shared product clients", () => {
     assert.equal(idClientFor("infinitum", "https://conjure-ru.infinitumcorporation.ai/"), null);
   });
 
+  it("lets Nøde sign in on node.infinitumcorporation.ai over https only", () => {
+    assert.equal(idClientFor("node", "https://node.infinitumcorporation.ai/#/host"), null, "a fragment is never a redirect");
+    assert.equal(idClientFor("node", "https://node.infinitumcorporation.ai/?tab=host")?.app, "node");
+    assert.equal(idClientFor("node", "http://node.infinitumcorporation.ai/"), null);
+    assert.equal(idClientFor("node", "http://127.0.0.1:8080/"), null, "public product: no loopback");
+    assert.equal(idClientFor("node", "https://node.infinitumcorporation.ai.evil.example/"), null);
+    assert.equal(idClientFor("infinitum", "https://node.infinitumcorporation.ai/"), null);
+  });
+
   it("lets the Russia copies of the corporation and VEIL VPN sites sign in", () => {
     assert.ok(idClientFor("infinitum", "https://ru.infinitumcorporation.ai/"));
     assert.ok(idClientFor("veil-vpn", "https://ru.infinitumveilvpn.app/account"));

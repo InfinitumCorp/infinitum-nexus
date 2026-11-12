@@ -37,6 +37,15 @@ describe("shared product clients", () => {
     assert.equal(idClientFor("infinitum", "https://conjure-ru.infinitumcorporation.ai/"), null);
   });
 
+  it("lets the Russia copies of the corporation and VEIL VPN sites sign in", () => {
+    assert.ok(idClientFor("infinitum", "https://ru.infinitumcorporation.ai/"));
+    assert.ok(idClientFor("veil-vpn", "https://ru.infinitumveilvpn.app/account"));
+    assert.equal(idClientFor("infinitum", "http://ru.infinitumcorporation.ai/"), null);
+    assert.equal(idClientFor("infinitum", "https://ru.infinitumcorporation.ai.evil.example/"), null);
+    assert.equal(idClientFor("veil-vpn", "https://ru.infinitumcorporation.ai/"), null);
+    assert.equal(idClientFor("infinitum", "https://ru.infinitumveilvpn.app/"), null);
+  });
+
   it("lets internal tools return to a loopback port, and nobody else", () => {
     assert.ok(idClientFor("1mind", "http://127.0.0.1:4400/auth/cid/callback"));
     assert.ok(idClientFor("conjure", "http://localhost:4317/auth/cid/callback"));

@@ -26,7 +26,13 @@ export const ID_CLIENTS: Record<string, IdClient> = {
   infinitum: {
     name: "Infinitum Corporation",
     app: "cumulus",
-    origins: ["https://infinitumcorporation.ai", "https://www.infinitumcorporation.ai", "https://downloads.infinitumcorporation.ai"],
+    origins: [
+      "https://infinitumcorporation.ai",
+      "https://www.infinitumcorporation.ai",
+      "https://downloads.infinitumcorporation.ai",
+      // Russia copy on its own Yandex server; visitors in Russia are redirected there.
+      "https://ru.infinitumcorporation.ai",
+    ],
   },
   "cumulus-cloud": {
     name: "Cumulus://Cloud",
@@ -74,7 +80,12 @@ export const ID_CLIENTS: Record<string, IdClient> = {
   "veil-vpn": {
     name: "VEIL</> VPN",
     app: "veil",
-    origins: ["https://infinitumveilvpn.app", "https://www.infinitumveilvpn.app"],
+    origins: [
+      "https://infinitumveilvpn.app",
+      "https://www.infinitumveilvpn.app",
+      // Russia copy on its own Yandex server; visitors in Russia are redirected there.
+      "https://ru.infinitumveilvpn.app",
+    ],
   },
   fabric: {
     name: "FabriC++",

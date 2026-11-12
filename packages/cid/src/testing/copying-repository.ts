@@ -8,6 +8,7 @@
 import { CidStore } from "../service.ts";
 import type { CidOneTime } from "../service.ts";
 import { MapCidRepository, type CidRepository, type OneTimeKind } from "../repository.ts";
+import { PgCidRepository } from "../postgres.ts";
 
 const copy = <T>(v: T): T => (v === undefined ? v : structuredClone(v));
 
@@ -51,7 +52,38 @@ export class CopyingCidRepository implements CidRepository {
   async sweepOneTime(kind: OneTimeKind, now: number) { return this.#inner.sweepOneTime(kind, now); }
 }
 
-/** The repository the CID test suites should use: copying when CID_TEST_COPYING_REPO is set. */
+// CID_TEST_PG=1 runs the suites on PostgreSQL (CID_TEST_PG_URL), one fresh schema per CidService.
+const pgPool = process.env.CID_TEST_PG ? await openTestPool() : null;
+let schemas = 0;
+
+async function openTestPool() {
+  const url = process.env.CID_TEST_PG_URL;
+  if (!url) throw new Error("CID_TEST_PG needs CID_TEST_PG_URL");
+  const { default: pg } = await import("pg");
+  // allowExitOnIdle: the test process ends once the suite is done instead of waiting on the pool.
+  const pool = new pg.Pool({ connectionString: url, max: 4, allowExitOnIdle: true });
+  // Drop this run's schemas once the suite is done (beforeExit allows async work; run it once).
+  let cleaned = false;
+  process.on("beforeExit", () => {
+    if (cleaned) return;
+    cleaned = true;
+    void (async () => {
+      const { rows } = await pool.query("SELECT schema_name FROM information_schema.schemata WHERE schema_name LIKE $1", [`cid_test_${process.pid}_%`]);
+      for (const r of rows) await pool.query(`DROP SCHEMA IF EXISTS "${r.schema_name}" CASCADE`);
+      await pool.end();
+    })().catch(() => undefined);
+  });
+  return pool;
+}
+
+/**
+ * The repository the CID test suites should use: Postgres when CID_TEST_PG is set, copying when
+ * CID_TEST_COPYING_REPO is set, otherwise the default in-memory store.
+ */
 export function testRepository(): CidRepository | undefined {
+  if (pgPool) {
+    const schema = `cid_test_${process.pid}_${Date.now().toString(36)}_${++schemas}`;
+    return new PgCidRepository({ db: pgPool, schema, migrate: true });
+  }
   return process.env.CID_TEST_COPYING_REPO ? new CopyingCidRepository() : undefined;
 }

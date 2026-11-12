@@ -389,6 +389,6 @@ describe("CID storage boundary", () => {
     const cid = new CidService({ ledger: new Ledger(undefined, { authorizedSigners: [signer.publicKey] }), signer, rpId: RP_ID, origins: [ORIGIN], repository: new CopyingCidRepository() });
     assert.throws(() => cid.syncView(), (e: CidError) => e.code === "sync_unavailable");
     const memory = setup().cid;
-    if (!process.env.CID_TEST_COPYING_REPO) assert.equal(typeof memory.syncView().can, "function");
+    if (!process.env.CID_TEST_COPYING_REPO && !process.env.CID_TEST_PG) assert.equal(typeof memory.syncView().can, "function");
   });
 });

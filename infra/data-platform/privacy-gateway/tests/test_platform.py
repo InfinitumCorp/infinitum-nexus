@@ -65,6 +65,13 @@ class FakeIndex:
         rows = rows[: body["size"]]
         return {"hits": {"hits": [{"_source": d, "sort": [self._ms(d["occurredAt"]), d["eventId"]]} for d in rows]}}
 
+    def erase(self, cid_pseudonym, product):
+        gone = [k for k, d in self.docs.items()
+                if d.get("cid") == cid_pseudonym and (product is None or d["product"] == product)]
+        for k in gone:
+            del self.docs[k]
+        return len(gone)
+
 
 class FakeSink:
     def __init__(self, fail=False):

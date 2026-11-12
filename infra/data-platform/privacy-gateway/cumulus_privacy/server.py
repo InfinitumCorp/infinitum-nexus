@@ -15,6 +15,8 @@ import json
 import os
 import re
 import sys
+import threading
+import time
 import uuid
 from dataclasses import dataclass
 from http import HTTPStatus
@@ -23,7 +25,7 @@ from typing import Any, Callable
 
 from .dp import BudgetExceeded, PrivacyBudget, release
 from .pipeline import prepare_export
-from .platform import Catalog, Collector, DataHubSink, OpenSearchIndex, PlatformError, Searcher
+from .platform import Catalog, Collector, DataHubSink, Eraser, IngestLimits, OpenSearchIndex, PlatformError, Searcher
 from .quality import run_suite
 from .redaction import Redactor
 
@@ -38,6 +40,7 @@ CONJURE_CODES = {
     HTTPStatus.NOT_FOUND: "NOT_FOUND",
     HTTPStatus.CONFLICT: "CONFLICT",
     HTTPStatus.REQUEST_ENTITY_TOO_LARGE: "REQUEST_ENTITY_TOO_LARGE",
+    HTTPStatus.TOO_MANY_REQUESTS: "CUSTOM_CLIENT",
     HTTPStatus.INTERNAL_SERVER_ERROR: "INTERNAL",
     HTTPStatus.SERVICE_UNAVAILABLE: "INTERNAL",
 }
@@ -47,10 +50,10 @@ class ApiError(Exception):
     """`name` is the Conjure error name without namespace, e.g. PrivacyBudgetExceeded."""
 
     def __init__(self, status: HTTPStatus, name: str, message: str, namespace: str = "Privacy",
-                 args: dict[str, Any] | None = None) -> None:
+                 args: dict[str, Any] | None = None, retry_after: int | None = None) -> None:
         super().__init__(message)
         self.status, self.name, self.message = status, name, message
-        self.namespace, self.safe_args = namespace, args or {}
+        self.namespace, self.safe_args, self.retry_after = namespace, args or {}, retry_after
 
 
 @dataclass(frozen=True)
@@ -95,12 +98,14 @@ class Gateway:
         collector: Collector | None = None,
         searcher: Searcher | None = None,
         product_tokens: dict[str, str] | None = None,
+        eraser: Eraser | None = None,
     ) -> None:
         if len(token) < 32:
             raise ValueError("PRIVACY_GATEWAY_TOKEN must be at least 32 characters")
         self.redactor, self.budget, self.token = redactor, budget, token
         self.catalog, self.collector, self.searcher = catalog, collector, searcher
         self.product_tokens = product_tokens or {}
+        self.eraser = eraser
         self.routes = [
             Route("POST", "/api/v1/redact", self.redact, "gateway"),
             Route("POST", "/api/v1/exports/prepare", self.prepare, "gateway"),
@@ -110,6 +115,8 @@ class Gateway:
             Route("PUT", "/api/v1/catalog/datasets/{name}", self.register_dataset, "product"),
             Route("GET", "/api/v1/catalog/datasets/{name}", self.get_dataset, "product"),
             Route("POST", "/api/v1/search/events", self.search, "product"),
+            Route("POST", "/api/v1/erasure/subjects", self.erase, "product"),
+            Route("POST", "/api/v1/erasure/subjects/all-products", self.erase_everywhere, "gateway"),
         ]
 
     def match(self, method: str, path: str) -> tuple[Route, dict[str, str]] | None:
@@ -149,6 +156,18 @@ class Gateway:
 
     def search(self, b: dict[str, Any], caller: str = "", **_: str) -> Any:
         return self._platform(self.searcher).search(caller, b)
+
+    def erase(self, b: dict[str, Any], caller: str = "", **_: str) -> Any:
+        return self._platform(self.eraser).erase(caller, b.get("cid"))
+
+    def erase_everywhere(self, b: dict[str, Any], **_: str) -> Any:
+        return self._platform(self.eraser).erase(None, b.get("cid"))
+
+    def health(self) -> dict[str, Any]:
+        out: dict[str, Any] = {"status": "ok"}
+        if self.collector is not None:
+            out["storage"] = self.collector.limits.storage_state()
+        return out
 
     def redact(self, b: dict[str, Any], **_: str) -> Any:
         r = self.redactor.redact_records(
@@ -197,9 +216,11 @@ def make_handler(gw: Gateway) -> type[BaseHTTPRequestHandler]:
     class Handler(BaseHTTPRequestHandler):
         server_version = "cumulus-privacy-gateway"
 
-        def _send(self, status: HTTPStatus, body: Any) -> None:
+        def _send(self, status: HTTPStatus, body: Any, retry_after: int | None = None) -> None:
             data = json.dumps(body).encode()
             self.send_response(status)
+            if retry_after:
+                self.send_header("Retry-After", str(retry_after))
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(data)))
             self.send_header("Cache-Control", "no-store")
@@ -216,12 +237,13 @@ def make_handler(gw: Gateway) -> type[BaseHTTPRequestHandler]:
                     "errorInstanceId": str(uuid.uuid4()),
                     "parameters": {"message": e.message, **e.safe_args},
                 },
+                e.retry_after,
             )
 
         def _dispatch(self) -> None:
             try:
                 if self.command == "GET" and self.path == "/api/v1/health":
-                    self._send(HTTPStatus.OK, {"status": "ok"})
+                    self._send(HTTPStatus.OK, gw.health())
                     return
                 found = gw.match(self.command, self.path.split("?", 1)[0])
                 if found is None:
@@ -247,7 +269,7 @@ def make_handler(gw: Gateway) -> type[BaseHTTPRequestHandler]:
             except ApiError as e:
                 self._error(e)
             except PlatformError as e:
-                self._error(ApiError(HTTPStatus(e.status), e.name, e.message, "DataPlatform", e.safe_args))
+                self._error(ApiError(HTTPStatus(e.status), e.name, e.message, "DataPlatform", e.safe_args, e.retry_after))
             except ValueError as e:
                 self._error(ApiError(HTTPStatus.BAD_REQUEST, "InvalidArgument", str(e)))
             except Exception:  # noqa: BLE001 - never echo internals, which may include record data
@@ -264,31 +286,60 @@ def make_handler(gw: Gateway) -> type[BaseHTTPRequestHandler]:
 
 def main() -> None:
     token = os.environ.get("PRIVACY_GATEWAY_TOKEN", "")
-    budget = PrivacyBudget(
-        os.environ.get("PRIVACY_BUDGET_FILE", "/var/lib/privacy-gateway/budget.json"),
-        float(os.environ.get("PRIVACY_TOTAL_EPSILON", "3.0")),
-    )
-    redactor = Redactor()
-    catalog = collector = searcher = None
-    products = parse_product_tokens(os.environ.get("PLATFORM_PRODUCT_TOKENS", ""))
-    if products:
-        gms = os.environ.get("DATAHUB_GMS_URL")
-        catalog = Catalog(
-            os.environ.get("PLATFORM_CATALOG_FILE", "/var/lib/privacy-gateway/catalog.json"),
-            DataHubSink(gms, os.environ.get("DATAHUB_GMS_TOKEN")) if gms else None,
-        )
+    dsn = os.environ.get("DATABASE_URL")  # Supabase pooler, data_platform_gateway role
+    epsilon = float(os.environ.get("PRIVACY_TOTAL_EPSILON", "3.0"))
+    gms = os.environ.get("DATAHUB_GMS_URL")
+    sink = DataHubSink(gms, os.environ.get("DATAHUB_GMS_TOKEN")) if gms else None
+    index: Any = None
+    if dsn:
+        # Free-tier layout: everything in Supabase Postgres (Ireland). No OpenSearch needed.
+        from .pgstore import PostgresBudget, PostgresCatalog, PostgresEventIndex
+
+        budget: Any = PostgresBudget(dsn, epsilon)
+        catalog: Any = PostgresCatalog(dsn, sink)
+        index = PostgresEventIndex(dsn)
+    else:
+        budget = PrivacyBudget(os.environ.get("PRIVACY_BUDGET_FILE", "/var/lib/privacy-gateway/budget.json"), epsilon)
+        catalog = Catalog(os.environ.get("PLATFORM_CATALOG_FILE", "/var/lib/privacy-gateway/catalog.json"), sink)
         index = OpenSearchIndex(
             os.environ.get("OPENSEARCH_URL", "http://localhost:9200"),
             refresh=os.environ.get("OPENSEARCH_REFRESH_ON_WRITE") == "1",
         )
-        collector = Collector(catalog, redactor, index, os.environ.get("PLATFORM_REGION", "EU"))
+    redactor = Redactor()
+    collector = searcher = None
+    products = parse_product_tokens(os.environ.get("PLATFORM_PRODUCT_TOKENS", ""))
+    # Free tier: Supabase allows 500 MB per database, so stop taking events at 450 MB by default.
+    limit_mb = int(os.environ.get("PLATFORM_STORAGE_LIMIT_MB", "450" if dsn else "0"))
+    limits = IngestLimits(
+        max_batch=int(os.environ.get("PLATFORM_MAX_BATCH", "1000")),
+        daily_quota=int(os.environ.get("PLATFORM_DAILY_EVENT_QUOTA", "0")),
+        storage_limit_bytes=limit_mb * 1024 * 1024,
+        storage=getattr(index, "storage_bytes", None),
+    )
+    eraser = Eraser(redactor, index)
+    if products:
+        collector = Collector(catalog, redactor, index, os.environ.get("PLATFORM_REGION", "EU"), limits)
         searcher = Searcher(index)
-    gw = Gateway(redactor, budget, token, catalog, collector, searcher, products)
+    else:
+        catalog = None
+    if dsn:
+        threading.Thread(target=_purge_daily, args=(index,), daemon=True).start()
+    gw = Gateway(redactor, budget, token, catalog, collector, searcher, products, eraser)
     host = os.environ.get("HOST", "127.0.0.1")
     port = int(os.environ.get("PORT", "8090"))
     httpd = ThreadingHTTPServer((host, port), make_handler(gw))
-    print(f"privacy gateway on http://{host}:{port}", file=sys.stderr)
+    print(f"privacy gateway on http://{host}:{port} ({'postgres' if dsn else 'local files + opensearch'})", file=sys.stderr)
     httpd.serve_forever()
+
+
+def _purge_daily(index: Any) -> None:
+    """Retention: delete events past their dataset's retentionDays, once a day."""
+    while True:
+        try:
+            print(f"retention purge removed {index.purge_expired()} events", file=sys.stderr)
+        except Exception as e:  # noqa: BLE001 - keep serving; try again tomorrow
+            print(f"retention purge failed: {type(e).__name__}", file=sys.stderr)
+        time.sleep(24 * 3600)
 
 
 if __name__ == "__main__":

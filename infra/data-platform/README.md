@@ -12,6 +12,8 @@ This directory holds the running pieces. The design, licenses and adopt/defer de
 | `search/` | OpenSearch events index template and bootstrap |
 | `superset/` | Superset image and `superset_config.py` |
 | `datahub/` | Pinned DataHub quickstart and ingestion recipes |
+| `deploy/box/` | $0 production profile: gateway and Superset on the self-hosted box, storage in Supabase (`DATABASE_URL`), Cloudflare Tunnel; `box.sh` checks the `.env`, starts, updates and reports health. See [FREE-HOSTING.md](../../docs/data-platform/FREE-HOSTING.md) |
+| `deploy/cloudrun/` | Template for the Cloud Run always-free fallback (not created; needs William's OK) |
 
 ## Run it
 

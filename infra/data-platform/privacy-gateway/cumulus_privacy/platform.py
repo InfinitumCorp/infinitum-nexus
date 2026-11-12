@@ -20,12 +20,13 @@ import base64
 import json
 import re
 import threading
+import time
 import urllib.error
 import urllib.request
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Mapping, Protocol
+from typing import Any, Callable, Mapping, Protocol
 
 from .redaction import Destination, FieldRule, Redactor
 
@@ -42,9 +43,11 @@ READ_PATTERN = "cumulus-events-*"
 class PlatformError(Exception):
     """An error in the DataPlatform namespace (conjure/platform.yml)."""
 
-    def __init__(self, status: int, name: str, message: str, args: Mapping[str, Any] | None = None) -> None:
+    def __init__(self, status: int, name: str, message: str, args: Mapping[str, Any] | None = None,
+                 retry_after: int | None = None) -> None:
         super().__init__(message)
         self.status, self.name, self.message, self.safe_args = status, name, message, dict(args or {})
+        self.retry_after = retry_after
 
 
 def _bad(message: str) -> PlatformError:
@@ -211,20 +214,24 @@ class Catalog:
     def get(self, name: str) -> dict[str, Any] | None:
         return self._load().get(name)
 
-    def register(self, caller: str, name: str, spec: Mapping[str, Any]) -> dict[str, str]:
-        clean = validate_spec(name, spec)
-        if clean["product"] != caller:
-            raise PlatformError(403, "TenantNotAuthorized", "a product can only register its own datasets")
+    def _put(self, name: str, spec: dict[str, Any]) -> None:
+        """Store the spec unless the name belongs to another product."""
         with self._lock:
             reg = self._load()
             existing = reg.get(name)
-            if existing and existing["product"] != caller:
+            if existing and existing["product"] != spec["product"]:
                 raise PlatformError(403, "TenantNotAuthorized", "dataset belongs to another product")
-            reg[name] = clean
+            reg[name] = spec
             self.path.parent.mkdir(parents=True, exist_ok=True)
             tmp = self.path.with_suffix(".tmp")
             tmp.write_text(json.dumps(reg, sort_keys=True, indent=1), "utf-8")
             tmp.replace(self.path)
+
+    def register(self, caller: str, name: str, spec: Mapping[str, Any]) -> dict[str, str]:
+        clean = validate_spec(name, spec)
+        if clean["product"] != caller:
+            raise PlatformError(403, "TenantNotAuthorized", "a product can only register its own datasets")
+        self._put(name, clean)
         if self.sink is not None:
             try:
                 self.sink.push(clean)
@@ -249,6 +256,9 @@ class EventIndex(Protocol):
         """Index a new document. False when the id already exists."""
 
     def search(self, body: dict[str, Any]) -> dict[str, Any]: ...
+
+    def erase(self, cid_pseudonym: str, product: str | None) -> int:
+        """Delete every event about this person (in one product, or all). Returns the count."""
 
 
 class OpenSearchIndex:
@@ -283,6 +293,16 @@ class OpenSearchIndex:
             raise PlatformError(500, "SearchUnavailable", f"search failed ({status})")
         return out
 
+    def erase(self, cid_pseudonym: str, product: str | None) -> int:
+        filters: list[dict[str, Any]] = [{"term": {"cid": cid_pseudonym}}]
+        if product:
+            filters.append({"term": {"product": product}})
+        status, out = self._call("POST", f"/{READ_PATTERN}/_delete_by_query?refresh=true&conflicts=proceed",
+                                 {"query": {"bool": {"filter": filters}}})
+        if status >= 300 or out.get("failures"):
+            raise PlatformError(500, "SearchUnavailable", f"erasure failed ({status}); repeat it, it is idempotent")
+        return int(out.get("deleted", 0))
+
 
 # --------------------------------------------------------------------------- collection
 
@@ -296,11 +316,94 @@ _TYPE_CHECKS = {
 }
 
 
+class IngestLimits:
+    """Keeps one product, or the free database, from being overrun.
+
+    * ``max_batch``: events per request.
+    * ``daily_quota``: accepted events per product per UTC day (0 = no limit). Counted in memory,
+      which is exact for the single gateway on the box and resets on restart.
+    * ``storage_limit_bytes``: refuse new events once the store reports this size (0 = off).
+      Supabase's free plan allows 500 MB per database, so the box profile sets 450 MB.
+    """
+
+    STORAGE_TTL = 60.0
+
+    def __init__(self, max_batch: int = 1000, daily_quota: int = 0, storage_limit_bytes: int = 0,
+                 storage: Callable[[], int] | None = None, clock: Callable[[], float] = time.time) -> None:
+        if max_batch < 1 or daily_quota < 0 or storage_limit_bytes < 0:
+            raise ValueError("limits must be positive")
+        self.max_batch, self.daily_quota, self.storage_limit = max_batch, daily_quota, storage_limit_bytes
+        self.storage, self.clock = storage, clock
+        self._lock = threading.Lock()
+        self._day = ""
+        self._counts: dict[str, int] = {}
+        self._size: tuple[float, int] | None = None
+
+    def _today(self) -> str:
+        day = datetime.fromtimestamp(self.clock(), tz=timezone.utc).strftime("%Y-%m-%d")
+        if day != self._day:
+            self._day, self._counts = day, {}
+        return day
+
+    def _seconds_to_midnight(self) -> int:
+        now = self.clock()
+        return max(1, int(86400 - now % 86400))
+
+    def storage_bytes(self) -> int | None:
+        if self.storage is None:
+            return None
+        now = self.clock()
+        if self._size is None or now - self._size[0] > self.STORAGE_TTL:
+            self._size = (now, int(self.storage()))
+        return self._size[1]
+
+    def storage_state(self) -> str:
+        """ok, nearly_full (80 percent of the limit) or full. ok when no limit is set."""
+        if not self.storage_limit:
+            return "ok"
+        try:
+            size = self.storage_bytes()
+        except Exception:  # noqa: BLE001 - health must not fail because of this
+            return "unknown"
+        if size is None:
+            return "ok"
+        if size >= self.storage_limit:
+            return "full"
+        return "nearly_full" if size >= 0.8 * self.storage_limit else "ok"
+
+    def admit(self, caller: str, n: int) -> None:
+        if n > self.max_batch:
+            raise PlatformError(413, "InvalidArgument", f"at most {self.max_batch} events per request")
+        if self.storage_state() == "full":
+            raise PlatformError(503, "StorageQuotaReached",
+                                "the event store is full; events are not stored until space is freed",
+                                retry_after=3600)
+        if self.daily_quota:
+            with self._lock:
+                self._today()
+                if self._counts.get(caller, 0) + n > self.daily_quota:
+                    raise PlatformError(429, "IngestQuotaExceeded",
+                                        f"daily limit of {self.daily_quota} events reached",
+                                        {"product": caller}, retry_after=self._seconds_to_midnight())
+
+    def record(self, caller: str, accepted: int) -> None:
+        with self._lock:
+            self._today()
+            self._counts[caller] = self._counts.get(caller, 0) + accepted
+
+    def used_today(self, caller: str) -> int:
+        with self._lock:
+            self._today()
+            return self._counts.get(caller, 0)
+
+
 class Collector:
-    def __init__(self, catalog: Catalog, redactor: Redactor, index: EventIndex, region: str) -> None:
+    def __init__(self, catalog: Catalog, redactor: Redactor, index: EventIndex, region: str,
+                 limits: IngestLimits | None = None) -> None:
         if region not in REGIONS:
             raise ValueError(f"PLATFORM_REGION must be one of {sorted(REGIONS)}")
         self.catalog, self.redactor, self.index, self.region = catalog, redactor, index, region
+        self.limits = limits or IngestLimits()
 
     def _check(self, caller: str, e: Mapping[str, Any]) -> tuple[dict[str, Any], str]:
         """Returns (indexable document, event id) or raises PlatformError with a reason."""
@@ -364,6 +467,7 @@ class Collector:
     def ingest(self, caller: str, events: list[Any]) -> dict[str, Any]:
         if EXCLUDED_PRODUCTS.match(caller):
             raise PlatformError(403, "TenantNotAuthorized", "military and defense products are excluded")
+        self.limits.admit(caller, len(events))
         accepted = duplicates = 0
         rejected = []
         for e in events:
@@ -379,6 +483,7 @@ class Collector:
                 accepted += 1
             else:
                 duplicates += 1
+        self.limits.record(caller, accepted)
         return {"accepted": accepted, "duplicates": duplicates, "rejected": rejected}
 
 
@@ -439,3 +544,24 @@ class Searcher:
         if len(raw) == body["size"] and raw[-1].get("sort"):
             token = base64.urlsafe_b64encode(json.dumps(raw[-1]["sort"]).encode()).decode()
         return {"hits": hits, "nextPageToken": token}
+
+
+# --------------------------------------------------------------------------- erasure
+
+
+class Eraser:
+    """Right to erasure (GDPR Art. 17). Events store only a keyed pseudonym of the Cumulus ID,
+    so the raw CID is pseudonymized the same way as at collection and matched on that.
+
+    A product erases its own events about a person. The pipeline token (``product=None``)
+    erases them from every product, for when a person deletes their Cumulus ID.
+    """
+
+    def __init__(self, redactor: Redactor, index: EventIndex) -> None:
+        self.redactor, self.index = redactor, index
+
+    def erase(self, product: str | None, cid: Any) -> dict[str, int]:
+        if not isinstance(cid, str) or not cid.strip():
+            raise _bad("cid is required")
+        pseudonym = self.redactor.pseudonym("cid", cid.strip(), Destination.ANALYTICS)
+        return {"deleted": self.index.erase(pseudonym, product)}

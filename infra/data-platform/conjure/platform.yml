@@ -124,6 +124,17 @@ types:
           hits: list<SearchHit>
           nextPageToken: optional<string>
 
+      ErasureRequest:
+        fields:
+          cid:
+            type: Cid
+            docs: The raw Cumulus ID. The gateway pseudonymizes it the same way as at collection; it is never stored or logged.
+      ErasureResponse:
+        fields:
+          deleted:
+            type: integer
+            docs: Events deleted. 0 when there were none; repeating the call is safe.
+
     errors:
       SchemaMismatch:
         namespace: DataPlatform
@@ -153,6 +164,18 @@ types:
         namespace: DataPlatform
         code: INTERNAL
         docs: The gateway runs without PLATFORM_PRODUCT_TOKENS, so these services are off.
+      StorageQuotaReached:
+        namespace: DataPlatform
+        code: INTERNAL
+        docs: >-
+          HTTP 503 with Retry-After. The event store reached PLATFORM_STORAGE_LIMIT_MB (450 MB by
+          default on the Supabase free plan). Keep the events and send them again later.
+      IngestQuotaExceeded:
+        namespace: DataPlatform
+        code: CUSTOM_CLIENT
+        docs: HTTP 429 with Retry-After (seconds to the next UTC day). The product used its PLATFORM_DAILY_EVENT_QUOTA.
+        safe-args:
+          product: ProductId
 
 services:
   CollectionService:
@@ -196,7 +219,7 @@ services:
     package: app.infinitum.cumulus.data.platform
     base-path: /api/v1/search
     default-auth: header
-    docs: Search authorized events by time, product, tenant and object, backed by OpenSearch with one index alias per tenant.
+    docs: Search authorized events by time, product, tenant and object, backed by Postgres full-text search (free tier) or OpenSearch.
     endpoints:
       search:
         http: POST /events
@@ -205,3 +228,31 @@ services:
             type: SearchQuery
             param-type: body
         returns: SearchResponse
+
+  ErasureService:
+    name: Erasure Service
+    package: app.infinitum.cumulus.data.platform
+    base-path: /api/v1/erasure
+    default-auth: header
+    docs: >-
+      Right to erasure (GDPR Art. 17). Deletes stored events about one person, matched by the
+      pseudonym of their Cumulus ID. Idempotent.
+    endpoints:
+      eraseSubject:
+        http: POST /subjects
+        docs: With a product token. Deletes the calling product's events about this person, in every tenant.
+        args:
+          request:
+            type: ErasureRequest
+            param-type: body
+        returns: ErasureResponse
+      eraseSubjectEverywhere:
+        http: POST /subjects/all-products
+        docs: >-
+          With the pipeline token (PRIVACY_GATEWAY_TOKEN). Deletes the person's events from every
+          product, for when they delete their Cumulus ID.
+        args:
+          request:
+            type: ErasureRequest
+            param-type: body
+        returns: ErasureResponse

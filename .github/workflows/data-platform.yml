@@ -5,6 +5,7 @@ on:
     paths:
       - "infra/data-platform/**"
       - "docs/data-platform/**"
+      - "supabase/migrations/20261113_data_platform.sql"
       - ".github/workflows/data-platform.yml"
   push:
     branches: [main]
@@ -33,6 +34,17 @@ jobs:
   gateway-tests:
     runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 15
+    services:
+      # Disposable stand-in for the Supabase free-tier database (same major version).
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: ci-only
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      TEST_DATABASE_URL: postgresql://postgres:ci-only@127.0.0.1:5432/postgres
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v6
@@ -40,9 +52,29 @@ jobs:
           python-version: "3.12"
       - name: Install (includes Google DP wheels, Linux only)
         run: pip install -r privacy-gateway/requirements-dev.txt
-      - name: Test Presidio redaction, quality checks, DP releases and the Conjure contract
+      - name: Test redaction, quality, DP, the Conjure contract and the Postgres (Supabase) backends
         working-directory: infra/data-platform/privacy-gateway
         run: python -m pytest -W ignore::DeprecationWarning -rs
+      - name: Free-tier layout end to end (gateway on Postgres as the restricted role, no OpenSearch)
+        working-directory: infra/data-platform/privacy-gateway
+        run: |
+          # The tests above applied the migration and created data_platform_gateway (CI-only password).
+          python -c "import os,psycopg;psycopg.connect(os.environ['TEST_DATABASE_URL'],autocommit=True).execute('truncate data_platform.events, data_platform.datasets, data_platform.privacy_budget')"
+          r() { python -c "import secrets;print(secrets.token_hex(32))"; }
+          export PRIVACY_GATEWAY_TOKEN=$(r) PRIVACY_PSEUDONYM_KEY=$(r) SPECTRE=$(r) MAIL=$(r)
+          export PLATFORM_PRODUCT_TOKENS="spectre=$SPECTRE;cumulus-mail=$MAIL"
+          export DATABASE_URL="postgresql://data_platform_gateway:test-only-$(printf 'x%.0s' $(seq 24))@127.0.0.1:5432/postgres"
+          python -m cumulus_privacy.server 2> "$RUNNER_TEMP/gateway.log" &
+          for i in $(seq 60); do curl -fs http://127.0.0.1:8090/api/v1/health >/dev/null && break; sleep 2; done
+          grep -q "(postgres)" "$RUNNER_TEMP/gateway.log"
+          python ../smoke/platform_smoke.py http://127.0.0.1:8090 "$SPECTRE" "$MAIL" || { cat "$RUNNER_TEMP/gateway.log"; exit 1; }
+          rows=$(python -c "import os,psycopg;print(psycopg.connect(os.environ['TEST_DATABASE_URL']).execute('select count(*) from data_platform.events').fetchone()[0])")
+          echo "events stored in Postgres: $rows"; test "$rows" -gt 0
+          curl -fsS http://127.0.0.1:8090/api/v1/health | grep -q '"storage": "ok"'
+          # Right to erasure: the smoke event's person is erased everywhere with the pipeline token.
+          out=$(curl -fsS http://127.0.0.1:8090/api/v1/erasure/subjects/all-products \
+            -H "Authorization: Bearer $PRIVACY_GATEWAY_TOKEN" -H 'Content-Type: application/json' -d '{"cid":"cid_smoke0001"}')
+          echo "$out"; test "$out" = '{"deleted": 1}'
 
   conjure:
     runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
@@ -86,6 +118,27 @@ jobs:
           echo "PLATFORM_PRODUCT_TOKENS=\"spectre=$SMOKE_SPECTRE_TOKEN;cumulus-mail=$SMOKE_MAIL_TOKEN\"" >> .env
       - name: Validate compose for every profile
         run: docker compose --profile bi config -q
+      - name: Validate the $0 box profile (dummy values)
+        run: |
+          cp deploy/box/.env.example "$RUNNER_TEMP/box.env"
+          sed -i 's/^\([A-Z_]*\)=$/\1=dummy/' "$RUNNER_TEMP/box.env"
+          docker compose -f deploy/box/compose.box.yml --env-file "$RUNNER_TEMP/box.env" config -q
+      - name: Box ops script accepts a good .env and refuses unsafe ones
+        run: |
+          r() { python3 -c "import secrets;print(secrets.token_hex(32))"; }
+          good="$RUNNER_TEMP/good.env"
+          cp deploy/box/.env.example "$good"
+          sed -i "s|^PRIVACY_GATEWAY_TOKEN=.*|PRIVACY_GATEWAY_TOKEN=$(r)|; s|^PRIVACY_PSEUDONYM_KEY=.*|PRIVACY_PSEUDONYM_KEY=$(r)|" "$good"
+          sed -i "s|^DATABASE_URL=.*|DATABASE_URL=postgresql://data_platform_gateway.ref:pw@db.example:5432/postgres?sslmode=require|" "$good"
+          sed -i "s|^SUPERSET_SECRET_KEY=.*|SUPERSET_SECRET_KEY=$(r)|; s|^SUPERSET_DB_PASSWORD=.*|SUPERSET_DB_PASSWORD=$(r)|; s|^CLOUDFLARE_TUNNEL_TOKEN=.*|CLOUDFLARE_TUNNEL_TOKEN=$(r)|" "$good"
+          chmod 600 "$good"
+          BOX_ENV_FILE="$good" bash deploy/box/box.sh check
+          bad() { sed "$1" "$good" > "$RUNNER_TEMP/bad.env"; chmod 600 "$RUNNER_TEMP/bad.env"
+                  if BOX_ENV_FILE="$RUNNER_TEMP/bad.env" bash deploy/box/box.sh check; then echo "accepted: $1"; exit 1; fi; }
+          bad 's|sslmode=require||'                       # no TLS
+          bad 's|data_platform_gateway.ref|postgres.ref|'  # superuser instead of the restricted role
+          bad 's|^CLOUDFLARE_TUNNEL_TOKEN=.*|CLOUDFLARE_TUNNEL_TOKEN=|'
+          bad 's|^PRIVACY_PSEUDONYM_KEY=.*|PRIVACY_PSEUDONYM_KEY=short|'
       - name: Start core (privacy gateway + OpenSearch)
         run: |
           docker compose up -d --build --wait --wait-timeout 600 privacy-gateway opensearch
@@ -109,6 +162,12 @@ jobs:
         run: |
           set -a; . ./.env; set +a
           python3 smoke/platform_smoke.py http://127.0.0.1:8090 "$SMOKE_SPECTRE_TOKEN" "$SMOKE_MAIL_TOKEN"
+      - name: Right to erasure on OpenSearch (delete_by_query)
+        run: |
+          set -a; . ./.env; set +a
+          out=$(curl -fsS http://127.0.0.1:8090/api/v1/erasure/subjects \
+            -H "Authorization: Bearer $SMOKE_SPECTRE_TOKEN" -H 'Content-Type: application/json' -d '{"cid":"cid_smoke0001"}')
+          echo "$out"; test "$out" = '{"deleted": 1}'
       - name: Start Superset (profile bi)
         run: |
           docker compose --profile bi up -d --build --wait --wait-timeout 900 superset

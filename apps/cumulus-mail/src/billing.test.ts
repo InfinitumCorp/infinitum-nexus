@@ -8,7 +8,7 @@ import { createCumulus } from "@infinitum/cumulus";
 import { BillingLinkStore, RevenueClient } from "@infinitum/billing";
 import { VirtualAuthenticator } from "../../../packages/cid/src/testing/virtual-authenticator.ts";
 import { createMailApp } from "./app.ts";
-import { MILITARY_PRODUCTS, SELLABLE, returnUrlFor } from "./billing.ts";
+import { BUSINESS_PLANS, MILITARY_PRODUCTS, SELLABLE, returnUrlFor, seatsFor } from "./billing.ts";
 
 // A stand-in for the revenue API: records what Mail asked for and answers like the real one.
 const calls: { method: string; path: string; auth: string | null; body: any }[] = [];
@@ -100,6 +100,18 @@ describe("Buying Infinitum products with a Cumulus://ID", () => {
       assert.equal(res.status, 400, plan);
     }
     for (const plan of Object.keys(SELLABLE)) assert.ok(!MILITARY_PRODUCTS.has(plan.split("_")[0]!), plan);
+  });
+
+  it("sells Conjure Pro to anyone and Conjure Team per seat to business orgs, never Free", () => {
+    assert.equal(SELLABLE.conjure_pro, "Conjure");
+    assert.equal(SELLABLE.conjure_team, "Conjure");
+    assert.equal(SELLABLE.conjure_free, undefined);
+    assert.equal(BUSINESS_PLANS.conjure_pro, undefined);
+    assert.deepEqual(BUSINESS_PLANS.conjure_team, { perSeat: true });
+    assert.equal(seatsFor("conjure_team", "5"), 5);
+    assert.equal(seatsFor("conjure_pro", "5"), undefined);
+    assert.equal(returnUrlFor("https://conjure.infinitumcorporation.ai/studio", "x"), "https://conjure.infinitumcorporation.ai/studio");
+    assert.equal(returnUrlFor("https://conjure-ru.infinitumcorporation.ai/studio", "x"), "https://conjure-ru.infinitumcorporation.ai/studio");
   });
 
   it("returns only to Infinitum product sites, and only sends people to Stripe", async () => {

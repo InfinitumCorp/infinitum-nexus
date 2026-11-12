@@ -43,6 +43,9 @@ export const SELLABLE: Record<string, string> = {
   spectre_growth: "+SPCTR",
   fabric_business: "FABRIC",
   metatron_business: "METATRON¹⁰⁰",
+  // Conjure: Pro for anyone; Team per seat, business orgs only.
+  conjure_pro: "Conjure",
+  conjure_team: "Conjure",
 };
 
 /** Plans only a business org may hold. Per-seat ones take `seats` (1..10000). */
@@ -53,6 +56,7 @@ export const BUSINESS_PLANS: Record<string, { perSeat: boolean }> = {
   spectre_growth: { perSeat: true },
   fabric_business: { perSeat: true },
   metatron_business: { perSeat: false },
+  conjure_team: { perSeat: true },
 };
 
 export function seatsFor(plan: string, raw: string | null): number | undefined {

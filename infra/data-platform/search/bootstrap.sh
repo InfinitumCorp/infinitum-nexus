@@ -3,6 +3,7 @@
 set -euo pipefail
 OS="${1:-http://localhost:9200}"
 DIR="$(cd "$(dirname "$0")" && pwd)"
+for _ in $(seq 1 60); do curl -fs "$OS/_cluster/health" >/dev/null && break; sleep 2; done
 curl -fsS -X PUT "$OS/_index_template/cumulus-events" -H 'Content-Type: application/json' \
   --data-binary "@$DIR/events-template.json"
 echo

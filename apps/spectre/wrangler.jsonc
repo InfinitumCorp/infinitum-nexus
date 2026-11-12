@@ -1,4 +1,6 @@
-// Cumulus://ID (+SPCTR) on Cloudflare Workers, free plan. See src/server/worker.ts.
+// +SPCTR on Cloudflare Workers, free plan. See src/server/worker.ts.
+// After the cut-over the Cumulus://ID issuer is InfinitumCorp/cumulus-id on id.cumuluscloud.app
+// (docs/cumulus-id.md). The Worker keeps the name `cumulus-id` so it keeps its NexusStore state.
 // Build first: node scripts/build-cloudflare.mjs (writes dist/entry.mjs with public/ embedded). Secrets (wrangler secret put NAME):
 //   FIRMAMENT_SIGNER_KEY   base64 PKCS#8 Ed25519 ledger signing key (keep a safe copy)
 //   NEXUS_STORE_KEY        gateway key for the Supabase nexus-store (Vercel path). The Worker
@@ -15,14 +17,12 @@
   "main": "dist/entry.mjs",
   "compatibility_date": "2026-11-01",
   "compatibility_flags": ["nodejs_compat"],
-  "routes": [{ "pattern": "id.cumuluscloud.app", "custom_domain": true }],
+  "routes": [{ "pattern": "spectre.infinitumcorporation.ai", "custom_domain": true }],
   "workers_dev": false,
   "observability": { "enabled": true },
   "vars": {
-    "SPECTRE_ORIGIN": "https://id.cumuluscloud.app",
+    "SPECTRE_ORIGIN": "https://spectre.infinitumcorporation.ai",
     "NEXUS_STORE_URL": "https://ivqiskeziohbbtkcvlun.supabase.co/functions/v1/nexus-store",
-    // Google Cloud Run mirror for networks that throttle Cloudflare (Russian ISPs); passkeys work there too.
-    "SPECTRE_EXTRA_ORIGINS": "https://ru.id.cumuluscloud.app",
     "CUMULUS_MAIL_ORIGIN": "https://mail.cumuluscloud.app",
     "COGNITO_REGION": "us-east-1",
     "COGNITO_USER_POOL_ID": "us-east-1_fRlMO7dna",

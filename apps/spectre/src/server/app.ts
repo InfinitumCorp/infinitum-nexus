@@ -1233,7 +1233,7 @@ export function createApp(deps: AppDeps) {
     origin: deps.origin,
   });
 
-  registerConjureRoutes({ route, crm, ai: deps.ai, httpError: (status, message) => new HttpError(status, message), complete: deps.conjureComplete });
+  registerConjureRoutes({ route, crm, ai: deps.ai, httpError: (status, message) => new HttpError(status, message), complete: deps.conjureComplete, search });
 
   const veilControl = createVeilControl({
     cid: deps.cid,

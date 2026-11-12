@@ -17,6 +17,7 @@
     "test": "node --test --experimental-strip-types $(find src -name \"*.test.ts\" 2>/dev/null || true)"
   },
   "dependencies": {
+    "@infinitum/ai": "workspace:*",
     "@infinitum/firmament": "workspace:*",
     "@infinitum/lbrnth": "workspace:*",
     "@infinitum/lbrnth-client": "workspace:*"

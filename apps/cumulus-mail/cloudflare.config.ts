@@ -38,6 +38,8 @@ export default defineConfig({
       // Mirrors for networks that throttle Cloudflare (Russian ISPs): ru. is AWS (also throttled in
       // Russia since 2026-11); ru2. is Firebase Hosting -> Cloud Run (mirror/), which gets through.
       MAIL_EXTRA_ORIGINS: bindings.text(`https://ru.${host},https://ru2.${host}`),
+      // Infinitum Search (POST /api/web-search) on VEIL's own engine; needs no key.
+      VEIL_SEARCH_URL: bindings.text("https://infinitumveil.app/api/search"),
       FIRMAMENT_SIGNER_KEY: bindings.secret(),
       NEXUS_STORE_URL: bindings.secret(),
       NEXUS_STORE_KEY: bindings.secret(),

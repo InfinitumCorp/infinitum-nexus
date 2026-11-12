@@ -26,6 +26,8 @@
     // Google Cloud Run mirror for networks that throttle Cloudflare (Russian ISPs); passkeys work there too.
     "SPECTRE_EXTRA_ORIGINS": "https://ru.id.cumuluscloud.app",
     "CUMULUS_MAIL_ORIGIN": "https://mail.cumuluscloud.app",
+    // Infinitum Search (@search, /api/web-search, Conjure web seeding) on VEIL's own engine; needs no key.
+    "VEIL_SEARCH_URL": "https://infinitumveil.app/api/search",
     "COGNITO_REGION": "us-east-1",
     "COGNITO_USER_POOL_ID": "us-east-1_fRlMO7dna",
     "COGNITO_CLIENT_ID": "60bejetr2agt2l6n5gk3v9tmd2",

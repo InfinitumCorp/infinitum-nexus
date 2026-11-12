@@ -27,10 +27,10 @@ test("POST /api/id/export returns accounts for migration and nothing a session c
     const cid = h.suite.cid;
 
     // Ada confirms an authenticator app; Bob only starts enrolling, so his secret must not leave.
-    const adaTotp = cid.enrollTotp(ada.cid);
+    const adaTotp = await cid.enrollTotp(ada.cid);
     const step = Math.floor(Date.now() / 30_000);
     await cid.confirmTotp(ada.cid, hotp(Buffer.from(base32Decode(adaTotp.secret)), step));
-    cid.enrollTotp(bob.cid);
+    await cid.enrollTotp(bob.cid);
     // A linked Google account (the provider round trip is covered in id-provider.http.test.ts).
     const adaAccount = cid.store.accounts.get(ada.cid)!;
     adaAccount.identities = [{ provider: "google", subject: "g-123", email: "ada@gmail.example", linkedAt: "2026-11-05T09:00:00.000Z" }];

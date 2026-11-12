@@ -17,13 +17,13 @@ export interface DriveAuth {
 /** Adapts a real Cumulus://ID service. The caller never supplies the CID in the body. */
 export function cidAuth(cid: CidService): DriveAuth {
   return {
-    authenticate(token: string): DrivePrincipal | null {
-      const hit = cid.authenticate(token);
+    async authenticate(token: string): Promise<DrivePrincipal | null> {
+      const hit = await cid.authenticate(token);
       if (!hit) return null;
       return { cid: hit.account.cid, sessionId: hit.session.id };
     },
-    can(id: string, scope: "drive:read" | "drive:write"): boolean {
-      return cid.can(id, DRIVE_APP, scope);
+    async can(id: string, scope: "drive:read" | "drive:write"): Promise<boolean> {
+      return await cid.can(id, DRIVE_APP, scope);
     },
     async grantDrive(id: string): Promise<void> {
       await cid.grant(id, DRIVE_APP, ["drive:read", "drive:write"]);

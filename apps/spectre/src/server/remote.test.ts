@@ -39,7 +39,7 @@ describe("Hosted state (serverless instances sharing Supabase)", () => {
     await a.state.transaction(() => a.crm.addCompany(account.cid, account.cid, { name: "Northwind" }));
 
     await b.state.transaction(async () => {
-      assert.equal(b.cid.getAccount(account.cid).username, "alex");
+      assert.equal((await b.cid.getAccount(account.cid)).username, "alex");
       assert.equal(b.crm.list("companies", account.cid)[0].name, "Northwind");
     });
     assert.equal(db.entries.length, 2);

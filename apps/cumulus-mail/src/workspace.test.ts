@@ -189,7 +189,7 @@ describe("Sign in with Cumulus://ID", () => {
     assert.equal(token.headers.get("access-control-allow-origin"), "https://scalvs.app");
     const who = await call("GET", "/api/id/userinfo", "", undefined, { authorization: `Bearer ${token.body.access_token}` });
     assert.equal(who.body.username, "idperson");
-    assert.ok(suite.cid.can(suite.stores.cid.byUsername.get("idperson")!, "scalvs", "profile:read"));
+    assert.ok(await suite.cid.can(suite.stores.cid.byUsername.get("idperson")!, "scalvs", "profile:read"));
     await call("POST", "/api/id/signout", "", {}, { authorization: `Bearer ${token.body.access_token}`, "x-cumulus": "" });
     assert.equal((await call("GET", "/api/id/userinfo", "", undefined, { authorization: `Bearer ${token.body.access_token}` })).status, 401);
   });

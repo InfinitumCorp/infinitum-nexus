@@ -43,6 +43,10 @@ export interface ProxyGrant {
  */
 export function createVeilControl(options: VeilControlOptions) {
   const cid = options.cid;
+  // The VPN control plane checks sessions synchronously (device broker, proxy logins), against
+  // this service's in-memory CID store. See CidService.syncView().
+  let view: ReturnType<CidService["syncView"]> | undefined;
+  const ids = () => (view ??= cid.syncView());
   const entitled = options.entitled ?? (() => false);
   const servers = parseCatalog([...(options.servers ?? [])]);
   const bridges = parseBridges([...(options.bridges ?? [])]);
@@ -66,7 +70,7 @@ export function createVeilControl(options: VeilControlOptions) {
     clock,
     ttl,
     hasPlan,
-    sessionActive: (accountId, sessionId) => cid.isSessionActive(accountId, sessionId),
+    sessionActive: (accountId, sessionId) => ids().isSessionActive(accountId, sessionId),
   });
 
   const hashPassword = (password: string) => createHash("sha256").update(password, "utf8").digest();
@@ -75,8 +79,8 @@ export function createVeilControl(options: VeilControlOptions) {
     if (typeof token !== "string" || !token || token.length > 512) {
       veilFail("sign_in_required", "Cumulus ID sign-in required", 401);
     }
-    const auth = cid.authenticate(token);
-    if (!auth || !cid.isSessionActive(auth.account.cid, auth.session.id)) {
+    const auth = ids().authenticate(token);
+    if (!auth || !ids().isSessionActive(auth.account.cid, auth.session.id)) {
       veilFail("sign_in_required", "Cumulus ID session expired or revoked", 401);
     }
     return { cid: auth.account.cid, username: auth.account.username, sessionId: auth.session.id };
@@ -193,7 +197,7 @@ export function createVeilControl(options: VeilControlOptions) {
       const match = actual.length === expected.length && timingSafeEqual(actual, expected);
       if (!row || !match) return false;
       if (row.expiresAt <= clock().getTime()) return false;
-      if (!cid.isSessionActive(row.cid, row.sessionId)) return false;
+      if (!ids().isSessionActive(row.cid, row.sessionId)) return false;
       if (!hasPlan(row.cid)) return false;
       return true;
     },

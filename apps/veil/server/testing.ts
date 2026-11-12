@@ -37,13 +37,13 @@ export async function veilFixture(servers = VEIL_SERVERS, bridges: string[] = VE
   async function login(plan = false) {
     const account = await cid.createAccount({ username: `veil${++count}user` });
     const device = new VirtualAuthenticator();
-    const registration = cid.startAuthenticatorRegistration(account.cid, "passkey");
+    const registration = await cid.startAuthenticatorRegistration(account.cid, "passkey");
     const key = await cid.finishAuthenticatorRegistration(
       account.cid,
       device.create({ challenge: registration.challenge, rpId: "localhost", origin: "http://localhost" }),
       { kind: "passkey" },
     );
-    const challenge = cid.startSignIn();
+    const challenge = await cid.startSignIn();
     const result = await cid.finishSignIn(
       device.get({ credentialId: key.credentialId, challenge: challenge.challenge, origin: "http://localhost" }),
       "veil-test",

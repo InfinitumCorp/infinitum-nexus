@@ -131,7 +131,7 @@ describe("Cumulus://Mail in upstream mode", () => {
     assert.equal(mail.stores.cid.accounts.size, 1);
 
     // The issuer token Mail used was revoked; only the person's own issuer session remains.
-    assert.equal(issuer.cid.listSessions(cid).length, 1);
+    assert.equal((await issuer.cid.listSessions(cid)).length, 1);
 
     // Signing in again reuses the same account.
     const again = await signInToMail(browser);
@@ -180,7 +180,7 @@ describe("Cumulus://Mail in upstream mode", () => {
   it("does not merge a pre-cutover Mail-only account that holds the same username", async () => {
     // Simulate an account created on Mail before CUMULUS_ID_ISSUER was set.
     const legacyCid = "cid_99999999-9999-4999-8999-999999999999";
-    mail.stores.cid.accounts.set(legacyCid, { cid: legacyCid, username: "sam", mailAddress: "sam@cumuluscloud.app", handle: "@sam.veil", createdAt: new Date().toISOString(), entitlements: mail.cid.getAccount([...mail.stores.cid.accounts.keys()][0]!).entitlements });
+    mail.stores.cid.accounts.set(legacyCid, { cid: legacyCid, username: "sam", mailAddress: "sam@cumuluscloud.app", handle: "@sam.veil", createdAt: new Date().toISOString(), entitlements: (await mail.cid.getAccount([...mail.stores.cid.accounts.keys()][0]!)).entitlements });
     mail.stores.cid.byUsername.set("sam", legacyCid);
     const { browser, cid } = await issuerAccount("sam");
     const { m, done } = await signInToMail(browser);

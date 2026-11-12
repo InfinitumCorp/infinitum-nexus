@@ -52,7 +52,7 @@ test("Cumulus ID relays to the hosted Labyrinth, which checks sessions live thro
     assert.equal(session.body.organization, null);
     const org = await viaId({ action: "organization", product: "spectre", name: "Hosted client" });
     assert.equal(org.status, 200);
-    assert.equal(h.suite.cid.organizationMembership(identity.cid)?.id, org.body.id);
+    assert.equal((await h.suite.cid.organizationMembership(identity.cid))?.id, org.body.id);
     assert.equal((await viaId({ action: "consent", product: "spectre", scopes: ["repo:read", "repo:write", "repo:admin"] })).status, 200);
     assert.equal((await viaId({ action: "provision", product: "spectre" })).status, 403); // no plan yet
     await pg.query("insert into lbrnth.entitlements (org_id, plan, source) values ($1, 'client', 'operator')", [org.body.id]);

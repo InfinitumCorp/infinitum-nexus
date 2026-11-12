@@ -41,7 +41,7 @@ function issuer(signer: OidcSigner) {
   const res = { setHeader() {} };
   /** Full product sign-in for `client`; returns the access token the product receives. */
   const tokenFor = async (username: string, client = "cumulus-cloud", redirect = "https://drive.cumuluscloud.app/signed-in") => {
-    const account = cid.store.byUsername.get(username) ? cid.getAccount(cid.store.byUsername.get(username)!) : await cid.createAccount({ username });
+    const account = cid.store.byUsername.get(username) ? await cid.getAccount(cid.store.byUsername.get(username)!) : await cid.createAccount({ username });
     const { session } = await (cid as any).issueSession(account.cid, "browser", "passkey");
     const verifier = randomBytes(32).toString("base64url");
     const challenge = createHash("sha256").update(verifier).digest("base64url");

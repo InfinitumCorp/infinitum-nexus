@@ -19,14 +19,14 @@ function setup(start = new Date("2026-11-04T12:00:00Z")) {
 async function withPasskey(cid: CidService, username: string, auth = new VirtualAuthenticator()) {
   const account = await cid.createAccount({ username });
   const kind = auth.userVerifying ? "passkey" : "security-key";
-  const opts = cid.startAuthenticatorRegistration(account.cid, kind);
+  const opts = await cid.startAuthenticatorRegistration(account.cid, kind);
   const reg = auth.create({ challenge: opts.challenge, origin: ORIGIN, rpId: RP_ID });
   const key = await cid.finishAuthenticatorRegistration(account.cid, reg, { kind });
   return { account, auth, key };
 }
 
 async function signIn(cid: CidService, auth: VirtualAuthenticator, credentialId: string) {
-  const { challenge } = cid.startSignIn();
+  const { challenge } = await cid.startSignIn();
   return cid.finishSignIn(auth.get({ credentialId, challenge, origin: ORIGIN }), "MacBook · VEIL");
 }
 
@@ -74,20 +74,20 @@ describe("CID passkeys and security keys", () => {
   it("registers a passkey and signs in with it (ES256)", async () => {
     const { cid } = setup();
     const { account, auth, key } = await withPasskey(cid, "alex");
-    const { challenge } = cid.startSignIn();
+    const { challenge } = await cid.startSignIn();
     const assertion = auth.get({ credentialId: key.credentialId, challenge, origin: ORIGIN });
     assert.equal(Buffer.from(assertion.signature, "base64url").length, 64, "ES256 signatures are raw r||s");
     const result = await cid.finishSignIn(assertion, "MacBook · VEIL");
     assert.equal(result.status, "ok");
     if (result.status !== "ok") return;
-    assert.equal(cid.authenticate(result.token)?.account.cid, account.cid);
+    assert.equal((await cid.authenticate(result.token))?.account.cid, account.cid);
   });
 
   it("supports Ed25519 passkeys", async () => {
     const { cid } = setup();
     const account = await cid.createAccount({ username: "sam" });
     const auth = new VirtualAuthenticator();
-    const opts = cid.startAuthenticatorRegistration(account.cid);
+    const opts = await cid.startAuthenticatorRegistration(account.cid);
     const key = await cid.finishAuthenticatorRegistration(account.cid, auth.create({ challenge: opts.challenge, origin: ORIGIN, rpId: RP_ID, alg: "EdDSA" }));
     assert.equal((await signIn(cid, auth, key.credentialId)).status, "ok");
   });
@@ -113,7 +113,7 @@ describe("CID passkeys and security keys", () => {
   it("rejects a phishing site's origin", async () => {
     const { cid } = setup();
     const { auth, key } = await withPasskey(cid, "alex");
-    const { challenge } = cid.startSignIn();
+    const { challenge } = await cid.startSignIn();
     const resp = auth.get({ credentialId: key.credentialId, challenge, origin: "https://infinitum-login.example" });
     await rejectsWith(cid.finishSignIn(resp, "x"), "webauthn_failed");
   });
@@ -121,7 +121,7 @@ describe("CID passkeys and security keys", () => {
   it("rejects a credential created for a different site", async () => {
     const { cid } = setup();
     const { auth, key } = await withPasskey(cid, "alex");
-    const { challenge } = cid.startSignIn();
+    const { challenge } = await cid.startSignIn();
     const resp = auth.get({ credentialId: key.credentialId, challenge, origin: ORIGIN, rpIdOverride: "evil.example" });
     await rejectsWith(cid.finishSignIn(resp, "x"), "webauthn_failed");
   });
@@ -129,7 +129,7 @@ describe("CID passkeys and security keys", () => {
   it("rejects a replayed sign-in", async () => {
     const { cid } = setup();
     const { auth, key } = await withPasskey(cid, "alex");
-    const { challenge } = cid.startSignIn();
+    const { challenge } = await cid.startSignIn();
     const resp = auth.get({ credentialId: key.credentialId, challenge, origin: ORIGIN });
     await cid.finishSignIn(resp, "x");
     await rejectsWith(cid.finishSignIn(resp, "x"), "challenge_expired");
@@ -138,7 +138,7 @@ describe("CID passkeys and security keys", () => {
   it("rejects an expired challenge", async () => {
     const { cid, advance } = setup();
     const { auth, key } = await withPasskey(cid, "alex");
-    const { challenge } = cid.startSignIn();
+    const { challenge } = await cid.startSignIn();
     advance(6 * 60_000);
     await rejectsWith(cid.finishSignIn(auth.get({ credentialId: key.credentialId, challenge, origin: ORIGIN }), "x"), "challenge_expired");
   });
@@ -147,7 +147,7 @@ describe("CID passkeys and security keys", () => {
     const { cid } = setup();
     const { auth, key } = await withPasskey(cid, "alex");
     await signIn(cid, auth, key.credentialId); // counter now 2
-    const { challenge } = cid.startSignIn();
+    const { challenge } = await cid.startSignIn();
     const cloned = auth.get({ credentialId: key.credentialId, challenge, origin: ORIGIN, counterOverride: 2 });
     await rejectsWith(cid.finishSignIn(cloned, "x"), "webauthn_failed");
   });
@@ -155,7 +155,7 @@ describe("CID passkeys and security keys", () => {
   it("rejects a forged signature", async () => {
     const { cid } = setup();
     const { auth, key } = await withPasskey(cid, "alex");
-    const { challenge } = cid.startSignIn();
+    const { challenge } = await cid.startSignIn();
     const resp = auth.get({ credentialId: key.credentialId, challenge, origin: ORIGIN });
     const attacker = generateKeyPairSync("ec", { namedCurve: "P-256" });
     const forged = sign("sha256", Buffer.from("anything"), attacker.privateKey).toString("base64url");
@@ -168,9 +168,9 @@ describe("CID passkeys and security keys", () => {
     await rejectsWith(cid.removeAuthenticator(account.cid, key.id), "last_key");
   });
 
-  it("does not leak whether a username exists", () => {
+  it("does not leak whether a username exists", async () => {
     const { cid } = setup();
-    const opts = cid.startSignIn("nobody-here");
+    const opts = await cid.startSignIn("nobody-here");
     assert.deepEqual(opts.allowCredentials, []);
   });
 });
@@ -185,7 +185,7 @@ describe("CID multifactor", () => {
   it("asks a security key without user verification for an authenticator-app code", async () => {
     const { cid, now } = setup();
     const { account, auth, key } = await withPasskey(cid, "alex", new VirtualAuthenticator({ userVerifying: false }));
-    const { secret } = cid.enrollTotp(account.cid);
+    const { secret } = await cid.enrollTotp(account.cid);
     const codeAt = (d: Date) => hotp(base32Decode(secret), Math.floor(d.getTime() / 30_000));
     await cid.confirmTotp(account.cid, codeAt(now()));
 
@@ -203,7 +203,7 @@ describe("CID multifactor", () => {
   it("treats a user-verified passkey as already two-factor", async () => {
     const { cid, now } = setup();
     const { account, auth, key } = await withPasskey(cid, "alex");
-    const { secret } = cid.enrollTotp(account.cid);
+    const { secret } = await cid.enrollTotp(account.cid);
     await cid.confirmTotp(account.cid, hotp(base32Decode(secret), Math.floor(now().getTime() / 30_000)));
     assert.equal((await signIn(cid, auth, key.credentialId)).status, "ok");
   });
@@ -224,15 +224,15 @@ describe("CID sessions", () => {
     const s2 = await signIn(cid, auth, key.credentialId);
     const s3 = await signIn(cid, auth, key.credentialId);
     if (s1.status !== "ok" || s2.status !== "ok" || s3.status !== "ok") throw new Error("sign-in failed");
-    assert.equal(cid.listSessions(account.cid).length, 3);
-    assert.ok(!("tokenHash" in cid.listSessions(account.cid)[0]));
+    assert.equal((await cid.listSessions(account.cid)).length, 3);
+    assert.ok(!("tokenHash" in (await cid.listSessions(account.cid))[0]));
 
     await cid.revokeSession(account.cid, s1.session.id);
-    assert.equal(cid.authenticate(s1.token), null);
+    assert.equal(await cid.authenticate(s1.token), null);
 
     assert.equal(await cid.revokeAllSessions(account.cid, s3.session.id), 1);
-    assert.equal(cid.authenticate(s2.token), null);
-    assert.ok(cid.authenticate(s3.token));
+    assert.equal(await cid.authenticate(s2.token), null);
+    assert.ok(await cid.authenticate(s3.token));
   });
 
   it("expires sessions", async () => {
@@ -241,12 +241,12 @@ describe("CID sessions", () => {
     const s = await signIn(cid, auth, key.credentialId);
     if (s.status !== "ok") throw new Error();
     advance(31 * 86_400_000);
-    assert.equal(cid.authenticate(s.token), null);
+    assert.equal(await cid.authenticate(s.token), null);
   });
 
-  it("rejects unknown tokens", () => {
+  it("rejects unknown tokens", async () => {
     const { cid } = setup();
-    assert.equal(cid.authenticate("not-a-token"), null);
+    assert.equal(await cid.authenticate("not-a-token"), null);
   });
 });
 
@@ -257,9 +257,9 @@ describe("CID permissions dashboard", () => {
     const g = await cid.grant(a.cid, "architct", ["drive:read"]);
     assert.equal(g.app, "architect");
     await cid.grant(a.cid, "cndctr", ["contacts:read"]);
-    assert.ok(cid.can(a.cid, "architect", "drive:read"));
-    assert.ok(cid.can(a.cid, "architect", "contacts:read"));
-    assert.ok(cid.can(a.cid, "architct", "drive:read"));
+    assert.ok(await cid.can(a.cid, "architect", "drive:read"));
+    assert.ok(await cid.can(a.cid, "architect", "contacts:read"));
+    assert.ok(await cid.can(a.cid, "architct", "drive:read"));
   });
 
   it("grants app by app, records every change on Firmament, and revokes", async () => {
@@ -269,18 +269,18 @@ describe("CID permissions dashboard", () => {
     const merged = await cid.grant(a.cid, "spectre", ["calendar:read"]);
     await cid.grant(a.cid, "scalvs", ["drive:read"]);
     assert.deepEqual(merged.scopes, ["calendar:read", "contacts:read"]);
-    assert.ok(cid.can(a.cid, "spectre", "contacts:read"));
-    assert.ok(!cid.can(a.cid, "fabric", "contacts:read"));
+    assert.ok(await cid.can(a.cid, "spectre", "contacts:read"));
+    assert.ok(!await cid.can(a.cid, "fabric", "contacts:read"));
 
     await cid.revoke(a.cid, "spectre", ["contacts:read"]);
-    assert.ok(!cid.can(a.cid, "spectre", "contacts:read"));
-    assert.ok(cid.can(a.cid, "spectre", "calendar:read"));
+    assert.ok(!await cid.can(a.cid, "spectre", "contacts:read"));
+    assert.ok(await cid.can(a.cid, "spectre", "calendar:read"));
     await cid.revoke(a.cid, "scalvs");
-    assert.deepEqual(cid.permissions(a.cid).map((g) => g.app), ["spectre"]);
+    assert.deepEqual((await cid.permissions(a.cid)).map((g) => g.app), ["spectre"]);
 
     const history = await cid.permissionHistory(a.cid);
     assert.deepEqual(history.map((e) => e.type), ["grant", "grant", "grant", "revoke", "revoke"]);
-    const current = cid.permissions(a.cid)[0];
+    const current = (await cid.permissions(a.cid))[0];
     assert.ok(history.some((e) => e.hash === current.ledgerHash));
     assert.deepEqual(await ledger.verify(), { ok: true, length: (await ledger.entries()).length });
   });
@@ -334,10 +334,10 @@ describe("CID organizations and SSO", () => {
     const first = await cid.signInWithSso(org.id, provider.issue(base(now())), "Work laptop");
     const second = await cid.signInWithSso(org.id, provider.issue(base(now())), "Phone");
     assert.equal(first.session.cid, second.session.cid);
-    const member = cid.getAccount(first.session.cid);
+    const member = await cid.getAccount(first.session.cid);
     assert.equal(member.username, "jordan.kim");
     assert.equal(member.orgId, org.id);
-    assert.equal(cid.orgMembers(org.id, admin.cid).length, 2);
+    assert.equal((await cid.orgMembers(org.id, admin.cid)).length, 2);
   });
 
   it("rejects tokens for another app, expired tokens, unsigned tokens and outside domains", async () => {
@@ -359,20 +359,20 @@ describe("CID organizations and SSO", () => {
     const outsider = await cid.createAccount({ username: "outsider" });
     await rejectsWith(cid.adminRevokeMemberSessions(org.id, outsider.cid, s.session.cid), "forbidden");
     assert.equal(await cid.adminRevokeMemberSessions(org.id, admin.cid, s.session.cid), 1);
-    assert.equal(cid.authenticate(s.token), null);
+    assert.equal(await cid.authenticate(s.token), null);
   });
 });
 
 it("registers LBRNTH with explicit scopes, no free access, and live revocation", async () => {
   const { cid } = setup();
   const account = await cid.createAccount({ username: "labyrinth-client" });
-  assert.equal(cid.can(account.cid, "LBRNTH", "repo:read"), false);
+  assert.equal(await cid.can(account.cid, "LBRNTH", "repo:read"), false);
   await cid.grant(account.cid, "LBRNTH", ["repo:read", "repo:write", "repo:admin"]);
-  assert.equal(cid.can(account.cid, "LBRNTH", "repo:read"), true);
-  assert.equal(cid.can(account.cid, "LBRNTH", "repo:write"), true);
+  assert.equal(await cid.can(account.cid, "LBRNTH", "repo:read"), true);
+  assert.equal(await cid.can(account.cid, "LBRNTH", "repo:write"), true);
   await cid.revoke(account.cid, "LBRNTH", ["repo:write"]);
-  assert.equal(cid.can(account.cid, "LBRNTH", "repo:write"), false);
-  assert.equal(cid.can(account.cid, "LBRNTH", "repo:read"), true);
+  assert.equal(await cid.can(account.cid, "LBRNTH", "repo:write"), false);
+  assert.equal(await cid.can(account.cid, "LBRNTH", "repo:read"), true);
   await cid.revoke(account.cid, "LBRNTH");
-  assert.equal(cid.can(account.cid, "LBRNTH", "repo:read"), false);
+  assert.equal(await cid.can(account.cid, "LBRNTH", "repo:read"), false);
 });

@@ -69,10 +69,10 @@ export function registerBilling(h: BillingHelpers) {
   const { route, cid, str, Redirect, HttpError, store, revenue } = h;
   const home = "https://infinitumcorporation.ai/";
 
-  const account = (ctx: any): Account | null => {
+  const account = async (ctx: any): Promise<Account | null> => {
     if (ctx.user?.account) return ctx.user.account as Account;
     const m = /^Bearer\s+([A-Za-z0-9_-]{20,200})$/.exec(String(ctx.req.headers.authorization ?? ""));
-    const hit = m ? cid.authenticate(m[1]!) : null;
+    const hit = m ? await cid.authenticate(m[1]!) : null;
     return hit ? hit.account : null;
   };
   const signInFirst = (ctx: any, path: string, forName: string) => {
@@ -90,7 +90,7 @@ export function registerBilling(h: BillingHelpers) {
     const product = Object.prototype.hasOwnProperty.call(SELLABLE, plan) ? SELLABLE[plan]! : null;
     if (!product || MILITARY_PRODUCTS.has(plan.split("_")[0]!)) throw new HttpError(400, "That plan can't be bought online. Contact us at info@infinitumcorporation.ai.");
     const returnUrl = returnUrlFor(q.get("return"), home);
-    const who = account(ctx);
+    const who = await account(ctx);
     if (!who) return signInFirst(ctx, "/api/billing/subscribe", product);
     let session;
     try {
@@ -103,7 +103,7 @@ export function registerBilling(h: BillingHelpers) {
   route("GET", "/api/billing/manage", async (ctx: any) => {
     const q = ctx.query as URLSearchParams;
     const returnUrl = returnUrlFor(q.get("return"), home);
-    const who = account(ctx);
+    const who = await account(ctx);
     if (!who) return signInFirst(ctx, "/api/billing/manage", "your Infinitum subscriptions");
     let portal;
     try { portal = await (await billingFor(revenue, store, who)).portal({ returnUrl }); } catch (e) { throw failed(e, "Billing"); }
@@ -117,7 +117,7 @@ export function registerBilling(h: BillingHelpers) {
       ctx.res.setHeader("Access-Control-Allow-Origin", o);
       ctx.res.setHeader("Vary", "Origin");
     }
-    const who = account(ctx);
+    const who = await account(ctx);
     if (!who) throw new HttpError(401, "Not signed in");
     // No billing org yet means nothing bought yet: don't create one just to look.
     const link = store.links.get(who.cid);

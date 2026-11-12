@@ -226,9 +226,9 @@ export function createApp(deps: AppDeps) {
 
   const ensureGrant = async (account: Account) => {
     const ws = account.orgId ?? account.cid;
-    if (!SPECTRE_SCOPES.every((s) => cid.can(account.cid, "spectre", s))) {
-      await cid.grant(account.cid, "spectre", SPECTRE_SCOPES);
-    }
+    let missing = false;
+    for (const s of SPECTRE_SCOPES) if (!(await cid.can(account.cid, "spectre", s))) missing = true;
+    if (missing) await cid.grant(account.cid, "spectre", SPECTRE_SCOPES);
     return ws;
   };
 
@@ -243,21 +243,21 @@ export function createApp(deps: AppDeps) {
   route("POST", "/api/auth/signup", async (ctx) => {
     need(ctx, "username");
     const account = await cid.createAccount({ username: String(ctx.body.username) });
-    return { cid: account.cid, options: cid.startAuthenticatorRegistration(account.cid, "passkey") };
+    return { cid: account.cid, options: await cid.startAuthenticatorRegistration(account.cid, "passkey") };
   }, false);
 
   route("POST", "/api/auth/signup/finish", async (ctx) => {
     need(ctx, "cid", "response");
     await cid.finishAuthenticatorRegistration(String(ctx.body.cid), ctx.body.response, { kind: "passkey", label: String(ctx.body.label ?? "Passkey") });
-    const account = cid.getAccount(String(ctx.body.cid));
+    const account = await cid.getAccount(String(ctx.body.cid));
     await ensureGrant(account);
     // A just-registered passkey proves possession; sign in with it immediately.
-    const options = cid.startSignIn(account.username);
+    const options = await cid.startSignIn(account.username);
     return { signedUp: true, options };
   }, false);
 
   route("POST", "/api/auth/signin", async (ctx) => {
-    return { options: cid.startSignIn(ctx.body.username ? String(ctx.body.username) : undefined) };
+    return { options: await cid.startSignIn(ctx.body.username ? String(ctx.body.username) : undefined) };
   }, false);
 
   route("POST", "/api/auth/signin/finish", async (ctx) => {
@@ -266,7 +266,7 @@ export function createApp(deps: AppDeps) {
     const result = await cid.finishSignIn(ctx.body.response, device);
     if (result.status === "mfa_required") return result;
     setSession(ctx.res, result.token);
-    await ensureGrant(cid.getAccount(result.session.cid));
+    await ensureGrant(await cid.getAccount(result.session.cid));
     return { status: "ok" };
   }, false);
 
@@ -277,7 +277,7 @@ export function createApp(deps: AppDeps) {
     const cookies = [sessionCookie(token)];
     if (next) cookies.push(nextCookie("", 0));
     ctx.res.setHeader("Set-Cookie", cookies);
-    await ensureGrant(cid.getAccount(session.cid));
+    await ensureGrant(await cid.getAccount(session.cid));
     return next ? { status: "ok", next } : { status: "ok" };
   }, false);
 
@@ -325,7 +325,7 @@ export function createApp(deps: AppDeps) {
         return new Redirect(`/#/mfa/${result.mfaToken}`);
       }
       ctx.res.setHeader("Set-Cookie", [...clearOauth, sessionCookie(result.token)]);
-      await ensureGrant(cid.getAccount(result.session.cid));
+      await ensureGrant(await cid.getAccount(result.session.cid));
       return new Redirect(next ?? "/#/today");
     } catch (err) {
       const message = err instanceof CidError ? err.message : "Sign-in failed. Please try again.";
@@ -353,10 +353,10 @@ export function createApp(deps: AppDeps) {
     exportKeySha256: (deps.cidExportKeySha256 === undefined ? process.env.CID_EXPORT_KEY_SHA256 : deps.cidExportKeySha256) || undefined,
   });
 
-  route("GET", "/api/me/identities", (ctx) => ({
-    linked: cid.linkedIdentities(ctx.user!.account.cid).map(({ provider, email, linkedAt }) => ({ provider, email, linkedAt })),
+  route("GET", "/api/me/identities", async (ctx) => ({
+    linked: (await cid.linkedIdentities(ctx.user!.account.cid)).map(({ provider, email, linkedAt }) => ({ provider, email, linkedAt })),
     available: cid.socialProvidersEnabled(),
-    passkeys: cid.listAuthenticators(ctx.user!.account.cid).length,
+    passkeys: (await cid.listAuthenticators(ctx.user!.account.cid)).length,
   }));
 
   route("POST", "/api/me/identities/:provider/unlink", async (ctx) => {
@@ -364,10 +364,10 @@ export function createApp(deps: AppDeps) {
     return { ok: true };
   });
 
-  route("GET", "/api/me", (ctx) => {
+  route("GET", "/api/me", async (ctx) => {
     const a = ctx.user!.account;
     // The Cumulus account that comes with every CID: Mail (unread), Cloud storage, FIRM Wallet.
-    const cumulus = deps.suite?.summary(a.cid);
+    const cumulus = await deps.suite?.summary(a.cid);
     return { cid: a.cid, username: a.username, mailAddress: a.mailAddress, handle: a.handle, workspace: ctx.user!.workspace, cumulus };
   });
 
@@ -1323,12 +1323,12 @@ export function createApp(deps: AppDeps) {
         ctx.user = undefined;
         if (r.auth || r.optionalAuth) {
           const token = parseCookies(req.headers.cookie)[COOKIE];
-          const session = token ? cid.authenticate(token) : null;
+          const session = token ? await cid.authenticate(token) : null;
           if (!session && r.auth) throw new HttpError(401, "Please sign in");
           if (session) {
             if (r.auth) {
               const scope = MUTATING.has(req.method!) ? "crm:write" : "crm:read";
-              if (!cid.can(session.account.cid, "spectre", scope)) throw new HttpError(403, "Spectre's access was revoked in your Cumulus://ID permissions");
+              if (!await cid.can(session.account.cid, "spectre", scope)) throw new HttpError(403, "Spectre's access was revoked in your Cumulus://ID permissions");
             }
             ctx.user = { account: session.account, workspace: session.account.orgId ?? session.account.cid, sessionId: session.session.id };
           }

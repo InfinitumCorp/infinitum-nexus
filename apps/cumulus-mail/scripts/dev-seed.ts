@@ -32,7 +32,7 @@ async function account(username: string) {
   if (existing) return existing;
   const auth = new VirtualAuthenticator();
   const a = await suite.cid.createAccount({ username });
-  const opts = suite.cid.startAuthenticatorRegistration(a.cid, "passkey");
+  const opts = await suite.cid.startAuthenticatorRegistration(a.cid, "passkey");
   await suite.cid.finishAuthenticatorRegistration(a.cid, auth.create({ challenge: opts.challenge, origin, rpId }), { kind: "passkey", label: "Dev passkey" });
   await suite.cid.grant(a.cid, "cumulus-mail", ["mail:read", "mail:write"]);
   return a.cid;

@@ -350,10 +350,10 @@ describe("Cumulus://Cloud Drive against local PostgreSQL", {
     const username = `u${randomBytes(4).toString("hex")}`;
     const account = await cid.createAccount({ username });
     const authenticator = new VirtualAuthenticator();
-    const options = cid.startAuthenticatorRegistration(account.cid);
+    const options = await cid.startAuthenticatorRegistration(account.cid);
     const registration = authenticator.create({ challenge: options.challenge, origin: ORIGIN, rpId: RP });
     const key = await cid.finishAuthenticatorRegistration(account.cid, registration);
-    const { challenge } = cid.startSignIn();
+    const { challenge } = await cid.startSignIn();
     const signed = await cid.finishSignIn(authenticator.get({ credentialId: key.credentialId, challenge, origin: ORIGIN }), "Drive test");
     if (signed.status !== "ok") throw new Error("Cumulus://ID sign-in failed");
     const access = await call(plain.port, "POST", "/v1/access", { token: signed.token });

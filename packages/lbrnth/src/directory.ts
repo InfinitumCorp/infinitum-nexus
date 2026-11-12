@@ -101,7 +101,7 @@ export class LocalCidDirectory implements CidDirectory {
   readonly #resolve: CidTokenResolver;
   constructor(cid: CidService, resolve?: CidTokenResolver) {
     this.#cid = cid;
-    this.#resolve = resolve ?? (token => { const hit = cid.authenticate(token); return hit ? { cid: hit.account.cid, sessionId: hit.session.id } : null; });
+    this.#resolve = resolve ?? (async token => { const hit = await cid.authenticate(token); return hit ? { cid: hit.account.cid, sessionId: hit.session.id } : null; });
   }
   async #call(body: Record<string, unknown>) {
     try {

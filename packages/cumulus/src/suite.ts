@@ -101,7 +101,7 @@ export class CumulusSuite {
     });
     const { stores: _s, mailOrigin: _m, masterKey: _k, labyrinth: _l, ...cidConfig } = config;
     this.cid = new CidService({ ...cidConfig, store: this.stores.cid, onEvent: (e) => this.onCidEvent(e) });
-    if (config.labyrinth) this.labyrinth = new CidLabyrinth(this.cid, { ...config.labyrinth, clock });
+    if (config.labyrinth) this.labyrinth = new CidLabyrinth(this.cid.syncView(), { ...config.labyrinth, clock });
   }
 
   private recordPayment(t: WalletTransfer) {
@@ -157,9 +157,9 @@ export class CumulusSuite {
 
   /* ---------------- Login security notices ---------------- */
 
-  private onCidEvent(e: CidEvent) {
+  private async onCidEvent(e: CidEvent) {
     if (e.event === "account.created") {
-      this.provision(this.cid.getAccount(e.cid));
+      this.provision(await this.cid.getAccount(e.cid));
       return;
     }
     if (!this.mail.has(e.cid)) return;
@@ -180,7 +180,7 @@ export class CumulusSuite {
       }
       case "authenticator.added":
         // The first key is the one made while signing up; only later keys are worth an alert.
-        if (this.cid.listAuthenticators(e.cid).length <= 1 && !this.cid.linkedIdentities(e.cid).length) return;
+        if ((await this.cid.listAuthenticators(e.cid)).length <= 1 && !(await this.cid.linkedIdentities(e.cid)).length) return;
         send(`New ${e.detail.kind === "security-key" ? "security key" : "passkey"} on your Cumulus://ID`, [`A ${e.detail.kind === "security-key" ? "security key" : "passkey"} named “${e.detail.label}” was added.`, "", `When: ${when}`]);
         return;
       case "authenticator.removed":
@@ -254,8 +254,8 @@ export class CumulusSuite {
   /* ---------------- One summary for every product's header ---------------- */
 
   /** What any product shows in its account menu: address, unread mail, storage, wallet. */
-  summary(cid: string) {
-    const account = this.cid.getAccount(cid);
+  async summary(cid: string) {
+    const account = await this.cid.getAccount(cid);
     if (!this.mail.has(cid) || !this.wallets.get(cid)) this.provision(account);
     const usage = this.quota.usage(cid);
     return {

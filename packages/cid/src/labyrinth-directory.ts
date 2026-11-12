@@ -25,7 +25,7 @@ export interface LabyrinthDirectoryOrg { id: string; name: string; admin: boolea
 export interface LabyrinthDirectoryIdentity { cid: string; sessionId: string; organization: LabyrinthDirectoryOrg | null; scopes: LabyrinthDirectoryScope[] }
 
 /** Resolves a presented CID token (opaque session token or signed access token). */
-export type CidTokenResolver = (token: string) => { cid: string; sessionId: string } | null;
+export type CidTokenResolver = (token: string) => { cid: string; sessionId: string } | null | Promise<{ cid: string; sessionId: string } | null>;
 
 export class LabyrinthDirectoryError extends Error {
   readonly status: number;
@@ -46,22 +46,24 @@ export function labyrinthDirectoryKeyMatches(presented: unknown, expectedSha256H
   return timingSafeEqual(got, Buffer.from(expectedSha256Hex, "hex"));
 }
 
-function membership(cid: CidService, who: string): LabyrinthDirectoryOrg | null {
+async function membership(cid: CidService, who: string): Promise<LabyrinthDirectoryOrg | null> {
   if (!cid.store.accounts.has(who)) return null;
-  return cid.organizationMembership(who);
+  return await cid.organizationMembership(who);
 }
 
-function scopes(cid: CidService, who: string): LabyrinthDirectoryScope[] {
-  return LABYRINTH_SCOPES.filter((scope) => cid.can(who, "LBRNTH", scope));
+async function scopes(cid: CidService, who: string): Promise<LabyrinthDirectoryScope[]> {
+  const out: LabyrinthDirectoryScope[] = [];
+  for (const scope of LABYRINTH_SCOPES) if (await cid.can(who, "LBRNTH", scope)) out.push(scope);
+  return out;
 }
 
 /** Answer one directory call. Throws LabyrinthDirectoryError for a refused or malformed call. */
 export async function answerLabyrinthDirectory(cid: CidService, resolveToken: CidTokenResolver, body: unknown): Promise<unknown> {
   if (!body || typeof body !== "object" || Array.isArray(body)) throw new LabyrinthDirectoryError(400, "Invalid directory call");
   const b = body as Record<string, unknown>;
-  const token = (): { cid: string; sessionId: string } => {
+  const token = async (): Promise<{ cid: string; sessionId: string }> => {
     if (typeof b.token !== "string" || !TOKEN.test(b.token)) throw new LabyrinthDirectoryError(401, "Cumulus ID sign-in required");
-    const hit = resolveToken(b.token);
+    const hit = await resolveToken(b.token);
     if (!hit) throw new LabyrinthDirectoryError(401, "Cumulus ID session expired or revoked");
     return hit;
   };
@@ -71,35 +73,36 @@ export async function answerLabyrinthDirectory(cid: CidService, resolveToken: Ci
   };
   switch (b.op) {
     case "resolve": {
-      const hit = token();
-      return { cid: hit.cid, sessionId: hit.sessionId, organization: membership(cid, hit.cid), scopes: scopes(cid, hit.cid) } satisfies LabyrinthDirectoryIdentity;
+      const hit = await token();
+      return { cid: hit.cid, sessionId: hit.sessionId, organization: await membership(cid, hit.cid), scopes: await scopes(cid, hit.cid) } satisfies LabyrinthDirectoryIdentity;
     }
     case "session": {
       const who = short(b.cid);
       const sessionId = short(b.sessionId);
-      const active = cid.store.accounts.has(who) && cid.isSessionActive(who, sessionId);
-      return { active, organization: active ? membership(cid, who) : null, scopes: active ? scopes(cid, who) : [] };
+      const active = cid.store.accounts.has(who) && (await cid.isSessionActive(who, sessionId));
+      return { active, organization: active ? await membership(cid, who) : null, scopes: active ? await scopes(cid, who) : [] };
     }
     case "membership":
-      return { organization: membership(cid, short(b.cid)) };
+      return { organization: await membership(cid, short(b.cid)) };
     case "organization": {
-      const hit = token();
+      const hit = await token();
       const name = typeof b.name === "string" ? b.name.trim() : "";
       if (!name || name.length > 120 || /[\x00-\x1f\x7f]/.test(name)) throw new LabyrinthDirectoryError(400, "Organization name required");
-      if (membership(cid, hit.cid)) throw new LabyrinthDirectoryError(409, "Account already belongs to an organization");
+      if (await membership(cid, hit.cid)) throw new LabyrinthDirectoryError(409, "Account already belongs to an organization");
       const org = await cid.createOrganization(name, hit.cid);
       return { id: org.id, name: org.name };
     }
     case "consent": {
-      const hit = token();
+      const hit = await token();
       const wanted = b.scopes;
       if (!Array.isArray(wanted) || wanted.length === 0 || wanted.length > 3 || wanted.some((s) => !(LABYRINTH_SCOPES as readonly unknown[]).includes(s))) {
         throw new LabyrinthDirectoryError(400, "Invalid Labyrinth consent scopes");
       }
       const list = [...new Set(wanted as LabyrinthDirectoryScope[])];
       // Idempotent: a repeat consent must not append to the ledger again.
-      if (!list.every((scope) => cid.can(hit.cid, "LBRNTH", scope))) await cid.grant(hit.cid, "LBRNTH", list);
-      return { app: "LBRNTH", scopes: scopes(cid, hit.cid) };
+      const held = await scopes(cid, hit.cid);
+      if (!list.every((scope) => held.includes(scope))) await cid.grant(hit.cid, "LBRNTH", list);
+      return { app: "LBRNTH", scopes: await scopes(cid, hit.cid) };
     }
     default:
       throw new LabyrinthDirectoryError(400, "Invalid directory call");

@@ -33,10 +33,10 @@ describe("upstream mode: one issuer, local mirrors keep the issuer's cid", () =>
     assert.equal(first.created, true);
     assert.equal(first.session.cid, CID_A);
     assert.equal(first.session.method, "cumulus-id");
-    const account = cid.getAccount(CID_A);
+    const account = await cid.getAccount(CID_A);
     assert.equal(account.mailAddress, "alex@cumuluscloud.app");
     assert.equal(account.upstream?.issuer, ISSUER);
-    assert.equal(cid.authenticate(first.token)?.account.cid, CID_A);
+    assert.equal((await cid.authenticate(first.token))?.account.cid, CID_A);
     assert.deepEqual(events.filter((e) => e.startsWith("account.created")), [`account.created:${CID_A}`]);
 
     const again = await cid.adoptUpstreamAccount(profile(CID_A, "alex"), "Phone");

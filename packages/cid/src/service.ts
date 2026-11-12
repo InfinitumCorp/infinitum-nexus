@@ -318,6 +318,24 @@ export class CidService {
     return this.cfg.clock();
   }
 
+  /**
+   * A synchronous view of the in-memory store, for subsystems that authorize synchronously inside
+   * one call (Labyrinth's CidLabyrinth). Valid only while this service runs on the in-memory
+   * CidStore; a database-backed deployment resolves the caller first (LabyrinthHost) and hands
+   * Labyrinth a per-request view instead. Everything else uses the async methods.
+   */
+  syncView() {
+    return {
+      authenticate: (token: string) => this.authenticateNow(token),
+      isSessionActive: (cid: string, sessionId: string) => this.isSessionActiveNow(cid, sessionId),
+      organizationMembership: (cid: string) => this.organizationMembershipNow(cid),
+      can: (cid: string, app: string, scope: string) => this.canNow(cid, app, scope),
+      permissions: (cid: string) => this.permissionsNow(cid),
+      createOrganization: (name: string, adminCid: string) => this.createOrganization(name, adminCid),
+      grant: (cid: string, app: string, scopes: string[]) => this.grant(cid, app, scopes),
+    };
+  }
+
   /** Issuer and JWKS for Cumulus://ID. The issuer string has no trailing slash. */
   issuerMetadata(): CidIssuerMetadata {
     return { issuer: this.issuer, jwks_uri: this.jwksUri, id_host: new URL(this.issuer).host };
@@ -440,7 +458,7 @@ export class CidService {
     return { ...issued, created };
   }
 
-  getAccount(cid: string): Account {
+  async getAccount(cid: string): Promise<Account> {
     return this.account(cid);
   }
 
@@ -468,7 +486,7 @@ export class CidService {
   }
 
   /** Options for navigator.credentials.create() in the browser. */
-  startAuthenticatorRegistration(cid: string, kind: Authenticator["kind"] = "passkey") {
+  async startAuthenticatorRegistration(cid: string, kind: Authenticator["kind"] = "passkey") {
     const account = this.account(cid);
     const existing = [...this.store.authenticators.values()].filter((a) => a.cid === cid);
     return {
@@ -526,7 +544,7 @@ export class CidService {
     return auth;
   }
 
-  listAuthenticators(cid: string): Omit<Authenticator, "publicKeyCose">[] {
+  async listAuthenticators(cid: string): Promise<Omit<Authenticator, "publicKeyCose">[]> {
     return [...this.store.authenticators.values()]
       .filter((a) => a.cid === cid)
       .map(({ publicKeyCose: _k, ...rest }) => rest);
@@ -536,7 +554,7 @@ export class CidService {
     const auth = this.store.authenticators.get(authenticatorId);
     if (!auth || auth.cid !== cid) throw new CidError("not_found", "No such key on this account");
     const acct = this.account(cid);
-    if (this.listAuthenticators(cid).length === 1 && !acct.federated && !acct.identities?.length) {
+    if ((await this.listAuthenticators(cid)).length === 1 && !acct.federated && !acct.identities?.length) {
       throw new CidError("last_key", "Add another passkey or security key before removing your last one");
     }
     this.store.authenticators.delete(authenticatorId);
@@ -546,7 +564,7 @@ export class CidService {
   }
 
   /** Options for navigator.credentials.get(). Omit the username for discoverable passkey sign-in. */
-  startSignIn(username?: string) {
+  async startSignIn(username?: string) {
     let allowCredentials: { type: string; id: string }[] = [];
     if (username) {
       const cid = this.store.byUsername.get(username.toLowerCase());
@@ -616,7 +634,7 @@ export class CidService {
 
   /* ---------------- Multifactor (authenticator app) ---------------- */
 
-  enrollTotp(cid: string) {
+  async enrollTotp(cid: string) {
     const account = this.account(cid);
     if (account.totp?.confirmed) throw new CidError("already_enabled", "Multifactor is already on");
     const secret = generateTotpSecret();
@@ -699,14 +717,18 @@ export class CidService {
   }
 
   /** Called by every Infinitum product on each request. Returns null for unknown, expired or revoked tokens. */
-  authenticate(token: string): { account: Account; session: Session } | null {
+  async authenticate(token: string): Promise<{ account: Account; session: Session } | null> {
+    return this.authenticateNow(token);
+  }
+
+  private authenticateNow(token: string): { account: Account; session: Session } | null {
     const id = this.store.byTokenHash.get(hashToken(token));
     const session = id ? this.store.sessions.get(id) : undefined;
     if (!session || session.revokedAt || new Date(session.expiresAt) <= this.now()) return null;
     return { account: this.account(session.cid), session };
   }
 
-  listSessions(cid: string): Omit<Session, "tokenHash">[] {
+  async listSessions(cid: string): Promise<Omit<Session, "tokenHash">[]> {
     return [...this.store.sessions.values()]
       .filter((s) => s.cid === cid && !s.revokedAt && new Date(s.expiresAt) > this.now())
       .map(({ tokenHash: _t, ...rest }) => rest);
@@ -850,7 +872,7 @@ export class CidService {
     await this.emit("identity.linked", cid, { provider: PROVIDERS[profile.provider]?.label ?? profile.provider });
   }
 
-  linkedIdentities(cid: string): LinkedIdentity[] {
+  async linkedIdentities(cid: string): Promise<LinkedIdentity[]> {
     return [...(this.account(cid).identities ?? [])];
   }
 
@@ -858,7 +880,7 @@ export class CidService {
     const account = this.account(cid);
     const identity = account.identities?.find((i) => i.provider === provider);
     if (!identity) throw new CidError("not_found", "That account isn't linked");
-    const otherWays = this.listAuthenticators(cid).length + (account.identities!.length - 1) + (account.federated ? 1 : 0);
+    const otherWays = (await this.listAuthenticators(cid)).length + (account.identities!.length - 1) + (account.federated ? 1 : 0);
     if (otherWays === 0) throw new CidError("last_key", "Add a passkey or another sign-in option before removing your last one");
     account.identities = account.identities!.filter((i) => i.provider !== provider);
     this.store.byIdentity.delete(`${identity.provider}|${identity.subject}`);
@@ -901,13 +923,21 @@ export class CidService {
     else this.store.grants.set(key, { ...current, scopes: remaining, grantedAt: entry.timestamp, ledgerHash: entry.hash });
   }
 
-  can(cid: string, app: string, scope: string): boolean {
+  async can(cid: string, app: string, scope: string): Promise<boolean> {
+    return this.canNow(cid, app, scope);
+  }
+
+  private canNow(cid: string, app: string, scope: string): boolean {
     const id = LEGACY_APP_IDS[app] ?? app;
     return this.store.grants.get(`${cid}|${id}`)?.scopes.includes(scope) ?? false;
   }
 
   /** One permissions dashboard: which product can use what. */
-  permissions(cid: string): Grant[] {
+  async permissions(cid: string): Promise<Grant[]> {
+    return this.permissionsNow(cid);
+  }
+
+  private permissionsNow(cid: string): Grant[] {
     return [...this.store.grants.values()].filter((g) => g.cid === cid).sort((a, b) => a.app.localeCompare(b.app));
   }
 
@@ -971,20 +1001,28 @@ export class CidService {
     return this.issueSession(cid, device, "sso");
   }
 
-  orgMembers(orgId: string, adminCid: string): Account[] {
+  async orgMembers(orgId: string, adminCid: string): Promise<Account[]> {
     this.org(orgId, adminCid);
     return [...this.store.accounts.values()].filter((a) => a.orgId === orgId);
   }
 
   /** Server-side linked-credential checks; a session id by itself is never a login token. */
-  isSessionActive(cid: string, sessionId: string): boolean {
+  async isSessionActive(cid: string, sessionId: string): Promise<boolean> {
+    return this.isSessionActiveNow(cid, sessionId);
+  }
+
+  private isSessionActiveNow(cid: string, sessionId: string): boolean {
     const session = this.store.sessions.get(sessionId);
     const expiresAt = session ? Date.parse(session.expiresAt) : NaN;
     return !!session && session.cid === cid && !session.revokedAt && Number.isFinite(expiresAt) && expiresAt > this.now().getTime() && this.store.accounts.has(cid);
   }
 
   /** Trusted current directory membership; never infer organizations by email. */
-  organizationMembership(cid: string): { id: string; name: string; admin: boolean } | null {
+  async organizationMembership(cid: string): Promise<{ id: string; name: string; admin: boolean } | null> {
+    return this.organizationMembershipNow(cid);
+  }
+
+  private organizationMembershipNow(cid: string): { id: string; name: string; admin: boolean } | null {
     const account = this.account(cid);
     const org = account.orgId ? this.store.orgs.get(account.orgId) : undefined;
     return org ? { id: org.id, name: org.name, admin: org.admins.includes(cid) } : null;

@@ -12,14 +12,14 @@ async function setup() {
   let now = new Date("2026-11-07T04:00:00Z");
   const cid = new CidService({ ledger, signer, rpId: "localhost", origins: ["http://localhost"], clock: () => now });
   let paid = true;
-  const auth = new CidLabyrinth(cid, {storage: new MemoryStorage(), entitled: () => paid, clock: () => now});
+  const auth = new CidLabyrinth(cid.syncView(), {storage: new MemoryStorage(), entitled: () => paid, clock: () => now});
   let count = 0;
   async function login() {
     const account = await cid.createAccount({ username: `drone-owner-${++count}` });
     await cid.createOrganization("Fleet client", account.cid);
-    const device = new VirtualAuthenticator(); const registration = cid.startAuthenticatorRegistration(account.cid, "passkey");
+    const device = new VirtualAuthenticator(); const registration = await cid.startAuthenticatorRegistration(account.cid, "passkey");
     const key = await cid.finishAuthenticatorRegistration(account.cid, device.create({challenge: registration.challenge, rpId: "localhost", origin: "http://localhost"}), {kind: "passkey"});
-    const challenge = cid.startSignIn();
+    const challenge = await cid.startSignIn();
     const result = await cid.finishSignIn(device.get({credentialId: key.credentialId, challenge: challenge.challenge, origin: "http://localhost"}), "test");
     if (result.status !== "ok") throw new Error("Unexpected MFA");
     await cid.grant(account.cid, "LBRNTH", ["repo:read", "repo:write", "repo:admin"]);

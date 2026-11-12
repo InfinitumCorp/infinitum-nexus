@@ -21,13 +21,13 @@ function setup() {
 async function signUp(suite: ReturnType<typeof setup>["suite"], username: string) {
   const auth = new VirtualAuthenticator();
   const account = await suite.cid.createAccount({ username });
-  const opts = suite.cid.startAuthenticatorRegistration(account.cid, "passkey");
+  const opts = await suite.cid.startAuthenticatorRegistration(account.cid, "passkey");
   const key = await suite.cid.finishAuthenticatorRegistration(account.cid, auth.create({ challenge: opts.challenge, origin: ORIGIN, rpId: RP_ID }), { kind: "passkey" });
   return { account, auth, key };
 }
 
 async function signIn(suite: ReturnType<typeof setup>["suite"], auth: VirtualAuthenticator, credentialId: string, device: string) {
-  const { challenge } = suite.cid.startSignIn();
+  const { challenge } = await suite.cid.startSignIn();
   const r = await suite.cid.finishSignIn(auth.get({ credentialId, challenge, origin: ORIGIN }), device);
   assert.equal(r.status, "ok");
 }
@@ -43,7 +43,7 @@ describe("every Cumulus://ID comes with Mail, Cloud and a FIRM Wallet", () => {
     assert.ok(welcome, "a welcome message is waiting");
     assert.match(welcome!.body, /15 GB/);
     assert.match(welcome!.body, /FIRM Wallet: 0x[0-9a-f]{40}/);
-    const summary = suite.summary(account.cid);
+    const summary = await suite.summary(account.cid);
     assert.equal(summary.plan, "Free");
     assert.equal(summary.entitlements.mail, true);
     assert.equal(summary.entitlements.cloud, true);

@@ -25,7 +25,8 @@ local socket with peer authentication.
 | Mail step 1: MailRepository (mailbox as the unit, async PostOffice, one read and one write per mailbox per call) | #211 |
 | Mail on Postgres: PgMailRepository (mailbox rows sealed at rest, row locks so concurrent deliveries are kept, SKIP LOCKED outbound claims) | This PR |
 | Mail step 2 on Postgres: one row per message (only changed messages written, each sealed at write time), outbound subject and body sealed to the sender | #213 |
-| Tunnel keys as rows (`mail_tunnel_keys`, wrapped with the master key; servers adopt the first stored keys) | This PR |
+| Tunnel keys as rows (`mail_tunnel_keys`, wrapped with the master key; servers adopt the first stored keys) | #214 |
+| `CUMULUS_ROWS=mail,wallet,quota` (with `CUMULUS_STORE=postgres`): those products on rows in the same request transaction, their documents no longer loaded; `packages/cumulus/src/rows-cli.ts` copies and verifies the documents first | This PR |
 | Message paging (reads still load a whole mailbox) | Not started |
 
 US Supabase project: the `cumulus_id` tables and `refresh_from_document()` exist (created 2026-11-12;
@@ -193,6 +194,18 @@ The US tables were created and backfilled on 2026-11-12 (9 accounts, 8 passkeys,
 7 grants; every row compared equal to the document). The id.cumuluscloud.app Worker keeps its state in
 a Durable Object, not Supabase, and Russia's Yandex Managed PostgreSQL needs Yandex Cloud access;
 both are still to do.
+
+### Cutover: Mail, Wallet and Quota (`CUMULUS_ROWS`)
+
+On a host already running `CUMULUS_STORE=postgres`:
+
+1. Dry run: `node --experimental-strip-types packages/cumulus/src/rows-cli.ts --from-nexus-docs` (hosted,
+   `NEXUS_DATABASE_URL`) or `--dir DATA_DIR` (single server). It prints counts and writes nothing.
+2. Stop writes (or pick a quiet moment), then run it again with `--write` and `CID_DATABASE_URL` (and
+   `--schema` = `CID_DATABASE_SCHEMA`). It exits non-zero if anything reads back differently. With a
+   master key, mail is sealed in the tables and the tunnel keys are copied too.
+3. Set `CUMULUS_ROWS=mail,wallet,quota` and deploy. The documents stay as they were; removing a product
+   from `CUMULUS_ROWS` is the rollback (anything written to its rows since is not carried back).
 
 ### Cutover runbook (Cumulus://ID, phase 4)
 

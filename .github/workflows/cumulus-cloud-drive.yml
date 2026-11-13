@@ -57,3 +57,5 @@ jobs:
       - run: pnpm --filter @infinitum/cumulus-mail exec node --test --experimental-strip-types src/cid-gateway.http.test.ts
       # Mail on PgMailRepository: rows, sealing at rest, two deliveries to one mailbox, two senders.
       - run: pnpm --filter @infinitum/mail exec node --test --experimental-strip-types src/postgres.test.ts
+      # CUMULUS_ROWS: Mail, Wallet and Quota copied from their documents into rows (rows-cli), then used.
+      - run: pnpm --filter @infinitum/cumulus exec node --test --experimental-strip-types src/rows.test.ts

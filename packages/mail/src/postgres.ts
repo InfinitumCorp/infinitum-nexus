@@ -108,7 +108,9 @@ export class PgMailRepository implements MailRepository {
         `INSERT INTO ${this.#s}.mail_tunnel_keys (cid, data) VALUES ($1, $2) ON CONFLICT (cid) DO NOTHING RETURNING cid`,
         [cid, JSON.stringify(mine)],
       );
-      stored = rows.length ? mine : await read();
+      if (!rows.length) stored = await read();
+      // Keys written here are checked again next time: the transaction they went in may roll back.
+      else return;
     }
     if (!stored) return; // nobody has keys yet; they're stored with the account's first write
     tunnel.adopt(stored);
@@ -118,7 +120,10 @@ export class PgMailRepository implements MailRepository {
   async mailbox(cid: string): Promise<StoredMailbox | undefined> {
     await this.#syncKeys(cid);
     const { rows } = await this.#db.query(`SELECT data FROM ${this.#s}.mail_mailboxes WHERE cid = $1 FOR UPDATE`, [cid]);
-    if (!rows[0]) return undefined;
+    if (!rows[0]) {
+      this.#seen.delete(cid); // what a rolled-back write left behind here isn't in the table
+      return undefined;
+    }
     const { messages: legacy, ...meta } = rows[0].data as StoredMailbox;
     const stored = await this.#db.query(`SELECT id, ord, data FROM ${this.#s}.mail_messages WHERE cid = $1 ORDER BY ord DESC`, [cid]);
     // Written before messages had rows: they move into rows on the next write.

@@ -14,9 +14,9 @@ import type { CidLabyrinthOptions } from "@infinitum/lbrnth";
  * It is not a product listed on the public site; people reach it from inside the other products.
  */
 import { CidService, CidStore, FREE_ENTITLEMENTS, cumulusDomains, deriveCidSecretKey, type CidConfig, type CidEvent, type Account } from "@infinitum/cid";
-import { CloudStore, QuotaStore, StorageQuota, formatBytes } from "@infinitum/cloud";
-import { WalletAccounts, WalletStore, WalletError, type WalletTransfer } from "@infinitum/firm";
-import { CumulusTunnel, PostOffice, PostOfficeStore, TunnelStore, openMailStore } from "@infinitum/mail";
+import { CloudStore, QuotaStore, StorageQuota, formatBytes, type QuotaRepository } from "@infinitum/cloud";
+import { WalletAccounts, WalletStore, WalletError, type WalletRepository, type WalletTransfer } from "@infinitum/firm";
+import { CumulusTunnel, PostOffice, PostOfficeStore, TunnelStore, openMailStore, type MailRepository } from "@infinitum/mail";
 import type { Ledger, Signer } from "@infinitum/firmament";
 
 export interface CumulusStores {
@@ -51,6 +51,15 @@ export interface CumulusConfig extends Omit<CidConfig, "store" | "onEvent" | "le
    * Without it, mail between Cumulus accounts is still sealed in transit, with keys kept in memory.
    */
   masterKey?: Buffer;
+  /**
+   * Keep Mail, FIRM Wallet or the storage quota somewhere other than the in-memory stores (for
+   * example Postgres rows, see rows.ts). Mail is given the suite's tunnel, which seals its messages.
+   */
+  repositories?: {
+    mail?: (tunnel: CumulusTunnel) => MailRepository;
+    wallet?: WalletRepository;
+    quota?: QuotaRepository;
+  };
 }
 
 const METHOD_LABEL: Record<string, string> = {
@@ -86,20 +95,23 @@ export class CumulusSuite {
     this.cloudOrigin = domains.origins.cloud;
     const clock = config.clock;
 
-    this.quota = new StorageQuota({ store: this.stores.quota, freeGb: FREE_ENTITLEMENTS.storageGb });
+    const repos = config.repositories ?? {};
+    this.quota = new StorageQuota({ store: this.stores.quota, repository: repos.quota, freeGb: FREE_ENTITLEMENTS.storageGb });
     this.wallets = new WalletAccounts({
       store: this.stores.wallet,
+      repository: repos.wallet,
       clock,
       record: async (t) => (await this.recordPayment(t)).hash,
     });
     this.tunnel = new CumulusTunnel({ store: this.stores.tunnel, masterKey: config.masterKey, clock });
-    if (this.tunnel.persistent) openMailStore(this.stores.mail, this.tunnel); // mailboxes are sealed on disk
-    this.mail = new PostOffice({ store: this.stores.mail, quota: this.quota, payments: this.wallets, clock, tunnel: this.tunnel });
+    const mailRepository = repos.mail?.(this.tunnel);
+    if (this.tunnel.persistent && !mailRepository) openMailStore(this.stores.mail, this.tunnel); // mailboxes are sealed on disk
+    this.mail = new PostOffice({ store: this.stores.mail, repository: mailRepository, quota: this.quota, payments: this.wallets, clock, tunnel: this.tunnel });
     this.cloud = new CloudStore({
       quota: this.quota,
       notifier: { shared: ({ owner, recipient, key }) => this.cloudShared(owner, recipient, key) },
     });
-    const { stores: _s, mailOrigin: _m, masterKey: _k, labyrinth: _l, ...cidConfig } = config;
+    const { stores: _s, mailOrigin: _m, masterKey: _k, labyrinth: _l, repositories: _r, ...cidConfig } = config;
     // Authenticator-app seeds are sealed at rest: with the given key, else one derived from the master key.
     const secretKey = config.secretKey ?? (config.masterKey ? deriveCidSecretKey(config.masterKey) : undefined);
     this.cid = new CidService({ ...cidConfig, secretKey, store: this.stores.cid, onEvent: (e) => this.onCidEvent(e) });

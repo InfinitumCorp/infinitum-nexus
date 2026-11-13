@@ -3,7 +3,7 @@ import { Ledger, signerFromPrivateKey } from "@infinitum/firmament";
 import { cidSecretKeyForHost, socialFromEnv, upstreamIssuerFromEnv } from "@infinitum/cid";
 import { createCumulus, emptyCumulusStores } from "@infinitum/cumulus";
 import { RemoteState, HttpGateway } from "../../spectre/src/server/remote.ts";
-import { cidStorageFromEnv } from "../../spectre/src/server/cid-store.ts";
+import { PRODUCT_DOCUMENTS, cidStorageFromEnv } from "../../spectre/src/server/cid-store.ts";
 import type { InboundMail } from "@infinitum/mail";
 import { createMailApp } from "./app.ts";
 import { deliverOutbound, type Sender } from "./outbound.ts";
@@ -74,11 +74,12 @@ function build() {
   // CUMULUS_STORE=postgres keeps Cumulus://ID in Postgres rows (see spectre/src/server/cid-store.ts).
   const gateway = new HttpGateway(required("NEXUS_STORE_URL"), required("NEXUS_STORE_KEY"));
   const cidStorage = cidStorageFromEnv(process.env, gateway);
+  // CUMULUS_ROWS=mail,wallet,quota keeps those as rows too, so their documents aren't loaded or saved.
+  const productDocs: Record<string, object> = { [PRODUCT_DOCUMENTS.mail]: stores.mail, [PRODUCT_DOCUMENTS.wallet]: stores.wallet, [PRODUCT_DOCUMENTS.quota]: stores.quota };
+  for (const product of cidStorage.products) delete productDocs[PRODUCT_DOCUMENTS[product]];
   const state = new RemoteState(gateway, {
     ...(cidStorage.inDocuments ? { cid: stores.cid } : {}),
-    "cumulus-mail": stores.mail,
-    "firm-wallet": stores.wallet,
-    "cumulus-quota": stores.quota,
+    ...productDocs,
     "cumulus-suite": stores.suite,
     "cumulus-workspace": workspaceStore,
     "cumulus-billing": billingStore,
@@ -87,7 +88,7 @@ function build() {
   if (cidStorage.rows) state.rows = cidStorage.rows;
   const ledger = new Ledger(state.ledgerStore, { authorizedSigners: [signer.publicKey] });
   const suite = createCumulus({
-    ledger, signer, rpId: new URL(origin).hostname, origins, stores, repository: cidStorage.repository, secretKey: cidSecretKeyForHost(),
+    ledger, signer, rpId: new URL(origin).hostname, origins, stores, repository: cidStorage.repository, repositories: cidStorage.repositories, secretKey: cidSecretKeyForHost(),
     social: { providers: socialFromEnv() }, mailOrigin: origin, upstreamIssuer: upstreamIssuerFromEnv(process.env),
   });
 

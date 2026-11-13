@@ -258,6 +258,9 @@ importers:
       '@infinitum/lbrnth-client':
         specifier: workspace:*
         version: link:../../packages/lbrnth-client
+      '@infinitum/mail':
+        specifier: workspace:*
+        version: link:../../packages/mail
       '@infinitum/metatron':
         specifier: workspace:*
         version: link:../../packages/metatron

@@ -84,8 +84,10 @@ if (!verified.ok) {
 // cid.json keeps its old name; mail, wallet, quota and suite sit next to it.
 const cumulusStores = loadCumulusStores(dataDir, emptyCumulusStores());
 const cidStore = cumulusStores.cid;
-// CUMULUS_STORE=postgres keeps Cumulus://ID in Postgres rows instead of cid.json (see local-cid.ts).
-const cidStorage = await localCidStorage(cidStore);
+// CUMULUS_STORE=postgres keeps Cumulus://ID in Postgres rows instead of cid.json, and CUMULUS_ROWS
+// Mail, Wallet and Quota too (see local-cid.ts).
+const masterKey = loadOrCreateMasterKey(dataDir);
+const cidStorage = await localCidStorage(cidStore, process.env, console.log, { stores: cumulusStores, masterKey });
 const spectreStore = loadSnapshot(join(dataDir, "spectre.json"), emptyStore());
 // Social sign-in available to every Infinitum product that uses Cumulus://ID.
 const social = socialFromEnv();
@@ -93,9 +95,9 @@ const social = socialFromEnv();
 // Every CID that signs up through +SPCTR gets the full Cumulus account: Mail, Cloud and a FIRM Wallet.
 const suite = createCumulus({
   labyrinth: labyrinthFromEnvironment(process.env, process.env.LBRNTH_SNAPSHOT_FILE ?? join(dataDir, "labyrinth.json")),
-  ledger, signer, rpId, origins: [origin], stores: cumulusStores, social: { providers: social }, repository: cidStorage.repository,
+  ledger, signer, rpId, origins: [origin], stores: cumulusStores, social: { providers: social }, repository: cidStorage.repository, repositories: cidStorage.repositories,
   mailOrigin: process.env.CUMULUS_MAIL_ORIGIN ?? cumulus.mailOrigin,
-  masterKey: loadOrCreateMasterKey(dataDir),
+  masterKey,
 });
 await suite.provisionAll();
 const cid = suite.cid;
@@ -115,6 +117,7 @@ const app = createApp({
   cronSecret: process.env.CRON_SECRET,
   twilioAuthToken: process.env.TWILIO_AUTH_TOKEN,
   veil: veilFromEnv(process.env),
+  transaction: cidStorage.transaction,
   onChange: () => {
     saveCumulusStores(dataDir, cumulusStores, { tunnel: suite.tunnel, skip: cidStorage.skipFiles });
     saveSnapshot(join(dataDir, "spectre.json"), spectreStore);

@@ -62,4 +62,70 @@ describe("localCidStorage", () => {
     assert.deepEqual((await second.repository!.allAccounts()).map((a) => a.username), ["ivan", "olga"]);
     await second.close();
   });
+
+  it("CUMULUS_ROWS on a single server: copies mail, wallet and quota once (mail sealed), runs each request in its own transaction", { skip: url ? false : "set CID_TEST_PG_URL to run" }, async () => {
+    const schema = `cid_local_rows_${process.pid}`;
+    const { default: pg } = await import("pg");
+    const admin = new pg.Pool({ connectionString: url, max: 1 });
+    const dir = mkdtempSync(join(tmpdir(), "cid-local-rows-"));
+    after(async () => {
+      await admin.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
+      await admin.end();
+      rmSync(dir, { recursive: true, force: true });
+    });
+    const { createCumulus, loadCumulusStores } = await import("@infinitum/cumulus");
+    const { randomBytes } = await import("node:crypto");
+    const masterKey = randomBytes(32);
+    const signer = generateSigner();
+    const ledger = new Ledger(undefined, { authorizedSigners: [signer.publicKey] });
+
+    // Today's server: everything in files, mail sealed at rest.
+    const today = createCumulus({ ledger, signer, rpId: "localhost", origins: ["http://localhost"], masterKey });
+    const vera = await today.cid.createAccount({ username: "vera" });
+    await today.credit(vera.cid, "USDC", "12", "Deposit");
+    await today.mail.send(vera.cid, { to: "vera@cumuluscloud.app", subject: "Hello", body: "sealed on disk" });
+    saveCumulusStores(dir, today.stores, { tunnel: today.tunnel });
+
+    // The next start with CUMULUS_ROWS.
+    const stores = loadCumulusStores(dir, emptyCumulusStores());
+    const env = { CUMULUS_STORE: "postgres", CID_DATABASE_URL: url, CID_DATABASE_SCHEMA: schema, CUMULUS_ROWS: "mail,wallet,quota" };
+    const lines: string[] = [];
+    const storage = await localCidStorage(stores.cid, env, (l) => lines.push(l), { stores, masterKey });
+    assert.match(lines.join("\n"), /copied mail, wallet, quota into Postgres .*every row verified/);
+    assert.deepEqual(storage.skipFiles.sort(), ["cid", "mail", "quota", "wallet"]);
+    const raw = (await admin.query(`SELECT data::text AS raw FROM "${schema}".mail_messages`)).rows.map((r) => r.raw).join("");
+    assert.doesNotMatch(raw, /sealed on disk/, "mail sealed in the table");
+
+    const suite = createCumulus({ ledger, signer, rpId: "localhost", origins: ["http://localhost"], stores, masterKey, repository: storage.repository, repositories: storage.repositories });
+    const tx = storage.transaction!;
+    assert.equal((await tx(() => suite.wallets.balances(vera.cid))).USDC, "12");
+    assert.equal((await tx(() => suite.mail.view(vera.cid))).messages.find((m) => m.folder === "inbox" && m.subject === "Hello")?.body.startsWith("sealed on disk"), true);
+
+    // A request that fails is rolled back whole: the payment and its mail are not saved.
+    const ivy = await tx(() => suite.cid.createAccount({ username: "ivy" }));
+    await assert.rejects(tx(async () => {
+      await suite.pay(vera.cid, "ivy@cumuluscloud.app", "USDC", "5", "oops");
+      throw new Error("handler failed after paying");
+    }), /handler failed/);
+    assert.equal((await tx(() => suite.wallets.balances(vera.cid))).USDC, "12", "rolled back");
+    assert.equal((await tx(() => suite.mail.view(ivy.cid))).messages.some((m) => /sent you/.test(m.subject)), false);
+
+    // Requests run side by side: a slow one doesn't hold up another.
+    let slowDone = false;
+    const slow = tx(async () => {
+      await suite.wallets.balances(ivy.cid);
+      await new Promise((r) => setTimeout(r, 400));
+      slowDone = true;
+    });
+    await tx(() => suite.wallets.balances(vera.cid));
+    assert.equal(slowDone, false, "the quick request finished while the slow one was still running");
+    await slow;
+    await storage.close();
+
+    // A restart doesn't copy again.
+    const again: string[] = [];
+    const restarted = await localCidStorage(loadCumulusStores(dir, emptyCumulusStores()).cid, env, (l) => again.push(l), { stores: loadCumulusStores(dir, emptyCumulusStores()), masterKey });
+    assert.deepEqual(again, []);
+    await restarted.close();
+  });
 });

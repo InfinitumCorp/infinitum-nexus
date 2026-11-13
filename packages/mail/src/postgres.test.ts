@@ -124,6 +124,22 @@ describe("Cumulus://Mail on PostgreSQL", { skip: url ? false : "set CID_TEST_PG_
     assert.equal((await one.po.view("c")).messages.find((m) => m.folder === "inbox")?.subject, "Welcome");
   });
 
+  test("two copies of a mailbox read from one repository don't remove each other's new messages", async () => {
+    const schema = await fresh("copies");
+    const repo = new PgMailRepository({ db: pool!, schema });
+    const po = new PostOffice({ repository: repo });
+    await po.provision({ cid: "a", address: "alex@cumuluscloud.app" });
+    const one = (await repo.mailbox("a"))!;
+    const two = (await repo.mailbox("a"))!;
+    const msg = (id: string) => ({ id, threadId: id, folder: "inbox" as const, from: { name: "S", email: "s@example.com" }, to: [], cc: [], subject: id, body: "", at: "2026-11-13T00:00:00.000Z", unread: true, starred: false, labels: [] });
+    one.messages.unshift(msg("m1"));
+    await repo.putMailbox(one);
+    two.messages.unshift(msg("m2"));
+    await repo.putMailbox(two);
+    const ids = (await pool!.query(`SELECT id FROM "${schema}".mail_messages ORDER BY id`)).rows.map((r) => r.id);
+    assert.deepEqual(ids, ["m1", "m2"]);
+  });
+
   test("one row per message: a write touches only what changed", async () => {
     const schema = await fresh("messages");
     let statements: string[] = [];

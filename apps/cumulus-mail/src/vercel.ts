@@ -113,7 +113,12 @@ function build() {
     transaction: async (fn) => {
       await verifyOnce();
       return state.transaction(async () => {
-        await suite.mail.sendAllDue().catch(() => 0); // Schedule send, without a timer
+        // Schedule send, without a timer. A database error isn't swallowed: the request's transaction
+        // is gone with it (and a deadlock re-runs the request).
+        await suite.mail.sendAllDue().catch((err) => {
+          if ((err as { code?: unknown } | null)?.code) throw err;
+          return 0;
+        });
         return fn();
       });
     },

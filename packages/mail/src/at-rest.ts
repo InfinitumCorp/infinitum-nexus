@@ -32,7 +32,9 @@ export function sealMailbox(box: StoredMailbox, tunnel: CumulusTunnel, cid = box
     }
     const content = contentOf(m);
     const hash = digest(content);
-    const key = `${cid}|${m.id}`;
+    // The key's fingerprint is part of it: after the account's keys change (another server's were
+    // adopted), an envelope sealed to the old keys must not be reused.
+    const key = `${cid}|${m.id}|${tunnel.fingerprint(cid)}`;
     let hit = memo.get(key);
     if (!hit || hit.hash !== hash) {
       hit = { hash, env: tunnel.seal(cid, [cid], content) };

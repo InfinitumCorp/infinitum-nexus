@@ -168,6 +168,58 @@ describe("Cumulus://Mail on PostgreSQL", { skip: url ? false : "set CID_TEST_PG_
     assert.equal(await po.unreadCount("nobody"), 0);
   });
 
+  test("tunnel keys written in a transaction that rolls back are written again by the next one", async () => {
+    const schema = await fresh("keyrollback");
+    const master = generateMasterKey();
+    const tunnel = new CumulusTunnel({ masterKey: parseMasterKey(master) });
+    // One repository for every request, on the current request's connection (as hosts run it).
+    let current: MailQueryable = pool!;
+    const po = new PostOffice({ repository: new PgMailRepository({ db: { query: (t, p) => current.query(t, p) }, schema, tunnel }), tunnel });
+    const attempt = async (commit: boolean) => {
+      const client = await pool!.connect();
+      current = client;
+      try {
+        await client.query("BEGIN");
+        await po.provision({ cid: "k", address: "kai@cumuluscloud.app" });
+        await po.notify("k", "welcome", { subject: "Welcome", body: "hi" });
+        await client.query(commit ? "COMMIT" : "ROLLBACK");
+      } finally {
+        current = pool!;
+        client.release();
+      }
+    };
+    await attempt(false); // e.g. a later step of sign-up failed
+    await attempt(true); // the retry
+    assert.equal((await pool!.query(`SELECT count(*)::int AS n FROM "${schema}".mail_tunnel_keys`)).rows[0].n, 1);
+    const other = new CumulusTunnel({ masterKey: parseMasterKey(master) });
+    const elsewhere = new PostOffice({ repository: new PgMailRepository({ db: pool!, schema, tunnel: other }), tunnel: other });
+    assert.deepEqual((await elsewhere.view("k")).messages.map((m) => m.subject), ["Welcome"], "another server can open it");
+  });
+
+  test("scheduled send finds due drafts without locking anyone's mailbox", async () => {
+    const schema = await fresh("due");
+    let now = Date.parse("2026-11-13T10:00:00Z");
+    const po = new PostOffice({ repository: new PgMailRepository({ db: pool!, schema }), clock: () => new Date(now) });
+    for (const [cid, a] of [["a", "alex"], ["b", "sam"], ["c", "lee"]]) await po.provision({ cid, address: `${a}@cumuluscloud.app` });
+    await po.schedule("a", { to: "sam@cumuluscloud.app", subject: "Later", body: "x" }, "2026-11-13T11:00:00.000Z");
+    const repo = new PgMailRepository({ db: pool!, schema });
+    assert.deepEqual(await repo.dueDraftCids("2026-11-13T10:30:00.000Z"), []);
+    assert.deepEqual(await repo.dueDraftCids("2026-11-13T11:00:00.000Z"), ["a"]);
+    // Lee's mailbox is locked by another request; sending Alex's due draft doesn't wait for it.
+    const client = await pool!.connect();
+    try {
+      await client.query("BEGIN");
+      await new PgMailRepository({ db: client, schema }).mailbox("c");
+      now = Date.parse("2026-11-13T11:05:00Z");
+      const sent = await Promise.race([po.sendAllDue(), new Promise((r) => setTimeout(() => r("waited"), 1500))]);
+      assert.equal(sent, 1);
+    } finally {
+      await client.query("ROLLBACK");
+      client.release();
+    }
+    assert.equal((await po.view("b")).messages.filter((m) => m.subject === "Later").length, 1);
+  });
+
   test("one row per message: a write touches only what changed", async () => {
     const schema = await fresh("messages");
     let statements: string[] = [];

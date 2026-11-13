@@ -33,6 +33,8 @@ export interface MailRepository {
   hasMailbox?(cid: string): Promise<boolean>;
   /** Optional: conversations with unread mail in the inbox (the number by "Inbox"). */
   unreadThreads?(cid: string): Promise<number>;
+  /** Optional: accounts with a scheduled draft due by `now`, found without reading (or locking) every mailbox. */
+  dueDraftCids?(now: string): Promise<string[]>;
 }
 
 export class MapMailRepository implements MailRepository {

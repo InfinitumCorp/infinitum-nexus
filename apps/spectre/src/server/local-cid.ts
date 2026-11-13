@@ -81,7 +81,7 @@ export async function localCidStorage(
     let repositories: CumulusConfig["repositories"];
     if (products.length) {
       await migrateProductRows(pool, products, schema);
-      await copyProductsOnce(pool, schema, products, files!, log);
+      await copyProductsOnce(pool as unknown as Queryable & { connect(): Promise<PgPoolClient> }, schema, products, files!, log);
       repositories = productRepositories(products, scope, schema);
       skipFiles.push(...products);
     }
@@ -95,7 +95,7 @@ export async function localCidStorage(
 }
 
 /** First start with CUMULUS_ROWS: copy the products' files into empty tables, verified; later starts do nothing. */
-async function copyProductsOnce(db: Queryable, schema: string, products: RowProduct[], files: { stores: CumulusStores; masterKey?: Buffer }, log: (line: string) => void) {
+async function copyProductsOnce(db: Queryable & { connect(): Promise<PgPoolClient> }, schema: string, products: RowProduct[], files: { stores: CumulusStores; masterKey?: Buffer }, log: (line: string) => void) {
   const empty = async (table: string) => !(await db.query(`SELECT 1 FROM "${schema}".${table} LIMIT 1`)).rows.length;
   const source: Parameters<typeof backfillProductRows>[0] = {};
   if (products.includes("mail") && (await empty("mail_mailboxes")) && files.stores.mail.mailboxes.size) source.mail = files.stores.mail;
@@ -107,8 +107,21 @@ async function copyProductsOnce(db: Queryable, schema: string, products: RowProd
     const locked = openMailStore(source.mail, tunnel);
     if (locked) throw new Error(`${locked} message(s) in mail.json couldn't be opened with this master key; not copying`);
   }
-  const report = await backfillProductRows(source, db, { schema, tunnel });
-  if (report.mismatches.length) throw new Error(`files -> Postgres copy differs (${report.mismatches.length}, first: ${report.mismatches[0]}); not starting`);
+  // All or nothing: a copy that differs or stops part way leaves the tables empty, so the next start
+  // copies again instead of running on part of the mail.
+  const client = await db.connect();
+  let report: Awaited<ReturnType<typeof backfillProductRows>>;
+  try {
+    await client.query("BEGIN");
+    report = await backfillProductRows(source, client, { schema, tunnel, migrate: false });
+    if (report.mismatches.length) throw new Error(`files -> Postgres copy differs (${report.mismatches.length}, first: ${report.mismatches[0]}); nothing copied, not starting`);
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    throw err;
+  } finally {
+    client.release();
+  }
   log(`Cumulus: copied ${Object.keys(source).join(", ")} into Postgres (${Object.entries(report.counts).map(([k, v]) => `${v} ${k}`).join(", ")}), every row verified`);
 }
 

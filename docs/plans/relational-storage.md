@@ -16,7 +16,7 @@ local socket with peer authentication.
 | No direct ID store reads outside `@infinitum/cid`; account export and Labyrinth directory through the repository | On main (#163, #166) |
 | Authenticator-app seeds sealed at rest (key derived from the ledger signing key) | On main (#165, #167) |
 | `CUMULUS_STORE=gateway` (rows through nexus-store, saved with the ledger in one transaction) | On main (#190); one round trip per signed-in request in #193 |
-| Single-server Postgres for the Russia issuer (`main.ts`) | On main (#192); server setup in InfinitumCorp/cumulus-id-ru#1 |
+| Single-server Postgres for the Russia issuer (`main.ts`) | #192; server setup in InfinitumCorp/cumulus-id-ru#1 (draft until #192 is pinned) |
 | Rollback that keeps new accounts (rows back to the document), pre-switch check | #197 |
 | Row-write metrics | #201 |
 | FIRM Wallet repository, Postgres wallet (no double spend under concurrency) | #198, #199 |
@@ -42,7 +42,7 @@ What still needs a person (or a connector this session didn't have):
    `select cumulus_id.refresh_from_document()` just before that deploy goes live.
 2. **Cloudflare**: the GitHub organization secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`, so
    the auto-deploy workflows can ship any of this.
-3. **Yandex**: after #192's commit is pinned in cumulus-id-ru (`SHA`), run
+3. **Yandex**: after #192 is merged and its commit is pinned in cumulus-id-ru (`SHA`), run
    `ssh cumulus-id-russia 'bash -s' < scripts/setup.sh`.
 4. **id.cumuluscloud.app** keeps its state in a Cloudflare Durable Object, not Supabase; moving it means
    reading that object, which needs Cloudflare access.

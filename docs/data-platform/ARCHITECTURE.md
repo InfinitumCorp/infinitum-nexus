@@ -79,6 +79,17 @@ so the catalog and the redaction policy cannot drift apart.
 - **Ingestion:** `datahub/recipes/supabase-postgres.yml` loads schemas and lineage from Postgres
   with a read-only metadata role. Profiling is off because it reads rows.
   `datahub/recipes/opensearch.yml` loads the event index mappings.
+- **Catalog replay:** `python -m cumulus_privacy.catalog_sync` (or, on the box,
+  `docker compose exec privacy-gateway python -m cumulus_privacy.catalog_sync`). DataHub runs on
+  demand, so it starts empty, while the catalog of record lives in Supabase. The sync pushes
+  every stored spec with:
+  - owners: `team-*` names become DataHub groups, anything else is a person;
+  - classification tags, the schema and glossary terms;
+  - spec lineage.
+
+  It then links each logical dataset to the physical tables the Postgres recipe ingests: each
+  dataset → `data_platform.events` → `data_platform.events_bi`. It reads metadata only, never
+  event rows. If DataHub refuses one spec, the rest are still pushed.
 - **Not done yet:** ingesting from Superset. DataHub's Superset source signs in with a Superset
   password, and Superset here accepts only Cumulus ID. It is deferred until Cumulus ID can issue
   a service (client-credentials) token that Superset accepts. The `CatalogService` server

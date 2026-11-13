@@ -226,3 +226,24 @@ jobs:
           assert "Deals in the +SPCTR pipeline." in text and "classification-personal" in text, text[:2000]
           print("DataHub has", dataset_urn("spectre.deals"))
           EOF
+      - name: Catalog replay adds physical lineage in DataHub
+        working-directory: infra/data-platform/privacy-gateway
+        run: |
+          python - <<'PY'
+          import json, os, tempfile, urllib.parse, urllib.request
+          from cumulus_privacy.catalog_sync import CatalogSync, physical_urn
+          from cumulus_privacy.platform import Catalog, DataHubSink
+          spec = {"name": "spectre.deals", "product": "spectre", "owners": ["team-spectre"],
+                  "description": "Deals in the +SPCTR pipeline.", "upstream": [], "retentionDays": 365,
+                  "region": "EU", "glossaryTerms": [],
+                  "fields": [{"name": "dealId", "type": "string", "classification": "INTERNAL", "rule": "KEEP"}]}
+          cat = Catalog(os.path.join(tempfile.mkdtemp(), "c.json"))
+          cat.register("spectre", spec["name"], spec)
+          out = CatalogSync(cat.all, DataHubSink("http://localhost:8080")).run()
+          assert out["failed"] == [] and out["pushed"] == 1, out
+          urn = urllib.parse.quote(physical_urn("data_platform.events"), safe="")
+          with urllib.request.urlopen(f"http://localhost:8080/entities/{urn}") as r:
+              text = json.dumps(json.load(r))
+          assert "spectre.deals" in text and "UpstreamLineage" in text, text[:2000]
+          print("lineage ok:", out)
+          PY

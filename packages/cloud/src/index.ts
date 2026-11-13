@@ -11,3 +11,5 @@ export type { DriveConfig, DriveAuth, BlobStore } from "./drive/index.ts";
 
 export { createCloudLabyrinth } from "./labyrinth.ts";
 export { conjurResource } from "./conjur.ts";
+export { PgQuotaRepository, migrateQuota, quotaSchemaSql } from "./quota-postgres.ts";
+export type { QuotaQueryable } from "./quota-postgres.ts";

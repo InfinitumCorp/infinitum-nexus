@@ -163,6 +163,12 @@ describe("Cumulus://ID rows through the nexus-store SQL", { skip: url ? false : 
     assert.equal(await g.state.transaction(() => g.cid.can(lee.cid, "LBRNTH", "repo:read")), true);
   });
 
+  it("refuses a write whose data names a different row than the one it checks", async () => {
+    const forged = [{ kind: "account", id: "cid_checked", expect: null, data: { cid: "cid_other", username: "forged", mailAddress: "f@x", handle: "@f", createdAt: "t", entitlements: {} } }];
+    await assert.rejects(pool.query("SELECT public.nexus_commit_cid('[]'::jsonb, '[]'::jsonb, $1::jsonb)", [JSON.stringify(forged)]), /does not match its data/);
+    assert.equal(Number((await pool.query("SELECT count(*)::int AS n FROM cumulus_id.cid_accounts WHERE username = 'forged'")).rows[0].n), 0);
+  });
+
   it("only answers whitelisted lookups", async () => {
     await assert.rejects(pool.query(`SELECT public.cid_read('[{"op":"dropEverything"}]'::jsonb)`), /unknown op/);
     await assert.rejects(pool.query(`SELECT public.cid_read($1::jsonb)`, [JSON.stringify(Array.from({ length: 51 }, () => ({ op: "allAccounts" })))]), /1 to 50/);

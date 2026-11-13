@@ -130,6 +130,14 @@ declare
   d jsonb := o->'data';
   n int;
 begin
+  -- The row a write checks must be the row it writes: refuse an op whose data names another key.
+  if d is not null and d <> 'null'::jsonb and o->>'kind' in ('account', 'authenticator', 'session', 'grant', 'org') then
+    if (o->>'kind' = 'account' and d->>'cid' is distinct from o->>'id')
+      or (o->>'kind' in ('authenticator', 'session', 'org') and d->>'id' is distinct from o->>'id')
+      or (o->>'kind' = 'grant' and (d->>'cid') || '|' || (d->>'app') is distinct from o->>'id') then
+      raise exception 'cid write: % % does not match its data', o->>'kind', o->>'id';
+    end if;
+  end if;
   case o->>'kind'
     when 'account' then
       select data into cur from cumulus_id.cid_accounts where cid = o->>'id' for update;

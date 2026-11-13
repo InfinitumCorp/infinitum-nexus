@@ -83,6 +83,11 @@ export class TestCidServer {
       if ("expect" in o && !same(current, o.expect)) throw new RowConflict(`${o.kind} ${o.id} changed`);
     };
     const data = json(o.data) as any;
+    // Same rule as the SQL: the row a write checks must be the row it writes.
+    if (data && ["account", "authenticator", "session", "grant", "org"].includes(o.kind)) {
+      const key = o.kind === "account" ? data.cid : o.kind === "grant" ? `${data.cid}|${data.app}` : data.id;
+      if (key !== o.id) throw new Error(`cid write: ${o.kind} ${o.id} does not match its data`);
+    }
     switch (o.kind) {
       case "account": {
         await check(await r.account(o.id));

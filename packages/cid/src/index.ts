@@ -68,3 +68,6 @@ export type { BackfillReport, CidCheck, CidCounts } from "./backfill.ts";
 /** Sealing account secrets (authenticator-app seeds) at rest. */
 export { secretBox, deriveCidSecretKey, cidSecretKeyFromEnv, cidSecretKeyForHost } from "./secret-box.ts";
 export type { SecretBox } from "./secret-box.ts";
+/** Cumulus://ID rows behind the nexus-store gateway (CUMULUS_STORE=gateway). */
+export { RemoteCidRepository } from "./remote-repository.ts";
+export type { CidReadOp, CidWriteOp, CidReader } from "./remote-repository.ts";

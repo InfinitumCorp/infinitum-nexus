@@ -14,7 +14,10 @@ describe("cidStorageFromEnv", () => {
   });
 
   it("refuses an unknown mode, and Postgres without a database", () => {
-    assert.throws(() => cidStorageFromEnv({ CUMULUS_STORE: "mysql" }), /must be "document" or "postgres"/);
+    assert.throws(() => cidStorageFromEnv({ CUMULUS_STORE: "mysql" }), /must be "document", "gateway" or "postgres"/);
+    // gateway mode needs a store that keeps ID rows (nexus-store); the Durable Object store doesn't.
+    assert.throws(() => cidStorageFromEnv({ CUMULUS_STORE: "gateway" }), /needs the nexus-store gateway/);
+    assert.throws(() => cidStorageFromEnv({ CUMULUS_STORE: "gateway" }, { load: async () => ({ entries: [], docs: [] }), commit: async () => ({}) }), /needs the nexus-store gateway/);
     assert.throws(() => cidStorageFromEnv({ CUMULUS_STORE: "postgres" }), /needs CID_DATABASE_URL/);
   });
 

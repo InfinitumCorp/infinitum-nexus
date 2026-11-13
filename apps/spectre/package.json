@@ -10,7 +10,7 @@
   "scripts": {
     "start": "node src/server/main.ts",
     "typecheck": "tsc -p . --noEmit",
-    "test": "node --test --experimental-strip-types $(find src -name \"*.test.ts\" 2>/dev/null || true)"
+    "test": "node --test --experimental-strip-types \"src/**/*.test.ts\""
   },
   "dependencies": {
     "@infinitum/ai": "workspace:*",

@@ -127,7 +127,7 @@ describe("Cumulus://Mail in upstream mode", () => {
     assert.equal(me.status, 200, JSON.stringify(me.data));
     assert.equal(me.data.cid, cid, "Mail's account is the issuer's cid");
     assert.equal(me.data.mailAddress, "alex@cumuluscloud.app");
-    assert.ok(mail.mail.has(cid), "the mailbox is provisioned under the issuer's cid");
+    assert.ok(await mail.mail.has(cid), "the mailbox is provisioned under the issuer's cid");
     assert.equal(mail.stores.cid.accounts.size, 1);
 
     // The issuer token Mail used was revoked; only the person's own issuer session remains.

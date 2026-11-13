@@ -22,7 +22,8 @@ local socket with peer authentication.
 | FIRM Wallet repository, Postgres wallet (no double spend under concurrency) | #198, #199 |
 | Storage quota repository | #204 |
 | Storage quota on Postgres (no overspend under concurrency) | #207 |
-| Mail (PostOffice), Tunnel | Not started; needs a design pass (below) |
+| Mail step 1: MailRepository (mailbox as the unit, async PostOffice, one read and one write per mailbox per call) | This PR |
+| Mail step 2 (per-message rows, sealing at write time), Tunnel | Not started; design below |
 
 US Supabase project: the `cumulus_id` tables and `refresh_from_document()` exist (created 2026-11-12;
 9 accounts, 8 passkeys, 7 sessions, 7 grants copied and compared equal to the document).
@@ -37,8 +38,9 @@ series: repository with the mailbox as today's unit first, then per-message rows
 
 What still needs a person (or a connector this session didn't have):
 
-1. **Supabase**: apply `20261113_cumulus_id_rows.sql` and `20261114_cumulus_id_reverse.sql`, deploy the
-   updated `nexus-store` function, then merge #196 (`CUMULUS_STORE=gateway` for Mail) and run
+1. **Supabase**: done 2026-11-13. Both migrations are applied, `nexus-store` v2 is deployed, and
+   `compare_with_document()` reports the rows equal to the document (9 accounts, 7 sessions). Left:
+   merge #196 (`CUMULUS_STORE=gateway` for Mail) once Cloudflare deploys run (item 2), and run
    `select cumulus_id.refresh_from_document()` just before that deploy goes live.
 2. **Cloudflare**: the GitHub organization secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`, so
    the auto-deploy workflows can ship any of this.

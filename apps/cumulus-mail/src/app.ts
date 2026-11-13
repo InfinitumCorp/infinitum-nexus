@@ -319,7 +319,7 @@ export function createMailApp(deps: MailAppDeps) {
     need(ctx, "with");
     const { item, target } = await workspace.share(me(ctx), ctx.params.id, idName(ctx.body.with));
     const from = ctx.user!.account;
-    mail.notify(target, "cloud", {
+    await mail.notify(target, "cloud", {
       subject: `${from.username} shared “${item.name}” with you`,
       body: [`${from.mailAddress} shared ${KIND_LABEL[item.kind] ?? "a file"} with you in Cumulus://Drive:`, "", item.name, itemLink(item.kind, item.id), "", "You can open and edit it. It also appears under Shared with me in Drive.", "", "Cumulus://Cloud"].join("\n"),
     });
@@ -392,7 +392,7 @@ export function createMailApp(deps: MailAppDeps) {
       const key = decodeURIComponent(url.pathname.slice("/api/files/".length));
       if (!isFileKey(key)) throw new HttpError(404, "Not found");
       const check = async () => {
-        const found = mail.view(owner).messages.flatMap((m) => m.attachments ?? []).find((a) => a.id === key);
+        const found = (await mail.view(owner)).messages.flatMap((m) => m.attachments ?? []).find((a) => a.id === key);
         return key.startsWith(`u/${owner}/`) || found ? (found ?? { name: "file" }) : null;
       };
       const meta = deps.transaction ? await deps.transaction(check) : await check();
@@ -415,17 +415,17 @@ export function createMailApp(deps: MailAppDeps) {
     throw new HttpError(405, "Method not allowed");
   };
   /** Stored files this person may use: their own uploads, or files on mail in their mailbox (forwarding). */
-  const canUseFile = (cidValue: string, key: string) =>
-    key.startsWith(`u/${cidValue}/`) || mail.view(cidValue).messages.some((m) => (m.attachments ?? []).some((a) => a.id === key));
-  const ownFiles = (cidValue: string, v: unknown) => {
+  const canUseFile = async (cidValue: string, key: string) =>
+    key.startsWith(`u/${cidValue}/`) || (await mail.view(cidValue)).messages.some((m) => (m.attachments ?? []).some((a) => a.id === key));
+  const ownFiles = async (cidValue: string, v: unknown) => {
     const list = files(v);
-    for (const f of list) if (f.id && !canUseFile(cidValue, f.id)) throw new HttpError(403, "One of the attached files isn't yours to send.");
+    for (const f of list) if (f.id && !(await canUseFile(cidValue, f.id))) throw new HttpError(403, "One of the attached files isn't yours to send.");
     return list;
   };
 
   const state = async (cidValue: string) => {
     await mail.autoClean(cidValue); // the Clean rules run on their own, at most once an hour
-    const view = { ...mail.view(cidValue), quota: await mail.quotaOf(cidValue) };
+    const view = { ...(await mail.view(cidValue)), quota: await mail.quotaOf(cidValue) };
     const prefix = `${cidValue}|`;
     const own = Object.fromEntries([...briefs].filter(([k]) => k.startsWith(prefix)).map(([k, v]) => [k.slice(prefix.length), v]));
     return { ...view, messages: view.messages.map((m) => ({ ...m, kind: classify(m) })), briefs: own, account: await suite.summary(cidValue), tunnel: { fingerprint: mail.fingerprint(cidValue), atRest: suite.tunnel.persistent } };
@@ -572,7 +572,7 @@ export function createMailApp(deps: MailAppDeps) {
     const result = await mail.send(me(ctx), {
       to: str(b.to, 4000), cc: str(b.cc ?? "", 4000), subject: str(b.subject, 300), body: str(b.body),
       threadId: b.threadId ? str(b.threadId, 80) : undefined, draftId: b.draftId ? str(b.draftId, 80) : undefined, payment,
-      attachments: ownFiles(me(ctx), b.attachments),
+      attachments: await ownFiles(me(ctx), b.attachments),
     });
     return { ...result, ok: true, state: await state(me(ctx)) };
   });
@@ -580,30 +580,30 @@ export function createMailApp(deps: MailAppDeps) {
   route("POST", "/api/schedule", async (ctx) => {
     const b = ctx.body;
     const payment = b.payment && str(b.payment.amount) ? { asset: str(b.payment.asset, 10), amount: str(b.payment.amount, 30) } : undefined;
-    const result = mail.schedule(me(ctx), {
+    const result = await mail.schedule(me(ctx), {
       to: str(b.to, 4000), cc: str(b.cc ?? "", 4000), subject: str(b.subject, 300), body: str(b.body),
       threadId: b.threadId ? str(b.threadId, 80) : undefined, draftId: b.draftId ? str(b.draftId, 80) : undefined, payment,
-      attachments: ownFiles(me(ctx), b.attachments),
+      attachments: await ownFiles(me(ctx), b.attachments),
     }, str(b.sendAt, 40));
     return { ...result, state: await state(me(ctx)) };
   });
   route("POST", "/api/schedule/cancel", async (ctx) => {
-    if (!mail.unschedule(me(ctx), str(ctx.body.id, 80))) throw new HttpError(404, "That message isn't scheduled.");
+    if (!await mail.unschedule(me(ctx), str(ctx.body.id, 80))) throw new HttpError(404, "That message isn't scheduled.");
     return await state(me(ctx));
   });
 
   route("POST", "/api/draft", async (ctx) => {
     const b = ctx.body;
-    const saved = mail.saveDraft(me(ctx), { to: str(b.to, 4000), cc: str(b.cc ?? "", 4000), subject: str(b.subject, 300), body: str(b.body), threadId: b.threadId ? str(b.threadId, 80) : undefined, draftId: b.draftId ? str(b.draftId, 80) : undefined, attachments: ownFiles(me(ctx), b.attachments) });
+    const saved = await mail.saveDraft(me(ctx), { to: str(b.to, 4000), cc: str(b.cc ?? "", 4000), subject: str(b.subject, 300), body: str(b.body), threadId: b.threadId ? str(b.threadId, 80) : undefined, draftId: b.draftId ? str(b.draftId, 80) : undefined, attachments: await ownFiles(me(ctx), b.attachments) });
     return { ...saved, state: await state(me(ctx)) };
   });
 
-  route("POST", "/api/read", async (ctx) => { if (ctx.body.threadId) mail.markThreadRead(me(ctx), str(ctx.body.threadId, 80)); return await state(me(ctx)); });
-  route("POST", "/api/star", async (ctx) => { if (ctx.body.id) mail.toggleStar(me(ctx), str(ctx.body.id, 80)); return await state(me(ctx)); });
-  route("POST", "/api/move", async (ctx) => { need(ctx, "id", "folder"); mail.move(me(ctx), str(ctx.body.id, 80), str(ctx.body.folder, 20) as never); return await state(me(ctx)); });
+  route("POST", "/api/read", async (ctx) => { if (ctx.body.threadId) await mail.markThreadRead(me(ctx), str(ctx.body.threadId, 80)); return await state(me(ctx)); });
+  route("POST", "/api/star", async (ctx) => { if (ctx.body.id) await mail.toggleStar(me(ctx), str(ctx.body.id, 80)); return await state(me(ctx)); });
+  route("POST", "/api/move", async (ctx) => { need(ctx, "id", "folder"); await mail.move(me(ctx), str(ctx.body.id, 80), str(ctx.body.folder, 20) as never); return await state(me(ctx)); });
   route("POST", "/api/snooze", async (ctx) => {
     need(ctx, "id", "until");
-    if (!mail.snooze(me(ctx), str(ctx.body.id, 80), str(ctx.body.until, 40))) throw new HttpError(404, "That message is not in this mailbox.");
+    if (!await mail.snooze(me(ctx), str(ctx.body.id, 80), str(ctx.body.until, 40))) throw new HttpError(404, "That message is not in this mailbox.");
     return await state(me(ctx));
   });
   route("POST", "/api/remove", async (ctx) => { if (ctx.body.id) await mail.remove(me(ctx), str(ctx.body.id, 80)); return await state(me(ctx)); });
@@ -614,7 +614,7 @@ export function createMailApp(deps: MailAppDeps) {
     if (!THREAD_ACTIONS.includes(action)) throw new HttpError(400, "Unknown action");
     const ids = (Array.isArray(ctx.body.threadIds) ? ctx.body.threadIds : []).map((x: unknown) => str(x, 80)).filter(Boolean);
     if (!ids.length) throw new HttpError(400, "Pick at least one conversation");
-    const { count, before } = mail.actOnThreads(me(ctx), ids, action, str(ctx.body.box ?? "inbox", 20));
+    const { count, before } = await mail.actOnThreads(me(ctx), ids, action, str(ctx.body.box ?? "inbox", 20));
     const now = Date.now();
     for (const [k, v] of undos) if (now - v.at > 600_000) undos.delete(k);
     let undo: string | null = null;
@@ -628,26 +628,26 @@ export function createMailApp(deps: MailAppDeps) {
     const entry = undos.get(str(ctx.body.id, 80));
     if (!entry || entry.cid !== me(ctx)) throw new HttpError(404, "Nothing to undo.");
     undos.delete(str(ctx.body.id, 80));
-    return { restored: mail.restore(me(ctx), entry.before), state: await state(me(ctx)) };
+    return { restored: await mail.restore(me(ctx), entry.before), state: await state(me(ctx)) };
   });
   route("POST", "/api/trash/empty", async (ctx) => ({ removed: await mail.emptyTrash(me(ctx)), state: await state(me(ctx)) }));
-  route("POST", "/api/alias", async (ctx) => ({ ok: mail.addAlias(me(ctx), str(ctx.body.alias, 120)), state: await state(me(ctx)) }));
+  route("POST", "/api/alias", async (ctx) => ({ ok: await mail.addAlias(me(ctx), str(ctx.body.alias, 120)), state: await state(me(ctx)) }));
   route("POST", "/api/task", async (ctx) => ({
-    ok: mail.addTask(me(ctx), { title: str(ctx.body.title ?? "Task", 180), detail: str(ctx.body.detail ?? "Queued from mail", 240), messageId: ctx.body.messageId ? str(ctx.body.messageId, 80) : undefined }),
+    ok: await mail.addTask(me(ctx), { title: str(ctx.body.title ?? "Task", 180), detail: str(ctx.body.detail ?? "Queued from mail", 240), messageId: ctx.body.messageId ? str(ctx.body.messageId, 80) : undefined }),
     state: await state(me(ctx)),
   }));
-  route("POST", "/api/task/toggle", async (ctx) => { if (ctx.body.id) mail.toggleTask(me(ctx), str(ctx.body.id, 80)); return await state(me(ctx)); });
-  route("POST", "/api/contact", async (ctx) => ({ ok: mail.addContact(me(ctx), { name: str(ctx.body.name, 120), email: str(ctx.body.email, 200) }), state: await state(me(ctx)) }));
+  route("POST", "/api/task/toggle", async (ctx) => { if (ctx.body.id) await mail.toggleTask(me(ctx), str(ctx.body.id, 80)); return await state(me(ctx)); });
+  route("POST", "/api/contact", async (ctx) => ({ ok: await mail.addContact(me(ctx), { name: str(ctx.body.name, 120), email: str(ctx.body.email, 200) }), state: await state(me(ctx)) }));
 
   route("GET", "/api/message", async (ctx) => {
-    const message = mail.message(me(ctx), ctx.query.get("id") ?? "");
+    const message = await mail.message(me(ctx), ctx.query.get("id") ?? "");
     if (!message) throw new HttpError(404, "Not found");
     return { message, e2e: isE2E(message) };
   });
 
   route("POST", "/api/brief", async (ctx) => {
     const mode = ctx.body.mode === "draft" ? "draft" : "summary";
-    const messages: MailMessage[] = mail.view(me(ctx)).messages;
+    const messages: MailMessage[] = (await mail.view(me(ctx))).messages;
     const thread = threadOf(messages, str(ctx.body.threadId, 80));
     if (!thread.length) throw new HttpError(404, "No such thread");
     const result = await scalvs(mode, ctx.user!.account.username, str(ctx.body.subject ?? thread[0]!.subject, 300), transcript(thread));
@@ -676,15 +676,15 @@ export function createMailApp(deps: MailAppDeps) {
 
   /* ---------------- SCALVS Clean ---------------- */
 
-  const cleanView = (cidValue: string) => {
-    const c = mail.cleanState(cidValue);
-    const messages = mail.view(cidValue).messages;
+  const cleanView = async (cidValue: string) => {
+    const c = await mail.cleanState(cidValue);
+    const messages = (await mail.view(cidValue)).messages;
     const s = suggestions.get(cidValue);
     return {
       rules: c.rules,
       lastRun: c.lastRun ?? null,
       log: c.log.slice(0, 20).map(({ ids, ...e }) => ({ ...e, count: ids.length })),
-      preview: mail.previewClean(cidValue).map((a) => ({ kind: a.kind, count: a.ids.length, reason: a.reason })),
+      preview: (await mail.previewClean(cidValue)).map((a) => ({ kind: a.kind, count: a.ids.length, reason: a.reason })),
       mix: inboxMix(messages),
       senders: bulkSenders(messages, c.rules),
       suggestions: (s?.list ?? []).map(({ ids, ...x }) => ({ ...x, count: ids.length })),
@@ -693,7 +693,7 @@ export function createMailApp(deps: MailAppDeps) {
   };
   const withState = async (cidValue: string, extra: object = {}) => {
     const st = await state(cidValue);
-    return { ...extra, state: st, clean: cleanView(cidValue) };
+    return { ...extra, state: st, clean: await cleanView(cidValue) };
   };
 
   route("GET", "/api/clean", async (ctx) => cleanView(me(ctx)));
@@ -701,7 +701,7 @@ export function createMailApp(deps: MailAppDeps) {
     const b = ctx.body as Record<string, unknown>;
     const patch: Record<string, unknown> = {};
     for (const k of ["auto", "newslettersAfterDays", "notificationsAfterDays", "bouncesAfterDays", "emptyTrashAfterDays"]) if (k in b) patch[k] = b[k];
-    mail.setCleanRules(me(ctx), patch);
+    await mail.setCleanRules(me(ctx), patch);
     return withState(me(ctx));
   });
   route("POST", "/api/clean/run", async (ctx) => {
@@ -710,9 +710,9 @@ export function createMailApp(deps: MailAppDeps) {
   });
   route("POST", "/api/clean/scalvs", async (ctx) => {
     const cidValue = me(ctx);
-    const c = mail.cleanState(cidValue);
+    const c = await mail.cleanState(cidValue);
     try {
-      const result = await cleanAgent({ messages: mail.view(cidValue).messages, rules: c.rules, preview: mail.previewClean(cidValue), now: new Date() });
+      const result = await cleanAgent({ messages: (await mail.view(cidValue)).messages, rules: c.rules, preview: await mail.previewClean(cidValue), now: new Date() });
       suggestions.set(cidValue, { list: result.suggestions.slice(0, 12), note: result.note });
     } catch (err) {
       throw new HttpError(502, `SCALVS couldn't review your inbox right now (${(err as Error).message.slice(0, 80)}).`);
@@ -735,7 +735,7 @@ export function createMailApp(deps: MailAppDeps) {
     return withState(me(ctx));
   });
   route("POST", "/api/clean/undo", async (ctx) => {
-    const restored = mail.undoClean(me(ctx), str(ctx.body.id, 80));
+    const restored = await mail.undoClean(me(ctx), str(ctx.body.id, 80));
     return withState(me(ctx), { restored });
   });
   route("POST", "/api/clean/mute", async (ctx) => {
@@ -745,7 +745,7 @@ export function createMailApp(deps: MailAppDeps) {
   });
   route("POST", "/api/clean/unmute", async (ctx) => {
     need(ctx, "email");
-    mail.unmuteSender(me(ctx), str(ctx.body.email, 200));
+    await mail.unmuteSender(me(ctx), str(ctx.body.email, 200));
     return withState(me(ctx));
   });
 
@@ -753,7 +753,7 @@ export function createMailApp(deps: MailAppDeps) {
 
   route("GET", "/api/wallet", async (ctx) => {
     const w = (await suite.wallets.get(me(ctx)))!;
-    return { address: w.address, balances: await suite.wallets.balances(me(ctx)), history: (await suite.wallets.history(me(ctx))).map((t) => ({ ...t, direction: t.to === me(ctx) ? "in" : "out", counterparty: t.from === null ? "Settlement" : mail.addressOf(t.to === me(ctx) ? t.from : t.to) })) };
+    return { address: w.address, balances: await suite.wallets.balances(me(ctx)), history: await Promise.all((await suite.wallets.history(me(ctx))).map(async (t) => ({ ...t, direction: t.to === me(ctx) ? "in" : "out", counterparty: t.from === null ? "Settlement" : await mail.addressOf(t.to === me(ctx) ? t.from : t.to) }))) };
   });
   route("POST", "/api/wallet/pay", async (ctx) => {
     need(ctx, "to", "asset", "amount");

@@ -15,6 +15,7 @@ import type { Attachment, FolderId, MailMessage, MailPayment, Person } from "./m
 import { MAIL_DOMAIN } from "@infinitum/cid";
 import { isCumulus, parsePeople, tomorrowMorning, validEmail } from "./logic.ts";
 import type { CumulusTunnel } from "./tunnel.ts";
+import { MapMailRepository, type MailRepository } from "./repository.ts";
 import { DEFAULT_CLEAN_RULES, isProtected, normalizeRules, planSweep, type CleanAction, type CleanLogEntry, type CleanRules, type CleanState } from "./clean.ts";
 
 export { MAIL_DOMAIN };
@@ -118,7 +119,10 @@ export interface MailPayments {
 }
 
 export interface PostOfficeOptions {
+  /** In-memory mail (snapshotted to disk or nexus_docs). Ignored when `repository` is given. */
   store?: PostOfficeStore;
+  /** Where mailboxes, addresses and outbound jobs are kept. Defaults to a MapMailRepository over `store`. */
+  repository?: MailRepository;
   quota?: MailQuota;
   payments?: MailPayments;
   clock?: () => Date;
@@ -158,80 +162,135 @@ const RESERVED_LOCAL = new Set([
   "admin", "root", "support", "abuse", "noreply", "no-reply", "infinitum", "odin",
 ]);
 
+/**
+ * One PostOffice call's view of storage: every mailbox and outbound job it touches is read once,
+ * and the ones it changed are written back together when the call finishes.
+ */
+class MailUnit {
+  readonly boxes = new Map<string, StoredMailbox | undefined>();
+  readonly dirty = new Set<string>();
+  readonly jobs = new Map<string, OutboundMail>();
+  readonly dirtyJobs = new Set<string>();
+}
+
 export class PostOffice {
-  readonly store: PostOfficeStore;
+  readonly repository: MailRepository;
   private readonly quota?: MailQuota;
   private readonly payments?: MailPayments;
   private readonly clock: () => Date;
   readonly tunnel?: CumulusTunnel;
 
   constructor(opts: PostOfficeOptions = {}) {
-    this.store = opts.store ?? new PostOfficeStore();
+    this.repository = opts.repository ?? new MapMailRepository(opts.store ?? new PostOfficeStore());
     this.quota = opts.quota;
     this.payments = opts.payments;
     this.tunnel = opts.tunnel;
     this.clock = opts.clock ?? (() => new Date());
   }
 
+  /** The in-memory store, when the repository is the in-memory one (snapshots and at-rest sealing). */
+  get store(): PostOfficeStore {
+    const store = (this.repository as { store?: PostOfficeStore }).store;
+    if (!store) throw new Error("This PostOffice keeps mail in a database, not an in-memory store");
+    return store;
+  }
+
   private now() {
     return this.clock().toISOString();
+  }
+
+  private async unit<T>(fn: (u: MailUnit) => Promise<T> | T): Promise<T> {
+    const u = new MailUnit();
+    const result = await fn(u);
+    for (const cid of u.dirty) {
+      const box = u.boxes.get(cid);
+      if (box) await this.repository.putMailbox(box);
+    }
+    for (const id of u.dirtyJobs) await this.repository.putOutbound(u.jobs.get(id)!);
+    return result;
+  }
+
+  /** The mailbox, read once per call. Doesn't mark it changed. */
+  private async peek(u: MailUnit, cid: string): Promise<StoredMailbox | undefined> {
+    if (!u.boxes.has(cid)) u.boxes.set(cid, await this.repository.mailbox(cid));
+    return u.boxes.get(cid);
+  }
+
+  private async read(u: MailUnit, cid: string): Promise<StoredMailbox> {
+    const box = await this.peek(u, cid);
+    if (!box) throw new MailError("no_mailbox", "This Cumulus://ID has no mailbox yet");
+    return box;
+  }
+
+  /** The mailbox, to be changed: it is written back when the call finishes. */
+  private async box(u: MailUnit, cid: string): Promise<StoredMailbox> {
+    const box = await this.read(u, cid);
+    u.dirty.add(cid);
+    return box;
+  }
+
+  private async job(u: MailUnit, id: string): Promise<OutboundMail | undefined> {
+    if (!u.jobs.has(id)) {
+      const job = await this.repository.outbound(id);
+      if (!job) return undefined;
+      u.jobs.set(id, job);
+    }
+    u.dirtyJobs.add(id);
+    return u.jobs.get(id);
   }
 
   /* ---------------- Accounts ---------------- */
 
   /** Create the mailbox for a CID. Idempotent: provisioning twice returns the same mailbox. */
-  provision(input: { cid: string; address: string; name?: string }): StoredMailbox {
-    const existing = this.store.mailboxes.get(input.cid);
-    if (existing) return existing;
-    const address = input.address.trim().toLowerCase();
-    if (!validEmail(address) || !isCumulus(address)) throw new MailError("invalid_address", `Mailboxes live on @${MAIL_DOMAIN}`);
-    const owner = this.store.addresses.get(address);
-    if (owner && owner !== input.cid) throw new MailError("taken", "That address belongs to another Cumulus://ID");
-    const box: StoredMailbox = {
-      cid: input.cid,
-      owner: { name: input.name?.trim() || address.split("@")[0], email: address },
-      createdAt: this.now(),
-      messages: [],
-      aliases: [],
-      tasks: [],
-      contacts: [],
-    };
-    this.store.mailboxes.set(input.cid, box);
-    this.store.addresses.set(address, input.cid);
-    this.tunnel?.ensure(input.cid); // keys are made for people, never by them
-    return box;
+  provision(input: { cid: string; address: string; name?: string }): Promise<StoredMailbox> {
+    return this.unit(async (u) => {
+      const existing = await this.peek(u, input.cid);
+      if (existing) return existing;
+      const address = input.address.trim().toLowerCase();
+      if (!validEmail(address) || !isCumulus(address)) throw new MailError("invalid_address", `Mailboxes live on @${MAIL_DOMAIN}`);
+      const owner = await this.repository.cidForAddress(address);
+      if (owner && owner !== input.cid) throw new MailError("taken", "That address belongs to another Cumulus://ID");
+      if (!(await this.repository.claimAddress(address, input.cid))) throw new MailError("taken", "That address belongs to another Cumulus://ID");
+      const box: StoredMailbox = {
+        cid: input.cid,
+        owner: { name: input.name?.trim() || address.split("@")[0], email: address },
+        createdAt: this.now(),
+        messages: [],
+        aliases: [],
+        tasks: [],
+        contacts: [],
+      };
+      u.boxes.set(input.cid, box);
+      u.dirty.add(input.cid);
+      this.tunnel?.ensure(input.cid); // keys are made for people, never by them
+      return box;
+    });
   }
 
-  has(cid: string) {
-    return this.store.mailboxes.has(cid);
+  async has(cid: string): Promise<boolean> {
+    return Boolean(await this.repository.mailbox(cid));
   }
 
   /** The CID behind a Cumulus address or alias, if any. */
-  resolve(address: string): string | undefined {
-    return this.store.addresses.get(address.trim().toLowerCase());
+  resolve(address: string): Promise<string | undefined> {
+    return this.repository.cidForAddress(address.trim().toLowerCase());
   }
 
-  addressOf(cid: string): string {
-    return this.box(cid).owner.email;
+  async addressOf(cid: string): Promise<string> {
+    return this.unit(async (u) => (await this.read(u, cid)).owner.email);
   }
 
-  private box(cid: string): StoredMailbox {
-    const box = this.store.mailboxes.get(cid);
-    if (!box) throw new MailError("no_mailbox", "This Cumulus://ID has no mailbox yet");
-    return box;
-  }
-
-  /** Run a Mailbox operation against a stored mailbox and write the result back. */
-  private edit<T>(cid: string, fn: (mail: Mailbox) => T): T {
-    const box = this.box(cid);
+  /** Run a Mailbox operation against a stored mailbox and keep the result. */
+  private async edit<T>(u: MailUnit, cid: string, fn: (mail: Mailbox) => T): Promise<T> {
+    const box = await this.box(u, cid);
     const mail = new Mailbox(box, box.owner);
     const result = fn(mail);
     Object.assign(box, mail.snapshot());
     return result;
   }
 
-  view(cid: string) {
-    const box = this.box(cid);
+  async view(cid: string) {
+    const box = await this.unit((u) => this.read(u, cid));
     return {
       me: { ...box.owner, cid },
       messages: box.messages,
@@ -239,7 +298,7 @@ export class PostOffice {
       tasks: box.tasks,
       contacts: box.contacts,
       events: [],
-      unread: new Set(box.messages.filter((m) => m.unread && m.folder === "inbox").map((m) => m.threadId)).size,
+      unread: unreadThreads(box),
     };
   }
 
@@ -249,14 +308,19 @@ export class PostOffice {
     return { label: q.label, pct: q.pct };
   }
 
-  unreadCount(cid: string): number {
-    return this.has(cid) ? this.view(cid).unread : 0;
+  async unreadCount(cid: string): Promise<number> {
+    const box = await this.repository.mailbox(cid);
+    return box ? unreadThreads(box) : 0;
   }
 
   /* ---------------- Sending and delivery ---------------- */
 
-  async send(cid: string, input: PostOfficeSendInput): Promise<{ id: string; delivered: number; queued: number; bounced: string[]; payment?: MailPayment }> {
-    const sender = this.box(cid);
+  send(cid: string, input: PostOfficeSendInput): Promise<{ id: string; delivered: number; queued: number; bounced: string[]; payment?: MailPayment }> {
+    return this.unit((u) => this.sendIn(u, cid, input));
+  }
+
+  private async sendIn(u: MailUnit, cid: string, input: PostOfficeSendInput): Promise<{ id: string; delivered: number; queued: number; bounced: string[]; payment?: MailPayment }> {
+    const sender = await this.read(u, cid);
     const to = parsePeople(input.to);
     const cc = parsePeople(input.cc ?? "");
     if (to.length === 0 || to.some((p) => !validEmail(p.email))) throw new MailError("bad_address", "Add a real address in To.");
@@ -274,7 +338,7 @@ export class PostOffice {
     if (input.payment) {
       if (!this.payments) throw new MailError("payments_off", "FIRM Wallet isn't connected to this mailbox");
       if (to.length !== 1 || cc.length > 0) throw new MailError("payment_recipient", "Send a payment to exactly one person in To.");
-      payee = this.resolve(to[0].email);
+      payee = await this.resolve(to[0].email);
       if (!payee) throw new MailError("payment_recipient", "Payments go to Cumulus://Mail addresses. This address doesn't have a FIRM Wallet.");
       if (payee === cid) throw new MailError("payment_recipient", "You can't pay yourself.");
       const tx = await this.payments.transfer(cid, payee, input.payment.asset, input.payment.amount, input.subject.slice(0, 140));
@@ -283,7 +347,7 @@ export class PostOffice {
 
     const id = `m-${randomUUID()}`;
     const at = this.now();
-    const result = this.edit(cid, (mail) => mail.send({ ...input, id, now: at }));
+    const result = await this.edit(u, cid, (mail) => mail.send({ ...input, id, now: at }));
     if (!result.ok) throw new MailError("bad_address", result.error);
     const sent = sender.messages.find((m) => m.id === id)!;
     if (payment) {
@@ -311,8 +375,8 @@ export class PostOffice {
         external.push(address);
         continue;
       }
-      const rcpt = this.resolve(address);
-      if (!rcpt) {
+      const rcpt = await this.resolve(address);
+      if (!rcpt || !(await this.peek(u, rcpt))) {
         bounced.push(address);
         continue;
       }
@@ -320,7 +384,7 @@ export class PostOffice {
         bounced.push(address);
         continue;
       }
-      this.deliver(rcpt, { ...sent, ...this.throughTunnel(cid, rcpt, sent), id: `m-${randomUUID()}`, folder: "inbox", unread: rcpt !== cid, starred: false, payment });
+      await this.deliver(u, rcpt, { ...sent, ...this.throughTunnel(cid, rcpt, sent), id: `m-${randomUUID()}`, folder: "inbox", unread: rcpt !== cid, starred: false, payment });
       await this.quota?.charge(rcpt, "mail", size);
       delivered++;
     }
@@ -333,7 +397,8 @@ export class PostOffice {
         attachments: (sent.attachments ?? []).filter((a): a is Attachment & { id: string } => Boolean(a.id)).map(({ id, name, type, size }) => ({ id, name, type, size })),
         queuedAt: at, status: "queued", attempts: 0,
       };
-      this.store.outbound.set(job.id, job);
+      u.jobs.set(job.id, job);
+      u.dirtyJobs.add(job.id);
     }
     if (bounced.length) {
       sent.delivery = (sent.delivery ?? []).map((hop) => bounced.includes(hop.email)
@@ -344,7 +409,7 @@ export class PostOffice {
     const selfCopy = sender.messages.find((m) => m.id === `${id}-in`);
     if (selfCopy) Object.assign(selfCopy, { delivery: sent.delivery, payment: sent.payment, labels: sent.labels });
     for (const address of bounced) {
-      this.notify(cid, "postmaster", {
+      await this.notifyIn(u, cid, "postmaster", {
         subject: `Not delivered: ${sent.subject}`,
         body: `Your message to ${address} wasn't delivered. That Cumulus://Mail address doesn't exist, or its mailbox is full.\n\nEveryone else on the message received it.`,
         threadId: sent.threadId,
@@ -371,8 +436,8 @@ export class PostOffice {
     return this.tunnel?.fingerprint(cid) ?? "";
   }
 
-  private deliver(cid: string, message: MailMessage) {
-    const box = this.box(cid);
+  private async deliver(u: MailUnit, cid: string, message: MailMessage) {
+    const box = await this.box(u, cid);
     // A muted sender's mail skips the inbox. Product mail is never muted.
     if (!message.system && box.clean?.rules.muted.includes(message.from.email.toLowerCase())) {
       message.folder = "archive";
@@ -386,10 +451,14 @@ export class PostOffice {
    * It goes straight to the inbox, isn't counted against storage, and can't be spoofed by people
    * because system sender addresses are reserved.
    */
-  notify(cid: string, sender: SystemSender, input: { subject: string; body: string; threadId?: string; payment?: MailPayment }): MailMessage | null {
-    if (!this.has(cid)) return null;
+  notify(cid: string, sender: SystemSender, input: { subject: string; body: string; threadId?: string; payment?: MailPayment }): Promise<MailMessage | null> {
+    return this.unit((u) => this.notifyIn(u, cid, sender, input));
+  }
+
+  private async notifyIn(u: MailUnit, cid: string, sender: SystemSender, input: { subject: string; body: string; threadId?: string; payment?: MailPayment }): Promise<MailMessage | null> {
+    const box = await this.peek(u, cid);
+    if (!box) return null;
     const from = SYSTEM_SENDERS[sender];
-    const box = this.box(cid);
     const id = `m-${randomUUID()}`;
     const message: MailMessage = {
       id,
@@ -407,7 +476,7 @@ export class PostOffice {
       system: sender,
       payment: input.payment,
     };
-    this.deliver(cid, message);
+    await this.deliver(u, cid, message);
     return message;
   }
 
@@ -416,49 +485,51 @@ export class PostOffice {
    * returns who got it and which recipients don't exist (the caller rejects the message if nobody did).
    * Mail claiming a Cumulus sender is refused: Cumulus mail never arrives from outside.
    */
-  async receive(input: InboundMail): Promise<{ delivered: string[]; unknown: string[] }> {
-    const sender = input.from.email.trim().toLowerCase();
-    if (!validEmail(sender)) throw new MailError("bad_sender", "The sender address isn't valid.");
-    if (isCumulus(sender)) throw new MailError("spoofed_sender", "Mail from a Cumulus address can't arrive from outside Cumulus.");
-    const refused = refuseReason(input.auth);
-    if (refused) throw new MailError("dmarc_fail", refused);
-    const subject = input.subject.slice(0, 998);
-    const body = input.body.slice(0, MAX_INBOUND_BODY);
-    const size = messageBytes({ subject, body }) + attachmentBytes(input.attachments);
-    const delivered: string[] = [];
-    const unknown: string[] = [];
-    const seen = new Set<string>();
-    for (const rcpt of input.recipients) {
-      const address = rcpt.trim().toLowerCase();
-      if (seen.has(address)) continue;
-      seen.add(address);
-      const cid = isCumulus(address) ? this.resolve(address) : undefined;
-      if (!cid || (this.quota && !(await this.quota.canFit(cid, size)))) {
-        unknown.push(address);
-        continue;
+  receive(input: InboundMail): Promise<{ delivered: string[]; unknown: string[] }> {
+    return this.unit(async (u) => {
+      const sender = input.from.email.trim().toLowerCase();
+      if (!validEmail(sender)) throw new MailError("bad_sender", "The sender address isn't valid.");
+      if (isCumulus(sender)) throw new MailError("spoofed_sender", "Mail from a Cumulus address can't arrive from outside Cumulus.");
+      const refused = refuseReason(input.auth);
+      if (refused) throw new MailError("dmarc_fail", refused);
+      const subject = input.subject.slice(0, 998);
+      const body = input.body.slice(0, MAX_INBOUND_BODY);
+      const size = messageBytes({ subject, body }) + attachmentBytes(input.attachments);
+      const delivered: string[] = [];
+      const unknown: string[] = [];
+      const seen = new Set<string>();
+      for (const rcpt of input.recipients) {
+        const address = rcpt.trim().toLowerCase();
+        if (seen.has(address)) continue;
+        seen.add(address);
+        const cid = isCumulus(address) ? await this.resolve(address) : undefined;
+        const box = cid ? await this.peek(u, cid) : undefined;
+        if (!cid || !box || (this.quota && !(await this.quota.canFit(cid, size)))) {
+          unknown.push(address);
+          continue;
+        }
+        const id = `m-${randomUUID()}`;
+        await this.deliver(u, cid, {
+          id,
+          threadId: this.threadFor(box, sender, subject) ?? id,
+          folder: "inbox",
+          from: { name: input.from.name.trim() || sender, email: sender },
+          to: input.to.length ? input.to : [{ ...box.owner }],
+          cc: input.cc,
+          subject,
+          body,
+          at: input.at ?? this.now(),
+          unread: true,
+          starred: false,
+          labels: [],
+          attachments: input.attachments?.length ? input.attachments : undefined,
+          auth: input.auth ? { ...input.auth } : undefined,
+        });
+        await this.quota?.charge(cid, "mail", size);
+        delivered.push(address);
       }
-      const box = this.box(cid);
-      const id = `m-${randomUUID()}`;
-      this.deliver(cid, {
-        id,
-        threadId: this.threadFor(box, sender, subject) ?? id,
-        folder: "inbox",
-        from: { name: input.from.name.trim() || sender, email: sender },
-        to: input.to.length ? input.to : [{ ...box.owner }],
-        cc: input.cc,
-        subject,
-        body,
-        at: input.at ?? this.now(),
-        unread: true,
-        starred: false,
-        labels: [],
-        attachments: input.attachments?.length ? input.attachments : undefined,
-        auth: input.auth ? { ...input.auth } : undefined,
-      });
-      await this.quota?.charge(cid, "mail", size);
-      delivered.push(address);
-    }
-    return { delivered, unknown };
+      return { delivered, unknown };
+    });
   }
 
   /** A reply ("Re: x") from someone joins the thread of the earlier message "x" with that person. */
@@ -472,13 +543,15 @@ export class PostOffice {
   }
 
   /** Queued mail for the outbound relay (SMTP/JMAP bridge) to pick up. */
-  outboundQueue(): OutboundMail[] {
-    return [...this.store.outbound.values()].filter((m) => m.status === "queued");
+  async outboundQueue(): Promise<OutboundMail[]> {
+    return (await this.repository.openOutbound()).filter((m) => m.status === "queued");
   }
 
-  markOutbound(id: string, status: "sent" | "failed") {
-    const job = this.store.outbound.get(id);
-    if (job) job.status = status;
+  markOutbound(id: string, status: "sent" | "failed"): Promise<void> {
+    return this.unit(async (u) => {
+      const job = await this.job(u, id);
+      if (job) job.status = status;
+    });
   }
 
   /**
@@ -488,60 +561,66 @@ export class PostOffice {
    * per attempt: one left in "sending" is closed as unconfirmed, never re-sent. Jobs from before
    * outside sending existed carry no body and are closed with a notice instead.
    */
-  claimOutbound(limit = 20): OutboundSend[] {
-    const now = this.clock().getTime();
-    const claimed: OutboundSend[] = [];
-    for (const job of this.store.outbound.values()) {
-      if (claimed.length >= limit) break;
-      if (job.status === "sending" && Date.parse(job.claimedAt ?? "") < now - OUTBOUND_CLAIM_TIMEOUT_MS) {
-        this.unconfirmedOutbound(job);
-        continue;
+  claimOutbound(limit = 20): Promise<OutboundSend[]> {
+    return this.unit(async (u) => {
+      const now = this.clock().getTime();
+      const claimed: OutboundSend[] = [];
+      for (const open of await this.repository.openOutbound()) {
+        if (claimed.length >= limit) break;
+        const stale = open.status === "sending" && Date.parse(open.claimedAt ?? "") < now - OUTBOUND_CLAIM_TIMEOUT_MS;
+        if (!stale && open.status !== "queued") continue;
+        if (!stale && open.nextAttemptAt && Date.parse(open.nextAttemptAt) > now) continue;
+        const job = (await this.job(u, open.id))!;
+        if (stale) {
+          await this.unconfirmedOutbound(u, job);
+          continue;
+        }
+        if (job.body === undefined) {
+          await this.closeOutbound(u, job, "Sending to addresses outside Cumulus wasn't available yet when this was sent. Please send it again.");
+          continue;
+        }
+        job.status = "sending";
+        job.claimedAt = this.now();
+        const to = job.toList?.length ? job.toList : job.to;
+        const cc = job.toList?.length ? (job.ccList ?? []) : [];
+        claimed.push({ id: job.id, from: { email: job.from, name: job.fromName }, to, cc, subject: job.subject, text: job.body, attachments: job.attachments ?? [] });
       }
-      if (job.status !== "queued") continue;
-      if (job.nextAttemptAt && Date.parse(job.nextAttemptAt) > now) continue;
-      if (job.body === undefined) {
-        this.closeOutbound(job, "Sending to addresses outside Cumulus wasn't available yet when this was sent. Please send it again.");
-        continue;
-      }
-      job.status = "sending";
-      job.claimedAt = this.now();
-      const to = job.toList?.length ? job.toList : job.to;
-      const cc = job.toList?.length ? (job.ccList ?? []) : [];
-      claimed.push({ id: job.id, from: { email: job.from, name: job.fromName }, to, cc, subject: job.subject, text: job.body, attachments: job.attachments ?? [] });
-    }
-    return claimed;
+      return claimed;
+    });
   }
 
   /** Record how a claimed job went: sent, retry later, or (permanent or out of retries) not delivered. */
-  finishOutbound(id: string, result: OutboundResult) {
-    const job = this.store.outbound.get(id);
-    if (!job || job.status !== "sending") return;
-    job.claimedAt = undefined;
-    if (result.ok) {
-      job.status = "sent";
-      job.providerId = result.providerId;
-      job.error = undefined;
-      this.updateHops(job, "outbound", "Sent to the recipient's mail server.");
-      return;
-    }
-    job.attempts = (job.attempts ?? 0) + 1;
-    job.error = result.error;
-    if (result.permanent || job.attempts >= OUTBOUND_MAX_ATTEMPTS) {
-      this.closeOutbound(job, result.error);
-      return;
-    }
-    job.status = "queued";
-    // 1, 2, 4, 8, 16 minutes between tries.
-    job.nextAttemptAt = new Date(this.clock().getTime() + 60_000 * 2 ** (job.attempts - 1)).toISOString();
-    this.updateHops(job, "outbound", "Delayed. Cumulus will keep trying.");
+  finishOutbound(id: string, result: OutboundResult): Promise<void> {
+    return this.unit(async (u) => {
+      const job = await this.job(u, id);
+      if (!job || job.status !== "sending") return;
+      job.claimedAt = undefined;
+      if (result.ok) {
+        job.status = "sent";
+        job.providerId = result.providerId;
+        job.error = undefined;
+        await this.updateHops(u, job, "outbound", "Sent to the recipient's mail server.");
+        return;
+      }
+      job.attempts = (job.attempts ?? 0) + 1;
+      job.error = result.error;
+      if (result.permanent || job.attempts >= OUTBOUND_MAX_ATTEMPTS) {
+        await this.closeOutbound(u, job, result.error);
+        return;
+      }
+      job.status = "queued";
+      // 1, 2, 4, 8, 16 minutes between tries.
+      job.nextAttemptAt = new Date(this.clock().getTime() + 60_000 * 2 ** (job.attempts - 1)).toISOString();
+      await this.updateHops(u, job, "outbound", "Delayed. Cumulus will keep trying.");
+    });
   }
 
-  private closeOutbound(job: OutboundMail, reason: string) {
+  private async closeOutbound(u: MailUnit, job: OutboundMail, reason: string) {
     job.status = "failed";
     job.error = reason;
-    this.updateHops(job, "bounced", `Not delivered. ${reason}`);
-    const sent = job.messageId ? this.findMessage(job.fromCid, job.messageId) : undefined;
-    this.notify(job.fromCid, "postmaster", {
+    await this.updateHops(u, job, "bounced", `Not delivered. ${reason}`);
+    const sent = job.messageId ? (await this.peek(u, job.fromCid))?.messages.find((m) => m.id === job.messageId) : undefined;
+    await this.notifyIn(u, job.fromCid, "postmaster", {
       subject: `Not delivered: ${job.subject}`,
       body: `Your message to ${job.to.join(", ")} wasn't delivered.
 
@@ -550,28 +629,24 @@ ${reason}`,
     });
   }
 
-  private unconfirmedOutbound(job: OutboundMail) {
+  private async unconfirmedOutbound(u: MailUnit, job: OutboundMail) {
     job.status = "failed";
     job.claimedAt = undefined;
     job.error = "unconfirmed";
-    this.updateHops(job, "outbound", "Delivery couldn't be confirmed. It may have arrived.");
-    const sent = job.messageId ? this.findMessage(job.fromCid, job.messageId) : undefined;
-    this.notify(job.fromCid, "postmaster", {
+    await this.updateHops(u, job, "outbound", "Delivery couldn't be confirmed. It may have arrived.");
+    const sent = job.messageId ? (await this.peek(u, job.fromCid))?.messages.find((m) => m.id === job.messageId) : undefined;
+    await this.notifyIn(u, job.fromCid, "postmaster", {
       subject: `Delivery not confirmed: ${job.subject}`,
       body: `Cumulus started sending your message to ${job.to.join(", ")} but couldn't confirm it was delivered. It may have arrived. To avoid sending it twice, Cumulus won't retry on its own. If the recipient didn't get it, send it again.`,
       threadId: sent?.threadId,
     });
   }
 
-  private findMessage(cid: string, id: string): MailMessage | undefined {
-    return this.store.mailboxes.get(cid)?.messages.find((m) => m.id === id);
-  }
-
   /** Show the job's progress on the sender's copy in Sent. */
-  private updateHops(job: OutboundMail, status: "outbound" | "bounced", detail: string) {
+  private async updateHops(u: MailUnit, job: OutboundMail, status: "outbound" | "bounced", detail: string) {
     if (!job.messageId) return;
-    const box = this.store.mailboxes.get(job.fromCid);
-    if (!box) return;
+    if (!(await this.peek(u, job.fromCid))) return;
+    const box = await this.box(u, job.fromCid);
     const targets = new Set(job.to);
     for (const m of box.messages) {
       if (m.id !== job.messageId && m.id !== `${job.messageId}-in`) continue;
@@ -582,113 +657,137 @@ ${reason}`,
   /* ---------------- Mailbox actions (scoped to the signed-in CID) ---------------- */
 
   saveDraft(cid: string, input: Omit<SendInput, "id" | "now">) {
-    return this.edit(cid, (mail) => mail.saveDraft({ ...input, now: this.now() }));
+    return this.unit((u) => this.edit(u, cid, (mail) => mail.saveDraft({ ...input, now: this.now() })));
   }
 
   /* ---------------- Schedule send ---------------- */
 
   /** Save a message to go out on its own later. It waits in Scheduled (a draft with a send time). */
-  schedule(cid: string, input: PostOfficeSendInput, sendAt: string): { id: string; sendAt: string } {
-    if (input.payment) throw new MailError("scheduled_payment", "Payments go out right away. Send this one now.");
-    const at = Date.parse(sendAt);
-    const now = this.clock().getTime();
-    if (!Number.isFinite(at) || at <= now) throw new MailError("bad_time", "Pick a time in the future.");
-    if (at > now + 366 * 86_400_000) throw new MailError("bad_time", "Schedule up to a year ahead.");
-    const to = parsePeople(input.to);
-    const cc = parsePeople(input.cc ?? "");
-    if (to.length === 0 || [...to, ...cc].some((p) => !validEmail(p.email))) throw new MailError("bad_address", "Add a real address in To.");
-    if (!input.subject.trim() && !input.body.trim()) throw new MailError("empty", "Write a subject or a message.");
-    const { id } = this.saveDraft(cid, input);
-    const draft = this.box(cid).messages.find((m) => m.id === id)!;
-    draft.sendAt = new Date(at).toISOString();
-    return { id, sendAt: draft.sendAt };
+  schedule(cid: string, input: PostOfficeSendInput, sendAt: string): Promise<{ id: string; sendAt: string }> {
+    return this.unit(async (u) => {
+      if (input.payment) throw new MailError("scheduled_payment", "Payments go out right away. Send this one now.");
+      const at = Date.parse(sendAt);
+      const now = this.clock().getTime();
+      if (!Number.isFinite(at) || at <= now) throw new MailError("bad_time", "Pick a time in the future.");
+      if (at > now + 366 * 86_400_000) throw new MailError("bad_time", "Schedule up to a year ahead.");
+      const to = parsePeople(input.to);
+      const cc = parsePeople(input.cc ?? "");
+      if (to.length === 0 || [...to, ...cc].some((p) => !validEmail(p.email))) throw new MailError("bad_address", "Add a real address in To.");
+      if (!input.subject.trim() && !input.body.trim()) throw new MailError("empty", "Write a subject or a message.");
+      const { id } = await this.edit(u, cid, (mail) => mail.saveDraft({ ...input, now: this.now() }));
+      const draft = (await this.box(u, cid)).messages.find((m) => m.id === id)!;
+      draft.sendAt = new Date(at).toISOString();
+      return { id, sendAt: draft.sendAt };
+    });
   }
 
   /** Cancel a scheduled send. The message stays in Drafts. */
-  unschedule(cid: string, id: string): boolean {
-    const draft = this.box(cid).messages.find((m) => m.id === id && m.folder === "drafts" && m.sendAt);
-    if (!draft) return false;
-    delete draft.sendAt;
-    return true;
+  unschedule(cid: string, id: string): Promise<boolean> {
+    return this.unit(async (u) => {
+      const draft = (await this.box(u, cid)).messages.find((m) => m.id === id && m.folder === "drafts" && m.sendAt);
+      if (!draft) return false;
+      delete draft.sendAt;
+      return true;
+    });
   }
 
   /** Send this mailbox's scheduled messages that are due. A failure goes back to Drafts with a notice. */
-  async sendDue(cid: string): Promise<number> {
-    const now = this.clock().getTime();
-    const due = this.box(cid).messages.filter((m) => m.folder === "drafts" && m.sendAt && Date.parse(m.sendAt) <= now);
-    let sent = 0;
-    for (const draft of due) {
-      delete draft.sendAt;
-      try {
-        await this.send(cid, {
-          to: draft.to.map((p) => p.email).join(", "), cc: draft.cc.map((p) => p.email).join(", "),
-          subject: draft.subject === "(no subject)" ? "" : draft.subject, body: draft.body,
-          threadId: draft.threadId !== draft.id ? draft.threadId : undefined, draftId: draft.id, attachments: draft.attachments,
-        });
-        sent++;
-      } catch (error) {
-        this.notify(cid, "postmaster", { subject: "A scheduled message wasn't sent", body: `"${draft.subject}" couldn't go out: ${(error as Error).message} It's waiting in Drafts.` });
+  sendDue(cid: string): Promise<number> {
+    return this.unit(async (u) => {
+      const now = this.clock().getTime();
+      const due = (await this.box(u, cid)).messages.filter((m) => m.folder === "drafts" && m.sendAt && Date.parse(m.sendAt) <= now);
+      let sent = 0;
+      for (const draft of due) {
+        delete draft.sendAt;
+        try {
+          await this.sendIn(u, cid, {
+            to: draft.to.map((p) => p.email).join(", "), cc: draft.cc.map((p) => p.email).join(", "),
+            subject: draft.subject === "(no subject)" ? "" : draft.subject, body: draft.body,
+            threadId: draft.threadId !== draft.id ? draft.threadId : undefined, draftId: draft.id, attachments: draft.attachments,
+          });
+          sent++;
+        } catch (error) {
+          await this.notifyIn(u, cid, "postmaster", { subject: "A scheduled message wasn't sent", body: `"${draft.subject}" couldn't go out: ${(error as Error).message} It's waiting in Drafts.` });
+        }
       }
-    }
-    return sent;
+      return sent;
+    });
   }
 
   /** Every mailbox's due scheduled mail. The app runs this on a timer. */
   async sendAllDue(): Promise<number> {
     let sent = 0;
-    for (const cid of this.store.mailboxes.keys()) sent += await this.sendDue(cid);
+    const now = this.clock().getTime();
+    for (const cid of await this.repository.mailboxCids()) {
+      const box = await this.repository.mailbox(cid);
+      if (!box?.messages.some((m) => m.folder === "drafts" && m.sendAt && Date.parse(m.sendAt) <= now)) continue;
+      sent += await this.sendDue(cid);
+    }
     return sent;
   }
 
-  markThreadRead(cid: string, threadId: string) {
-    this.edit(cid, (mail) => mail.markThreadRead(threadId));
+  markThreadRead(cid: string, threadId: string): Promise<void> {
+    return this.unit((u) => this.edit(u, cid, (mail) => mail.markThreadRead(threadId)));
   }
 
-  toggleStar(cid: string, id: string) {
-    this.edit(cid, (mail) => mail.toggleStar(id));
+  toggleStar(cid: string, id: string): Promise<void> {
+    return this.unit((u) => this.edit(u, cid, (mail) => mail.toggleStar(id)));
   }
 
-  move(cid: string, id: string, folder: FolderId) {
+  move(cid: string, id: string, folder: FolderId): Promise<void> {
+    return this.unit((u) => this.moveIn(u, cid, id, folder));
+  }
+
+  private async moveIn(u: MailUnit, cid: string, id: string, folder: FolderId) {
     if (!["inbox", "sent", "drafts", "archive", "trash"].includes(folder)) throw new MailError("bad_folder", "Unknown folder");
-    this.edit(cid, (mail) => mail.move(id, folder));
+    await this.edit(u, cid, (mail) => mail.move(id, folder));
   }
 
   /** Delete forever (from trash). Frees the storage it used. */
-  async remove(cid: string, id: string): Promise<void> {
-    const message = this.box(cid).messages.find((m) => m.id === id);
+  remove(cid: string, id: string): Promise<void> {
+    return this.unit((u) => this.removeIn(u, cid, id));
+  }
+
+  private async removeIn(u: MailUnit, cid: string, id: string) {
+    const message = (await this.read(u, cid)).messages.find((m) => m.id === id);
     if (!message) return;
-    this.edit(cid, (mail) => mail.remove(id));
+    await this.edit(u, cid, (mail) => mail.remove(id));
     if (!message.system && message.folder !== "drafts") await this.quota?.release(cid, "mail", messageBytes(message));
   }
 
-  async emptyTrash(cid: string): Promise<number> {
-    const trash = this.box(cid).messages.filter((m) => m.folder === "trash");
-    for (const m of trash) await this.remove(cid, m.id);
-    return trash.length;
+  emptyTrash(cid: string): Promise<number> {
+    return this.unit(async (u) => {
+      const trash = (await this.read(u, cid)).messages.filter((m) => m.folder === "trash");
+      for (const m of trash) await this.removeIn(u, cid, m.id);
+      return trash.length;
+    });
   }
 
-  addAlias(cid: string, alias: string): boolean {
-    const cleaned = alias.trim().toLowerCase();
-    const local = cleaned.split("@")[0] ?? "";
-    if (RESERVED_LOCAL.has(local)) return false;
-    if (this.store.addresses.has(cleaned)) return false; // aliases are unique across all of Cumulus
-    const ok = this.edit(cid, (mail) => mail.addAlias(cleaned));
-    if (ok) this.store.addresses.set(cleaned, cid);
-    return ok;
+  addAlias(cid: string, alias: string): Promise<boolean> {
+    return this.unit(async (u) => {
+      const cleaned = alias.trim().toLowerCase();
+      const local = cleaned.split("@")[0] ?? "";
+      if (RESERVED_LOCAL.has(local)) return false;
+      if (await this.repository.cidForAddress(cleaned)) return false; // aliases are unique across all of Cumulus
+      const box = await this.read(u, cid);
+      if (!new Mailbox(structuredClone(box), box.owner).addAlias(cleaned)) return false;
+      if (!(await this.repository.claimAddress(cleaned, cid))) return false;
+      return this.edit(u, cid, (mail) => mail.addAlias(cleaned));
+    });
   }
 
   addTask(cid: string, task: { title: string; detail: string; messageId?: string }) {
-    return this.edit(cid, (mail) => mail.addTask({ id: `t-${randomUUID()}`, done: false, ...task }));
+    return this.unit((u) => this.edit(u, cid, (mail) => mail.addTask({ id: `t-${randomUUID()}`, done: false, ...task })));
   }
 
-  toggleTask(cid: string, id: string) {
-    this.edit(cid, (mail) => mail.toggleTask(id));
+  toggleTask(cid: string, id: string): Promise<void> {
+    return this.unit((u) => this.edit(u, cid, (mail) => mail.toggleTask(id)));
   }
 
-  addContact(cid: string, contact: { name: string; email: string }) {
+  async addContact(cid: string, contact: { name: string; email: string }): Promise<boolean> {
     const email = contact.email.trim();
     if (!validEmail(email)) return false;
-    return this.edit(cid, (mail) =>
+    return this.unit((u) => this.edit(u, cid, (mail) =>
       mail.addContact({
         id: `c-${randomUUID()}`,
         name: contact.name.trim() || email,
@@ -696,7 +795,7 @@ ${reason}`,
         org: isCumulus(email) ? "Cumulus://Mail" : "External",
         note: "Saved from a message.",
       }),
-    );
+    ));
   }
 
   /* ---------------- Conversation actions (with undo) ---------------- */
@@ -706,100 +805,121 @@ ${reason}`,
    * is in the box you're looking at, mark it read or unread, star or unstar it. Returns what changed
    * so the caller can offer Undo.
    */
-  actOnThreads(cid: string, threadIds: string[], action: ThreadAction, box: string = "inbox"): { count: number; before: ThreadSnapshot[] } {
-    const want = new Set(threadIds.slice(0, 500));
-    const me = this.box(cid).owner.email.toLowerCase();
-    const before: ThreadSnapshot[] = [];
-    const touched = new Set<string>();
-    const remember = (m: MailMessage) => {
-      before.push({ id: m.id, folder: m.folder, unread: m.unread, starred: m.starred, snoozeUntil: m.snoozeUntil });
-      touched.add(m.threadId);
-    };
-    const inView = (m: MailMessage) => (box === "starred" ? m.starred && m.folder !== "trash" : m.folder === box);
-    const messages = this.box(cid).messages.filter((m) => want.has(m.threadId) && m.folder !== "drafts");
-    for (const thread of want) {
-      const all = messages.filter((m) => m.threadId === thread);
-      if (!all.length) continue;
-      const shown = all.filter(inView);
-      if (action === "archive") for (const m of shown.filter((x) => x.folder === "inbox")) { remember(m); m.folder = "archive"; m.unread = false; }
-      else if (action === "trash") for (const m of all.filter((x) => x.folder !== "trash")) { remember(m); m.folder = "trash"; m.unread = false; }
-      else if (action === "inbox") for (const m of shown.filter((x) => x.folder === "archive" || x.folder === "trash")) {
-        remember(m);
-        m.folder = m.from.email.toLowerCase() === me && !m.system ? "sent" : "inbox";
+  actOnThreads(cid: string, threadIds: string[], action: ThreadAction, view: string = "inbox"): Promise<{ count: number; before: ThreadSnapshot[] }> {
+    return this.unit(async (u) => {
+      const box = await this.box(u, cid);
+      const want = new Set(threadIds.slice(0, 500));
+      const me = box.owner.email.toLowerCase();
+      const before: ThreadSnapshot[] = [];
+      const touched = new Set<string>();
+      const remember = (m: MailMessage) => {
+        before.push({ id: m.id, folder: m.folder, unread: m.unread, starred: m.starred, snoozeUntil: m.snoozeUntil });
+        touched.add(m.threadId);
+      };
+      const inView = (m: MailMessage) => (view === "starred" ? m.starred && m.folder !== "trash" : m.folder === view);
+      const messages = box.messages.filter((m) => want.has(m.threadId) && m.folder !== "drafts");
+      for (const thread of want) {
+        const all = messages.filter((m) => m.threadId === thread);
+        if (!all.length) continue;
+        const shown = all.filter(inView);
+        if (action === "archive") for (const m of shown.filter((x) => x.folder === "inbox")) { remember(m); m.folder = "archive"; m.unread = false; }
+        else if (action === "trash") for (const m of all.filter((x) => x.folder !== "trash")) { remember(m); m.folder = "trash"; m.unread = false; }
+        else if (action === "inbox") for (const m of shown.filter((x) => x.folder === "archive" || x.folder === "trash")) {
+          remember(m);
+          m.folder = m.from.email.toLowerCase() === me && !m.system ? "sent" : "inbox";
+        }
+        else if (action === "read") for (const m of all.filter((x) => x.unread)) { remember(m); m.unread = false; }
+        else if (action === "unread") {
+          const received = all.filter((x) => x.from.email.toLowerCase() !== me && x.folder !== "trash").sort((a, b) => (a.at < b.at ? 1 : -1))[0];
+          if (received && !received.unread) { remember(received); received.unread = true; }
+        }
+        else if (action === "star" || action === "unstar") {
+          const latest = [...(shown.length ? shown : all)].sort((a, b) => (a.at < b.at ? 1 : -1))[0]!;
+          if (action === "star" && !all.some((x) => x.starred)) { remember(latest); latest.starred = true; }
+          if (action === "unstar") for (const m of all.filter((x) => x.starred)) { remember(m); m.starred = false; }
+        }
+        else if (action === "snooze") {
+          const until = tomorrowMorning(this.clock());
+          for (const m of all.filter((x) => x.folder !== "trash")) { remember(m); m.snoozeUntil = until; m.unread = false; }
+        }
       }
-      else if (action === "read") for (const m of all.filter((x) => x.unread)) { remember(m); m.unread = false; }
-      else if (action === "unread") {
-        const received = all.filter((x) => x.from.email.toLowerCase() !== me && x.folder !== "trash").sort((a, b) => (a.at < b.at ? 1 : -1))[0];
-        if (received && !received.unread) { remember(received); received.unread = true; }
-      }
-      else if (action === "star" || action === "unstar") {
-        const latest = [...(shown.length ? shown : all)].sort((a, b) => (a.at < b.at ? 1 : -1))[0]!;
-        if (action === "star" && !all.some((x) => x.starred)) { remember(latest); latest.starred = true; }
-        if (action === "unstar") for (const m of all.filter((x) => x.starred)) { remember(m); m.starred = false; }
-      }
-      else if (action === "snooze") {
-        const until = tomorrowMorning(this.clock());
-        for (const m of all.filter((x) => x.folder !== "trash")) { remember(m); m.snoozeUntil = until; m.unread = false; }
-      }
-    }
-    return { count: touched.size, before };
+      return { count: touched.size, before };
+    });
   }
 
   /** Hide a conversation until `until` (ISO). It leaves the inbox and comes back on its own. */
-  snooze(cid: string, id: string, until: string) {
-    const at = Date.parse(until);
-    if (!Number.isFinite(at)) return false;
-    const messages = this.box(cid).messages;
-    const message = messages.find((item) => item.id === id);
-    if (!message) return false;
-    for (const item of messages) {
-      if (item.threadId !== message.threadId || item.folder === "drafts" || item.folder === "trash") continue;
-      item.snoozeUntil = new Date(at).toISOString();
-      item.unread = false;
-    }
-    return true;
+  snooze(cid: string, id: string, until: string): Promise<boolean> {
+    return this.unit(async (u) => {
+      const at = Date.parse(until);
+      if (!Number.isFinite(at)) return false;
+      const messages = (await this.box(u, cid)).messages;
+      const message = messages.find((item) => item.id === id);
+      if (!message) return false;
+      for (const item of messages) {
+        if (item.threadId !== message.threadId || item.folder === "drafts" || item.folder === "trash") continue;
+        item.snoozeUntil = new Date(at).toISOString();
+        item.unread = false;
+      }
+      return true;
+    });
   }
 
   /** Put messages back exactly as they were before an action. Only this mailbox's own messages. */
-  restore(cid: string, before: ThreadSnapshot[]): number {
-    const box = this.box(cid);
-    let n = 0;
-    for (const s of before) {
-      const m = box.messages.find((x) => x.id === s.id);
-      if (!m) continue;
-      Object.assign(m, { folder: s.folder, unread: s.unread, starred: s.starred, snoozeUntil: s.snoozeUntil });
-      n++;
-    }
-    return n;
+  restore(cid: string, before: ThreadSnapshot[]): Promise<number> {
+    return this.unit(async (u) => {
+      const box = await this.box(u, cid);
+      let n = 0;
+      for (const s of before) {
+        const m = box.messages.find((x) => x.id === s.id);
+        if (!m) continue;
+        Object.assign(m, { folder: s.folder, unread: s.unread, starred: s.starred, snoozeUntil: s.snoozeUntil });
+        n++;
+      }
+      return n;
+    });
   }
 
   /* ---------------- SCALVS Clean ---------------- */
 
-  cleanState(cid: string): CleanState {
-    const box = this.box(cid);
-    box.clean ??= { rules: { ...DEFAULT_CLEAN_RULES, muted: [] }, log: [] };
-    box.clean.rules = normalizeRules(box.clean.rules);
+  /** This mailbox's Clean rules and history (defaults when it has none yet). Read-only. */
+  async cleanState(cid: string): Promise<CleanState> {
+    return cleanStateOf(await this.unit((u) => this.read(u, cid)));
+  }
+
+  /** The stored Clean state, created with the defaults if missing. Marks the mailbox changed. */
+  private async cleanIn(u: MailUnit, cid: string): Promise<CleanState> {
+    const box = await this.box(u, cid);
+    box.clean = cleanStateOf(box);
     return box.clean;
   }
 
-  setCleanRules(cid: string, patch: Partial<CleanRules>): CleanRules {
-    const state = this.cleanState(cid);
+  setCleanRules(cid: string, patch: Partial<CleanRules>): Promise<CleanRules> {
+    return this.unit((u) => this.setRulesIn(u, cid, patch));
+  }
+
+  private async setRulesIn(u: MailUnit, cid: string, patch: Partial<CleanRules>) {
+    const state = await this.cleanIn(u, cid);
     state.rules = normalizeRules({ ...state.rules, ...patch });
     return state.rules;
   }
 
   /** What the rules would clean right now, without moving anything. */
-  previewClean(cid: string): CleanAction[] {
-    return planSweep(this.box(cid).messages, this.cleanState(cid).rules, this.clock());
+  async previewClean(cid: string): Promise<CleanAction[]> {
+    const box = await this.unit((u) => this.read(u, cid));
+    return planSweep(box.messages, cleanStateOf(box).rules, this.clock());
   }
 
   /**
    * Carry out cleaning actions. Only this mailbox's own messages move, protected mail is skipped,
    * and "delete" only removes mail that is already in Trash.
    */
-  async applyClean(cid: string, actions: CleanAction[], by: CleanLogEntry["by"]): Promise<CleanLogEntry[]> {
-    const state = this.cleanState(cid);
-    const box = this.box(cid);
+  applyClean(cid: string, actions: CleanAction[], by: CleanLogEntry["by"]): Promise<CleanLogEntry[]> {
+    return this.unit((u) => this.applyCleanIn(u, cid, actions, by));
+  }
+
+  private async applyCleanIn(u: MailUnit, cid: string, actions: CleanAction[], by: CleanLogEntry["by"]): Promise<CleanLogEntry[]> {
+    const state = await this.cleanIn(u, cid);
+    const box = await this.box(u, cid);
     const entries: CleanLogEntry[] = [];
     for (const action of actions) {
       const ids = [...new Set(action.ids)].filter((id) => {
@@ -810,8 +930,8 @@ ${reason}`,
       });
       if (!ids.length) continue;
       for (const id of ids) {
-        if (action.kind === "delete") await this.remove(cid, id);
-        else this.move(cid, id, action.kind === "archive" ? "archive" : "trash");
+        if (action.kind === "delete") await this.removeIn(u, cid, id);
+        else await this.moveIn(u, cid, id, action.kind === "archive" ? "archive" : "trash");
       }
       const entry: CleanLogEntry = { id: `cl-${randomUUID()}`, at: this.now(), kind: action.kind, ids, reason: action.reason.slice(0, 200), by };
       entries.push(entry);
@@ -823,56 +943,82 @@ ${reason}`,
 
   /** Run the rules now ("Clean now"), or on their own when `by` is "rules". */
   runClean(cid: string, by: "rules" | "you" = "you"): Promise<CleanLogEntry[]> {
-    const state = this.cleanState(cid);
+    return this.unit((u) => this.runCleanIn(u, cid, by));
+  }
+
+  private async runCleanIn(u: MailUnit, cid: string, by: "rules" | "you") {
+    const state = await this.cleanIn(u, cid);
     state.lastRun = this.now();
-    return this.applyClean(cid, this.previewClean(cid), by);
+    const box = await this.read(u, cid);
+    return this.applyCleanIn(u, cid, planSweep(box.messages, state.rules, this.clock()), by);
   }
 
   /** Automatic cleaning: runs when the mailbox is opened, at most once an hour, if the owner left it on. */
-  async autoClean(cid: string): Promise<CleanLogEntry[]> {
-    if (!this.has(cid)) return [];
-    const state = this.cleanState(cid);
-    if (!state.rules.auto) return [];
-    if (state.lastRun && this.clock().getTime() - Date.parse(state.lastRun) < 3_600_000) return [];
-    return this.runClean(cid, "rules");
+  autoClean(cid: string): Promise<CleanLogEntry[]> {
+    return this.unit(async (u) => {
+      const box = await this.peek(u, cid);
+      if (!box) return [];
+      const state = cleanStateOf(box);
+      if (!state.rules.auto) return [];
+      if (state.lastRun && this.clock().getTime() - Date.parse(state.lastRun) < 3_600_000) return [];
+      return this.runCleanIn(u, cid, "rules");
+    });
   }
 
   /** Put an archive or trash clean-up back in the inbox. Deleting forever can't be undone. */
-  undoClean(cid: string, logId: string): number {
-    const state = this.cleanState(cid);
-    const entry = state.log.find((e) => e.id === logId);
-    if (!entry || entry.undone || entry.kind === "delete") return 0;
-    let restored = 0;
-    for (const id of entry.ids) {
-      const m = this.message(cid, id);
-      if (m && (m.folder === "archive" || m.folder === "trash")) {
-        this.move(cid, id, "inbox");
-        restored++;
+  undoClean(cid: string, logId: string): Promise<number> {
+    return this.unit(async (u) => {
+      const state = await this.cleanIn(u, cid);
+      const entry = state.log.find((e) => e.id === logId);
+      if (!entry || entry.undone || entry.kind === "delete") return 0;
+      const box = await this.box(u, cid);
+      let restored = 0;
+      for (const id of entry.ids) {
+        const m = box.messages.find((x) => x.id === id);
+        if (m && (m.folder === "archive" || m.folder === "trash")) {
+          await this.moveIn(u, cid, id, "inbox");
+          restored++;
+        }
       }
-    }
-    entry.undone = true;
-    return restored;
+      entry.undone = true;
+      return restored;
+    });
   }
 
   /** Send a sender's future mail to Archive, and archive what's already in the inbox from them. */
-  async muteSender(cid: string, email: string): Promise<CleanLogEntry[]> {
-    const address = email.trim().toLowerCase();
-    if (!validEmail(address)) throw new MailError("bad_address", "That isn't an email address.");
-    if (Object.values(SYSTEM_SENDERS).some((s) => s.email === address)) throw new MailError("protected_sender", "Cumulus account mail can't be muted.");
-    const rules = this.cleanState(cid).rules;
-    this.setCleanRules(cid, { muted: [...rules.muted, address] });
-    const ids = this.box(cid).messages.filter((m) => m.folder === "inbox" && m.from.email.toLowerCase() === address).map((m) => m.id);
-    return this.applyClean(cid, [{ kind: "archive", ids, reason: `Muted ${address}` }], "you");
+  muteSender(cid: string, email: string): Promise<CleanLogEntry[]> {
+    return this.unit(async (u) => {
+      const address = email.trim().toLowerCase();
+      if (!validEmail(address)) throw new MailError("bad_address", "That isn't an email address.");
+      if (Object.values(SYSTEM_SENDERS).some((s) => s.email === address)) throw new MailError("protected_sender", "Cumulus account mail can't be muted.");
+      const rules = (await this.cleanIn(u, cid)).rules;
+      await this.setRulesIn(u, cid, { muted: [...rules.muted, address] });
+      const ids = (await this.read(u, cid)).messages.filter((m) => m.folder === "inbox" && m.from.email.toLowerCase() === address).map((m) => m.id);
+      return this.applyCleanIn(u, cid, [{ kind: "archive", ids, reason: `Muted ${address}` }], "you");
+    });
   }
 
-  unmuteSender(cid: string, email: string) {
-    const address = email.trim().toLowerCase();
-    this.setCleanRules(cid, { muted: this.cleanState(cid).rules.muted.filter((m) => m !== address) });
+  unmuteSender(cid: string, email: string): Promise<void> {
+    return this.unit(async (u) => {
+      const address = email.trim().toLowerCase();
+      const rules = (await this.cleanIn(u, cid)).rules;
+      await this.setRulesIn(u, cid, { muted: rules.muted.filter((m) => m !== address) });
+    });
   }
 
-  message(cid: string, id: string): MailMessage | undefined {
-    return this.box(cid).messages.find((m) => m.id === id);
+  async message(cid: string, id: string): Promise<MailMessage | undefined> {
+    return (await this.unit((u) => this.read(u, cid))).messages.find((m) => m.id === id);
   }
+}
+
+function unreadThreads(box: StoredMailbox) {
+  return new Set(box.messages.filter((m) => m.unread && m.folder === "inbox").map((m) => m.threadId)).size;
+}
+
+/** The mailbox's Clean state with defaults filled in, without changing the mailbox. */
+function cleanStateOf(box: StoredMailbox): CleanState {
+  const clean = box.clean ?? { rules: { ...DEFAULT_CLEAN_RULES, muted: [] }, log: [] };
+  return { ...clean, rules: normalizeRules(clean.rules) };
 }
 
 export function isReservedMailName(username: string) {

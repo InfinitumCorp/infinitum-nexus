@@ -42,9 +42,9 @@ describe("Authentication-Results", () => {
 });
 
 describe("PostOffice.receive with sender authentication", () => {
-  const office = () => {
+  const office = async () => {
     const po = new PostOffice({ store: new PostOfficeStore() });
-    po.provision({ cid: "cid_a", address: "alex@cumuluscloud.app", name: "alex" });
+    await po.provision({ cid: "cid_a", address: "alex@cumuluscloud.app", name: "alex" });
     return po;
   };
   const mail = (auth?: ReturnType<typeof inboundAuth>) => ({
@@ -52,15 +52,15 @@ describe("PostOffice.receive with sender authentication", () => {
   });
 
   it("refuses a message the edge marked dmarc=fail and stores nothing", async () => {
-    const po = office();
+    const po = await office();
     await assert.rejects(po.receive(mail(inboundAuth([AR(CF_FAIL)]))), (e: MailError) => e.code === "dmarc_fail");
-    assert.equal(po.view("cid_a").messages.filter((m) => m.subject === "Verify your account").length, 0);
+    assert.equal((await po.view("cid_a")).messages.filter((m) => m.subject === "Verify your account").length, 0);
   });
 
   it("delivers authenticated and unchecked mail, keeping the verdict on the message", async () => {
-    const po = office();
+    const po = await office();
     assert.deepEqual((await po.receive(mail(inboundAuth([AR(CF_PASS)])))).delivered, ["alex@cumuluscloud.app"]);
-    const got = po.view("cid_a").messages.find((m) => m.subject === "Verify your account")!;
+    const got = (await po.view("cid_a")).messages.find((m) => m.subject === "Verify your account")!;
     assert.equal(got.auth?.verified, true);
     assert.equal(got.auth?.dmarc, "pass");
     assert.deepEqual((await po.receive(mail())).delivered, ["alex@cumuluscloud.app"]);

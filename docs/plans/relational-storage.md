@@ -22,7 +22,8 @@ local socket with peer authentication.
 | FIRM Wallet repository, Postgres wallet (no double spend under concurrency) | #198, #199 |
 | Storage quota repository | #204 |
 | Storage quota on Postgres (no overspend under concurrency) | #207 |
-| Mail step 1: MailRepository (mailbox as the unit, async PostOffice, one read and one write per mailbox per call) | This PR |
+| Mail step 1: MailRepository (mailbox as the unit, async PostOffice, one read and one write per mailbox per call) | #211 |
+| Mail on Postgres: PgMailRepository (mailbox rows sealed at rest, row locks so concurrent deliveries are kept, SKIP LOCKED outbound claims) | This PR |
 | Mail step 2 (per-message rows, sealing at write time), Tunnel | Not started; design below |
 
 US Supabase project: the `cumulus_id` tables and `refresh_from_document()` exist (created 2026-11-12;

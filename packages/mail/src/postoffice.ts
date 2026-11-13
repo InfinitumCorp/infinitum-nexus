@@ -565,13 +565,11 @@ export class PostOffice {
     return this.unit(async (u) => {
       const now = this.clock().getTime();
       const claimed: OutboundSend[] = [];
-      for (const open of await this.repository.openOutbound()) {
+      const due = await this.repository.dueOutbound(new Date(now).toISOString(), new Date(now - OUTBOUND_CLAIM_TIMEOUT_MS).toISOString(), limit);
+      for (const found of due) {
         if (claimed.length >= limit) break;
-        const stale = open.status === "sending" && Date.parse(open.claimedAt ?? "") < now - OUTBOUND_CLAIM_TIMEOUT_MS;
-        if (!stale && open.status !== "queued") continue;
-        if (!stale && open.nextAttemptAt && Date.parse(open.nextAttemptAt) > now) continue;
-        const job = (await this.job(u, open.id))!;
-        if (stale) {
+        const job = (await this.job(u, found.id))!;
+        if (job.status === "sending") {
           await this.unconfirmedOutbound(u, job);
           continue;
         }

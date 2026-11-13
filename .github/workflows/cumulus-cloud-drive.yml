@@ -55,3 +55,5 @@ jobs:
       - run: pnpm --filter @infinitum/spectre exec node --test --experimental-strip-types src/server/cid-store.test.ts src/server/cid-rows.test.ts src/server/local-cid.test.ts
       # Mail end to end on Cumulus://ID rows (CUMULUS_STORE=gateway), before Mail switches.
       - run: pnpm --filter @infinitum/cumulus-mail exec node --test --experimental-strip-types src/cid-gateway.http.test.ts
+      # Mail on PgMailRepository: rows, sealing at rest, two deliveries to one mailbox, two senders.
+      - run: pnpm --filter @infinitum/mail exec node --test --experimental-strip-types src/postgres.test.ts

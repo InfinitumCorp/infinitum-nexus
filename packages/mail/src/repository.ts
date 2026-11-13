@@ -23,6 +23,12 @@ export interface MailRepository {
   putOutbound(job: OutboundMail): Promise<void>;
   /** Jobs still to be handled ("queued" or "sending"), oldest first. */
   openOutbound(): Promise<OutboundMail[]>;
+  /**
+   * Up to `limit` jobs a sender should act on now, oldest first: queued ones whose retry time has come
+   * (`now`), and ones left in "sending" since before `staleBefore`. A database locks exactly these, so
+   * two senders running at once take different jobs.
+   */
+  dueOutbound(now: string, staleBefore: string, limit: number): Promise<OutboundMail[]>;
 }
 
 export class MapMailRepository implements MailRepository {
@@ -58,6 +64,15 @@ export class MapMailRepository implements MailRepository {
   async openOutbound() {
     return [...this.store.outbound.values()].filter((j) => j.status === "queued" || j.status === "sending");
   }
+  async dueOutbound(now: string, staleBefore: string, limit: number) {
+    return [...this.store.outbound.values()].filter((j) => isDue(j, now, staleBefore)).slice(0, limit);
+  }
+}
+
+/** Whether a sender should act on this job now (see MailRepository.dueOutbound). */
+export function isDue(job: OutboundMail, now: string, staleBefore: string): boolean {
+  if (job.status === "sending") return Date.parse(job.claimedAt ?? "") < Date.parse(staleBefore);
+  return job.status === "queued" && (!job.nextAttemptAt || Date.parse(job.nextAttemptAt) <= Date.parse(now));
 }
 
 /** Test double that copies values in and out, as a database does, so nothing relies on shared objects. */
@@ -77,4 +92,5 @@ export class CopyingMailRepository implements MailRepository {
   async outbound(id: string) { return structuredClone(await this.#inner.outbound(id)); }
   async putOutbound(job: OutboundMail) { return this.#inner.putOutbound(structuredClone(job)); }
   async openOutbound() { return structuredClone(await this.#inner.openOutbound()); }
+  async dueOutbound(now: string, staleBefore: string, limit: number) { return structuredClone(await this.#inner.dueOutbound(now, staleBefore, limit)); }
 }

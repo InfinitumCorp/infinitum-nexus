@@ -71,7 +71,7 @@ export { classify, isProtected, planSweep, normalizeRules, inboxMix, bulkSenders
 export type { MailKind, CleanRules, CleanAction, CleanLogEntry, CleanState } from "./clean.ts";
 export { CumulusTunnel, TunnelStore, TunnelError, parseMasterKey, generateMasterKey, TUNNEL_VERSION } from "./tunnel.ts";
 export type { SealedEnvelope, StoredTunnelKeys, OpenedEnvelope } from "./tunnel.ts";
-export { sealMailStore, openMailStore } from "./at-rest.ts";
+export { sealMailStore, openMailStore, sealMailbox, openMailbox } from "./at-rest.ts";
 export { THREAD_ACTIONS } from "./postoffice.ts";
 export type { ThreadAction, ThreadSnapshot } from "./postoffice.ts";
 
@@ -80,3 +80,5 @@ export type { AuthResult, InboundAuth, ParsedAuthResults } from "./auth-results.
 export { createCumulusMailLabyrinth } from "./labyrinth.ts";
 export { MapMailRepository, CopyingMailRepository } from "./repository.ts";
 export type { MailRepository } from "./repository.ts";
+export { PgMailRepository, migrateMail, mailSchemaSql } from "./postgres.ts";
+export type { MailQueryable } from "./postgres.ts";

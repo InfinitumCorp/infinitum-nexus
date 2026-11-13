@@ -84,9 +84,6 @@ export class PgMailRepository implements MailRepository {
    */
   readonly #seen = new WeakMap<object, Map<string, { ord: number; json: string }>>();
 
-  /** Accounts whose tunnel keys are known to be the stored ones. */
-  readonly #keysStored = new Set<string>();
-
   constructor(options: { db: MailQueryable; schema?: string; tunnel?: CumulusTunnel }) {
     const schema = options.schema ?? "public";
     if (!IDENT.test(schema)) throw new Error(`Bad schema name: ${schema}`);
@@ -99,11 +96,12 @@ export class PgMailRepository implements MailRepository {
    * Make the tunnel hold the account's stored keys before anything is sealed or opened for it: adopt
    * them if they're stored, store this server's if it made them first. Keys are wrapped with the master
    * key, so they're safe at rest. If two servers make keys for one account at once, the first stored
-   * wins and the other adopts it.
+   * wins and the other adopts it. Not cached: a row this transaction wrote (and may still roll back)
+   * reads like a committed one, so "stored" is checked every time.
    */
   async #syncKeys(cid: string): Promise<void> {
     const tunnel = this.#tunnel;
-    if (!tunnel || this.#keysStored.has(cid)) return;
+    if (!tunnel) return;
     const read = async () => (await this.#db.query(`SELECT data FROM ${this.#s}.mail_tunnel_keys WHERE cid = $1`, [cid])).rows[0]?.data as StoredTunnelKeys | undefined;
     let stored = await read();
     if (!stored && tunnel.has(cid)) {
@@ -112,13 +110,11 @@ export class PgMailRepository implements MailRepository {
         `INSERT INTO ${this.#s}.mail_tunnel_keys (cid, data) VALUES ($1, $2) ON CONFLICT (cid) DO NOTHING RETURNING cid`,
         [cid, JSON.stringify(mine)],
       );
-      if (!rows.length) stored = await read();
-      // Keys written here are checked again next time: the transaction they went in may roll back.
-      else return;
+      if (rows.length) return;
+      stored = await read();
     }
     if (!stored) return; // nobody has keys yet; they're stored with the account's first write
     tunnel.adopt(stored);
-    this.#keysStored.add(cid);
   }
 
   async mailbox(cid: string): Promise<StoredMailbox | undefined> {
@@ -203,6 +199,19 @@ export class PgMailRepository implements MailRepository {
       [cid],
     );
     return legacy.rows[0].n;
+  }
+
+  /** Scheduled drafts due by `now`, from the message rows (and mailboxes still in the old layout), without locks. */
+  async dueDraftCids(now: string): Promise<string[]> {
+    const { rows } = await this.#db.query(
+      `SELECT DISTINCT cid FROM ${this.#s}.mail_messages
+        WHERE folder = 'drafts' AND data->>'sendAt' IS NOT NULL AND (data->>'sendAt')::timestamptz <= $1::timestamptz
+       UNION
+       SELECT DISTINCT b.cid FROM ${this.#s}.mail_mailboxes b, jsonb_array_elements(coalesce(b.data->'messages', '[]')) m
+        WHERE m->>'folder' = 'drafts' AND m->>'sendAt' IS NOT NULL AND (m->>'sendAt')::timestamptz <= $1::timestamptz`,
+      [now],
+    );
+    return rows.map((r) => r.cid as string);
   }
 
   async mailboxCids(): Promise<string[]> {

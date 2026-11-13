@@ -718,6 +718,10 @@ ${reason}`,
   async sendAllDue(): Promise<number> {
     let sent = 0;
     const now = this.clock().getTime();
+    if (this.repository.dueDraftCids) {
+      for (const cid of await this.repository.dueDraftCids(new Date(now).toISOString())) sent += await this.sendDue(cid);
+      return sent;
+    }
     for (const cid of await this.repository.mailboxCids()) {
       const box = await this.repository.mailbox(cid);
       if (!box?.messages.some((m) => m.folder === "drafts" && m.sendAt && Date.parse(m.sendAt) <= now)) continue;

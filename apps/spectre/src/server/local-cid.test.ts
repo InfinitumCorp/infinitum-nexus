@@ -86,9 +86,23 @@ describe("localCidStorage", () => {
     await today.mail.send(vera.cid, { to: "vera@cumuluscloud.app", subject: "Hello", body: "sealed on disk" });
     saveCumulusStores(dir, today.stores, { tunnel: today.tunnel });
 
-    // The next start with CUMULUS_ROWS.
-    const stores = loadCumulusStores(dir, emptyCumulusStores());
+    // The next start with CUMULUS_ROWS. First, a copy that can't match (Vera's address already belongs
+    // to someone else in the table): nothing is copied, so the start after that copies again.
     const env = { CUMULUS_STORE: "postgres", CID_DATABASE_URL: url, CID_DATABASE_SCHEMA: schema, CUMULUS_ROWS: "mail,wallet,quota" };
+    const { migrateCid } = await import("@infinitum/cid");
+    const { migrateProductRows } = await import("@infinitum/cumulus");
+    await migrateCid(admin, schema);
+    await migrateProductRows(admin, ["mail", "wallet", "quota"], schema);
+    await admin.query(`INSERT INTO "${schema}".mail_addresses (address, cid) VALUES ('vera@cumuluscloud.app', 'cid_someone_else')`);
+    const blocked = loadCumulusStores(dir, emptyCumulusStores());
+    await assert.rejects(localCidStorage(blocked.cid, env, () => {}, { stores: blocked, masterKey }), /copy differs .*nothing copied/);
+    for (const t of ["mail_mailboxes", "mail_messages", "wallet_accounts", "quota_usage"]) {
+      assert.equal((await admin.query(`SELECT count(*)::int AS n FROM "${schema}".${t}`)).rows[0].n, 0, `${t} left empty`);
+    }
+    await admin.query(`DELETE FROM "${schema}".mail_addresses WHERE cid = 'cid_someone_else'`);
+    await admin.query(`TRUNCATE "${schema}".cid_accounts, "${schema}".cid_sessions, "${schema}".cid_authenticators`);
+
+    const stores = loadCumulusStores(dir, emptyCumulusStores());
     const lines: string[] = [];
     const storage = await localCidStorage(stores.cid, env, (l) => lines.push(l), { stores, masterKey });
     assert.match(lines.join("\n"), /copied mail, wallet, quota into Postgres .*every row verified/);

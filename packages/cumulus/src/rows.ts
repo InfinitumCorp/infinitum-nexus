@@ -59,20 +59,26 @@ export interface RowsSource {
  * Copy the stores into the products' tables at `db` and verify. With a persistent tunnel, mail is
  * sealed as it's written and the tunnel keys are stored too. The stores must hold opened mail.
  */
-export async function backfillProductRows(source: RowsSource, db: RowsQueryable, opts: { schema?: string; tunnel?: CumulusTunnel; onProgress?: (line: string) => void } = {}): Promise<RowsBackfillReport> {
+export async function backfillProductRows(
+  source: RowsSource,
+  db: RowsQueryable,
+  /** migrate: false when the tables already exist and `db` is inside a transaction (the migrations commit). */
+  opts: { schema?: string; tunnel?: CumulusTunnel; onProgress?: (line: string) => void; migrate?: boolean } = {},
+): Promise<RowsBackfillReport> {
+  const migrate = opts.migrate ?? true;
   const schema = opts.schema ?? "public";
   const counts: Record<string, number> = {};
   const mismatches: string[] = [];
   const say = opts.onProgress ?? (() => {});
 
   if (source.mail) {
-    await migrateMail(db, schema);
+    if (migrate) await migrateMail(db, schema);
     const repo = new PgMailRepository({ db, schema, tunnel: opts.tunnel?.persistent ? opts.tunnel : undefined });
     for (const [address, cid] of source.mail.addresses) {
       if (!(await repo.claimAddress(address, cid))) mismatches.push(`address ${address} already belongs to another account in the table`);
     }
     for (const box of source.mail.mailboxes.values()) {
-      await repo.mailbox(box.cid); // so the write is compared against what is already there
+      // Not read through this repository, so the write replaces all of the account's message rows.
       await repo.putMailbox(box);
     }
     for (const job of source.mail.outbound.values()) await repo.putOutbound(job);
@@ -91,7 +97,7 @@ export async function backfillProductRows(source: RowsSource, db: RowsQueryable,
   }
 
   if (source.wallet) {
-    await migrateWallet(db, schema);
+    if (migrate) await migrateWallet(db, schema);
     const repo = new PgWalletRepository({ db, schema });
     for (const account of source.wallet.accounts.values()) await repo.putAccount(account);
     for (const t of source.wallet.transfers.values()) await repo.putTransfer(t);
@@ -108,7 +114,7 @@ export async function backfillProductRows(source: RowsSource, db: RowsQueryable,
   }
 
   if (source.quota) {
-    await migrateQuota(db, schema);
+    if (migrate) await migrateQuota(db, schema);
     const repo = new PgQuotaRepository({ db, schema });
     const from = new MapQuotaRepository(source.quota);
     const cids = new Set([...source.quota.usage.keys(), ...source.quota.extraGb.keys()]);

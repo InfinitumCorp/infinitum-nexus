@@ -59,3 +59,5 @@ jobs:
       - run: pnpm --filter @infinitum/mail exec node --test --experimental-strip-types src/postgres.test.ts
       # CUMULUS_ROWS: Mail, Wallet and Quota copied from their documents into rows (rows-cli), then used.
       - run: pnpm --filter @infinitum/cumulus exec node --test --experimental-strip-types src/rows.test.ts
+      # The Mail app end to end with CUMULUS_STORE=postgres and CUMULUS_ROWS=mail,wallet,quota.
+      - run: pnpm --filter @infinitum/cumulus-mail exec node --test --experimental-strip-types src/rows.http.test.ts

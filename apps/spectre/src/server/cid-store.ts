@@ -53,6 +53,22 @@ export interface CidStorage {
 /** The RemoteState document each row product replaces. */
 export const PRODUCT_DOCUMENTS: Record<RowProduct, string> = { mail: "cumulus-mail", wallet: "firm-wallet", quota: "cumulus-quota" };
 
+/**
+ * The suite's documents a host keeps in RemoteState: `cid` unless ID is in rows, and Mail, Wallet and
+ * Quota unless CUMULUS_ROWS keeps them as rows.
+ */
+export function suiteDocuments(storage: CidStorage, stores: { cid: object; mail: object; wallet: object; quota: object; suite: object }): Record<string, object> {
+  const docs: Record<string, object> = {
+    ...(storage.inDocuments ? { cid: stores.cid } : {}),
+    [PRODUCT_DOCUMENTS.mail]: stores.mail,
+    [PRODUCT_DOCUMENTS.wallet]: stores.wallet,
+    [PRODUCT_DOCUMENTS.quota]: stores.quota,
+    "cumulus-suite": stores.suite,
+  };
+  for (const product of storage.products) delete docs[PRODUCT_DOCUMENTS[product]];
+  return docs;
+}
+
 export function cidStorageFromEnv(env: Record<string, string | undefined> = process.env, gateway?: NexusGateway): CidStorage {
   const mode = (env.CUMULUS_STORE ?? "document").trim().toLowerCase();
   const products = parseRowProducts(env.CUMULUS_ROWS);
@@ -89,7 +105,12 @@ export function cidStorageFromEnv(env: Record<string, string | undefined> = proc
 function lazyPool(connectionString: string): Queryable & { connect(): Promise<PgPoolClient> } {
   let pool: Promise<Queryable & { connect(): Promise<PgPoolClient> }> | undefined;
   const get = () =>
-    (pool ??= import("pg").then(({ default: pg }) => new pg.Pool({ connectionString, max: 5 }) as unknown as Queryable & { connect(): Promise<PgPoolClient> }));
+    (pool ??= import("pg").then(({ default: pg }) => {
+      const p = new pg.Pool({ connectionString, max: 5 });
+      // An idle connection the server closes (restart, failover) is dropped from the pool, not a crash.
+      p.on("error", (err: Error) => console.error(`cumulus: idle database connection closed: ${err.message}`));
+      return p as unknown as Queryable & { connect(): Promise<PgPoolClient> };
+    }));
   return {
     query: async (text, params) => (await get()).query(text, params),
     connect: async () => (await get()).connect(),

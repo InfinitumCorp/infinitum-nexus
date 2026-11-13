@@ -3,7 +3,7 @@ import { Ledger, signerFromPrivateKey } from "@infinitum/firmament";
 import { cidSecretKeyForHost, socialFromEnv, upstreamIssuerFromEnv } from "@infinitum/cid";
 import { createCumulus, emptyCumulusStores } from "@infinitum/cumulus";
 import { RemoteState, HttpGateway } from "../../spectre/src/server/remote.ts";
-import { PRODUCT_DOCUMENTS, cidStorageFromEnv } from "../../spectre/src/server/cid-store.ts";
+import { cidStorageFromEnv, suiteDocuments } from "../../spectre/src/server/cid-store.ts";
 import type { InboundMail } from "@infinitum/mail";
 import { createMailApp } from "./app.ts";
 import { deliverOutbound, type Sender } from "./outbound.ts";
@@ -75,12 +75,8 @@ function build() {
   const gateway = new HttpGateway(required("NEXUS_STORE_URL"), required("NEXUS_STORE_KEY"));
   const cidStorage = cidStorageFromEnv(process.env, gateway);
   // CUMULUS_ROWS=mail,wallet,quota keeps those as rows too, so their documents aren't loaded or saved.
-  const productDocs: Record<string, object> = { [PRODUCT_DOCUMENTS.mail]: stores.mail, [PRODUCT_DOCUMENTS.wallet]: stores.wallet, [PRODUCT_DOCUMENTS.quota]: stores.quota };
-  for (const product of cidStorage.products) delete productDocs[PRODUCT_DOCUMENTS[product]];
   const state = new RemoteState(gateway, {
-    ...(cidStorage.inDocuments ? { cid: stores.cid } : {}),
-    ...productDocs,
-    "cumulus-suite": stores.suite,
+    ...suiteDocuments(cidStorage, stores),
     "cumulus-workspace": workspaceStore,
     "cumulus-billing": billingStore,
   });

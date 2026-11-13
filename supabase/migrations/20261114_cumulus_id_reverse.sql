@@ -49,3 +49,43 @@ end $$;
 
 revoke execute on function cumulus_id.document_from_rows() from public;
 revoke execute on function cumulus_id.restore_document() from public;
+
+-- Before a switch (or any time after): how far the rows are from the `cid` document.
+-- Returns {"same": true, ...counts} when every account, passkey, session and grant matches, else the
+-- keys that differ (at most 20 per kind). Read-only.
+create or replace function cumulus_id.compare_with_document() returns jsonb
+language plpgsql stable set search_path = '' as $$
+declare
+  d jsonb;
+  diff jsonb := '{}'::jsonb;
+  k text;
+  docs jsonb;
+  rows jsonb;
+  missing jsonb;
+  extra jsonb;
+  changed jsonb;
+begin
+  select data into d from public.nexus_docs where id = 'cid';
+  if d is null then raise exception 'nexus_docs has no cid row'; end if;
+  for k in select unnest(array['accounts', 'authenticators', 'sessions', 'grants']) loop
+    docs := coalesce((select jsonb_object_agg(e->>0, e->1) from jsonb_array_elements(coalesce(d->k->'__map', '[]')) e), '{}');
+    rows := case k
+      when 'accounts' then coalesce((select jsonb_object_agg(cid, data) from cumulus_id.cid_accounts), '{}')
+      when 'authenticators' then coalesce((select jsonb_object_agg(id, data) from cumulus_id.cid_authenticators), '{}')
+      when 'sessions' then coalesce((select jsonb_object_agg(id, data) from cumulus_id.cid_sessions), '{}')
+      else coalesce((select jsonb_object_agg(cid || '|' || app, data) from cumulus_id.cid_grants), '{}')
+    end;
+    missing := coalesce((select jsonb_agg(key) from (select key from jsonb_object_keys(docs) key where not rows ? key limit 20) t), '[]');
+    extra := coalesce((select jsonb_agg(key) from (select key from jsonb_object_keys(rows) key where not docs ? key limit 20) t), '[]');
+    changed := coalesce((select jsonb_agg(key) from (select key from jsonb_object_keys(docs) key where rows ? key and rows->key <> docs->key limit 20) t), '[]');
+    if jsonb_array_length(missing) + jsonb_array_length(extra) + jsonb_array_length(changed) > 0 then
+      diff := diff || jsonb_build_object(k, jsonb_build_object('onlyInDocument', missing, 'onlyInRows', extra, 'changed', changed));
+    end if;
+  end loop;
+  return jsonb_build_object(
+    'same', diff = '{}'::jsonb,
+    'document', jsonb_build_object('accounts', jsonb_array_length(coalesce(d->'accounts'->'__map', '[]')), 'sessions', jsonb_array_length(coalesce(d->'sessions'->'__map', '[]'))),
+    'rows', jsonb_build_object('accounts', (select count(*) from cumulus_id.cid_accounts), 'sessions', (select count(*) from cumulus_id.cid_sessions))
+  ) || case when diff = '{}'::jsonb then '{}'::jsonb else jsonb_build_object('differences', diff) end;
+end $$;
+revoke execute on function cumulus_id.compare_with_document() from public;

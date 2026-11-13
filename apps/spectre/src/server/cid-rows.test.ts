@@ -198,6 +198,18 @@ describe("Cumulus://ID rows through the nexus-store SQL", { skip: url ? false : 
     assert.deepEqual(restored, { version: before + 1, accounts: 2, authenticators: 1, sessions: 2, grants: 1 });
     const doc = (await pool.query("SELECT data FROM public.nexus_docs WHERE id = 'cid'")).rows[0].data;
     assert.deepEqual(maps(doc), maps(snapshot), "the document a rollback restores is the one that was copied");
+
+    // The pre-switch check: same after a copy; after the document moves on, it names what differs.
+    assert.equal((await pool.query("SELECT cumulus_id.compare_with_document() AS c")).rows[0].c.same, true);
+    const moved = structuredClone(doc);
+    moved.sessions.__map = moved.sessions.__map.slice(1);
+    moved.accounts.__map[0][1].handle = "@changed.veil";
+    await pool.query("UPDATE public.nexus_docs SET data = $1 WHERE id = 'cid'", [JSON.stringify(moved)]);
+    const c = (await pool.query("SELECT cumulus_id.compare_with_document() AS c")).rows[0].c;
+    assert.equal(c.same, false);
+    assert.deepEqual(c.differences.accounts.changed, [moved.accounts.__map[0][0]]);
+    assert.equal(c.differences.sessions.onlyInRows.length, 1);
+    assert.equal(c.differences.grants, undefined, "kinds that match aren't listed");
   });
 
   it("only answers whitelisted lookups", async () => {

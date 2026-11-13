@@ -132,6 +132,8 @@ Postgres connection string at all:
   `cid` document's contents in one transaction, leaving the document untouched).
 - `nexus-store` gains `op: "cid.read"` and accepts `cid` writes on `commit`; callers that don't send
   them get exactly the old behavior.
+- Check at any time: `select cumulus_id.compare_with_document()` says whether the rows match the
+  document, and lists the keys that differ.
 - Cutover: deploy the edge function, run `select cumulus_id.refresh_from_document()` and set
   `CUMULUS_STORE=gateway` on the product in the same deploy. Rollback: `select
   cumulus_id.restore_document()` (rebuilds the `cid` document from the rows, accounts created since the

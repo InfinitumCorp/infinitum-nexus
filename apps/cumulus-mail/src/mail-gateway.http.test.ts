@@ -50,7 +50,8 @@ describe("Mail rows through the gateway (CUMULUS_ROWS=mail,wallet,quota)", { ski
         return r.rows[0].v as Record<string, number>;
       } catch (err) {
         if (String((err as Error).message).includes("nexus_conflict")) throw new ConflictError();
-        throw err;
+        // The edge function answers any other database error with a plain 500 (no SQLSTATE).
+        throw new Error(`commit failed: ${(err as Error).message}`);
       }
     },
     async readRows(ops) {
@@ -85,7 +86,7 @@ describe("Mail rows through the gateway (CUMULUS_ROWS=mail,wallet,quota)", { ski
     u.pathname = `/${dbName}`;
     pool = new pg.Pool({ connectionString: u.toString(), max: 8 });
     pool.on("error", () => {});
-    for (const f of ["20261104_nexus_store.sql", "20261113_cumulus_id_rows.sql", "20261115_cumulus_rows_wallet_quota.sql", "20261116_cumulus_rows_mail.sql", "20261117_cumulus_rows_mail_counts.sql"]) {
+    for (const f of ["20261104_nexus_store.sql", "20261113_cumulus_id_rows.sql", "20261115_cumulus_rows_wallet_quota.sql", "20261116_cumulus_rows_mail.sql", "20261117_cumulus_rows_mail_counts.sql", ...(process.env.SKIP_LOCK_ORDER ? [] : ["20261118_cumulus_rows_lock_order.sql"])]) {
       await pool.query(readFileSync(join(root, "supabase/migrations", f), "utf8"));
     }
     const probe = createServer();
@@ -207,6 +208,35 @@ describe("Mail rows through the gateway (CUMULUS_ROWS=mail,wallet,quota)", { ski
     assert.equal(unread, view.unread);
     assert.ok(unread >= 1);
     assert.equal(await h.state.transaction(() => h.suite.mail.has("cid_nobody")), false);
+  });
+
+  it("two people mailing each other at the same moment: both messages go through (no deadlock)", async () => {
+    const one = host(base);
+    const two = host(base);
+    const [ana, ben] = await one.state.transaction(async () => [
+      await one.suite.cid.createAccount({ username: "anabel" }),
+      await one.suite.cid.createAccount({ username: "benedikt" }),
+    ]);
+    for (let round = 0; round < 3; round++) {
+      // Both read both mailboxes before either commits, so their writes really overlap.
+      let arrived = 0;
+      let release!: () => void;
+      const bothRead = new Promise<void>((r) => (release = r));
+      onRead = async (ops) => {
+        if (!(ops as { op: string; cid?: string }[]).some((o) => o.op === "mailbox" && !("only" in o) && (o.cid === ana.cid || o.cid === ben.cid))) return;
+        if (++arrived === 4) release();
+        if (arrived <= 4) await Promise.race([bothRead, new Promise((r) => setTimeout(r, 2000))]);
+      };
+      const results = await Promise.allSettled([
+        one.state.transaction(() => one.suite.mail.send(ana.cid, { to: "benedikt@cumuluscloud.app", subject: `Round ${round} from Ana`, body: "x" })),
+        two.state.transaction(() => two.suite.mail.send(ben.cid, { to: "anabel@cumuluscloud.app", subject: `Round ${round} from Ben`, body: "x" })),
+      ]);
+      onRead = async () => {};
+      assert.deepEqual(results.map((r) => r.status), ["fulfilled", "fulfilled"], JSON.stringify(results.map((r) => r.status === "rejected" ? String(r.reason) : "ok")));
+    }
+    const inbox = async (cid: string) => (await one.state.transaction(() => one.suite.mail.view(cid))).messages.filter((m) => m.folder === "inbox" && m.subject.startsWith("Round")).length;
+    assert.equal(await inbox(ana.cid), 3);
+    assert.equal(await inbox(ben.cid), 3);
   });
 
   it("copies an existing cumulus-mail document into the rows with nothing lost", async () => {

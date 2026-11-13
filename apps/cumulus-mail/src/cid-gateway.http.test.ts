@@ -42,7 +42,7 @@ describe("Mail on Cumulus://ID rows (CUMULUS_STORE=gateway)", { skip: url ? fals
     u.pathname = `/${dbName}`;
     pool = new pg.Pool({ connectionString: u.toString(), max: 6 });
     pool.on("error", () => {}); // the drop at the end terminates idle connections
-    for (const f of ["20261104_nexus_store.sql", "20261113_cumulus_id_rows.sql"]) {
+    for (const f of ["20261104_nexus_store.sql", "20261113_cumulus_id_rows.sql", "20261115_cumulus_rows_wallet_quota.sql"]) {
       await pool.query(readFileSync(join(root, "supabase/migrations", f), "utf8"));
     }
 

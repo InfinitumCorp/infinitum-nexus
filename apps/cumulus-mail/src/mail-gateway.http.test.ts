@@ -85,7 +85,7 @@ describe("Mail rows through the gateway (CUMULUS_ROWS=mail,wallet,quota)", { ski
     u.pathname = `/${dbName}`;
     pool = new pg.Pool({ connectionString: u.toString(), max: 8 });
     pool.on("error", () => {});
-    for (const f of ["20261104_nexus_store.sql", "20261113_cumulus_id_rows.sql", "20261115_cumulus_rows_wallet_quota.sql", "20261116_cumulus_rows_mail.sql"]) {
+    for (const f of ["20261104_nexus_store.sql", "20261113_cumulus_id_rows.sql", "20261115_cumulus_rows_wallet_quota.sql", "20261116_cumulus_rows_mail.sql", "20261117_cumulus_rows_mail_counts.sql"]) {
       await pool.query(readFileSync(join(root, "supabase/migrations", f), "utf8"));
     }
     const probe = createServer();
@@ -188,6 +188,25 @@ describe("Mail rows through the gateway (CUMULUS_ROWS=mail,wallet,quota)", { ski
     assert.ok(arrived >= 3, "both read the same mailbox, and the loser read it again on its re-run");
     const contacts = (await one.state.transaction(() => one.suite.mail.view(pat.cid))).contacts.map((c) => c.name).sort();
     assert.deepEqual(contacts, ["Ada", "Grace"]);
+  });
+
+  it("the account menu's unread count and mailbox check don't fetch the mailbox", async () => {
+    const h = host(base);
+    const [nia, oz] = await h.state.transaction(async () => [
+      await h.suite.cid.createAccount({ username: "nia" }),
+      await h.suite.cid.createAccount({ username: "ozzie" }),
+    ]);
+    await h.state.transaction(() => h.suite.mail.send(oz.cid, { to: "nia@cumuluscloud.app", subject: "Hi Nia", body: "x" }));
+    const seen: unknown[] = [];
+    onRead = async (ops) => { seen.push(...ops); };
+    const [has, unread] = await h.state.transaction(async () => [await h.suite.mail.has(nia.cid), await h.suite.mail.unreadCount(nia.cid)]);
+    onRead = async () => {};
+    assert.equal(has, true);
+    assert.ok(!seen.some((o: any) => o.op === "mailbox" && !o.only), `the whole mailbox was fetched: ${JSON.stringify(seen)}`);
+    const view = await h.state.transaction(() => h.suite.mail.view(nia.cid));
+    assert.equal(unread, view.unread);
+    assert.ok(unread >= 1);
+    assert.equal(await h.state.transaction(() => h.suite.mail.has("cid_nobody")), false);
   });
 
   it("copies an existing cumulus-mail document into the rows with nothing lost", async () => {

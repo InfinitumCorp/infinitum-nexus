@@ -20,7 +20,7 @@ export type RowsReadOp =
   | { op: "walletByAddress"; address: string }
   | { op: "transfersOf"; cid: string; limit: number }
   | { op: "quotaUsage"; cid: string }
-  | { op: "mailbox"; cid: string }
+  | { op: "mailbox"; cid: string; only?: "exists" | "unread" }
   | { op: "mailboxCids" }
   | { op: "mailAddress"; address: string }
   | { op: "mailOutbound"; id: string }
@@ -110,6 +110,20 @@ export class RemoteRows {
       mailbox: (cid) => rows.#mailbox(cid),
       putMailbox: async (box) => {
         rows.#mailWrites.set(box.cid, copy(box));
+      },
+      hasMailbox: async (cid) => {
+        if (rows.#mailWrites.has(cid) || rows.#mailboxes.has(cid)) return Boolean(await rows.#mailbox(cid));
+        const [exists] = (await rows.#read([{ op: "mailbox", cid, only: "exists" }])) as boolean[];
+        return Boolean(exists);
+      },
+      unreadThreads: async (cid) => {
+        // Changed or read this request: count what the request sees. Otherwise ask the database.
+        if (rows.#mailWrites.has(cid) || rows.#mailboxes.has(cid)) {
+          const box = await rows.#mailbox(cid);
+          return box ? new Set(box.messages.filter((m) => m.unread && m.folder === "inbox").map((m) => m.threadId)).size : 0;
+        }
+        const [n] = (await rows.#read([{ op: "mailbox", cid, only: "unread" }])) as number[];
+        return Number(n ?? 0);
       },
       mailboxCids: async () => {
         const [cids] = (await rows.#read([{ op: "mailboxCids" }])) as string[][];

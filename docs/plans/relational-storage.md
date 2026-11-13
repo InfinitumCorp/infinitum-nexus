@@ -58,9 +58,10 @@ What still needs a person (or a connector this session didn't have):
    per-key lock to the live `cumulus_id.apply`) and `20261116_cumulus_rows_mail.sql`; then, with the
    Cloudflare secrets in place, run `cumulus_rows.refresh_from_documents()` and
    `cumulus_rows.refresh_mail_from_document()` right before deploying `CUMULUS_ROWS=mail,wallet,quota`.
-   Apply `20261117_cumulus_rows_mail_counts.sql` and `20261118_cumulus_rows_lock_order.sql` with them
-   (the unread count without fetching the mailbox; one lock order so two people mailing each other at
-   once can't deadlock). Apply all four migrations before deploying code that uses them: older SQL
+   Apply `20261117_cumulus_rows_mail_counts.sql`, `20261118_cumulus_rows_lock_order.sql` and
+   `20261119_cumulus_rows_mail_due.sql` with them (the unread count and due drafts without fetching
+   mailboxes; one lock order so two people mailing each other at once can't deadlock). Apply all five
+   migrations, and redeploy `nexus-store` (#231), before deploying code that uses them: older SQL
    doesn't know the newer lookups.
 5. **id.cumuluscloud.app** keeps its state in a Cloudflare Durable Object, not Supabase; moving it means
    reading that object, which needs Cloudflare access.

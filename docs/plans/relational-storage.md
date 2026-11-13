@@ -24,13 +24,17 @@ local socket with peer authentication.
 | Storage quota repository | #204 |
 | Storage quota on Postgres (no overspend under concurrency) | #207 |
 | Mail step 1: MailRepository (mailbox as the unit, async PostOffice, one read and one write per mailbox per call) | #211 |
-| Mail on Postgres: PgMailRepository (mailbox rows sealed at rest, row locks so concurrent deliveries are kept, SKIP LOCKED outbound claims) | This PR |
+| Mail on Postgres: PgMailRepository (mailbox rows sealed at rest, row locks so concurrent deliveries are kept, SKIP LOCKED outbound claims) | #212 |
 | Mail step 2 on Postgres: one row per message (only changed messages written, each sealed at write time), outbound subject and body sealed to the sender | #213 |
 | Tunnel keys as rows (`mail_tunnel_keys`, wrapped with the master key; servers adopt the first stored keys) | #214 |
 | `CUMULUS_ROWS=mail,wallet,quota` (with `CUMULUS_STORE=postgres`): those products on rows in the same request transaction, their documents no longer loaded; `packages/cumulus/src/rows-cli.ts` copies and verifies the documents first | #220 |
 | `CUMULUS_ROWS=wallet,quota` with `CUMULUS_STORE=gateway` (Supabase through nexus-store, migration `20261115_cumulus_rows_wallet_quota.sql`; no edge function change). Also fixes a race in the row writes: two servers creating the same key at once both passed the "doesn't exist yet" check | #221 |
 | `CUMULUS_ROWS=mail` with `CUMULUS_STORE=gateway` (migration `20261116_cumulus_rows_mail.sql`): mailboxes, messages, addresses and outbound mail through nexus-store; a mailbox version makes concurrent changes re-run; unsealed (hosts with a mail master key use `CUMULUS_STORE=postgres`) | #223 |
-| Single server (`main.ts`, the Russia issuer): each request in its own Postgres transaction, and `CUMULUS_ROWS=mail,wallet,quota` with a verified first-start copy of mail.json (opened with the master key, sealed again in the table), wallet.json and quota.json | This PR |
+| Single server (`main.ts`, the Russia issuer): each request in its own Postgres transaction, and `CUMULUS_ROWS=mail,wallet,quota` with a verified first-start copy of mail.json (opened with the master key, sealed again in the table), wallet.json and quota.json | #225 |
+| Postgres wallet and quota: lock the person, not only the row (a first upload or first wallet can't race) | #222 |
+| Showing a balance, the storage meter, the unread count, or whether there is a mailbox takes no lock and loads no mailbox (Postgres and gateway) | #226, #227, #228 |
+| A request Postgres ended to break a deadlock re-runs (`RemoteState`); gateway writes in one lock order; nexus-store reports deadlocks as conflicts | #229, #230, #231 (edge function needs a redeploy) |
+| Independent reviews of the gateway, direct-Postgres and ID-gateway paths, and their fixes: tunnel keys after a rollback, an all-or-nothing first-start copy, scheduled send without locking every mailbox, documents a host doesn't keep no longer re-sent on every request, nothing saved after a store failure part way through a request, expired sign-ins swept, +SPCTR sign-out through the repository | #232, #233, #234, #235 |
 | Message paging (reads still load a whole mailbox) | Not started |
 
 US Supabase project: the `cumulus_id` tables and `refresh_from_document()` exist (created 2026-11-12;
@@ -52,7 +56,7 @@ What still needs a person (or a connector this session didn't have):
    `select cumulus_id.refresh_from_document()` just before that deploy goes live.
 2. **Cloudflare**: the GitHub organization secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`, so
    the auto-deploy workflows can ship any of this.
-3. **Yandex**: mark InfinitumCorp/cumulus-id-ru#1 ready and merge it (#192's commit is pinned there), then
+3. **Yandex**: mark InfinitumCorp/cumulus-id-ru#1 ready and merge it (it pins a current main commit), then
    run `ssh cumulus-id-russia 'bash -s' < scripts/setup.sh`.
 4. **Supabase, Mail/Wallet/Quota rows**: apply `20261115_cumulus_rows_wallet_quota.sql` (it also adds a
    per-key lock to the live `cumulus_id.apply`) and `20261116_cumulus_rows_mail.sql`; then, with the

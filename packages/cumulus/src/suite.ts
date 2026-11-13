@@ -259,7 +259,7 @@ export class CumulusSuite {
   async summary(cid: string) {
     const account = await this.cid.getAccount(cid);
     if (!this.mail.has(cid) || !this.wallets.get(cid)) this.provision(account);
-    const usage = this.quota.usage(cid);
+    const usage = await this.quota.usage(cid);
     return {
       cid,
       username: account.username,

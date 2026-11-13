@@ -823,6 +823,15 @@ boot();
 
 /* ---------------- Settings: sign-in methods ---------------- */
 
+/** Plans are bought on the Cumulus billing hub (Stripe Checkout). No payment keys live in +SPCTR. */
+const BILLING_HUB = "https://mail.cumuluscloud.app/api/billing";
+const SPECTRE_PLANS = [
+  { id: "spectre_starter", name: "Starter", price: "$49 / seat / month · 14-day trial" },
+  { id: "spectre_growth", name: "Growth", price: "$99 / seat / month" },
+];
+const billingUrl = (action, params = {}) =>
+  `${BILLING_HUB}/${action}?${new URLSearchParams({ ...params, return: `${location.origin}/` })}`;
+
 async function renderSettings() {
   const data = await api("GET", "/api/me/identities");
   const mt = await api("GET", "/api/metatron").catch(() => null);
@@ -870,6 +879,18 @@ async function renderSettings() {
         </div>
         <p class="faint small mt10">Linked accounts sign you in to this same Cumulus://ID<sup class="tm">™</sup>. Your multifactor setting still applies.</p>
       </div>
+      <div class="section" id="plans">
+        <h2>Plan and billing</h2>
+        <div class="list">
+          ${SPECTRE_PLANS.map((p) => `<div class="item"><div class="main"><div class="title">+SPCTR<sup class="tm">™</sup> ${esc(p.name)}</div><div class="sub">${esc(p.price)}</div></div>
+            <a class="btn small" data-plan="${esc(p.id)}" href="${esc(billingUrl("subscribe", { plan: p.id, seats: 1 }))}">Subscribe</a></div>`).join("")}
+          <div class="item"><div class="main"><div class="title">+SPCTR<sup class="tm">™</sup> Enterprise</div><div class="sub">For approved organisations</div></div>
+            <a class="btn small" href="https://infinitumcorporation.ai/contact">Talk to sales</a></div>
+        </div>
+        <label class="faint small mt10">Seats <input id="plan-seats" class="input" type="number" min="1" max="10000" value="1"></label>
+        <p class="mt10"><a class="btn" href="${esc(billingUrl("manage"))}">Manage subscription</a></p>
+        <p class="faint small mt10">You pay securely with Stripe, signed in with your Cumulus://ID<sup class="tm">™</sup>. Team plans are billed per seat to your organisation. Cancel anytime.</p>
+      </div>
       <div class="section">
         <h2>Data</h2>
         <button class="btn" id="export-data">Export workspace JSON</button>
@@ -894,6 +915,10 @@ async function renderSettings() {
       a.click();
       toast("Export downloaded");
     } catch (e) { toast(e.message); }
+  });
+  $("#plan-seats")?.addEventListener("input", (e) => {
+    const seats = Math.min(Math.max(Math.floor(Number(e.target.value) || 1), 1), 10000);
+    main().querySelectorAll("[data-plan]").forEach((a) => { a.href = billingUrl("subscribe", { plan: a.dataset.plan, seats }); });
   });
   main().querySelectorAll("[data-unlink]").forEach((b) => {
     b.onclick = async () => {

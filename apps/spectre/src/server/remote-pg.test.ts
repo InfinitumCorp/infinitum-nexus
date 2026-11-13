@@ -131,3 +131,21 @@ describe("RemoteState participants", () => {
     assert.ok(lines.some((l) => JSON.parse(l).reason === "participant-commit-failed"));
   });
 });
+
+describe("HttpGateway and Cumulus://ID rows", () => {
+  it("sends row lookups as cid.read, and row writes with the commit only when there are some", async () => {
+    const { HttpGateway } = await import("./remote.ts");
+    const bodies: any[] = [];
+    const fetchImpl = (async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body));
+      bodies.push(body);
+      return Response.json(body.op === "cid.read" ? { results: [null] } : { cid: 2 });
+    }) as unknown as typeof fetch;
+    const g = new HttpGateway("https://store.example/nexus-store", "k".repeat(40), fetchImpl);
+    assert.deepEqual(await g.readRows([{ op: "account", cid: "cid_a" }]), [null]);
+    await g.commit([], [], [{ kind: "account", id: "cid_a", data: null }]);
+    await g.commit([], []);
+    assert.deepEqual(bodies.map((b) => [b.op, "cid" in b]), [["cid.read", false], ["commit", true], ["commit", false]]);
+    assert.deepEqual(bodies[0].ops, [{ op: "account", cid: "cid_a" }]);
+  });
+});

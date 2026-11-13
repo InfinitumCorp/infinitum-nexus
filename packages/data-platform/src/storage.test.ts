@@ -145,6 +145,9 @@ test("Exchange offers are aggregates only and pass every gate", () => {
     epsilon: 0.5,
     licenseTerms: "CDAT-commercial-1y",
     priceUsd: 100,
+    // Deterministic noise: real Laplace noise at epsilon 0.5 can lift the empty group over the
+    // suppression threshold and make the assertion below flaky.
+    noise: () => 0,
   };
   const offer = prepareOffer({ ...base, rows });
   assert.equal(offer.privacyLevel, "aggregated");

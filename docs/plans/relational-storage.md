@@ -119,6 +119,28 @@ Size of the change, measured on `main`:
 
 Each phase keeps the full test suite green and can stop without leaving a half state.
 
+### Hosted on Supabase without a database password: `CUMULUS_STORE=gateway`
+
+Products that already reach Supabase through the `nexus-store` edge function (Mail) don't need a
+Postgres connection string at all:
+
+- `supabase/migrations/20261113_cumulus_id_rows.sql` creates the `cumulus_id` tables (not exposed by
+  the Data API, RLS on, no grants to `anon`/`authenticated`), `public.cid_read` (whitelisted lookups),
+  `public.nexus_commit_cid` (the ledger, documents and the request's ID writes in one transaction;
+  every write carries the value the request read, and a row changed since then is a conflict, so the
+  request re-runs) and `cumulus_id.refresh_from_document()` (the backfill: replaces the rows with the
+  `cid` document's contents in one transaction, leaving the document untouched).
+- `nexus-store` gains `op: "cid.read"` and accepts `cid` writes on `commit`; callers that don't send
+  them get exactly the old behavior.
+- Cutover: deploy the edge function, run `select cumulus_id.refresh_from_document()` and set
+  `CUMULUS_STORE=gateway` on the product in the same deploy. Rollback: set it back to `document`
+  (accounts created in between exist only as rows until copied back).
+
+The US tables were created and backfilled on 2026-11-12 (9 accounts, 8 passkeys, 7 sessions,
+7 grants; every row compared equal to the document). The id.cumuluscloud.app Worker keeps its state in
+a Durable Object, not Supabase, and Russia's Yandex Managed PostgreSQL needs Yandex Cloud access;
+both are still to do.
+
 ### Cutover runbook (Cumulus://ID, phase 4)
 
 1. Pick the Postgres host and create a database. On Cloudflare, put Hyperdrive in front of it and

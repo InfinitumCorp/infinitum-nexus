@@ -72,8 +72,9 @@ function build() {
   const workspaceStore = new WorkspaceStore(); // Cumulus://Drive, Dox, Spreads and Podium (metadata; contents in R2)
   const billingStore = new BillingLinkStore(); // CID -> billing org (holds org API keys; server-side only)
   // CUMULUS_STORE=postgres keeps Cumulus://ID in Postgres rows (see spectre/src/server/cid-store.ts).
-  const cidStorage = cidStorageFromEnv();
-  const state = new RemoteState(new HttpGateway(required("NEXUS_STORE_URL"), required("NEXUS_STORE_KEY")), {
+  const gateway = new HttpGateway(required("NEXUS_STORE_URL"), required("NEXUS_STORE_KEY"));
+  const cidStorage = cidStorageFromEnv(process.env, gateway);
+  const state = new RemoteState(gateway, {
     ...(cidStorage.inDocuments ? { cid: stores.cid } : {}),
     "cumulus-mail": stores.mail,
     "firm-wallet": stores.wallet,
@@ -83,6 +84,7 @@ function build() {
     "cumulus-billing": billingStore,
   });
   if (cidStorage.participant) state.participants.push(cidStorage.participant);
+  if (cidStorage.rows) state.rows = cidStorage.rows;
   const ledger = new Ledger(state.ledgerStore, { authorizedSigners: [signer.publicKey] });
   const suite = createCumulus({
     ledger, signer, rpId: new URL(origin).hostname, origins, stores, repository: cidStorage.repository, secretKey: cidSecretKeyForHost(),

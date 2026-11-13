@@ -263,7 +263,7 @@ export class CumulusSuite {
       await this.provision(account);
       wallet = await this.wallets.get(cid);
     }
-    const usage = this.quota.usage(cid);
+    const usage = await this.quota.usage(cid);
     return {
       cid,
       username: account.username,

@@ -17,6 +17,8 @@ test("recordPacket keeps contact details out of the ledger", async () => {
   assert.equal(recorded.location?.includes("555"), false);
   const payload = JSON.stringify((await ledger.entries())[0].payload);
   assert.equal(payload.includes("alice@"), false);
-  assert.equal(payload.includes("555"), false);
+  // Look for the number itself: the payload also carries a random packet id, which can contain "555".
+  assert.equal(payload.includes("(555)"), false);
+  assert.equal(payload.includes("123-4567"), false);
   assert.equal((await ledger.verify()).ok, true);
 });

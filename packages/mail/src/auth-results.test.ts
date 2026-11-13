@@ -8,7 +8,7 @@ const CF_PASS = "mx.cloudflare.net; dkim=pass header.d=example.com header.s=s1 h
 const CF_FAIL = "mx.cloudflare.net; dkim=fail header.d=bank.example; dmarc=fail header.from=bank.example policy.dmarc=quarantine; spf=fail smtp.mailfrom=x@evil.example";
 
 describe("Authentication-Results", () => {
-  it("parses methods, results and properties, ignoring comments", () => {
+  it("parses methods, results and properties, ignoring comments", async () => {
     const p = parseAuthenticationResults(CF_PASS)!;
     assert.equal(p.authservId, "mx.cloudflare.net");
     assert.deepEqual(p.results.map((r) => `${r.method}=${r.result}`), ["dkim=pass", "dmarc=pass", "spf=pass"]);
@@ -20,7 +20,7 @@ describe("Authentication-Results", () => {
     assert.equal(parseAuthenticationResults(""), null);
   });
 
-  it("trusts only the first header, and only from Cloudflare", () => {
+  it("trusts only the first header, and only from Cloudflare", async () => {
     const pass = inboundAuth([AR(CF_PASS), AR("evil.example; dmarc=fail")]);
     assert.deepEqual(pass, { verified: true, spf: "pass", dkim: "pass", dmarc: "pass", dmarcPolicy: "reject", fromDomain: "example.com" });
     // A sender-written header below Cloudflare's is ignored ...
@@ -31,7 +31,7 @@ describe("Authentication-Results", () => {
     assert.deepEqual(inboundAuth([]), { verified: false });
   });
 
-  it("refuses only a trusted dmarc=fail; anything unverified or unknown is delivered", () => {
+  it("refuses only a trusted dmarc=fail; anything unverified or unknown is delivered", async () => {
     assert.match(refuseReason(inboundAuth([AR(CF_FAIL)]))!, /DMARC/);
     assert.equal(refuseReason(inboundAuth([AR(CF_PASS)])), null);
     assert.equal(refuseReason(inboundAuth([AR("evil.example; dmarc=fail")])), null);
@@ -51,18 +51,18 @@ describe("PostOffice.receive with sender authentication", () => {
     from: { name: "Bank", email: "x@evil.example" }, recipients: ["alex@cumuluscloud.app"], to: [], cc: [], subject: "Verify your account", body: "Click here", auth,
   });
 
-  it("refuses a message the edge marked dmarc=fail and stores nothing", () => {
+  it("refuses a message the edge marked dmarc=fail and stores nothing", async () => {
     const po = office();
-    assert.throws(() => po.receive(mail(inboundAuth([AR(CF_FAIL)]))), (e: MailError) => e.code === "dmarc_fail");
+    await assert.rejects(po.receive(mail(inboundAuth([AR(CF_FAIL)]))), (e: MailError) => e.code === "dmarc_fail");
     assert.equal(po.view("cid_a").messages.filter((m) => m.subject === "Verify your account").length, 0);
   });
 
-  it("delivers authenticated and unchecked mail, keeping the verdict on the message", () => {
+  it("delivers authenticated and unchecked mail, keeping the verdict on the message", async () => {
     const po = office();
-    assert.deepEqual(po.receive(mail(inboundAuth([AR(CF_PASS)]))).delivered, ["alex@cumuluscloud.app"]);
+    assert.deepEqual((await po.receive(mail(inboundAuth([AR(CF_PASS)])))).delivered, ["alex@cumuluscloud.app"]);
     const got = po.view("cid_a").messages.find((m) => m.subject === "Verify your account")!;
     assert.equal(got.auth?.verified, true);
     assert.equal(got.auth?.dmarc, "pass");
-    assert.deepEqual(po.receive(mail()).delivered, ["alex@cumuluscloud.app"]);
+    assert.deepEqual((await po.receive(mail())).delivered, ["alex@cumuluscloud.app"]);
   });
 });

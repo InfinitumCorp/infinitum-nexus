@@ -95,6 +95,9 @@ export interface StoreStats {
   commits: number;
   /** Participant commits that failed after the ledger was saved (should stay 0; alert on it). */
   participantFailures?: number;
+  /** Cumulus://ID row writes saved with the ledger (CUMULUS_STORE=gateway), and the commits that carried them. */
+  rowWrites?: number;
+  rowCommits?: number;
   /** Per document: bytes written in total, size at the last write, and the largest size seen. */
   docs: Record<string, { writes: number; bytesWritten: number; lastBytes: number; maxBytes: number }>;
 }
@@ -179,6 +182,10 @@ export class RemoteState {
     if (!changed.length && !entries.length && !rows.length) return;
     const versions = await (rows.length ? this.gateway.commit(entries, changed, rows) : this.gateway.commit(entries, changed));
     this.stats.commits++;
+    if (rows.length) {
+      this.stats.rowWrites = (this.stats.rowWrites ?? 0) + rows.length;
+      this.stats.rowCommits = (this.stats.rowCommits ?? 0) + 1;
+    }
     for (const d of changed) {
       const bytes = Buffer.byteLength(serialized[d.id]!, "utf8");
       const s = (this.stats.docs[d.id] ??= { writes: 0, bytesWritten: 0, lastBytes: 0, maxBytes: 0 });

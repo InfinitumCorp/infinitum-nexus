@@ -90,6 +90,40 @@ describe("Cumulus://Mail on PostgreSQL", { skip: url ? false : "set CID_TEST_PG_
     assert.match(job.text, /^Revenue up 12%/);
   });
 
+  test("two servers with the same master key share each account's tunnel keys through the database", async () => {
+    const schema = await fresh("keys");
+    const master = generateMasterKey();
+    // Separate processes: each tunnel starts with an empty key store of its own.
+    const server = () => {
+      const tunnel = new CumulusTunnel({ masterKey: parseMasterKey(master) });
+      return { tunnel, po: new PostOffice({ repository: new PgMailRepository({ db: pool!, schema, tunnel }), tunnel }) };
+    };
+    const one = server();
+    await one.po.provision({ cid: "a", address: "alex@cumuluscloud.app" });
+    await one.po.provision({ cid: "b", address: "sam@cumuluscloud.app" });
+    await one.po.send("a", { to: "sam@cumuluscloud.app", subject: "From server one", body: "hi" });
+
+    const two = server();
+    assert.equal(two.tunnel.has("b"), false);
+    assert.equal((await two.po.view("b")).messages[0].subject, "From server one", "server two opens mail sealed on server one");
+    await two.po.send("b", { to: "alex@cumuluscloud.app", subject: "Reply from server two", body: "hey" });
+    assert.equal(two.tunnel.fingerprint("a"), one.tunnel.fingerprint("a"), "no second set of keys was made for Alex");
+    assert.equal((await one.po.view("a")).messages.find((m) => m.folder === "inbox")?.subject, "Reply from server two");
+    const { rows } = await pool!.query(`SELECT cid, data::text AS raw FROM "${schema}".mail_tunnel_keys ORDER BY cid`);
+    assert.deepEqual(rows.map((r) => r.cid), ["a", "b"]);
+    for (const { raw } of rows) assert.doesNotMatch(raw, /PRIVATE|"box":/, "private keys are stored wrapped");
+
+    // Both servers make keys for a new account at once: the first stored wins, the other adopts it.
+    one.tunnel.ensure("c");
+    two.tunnel.ensure("c");
+    assert.notEqual(one.tunnel.fingerprint("c"), two.tunnel.fingerprint("c"));
+    await one.po.provision({ cid: "c", address: "lee@cumuluscloud.app" });
+    await two.po.send("a", { to: "lee@cumuluscloud.app", subject: "Welcome", body: "x" }).catch(() => undefined);
+    await two.po.view("c");
+    assert.equal(two.tunnel.fingerprint("c"), one.tunnel.fingerprint("c"));
+    assert.equal((await one.po.view("c")).messages.find((m) => m.folder === "inbox")?.subject, "Welcome");
+  });
+
   test("one row per message: a write touches only what changed", async () => {
     const schema = await fresh("messages");
     let statements: string[] = [];

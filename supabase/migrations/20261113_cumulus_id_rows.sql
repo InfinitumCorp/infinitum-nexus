@@ -5,7 +5,8 @@
 -- Same layout as packages/cid cidSchemaSql("cumulus_id").
 --
 -- Products don't connect to Postgres. They call the private nexus-store edge function, which calls:
---   public.cid_read(p_ops)                         whitelisted reads, several per call
+--   public.cid_read(p_ops)                         whitelisted reads, several per call (sessionBundle:
+--                                                  session + account + grants in one)
 --   public.nexus_commit_cid(p_entries, p_docs, p_cid)
 --                                                  nexus_commit plus the request's ID writes, in ONE
 --                                                  transaction; every write carries the value the
@@ -93,6 +94,13 @@ begin
       when 'authenticatorsOf' then coalesce((select jsonb_agg(data order by seq) from cumulus_id.cid_authenticators where cid = o->>'cid'), '[]')
       when 'session' then (select data from cumulus_id.cid_sessions where id = o->>'id')
       when 'sessionByTokenHash' then (select data from cumulus_id.cid_sessions where token_hash = o->>'tokenHash')
+      -- The session behind a sign-in token, its account and the account's grants: everything a signed-in
+      -- request checks, in one round trip.
+      when 'sessionBundle' then (select jsonb_build_object(
+          'session', s.data,
+          'account', (select a.data from cumulus_id.cid_accounts a where a.cid = s.cid),
+          'grants', coalesce((select jsonb_agg(g.data order by g.seq) from cumulus_id.cid_grants g where g.cid = s.cid), '[]'))
+        from cumulus_id.cid_sessions s where s.token_hash = o->>'tokenHash')
       when 'sessionsOf' then coalesce((select jsonb_agg(data order by seq) from cumulus_id.cid_sessions where cid = o->>'cid'), '[]')
       when 'grant' then (select data from cumulus_id.cid_grants where cid = o->>'cid' and app = o->>'app')
       when 'grantsOf' then coalesce((select jsonb_agg(data order by seq) from cumulus_id.cid_grants where cid = o->>'cid'), '[]')
@@ -101,7 +109,7 @@ begin
       else null
     end;
     if o->>'op' not in ('account', 'cidForUsername', 'accountsInOrg', 'allAccounts', 'cidForIdentity', 'cidForFederation',
-        'authenticator', 'authenticatorByCredential', 'authenticatorsOf', 'session', 'sessionByTokenHash', 'sessionsOf',
+        'authenticator', 'authenticatorByCredential', 'authenticatorsOf', 'session', 'sessionByTokenHash', 'sessionBundle', 'sessionsOf',
         'grant', 'grantsOf', 'org', 'oneTime') then
       raise exception 'cid_read: unknown op %', o->>'op';
     end if;

@@ -48,6 +48,11 @@ export class TestCidServer {
         case "session": out.push(await r.session(o.id)); break;
         case "sessionByTokenHash": out.push(await r.sessionByTokenHash(o.tokenHash)); break;
         case "sessionsOf": out.push(await r.sessionsOf(o.cid)); break;
+        case "sessionBundle": {
+          const session = await r.sessionByTokenHash(o.tokenHash);
+          out.push(session ? { session, account: (await r.account(session.cid)) ?? null, grants: await r.grantsOf(session.cid) } : null);
+          break;
+        }
         case "grant": out.push(await r.grant(o.cid, o.app)); break;
         case "grantsOf": out.push(await r.grantsOf(o.cid)); break;
         case "org": out.push(await r.org(o.id)); break;

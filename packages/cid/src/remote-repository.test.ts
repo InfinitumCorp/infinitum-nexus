@@ -123,4 +123,27 @@ describe("RemoteCidRepository", () => {
     assert.equal(await repo.cidForUsername("temp"), undefined);
     assert.equal(server.commits, 0);
   });
+
+  it("a signed-in request's session, account and grant checks cost one round trip", async () => {
+    const { Ledger, generateSigner } = await import("@infinitum/firmament");
+    const { CidService } = await import("./service.ts");
+    const { autoCommitRemoteRepository } = await import("./testing/remote-server.ts");
+    const server = new TestCidServer();
+    const signer = generateSigner();
+    const service = (repository: any) => new CidService({ ledger: new Ledger(undefined, { authorizedSigners: [signer.publicKey] }), signer, rpId: "x", origins: ["https://x"], repository });
+    const admin = service(autoCommitRemoteRepository(server));
+    const a = await admin.createAccount({ username: "alex" });
+    await admin.grant(a.cid, "cumulus-mail", ["mail:read"]);
+    const { token } = await (admin as any).issueSession(a.cid, "browser", "passkey");
+
+    const repo = new RemoteCidRepository((ops) => server.read(ops));
+    const cid = service(repo);
+    const before = server.reads;
+    const who = await cid.authenticate(token);
+    assert.equal(who?.account.username, "alex");
+    assert.equal(await cid.can(a.cid, "cumulus-mail", "mail:read"), true);
+    assert.equal(await cid.can(a.cid, "cumulus-mail", "mail:write"), false);
+    assert.equal(await cid.can(a.cid, "LBRNTH", "repo:read"), false, "a grant missing from the bundle doesn't exist");
+    assert.equal(server.reads - before, 1);
+  });
 });

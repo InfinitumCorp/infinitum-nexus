@@ -22,3 +22,5 @@ export { createFirmLabyrinth, createFirmWalletLabyrinth, createTokensLabyrinth }
 /** Wallet storage boundary (relational storage phase 5). */
 export { MapWalletRepository, CopyingWalletRepository } from "./repository.ts";
 export type { WalletRepository } from "./repository.ts";
+export { PgWalletRepository, migrateWallet, walletSchemaSql } from "./postgres.ts";
+export type { WalletQueryable } from "./postgres.ts";

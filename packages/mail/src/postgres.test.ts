@@ -140,6 +140,34 @@ describe("Cumulus://Mail on PostgreSQL", { skip: url ? false : "set CID_TEST_PG_
     assert.deepEqual(ids, ["m1", "m2"]);
   });
 
+  test("the unread count and 'has a mailbox' are answered in the database, without reading the mailbox", async () => {
+    const schema = await fresh("counts");
+    let statements: string[] = [];
+    const db: MailQueryable = { query: (text, params) => { statements.push(text); return pool!.query(text, params); } };
+    const po = new PostOffice({ repository: new PgMailRepository({ db, schema }) });
+    await po.provision({ cid: "a", address: "alex@cumuluscloud.app" });
+    await po.provision({ cid: "b", address: "sam@cumuluscloud.app" });
+    await po.send("a", { to: "sam@cumuluscloud.app", subject: "One", body: "x" });
+    await po.send("a", { to: "sam@cumuluscloud.app", subject: "Two", body: "x" });
+    const check = async () => {
+      statements = [];
+      const n = await po.unreadCount("b");
+      assert.ok(statements.every((t) => !/FOR UPDATE|SELECT data FROM/.test(t)), statements.join("\n"));
+      assert.equal(n, (await po.view("b")).unread);
+      return n;
+    };
+    assert.equal(await check(), 2);
+    await po.markThreadRead("b", (await po.view("b")).messages[0].threadId);
+    assert.equal(await check(), 1);
+    await po.actOnThreads("b", [(await po.view("b")).messages[1].threadId], "archive");
+    assert.equal(await check(), 0);
+    statements = [];
+    assert.equal(await po.has("b"), true);
+    assert.equal(await po.has("nobody"), false);
+    assert.ok(statements.every((t) => !/FOR UPDATE/.test(t)));
+    assert.equal(await po.unreadCount("nobody"), 0);
+  });
+
   test("one row per message: a write touches only what changed", async () => {
     const schema = await fresh("messages");
     let statements: string[] = [];
@@ -183,6 +211,7 @@ describe("Cumulus://Mail on PostgreSQL", { skip: url ? false : "set CID_TEST_PG_
     await pool!.query(`INSERT INTO "${schema}".mail_mailboxes (cid, data) VALUES ('a', $1)`, [JSON.stringify(box)]);
     await pool!.query(`INSERT INTO "${schema}".mail_addresses (address, cid) VALUES ('alex@cumuluscloud.app', 'a')`);
     const po = new PostOffice({ repository: new PgMailRepository({ db: pool!, schema }) });
+    assert.equal(await po.unreadCount("a"), 2, "counted from the mailbox row until its messages have rows");
     assert.deepEqual((await po.view("a")).messages.map((m) => m.subject), ["Newer", "Older"]);
     await po.markThreadRead("a", "m1");
     const rows = (await pool!.query(`SELECT id FROM "${schema}".mail_messages ORDER BY ord DESC`)).rows.map((r) => r.id);
@@ -190,6 +219,7 @@ describe("Cumulus://Mail on PostgreSQL", { skip: url ? false : "set CID_TEST_PG_
     const meta = (await pool!.query(`SELECT data FROM "${schema}".mail_mailboxes`)).rows[0].data;
     assert.equal(meta.messages, undefined, "the mailbox row no longer carries messages");
     assert.deepEqual((await po.view("a")).messages.map((m) => [m.subject, m.unread]), [["Newer", true], ["Older", false]]);
+    assert.equal(await po.unreadCount("a"), 1, "and from the message rows after");
   });
 
   test("two deliveries to the same mailbox at once: both are kept", async () => {

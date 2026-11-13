@@ -184,6 +184,27 @@ export class PgMailRepository implements MailRepository {
     this.#seen.set(box, after);
   }
 
+  /** Without reading or locking the mailbox (every page's account menu asks). */
+  async hasMailbox(cid: string): Promise<boolean> {
+    const { rows } = await this.#db.query(`SELECT 1 FROM ${this.#s}.mail_mailboxes WHERE cid = $1`, [cid]);
+    return rows.length > 0;
+  }
+
+  /** Counted in the database: no message is read or opened. A mailbox saved before messages had rows is counted from its row. */
+  async unreadThreads(cid: string): Promise<number> {
+    const { rows } = await this.#db.query(
+      `SELECT count(DISTINCT thread_id)::int AS n FROM ${this.#s}.mail_messages WHERE cid = $1 AND folder = 'inbox' AND (data->>'unread')::boolean`,
+      [cid],
+    );
+    if (rows[0].n > 0) return rows[0].n;
+    const legacy = await this.#db.query(
+      `SELECT count(DISTINCT m->>'threadId')::int AS n FROM ${this.#s}.mail_mailboxes, jsonb_array_elements(coalesce(data->'messages', '[]')) m
+        WHERE cid = $1 AND m->>'folder' = 'inbox' AND (m->>'unread')::boolean`,
+      [cid],
+    );
+    return legacy.rows[0].n;
+  }
+
   async mailboxCids(): Promise<string[]> {
     const { rows } = await this.#db.query(`SELECT cid FROM ${this.#s}.mail_mailboxes ORDER BY seq`);
     return rows.map((r) => r.cid as string);

@@ -268,6 +268,7 @@ export class PostOffice {
   }
 
   async has(cid: string): Promise<boolean> {
+    if (this.repository.hasMailbox) return this.repository.hasMailbox(cid);
     return Boolean(await this.repository.mailbox(cid));
   }
 
@@ -309,6 +310,7 @@ export class PostOffice {
   }
 
   async unreadCount(cid: string): Promise<number> {
+    if (this.repository.unreadThreads) return this.repository.unreadThreads(cid);
     const box = await this.repository.mailbox(cid);
     return box ? unreadThreads(box) : 0;
   }

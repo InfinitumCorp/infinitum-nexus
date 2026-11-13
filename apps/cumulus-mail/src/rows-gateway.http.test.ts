@@ -13,7 +13,7 @@ import type { AddressInfo } from "node:net";
 import { createServer } from "node:http";
 import type { Entry } from "@infinitum/firmament";
 import { Ledger, generateSigner, type Signer } from "@infinitum/firmament";
-import { createCumulus, emptyCumulusStores } from "@infinitum/cumulus";
+import { createCumulus, emptyCumulusStores, toSnapshot } from "@infinitum/cumulus";
 import { VirtualAuthenticator } from "../../../packages/cid/src/testing/virtual-authenticator.ts";
 import { ConflictError, RemoteState, type DocRow, type NexusGateway } from "../../spectre/src/server/remote.ts";
 import { cidStorageFromEnv, suiteDocuments } from "../../spectre/src/server/cid-store.ts";
@@ -84,7 +84,7 @@ describe("Wallet and quota rows through the gateway (CUMULUS_ROWS=wallet,quota)"
     u.pathname = `/${dbName}`;
     pool = new pg.Pool({ connectionString: u.toString(), max: 8 });
     pool.on("error", () => {});
-    for (const f of ["20261104_nexus_store.sql", "20261113_cumulus_id_rows.sql", "20261115_cumulus_rows_wallet_quota.sql", "20261116_cumulus_rows_mail.sql", "20261117_cumulus_rows_mail_counts.sql", "20261118_cumulus_rows_lock_order.sql"]) {
+    for (const f of ["20261104_nexus_store.sql", "20261113_cumulus_id_rows.sql", "20261115_cumulus_rows_wallet_quota.sql", "20261116_cumulus_rows_mail.sql", "20261117_cumulus_rows_mail_counts.sql", "20261118_cumulus_rows_lock_order.sql", "20261119_cumulus_rows_mail_due.sql", "20261120_cumulus_rows_compare.sql"]) {
       await pool.query(readFileSync(join(root, "supabase/migrations", f), "utf8"));
     }
     const probe = createServer();
@@ -189,4 +189,23 @@ describe("Wallet and quota rows through the gateway (CUMULUS_ROWS=wallet,quota)"
     const used = Number((await pool.query("SELECT cloud_bytes FROM cumulus_rows.quota_usage WHERE cid = $1", [mira.cid])).rows[0].cloud_bytes);
     assert.equal(used, 10_000_000_000, "15 GB is never overspent");
   });
+
+  it("compare_with_documents: the wallet and quota rows match the documents after the copy, and a change is reported", async () => {
+    const signer2 = generateSigner();
+    const before = createCumulus({ ledger: new Ledger(undefined, { authorizedSigners: [signer2.publicKey] }), signer: signer2, rpId: "localhost", origins: [base] });
+    const zed = await before.cid.createAccount({ username: "zedd" });
+    await before.credit(zed.cid, "USDC", "9", "Deposit");
+    await before.cloud.put("a.txt", zed.cid, 1234);
+    await before.quota.setExtraGb(zed.cid, 2);
+    await pool.query("INSERT INTO public.nexus_docs (id, version, data) VALUES ('firm-wallet', 1, $1), ('cumulus-quota', 1, $2) ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data",
+      [JSON.stringify(toSnapshot(before.stores.wallet)), JSON.stringify(toSnapshot(before.stores.quota))]);
+    await pool.query("SELECT cumulus_rows.refresh_from_documents()");
+    const compare = async () => (await pool.query("SELECT cumulus_rows.compare_with_documents(array['wallet', 'quota']) AS r")).rows[0].r;
+    const same = await compare();
+    assert.equal(same.same, true, JSON.stringify(same));
+    assert.ok(same.counts.wallets.rows >= 1 && same.counts.quotas.rows >= 1);
+    await pool.query("UPDATE cumulus_rows.quota_usage SET cloud_bytes = cloud_bytes + 1 WHERE cid = $1", [zed.cid]);
+    assert.deepEqual((await compare()).differences.quotas.changed, [zed.cid]);
+  });
 });
+

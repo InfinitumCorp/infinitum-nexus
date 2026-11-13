@@ -26,8 +26,13 @@ export interface DocRow {
 /** The gateway's two operations. Implemented over HTTP in production and in memory in tests. */
 export interface NexusGateway {
   load(since: number, versions: Record<string, number>): Promise<{ entries: Entry[]; docs: DocRow[] }>;
-  /** Throws ConflictError if any expected version is stale or a ledger seq is taken. */
-  commit(entries: Entry[], docs: { id: string; expected: number; data: Record<string, unknown> }[]): Promise<Record<string, number>>;
+  /**
+   * Throws ConflictError if any expected version is stale or a ledger seq is taken, or (with `rows`)
+   * if a Cumulus://ID row changed since the request read it. Everything is saved or nothing is.
+   */
+  commit(entries: Entry[], docs: { id: string; expected: number; data: Record<string, unknown> }[], rows?: unknown[]): Promise<Record<string, number>>;
+  /** Cumulus://ID row lookups (nexus-store "cid.read"). Only gateways that hold the rows have it. */
+  readRows?(ops: unknown[]): Promise<unknown[]>;
 }
 
 export class HttpGateway implements NexusGateway {
@@ -54,8 +59,11 @@ export class HttpGateway implements NexusGateway {
   load(since: number, versions: Record<string, number>) {
     return this.call<{ entries: Entry[]; docs: DocRow[] }>({ op: "load", since, versions });
   }
-  commit(entries: Entry[], docs: { id: string; expected: number; data: Record<string, unknown> }[]) {
-    return this.call<Record<string, number>>({ op: "commit", entries, docs });
+  commit(entries: Entry[], docs: { id: string; expected: number; data: Record<string, unknown> }[], rows?: unknown[]) {
+    return this.call<Record<string, number>>({ op: "commit", entries, docs, ...(rows?.length ? { cid: rows } : {}) });
+  }
+  async readRows(ops: unknown[]) {
+    return (await this.call<{ results: unknown[] }>({ op: "cid.read", ops })).results;
   }
 }
 
@@ -118,6 +126,11 @@ export class RemoteState {
   private queue: Promise<unknown> = Promise.resolve();
   /** Stores that commit and roll back with each request. Set before the first request. */
   participants: TransactionParticipant[] = [];
+  /**
+   * Row writes saved by the gateway in the same transaction as the ledger and documents
+   * (Cumulus://ID rows behind nexus-store). Read at commit; the source resets itself via begin/rollback.
+   */
+  rows: { pending(): unknown[] } | null = null;
 
   /** @param docs named stores to keep in sync, e.g. { cid: cidStore, spectre: spectreStore } */
   constructor(gateway: NexusGateway, docs: Record<string, object>) {
@@ -162,8 +175,9 @@ export class RemoteState {
       }
     }
     const entries = this.ledgerStore.pending;
-    if (!changed.length && !entries.length) return;
-    const versions = await this.gateway.commit(entries, changed);
+    const rows = this.rows?.pending() ?? [];
+    if (!changed.length && !entries.length && !rows.length) return;
+    const versions = await (rows.length ? this.gateway.commit(entries, changed, rows) : this.gateway.commit(entries, changed));
     this.stats.commits++;
     for (const d of changed) {
       const bytes = Buffer.byteLength(serialized[d.id]!, "utf8");

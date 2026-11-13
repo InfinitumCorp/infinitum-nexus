@@ -79,7 +79,7 @@ function build() {
   // The CID, Mail, Wallet and quota docs are shared by every hosted Infinitum product,
   // so an account made here has the same mailbox and wallet in Cumulus://Mail.
   const gateway = gatewayOverride ?? new HttpGateway(required("NEXUS_STORE_URL"), required("NEXUS_STORE_KEY"));
-  const cidStorage = cidStorageFromEnv();
+  const cidStorage = cidStorageFromEnv(process.env, gateway);
   const state = new RemoteState(gateway, {
     ...(cidStorage.inDocuments ? { cid: cumulusStores.cid } : {}),
     spectre: spectreStore,
@@ -89,6 +89,7 @@ function build() {
     "cumulus-suite": cumulusStores.suite,
   });
   if (cidStorage.participant) state.participants.push(cidStorage.participant);
+  if (cidStorage.rows) state.rows = cidStorage.rows;
   const ledger = new Ledger(state.ledgerStore, { authorizedSigners: [signer.publicKey] });
   const suite = createCumulus({
     ledger, signer, rpId, origins, stores: cumulusStores, repository: cidStorage.repository, secretKey: cidSecretKeyForHost(),

@@ -176,9 +176,13 @@ Postgres connection string at all:
   `cid` document's contents in one transaction, leaving the document untouched).
 - `nexus-store` gains `op: "cid.read"` and accepts `cid` writes on `commit`; callers that don't send
   them get exactly the old behavior.
+- Check at any time: `select cumulus_id.compare_with_document()` says whether the rows match the
+  document, and lists the keys that differ.
 - Cutover: deploy the edge function, run `select cumulus_id.refresh_from_document()` and set
-  `CUMULUS_STORE=gateway` on the product in the same deploy. Rollback: set it back to `document`
-  (accounts created in between exist only as rows until copied back).
+  `CUMULUS_STORE=gateway` on the product in the same deploy. Rollback: `select
+  cumulus_id.restore_document()` (rebuilds the `cid` document from the rows, accounts created since the
+  switch included; `supabase/migrations/20261114_cumulus_id_reverse.sql`), then set it back to
+  `document`.
 
 The US tables were created and backfilled on 2026-11-12 (9 accounts, 8 passkeys, 7 sessions,
 7 grants; every row compared equal to the document). The id.cumuluscloud.app Worker keeps its state in
@@ -197,8 +201,9 @@ both are still to do.
    commit in the same step as the ledger (RemoteState participants) and the `cid` document is left
    as it was.
 4. Watch the `nexus-store` metrics line: `participantFailures` must stay 0.
-5. Rollback: set `CUMULUS_STORE=document` again. Accounts created after the cutover exist only in
-   Postgres until a reverse copy is written, so roll back early or not at all.
+5. Rollback: write the rows back out first, so nothing created since the cutover is lost:
+   `pnpm --filter @infinitum/cid backfill --to-snapshot cid.json` (single server) or
+   `select cumulus_id.restore_document()` (Supabase), then set `CUMULUS_STORE=document` again.
 
 ### 4. Risks
 

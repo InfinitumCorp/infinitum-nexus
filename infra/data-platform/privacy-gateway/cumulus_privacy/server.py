@@ -24,6 +24,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable
 
 from .dp import BudgetExceeded, PrivacyBudget, release
+from .ingest_quality import MemoryQualityLog
 from .pipeline import prepare_export
 from .platform import Catalog, Collector, DataHubSink, Eraser, IngestLimits, OpenSearchIndex, PlatformError, Searcher
 from .quality import run_suite
@@ -116,6 +117,7 @@ class Gateway:
             Route("GET", "/api/v1/catalog/datasets/{name}", self.get_dataset, "product"),
             Route("POST", "/api/v1/search/events", self.search, "product"),
             Route("POST", "/api/v1/erasure/subjects", self.erase, "product"),
+            Route("GET", "/api/v1/quality/datasets/{name}/runs", self.quality_runs, "product"),
             Route("POST", "/api/v1/erasure/subjects/all-products", self.erase_everywhere, "gateway"),
         ]
 
@@ -156,6 +158,9 @@ class Gateway:
 
     def search(self, b: dict[str, Any], caller: str = "", **_: str) -> Any:
         return self._platform(self.searcher).search(caller, b)
+
+    def quality_runs(self, b: dict[str, Any], caller: str = "", name: str = "") -> Any:
+        return self._platform(self.collector).quality_runs(caller, name)
 
     def erase(self, b: dict[str, Any], caller: str = "", **_: str) -> Any:
         return self._platform(self.eraser).erase(caller, b.get("cid"))
@@ -293,11 +298,12 @@ def main() -> None:
     index: Any = None
     if dsn:
         # Free-tier layout: everything in Supabase Postgres (Ireland). No OpenSearch needed.
-        from .pgstore import PostgresBudget, PostgresCatalog, PostgresEventIndex
+        from .pgstore import PostgresBudget, PostgresCatalog, PostgresEventIndex, PostgresQualityLog
 
         budget: Any = PostgresBudget(dsn, epsilon)
         catalog: Any = PostgresCatalog(dsn, sink)
         index = PostgresEventIndex(dsn)
+        quality_log: Any = PostgresQualityLog(dsn)
     else:
         budget = PrivacyBudget(os.environ.get("PRIVACY_BUDGET_FILE", "/var/lib/privacy-gateway/budget.json"), epsilon)
         catalog = Catalog(os.environ.get("PLATFORM_CATALOG_FILE", "/var/lib/privacy-gateway/catalog.json"), sink)
@@ -305,6 +311,7 @@ def main() -> None:
             os.environ.get("OPENSEARCH_URL", "http://localhost:9200"),
             refresh=os.environ.get("OPENSEARCH_REFRESH_ON_WRITE") == "1",
         )
+        quality_log = MemoryQualityLog()
     redactor = Redactor()
     collector = searcher = None
     products = parse_product_tokens(os.environ.get("PLATFORM_PRODUCT_TOKENS", ""))
@@ -318,7 +325,7 @@ def main() -> None:
     )
     eraser = Eraser(redactor, index)
     if products:
-        collector = Collector(catalog, redactor, index, os.environ.get("PLATFORM_REGION", "EU"), limits)
+        collector = Collector(catalog, redactor, index, os.environ.get("PLATFORM_REGION", "EU"), limits, quality_log)
         searcher = Searcher(index)
     else:
         catalog = None

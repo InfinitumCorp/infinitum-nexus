@@ -186,3 +186,39 @@ class PostgresEventIndex:
     def purge_expired(self) -> int:
         with _connect(self.dsn) as c:
             return int(c.execute("select data_platform.purge_expired_events()").fetchone()[0])
+
+
+class PostgresQualityLog:
+    """Quality runs (numbers and check names only) in data_platform.quality_runs. Runs older
+    than KEEP_DAYS are dropped as new ones arrive, so the free-tier database stays small."""
+
+    KEEP_DAYS = 90
+
+    def __init__(self, dsn: str) -> None:
+        self.dsn = dsn
+
+    def record(self, product: str, run: dict[str, Any]) -> None:
+        with _connect(self.dsn) as c:
+            c.execute(
+                """insert into data_platform.quality_runs (dataset, product, checked_at, ok, rows, metrics, results)
+                   values (%s, %s, %s, %s, %s, %s, %s)""",
+                (run["dataset"], product, _ts(run["checkedAt"]), run["ok"], run["rows"],
+                 Jsonb(run["metrics"]), Jsonb(run["results"])),
+            )
+            c.execute(
+                "delete from data_platform.quality_runs where dataset = %s and checked_at < now() - make_interval(days => %s)",
+                (run["dataset"], self.KEEP_DAYS),
+            )
+
+    def runs(self, dataset: str, limit: int) -> list[dict[str, Any]]:
+        with _connect(self.dsn) as c:
+            rows = c.execute(
+                """select dataset, checked_at, ok, rows, metrics, results from data_platform.quality_runs
+                   where dataset = %s order by checked_at desc, id desc limit %s""",
+                (dataset, limit),
+            ).fetchall()
+        return [
+            {"dataset": d, "checkedAt": t.astimezone(timezone.utc).isoformat(), "ok": ok, "rows": n,
+             "metrics": m, "results": r}
+            for d, t, ok, n, m, r in rows
+        ]

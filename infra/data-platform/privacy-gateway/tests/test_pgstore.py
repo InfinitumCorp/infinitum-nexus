@@ -126,6 +126,27 @@ def test_erasure_and_storage_size(stack, redactor):
     assert limits.storage_state() == "full"
 
 
+def test_quality_runs_in_postgres(clean, redactor, reader_dsn):
+    from cumulus_privacy.pgstore import PostgresQualityLog
+
+    with psycopg.connect(ADMIN, autocommit=True) as c:
+        c.execute("truncate data_platform.quality_runs")
+    catalog = PostgresCatalog(clean)
+    spec = {**DEALS, "quality": [{"kind": "uniqueness", "columns": ["dealId"], "min": 1.0},
+                                 {"kind": "anomaly", "metric": "size", "maxRelativeChange": 0.5}]}
+    catalog.register("spectre", DEALS["name"], spec)
+    log = PostgresQualityLog(clean)
+    collector = Collector(catalog, redactor, PostgresEventIndex(clean), "EU", quality_log=log)
+    collector.ingest("spectre", [event(), event()])
+    collector.ingest("spectre", [event() for _ in range(6)])
+    runs = collector.quality_runs("spectre", DEALS["name"])["runs"]
+    assert [r["rows"] for r in runs] == [6, 2]
+    anomaly = next(r for r in runs[0]["results"] if r["kind"] == "anomaly")
+    assert anomaly["metric"] == pytest.approx(2.0) and anomaly["ok"] is False
+    with psycopg.connect(reader_dsn, autocommit=True) as c:  # BI can chart quality over time
+        assert c.execute("select count(*) from data_platform.quality_runs").fetchone()[0] == 2
+
+
 def test_retention_purge(stack):
     _, collector, _, index = stack
     old = (datetime.now(timezone.utc) - timedelta(days=400)).isoformat()

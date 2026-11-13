@@ -89,6 +89,45 @@ types:
           retentionDays: integer
           region: Region
           glossaryTerms: list<string>
+          quality:
+            type: optional<list<DatasetCheck>>
+            docs: Deequ-style checks. Per-event checks reject failing events; batch checks are measured into quality runs.
+      DatasetCheck:
+        docs: >-
+          completeness (min 1.0 = required field, enforced per event; below 1.0 = measured per
+          batch), range and allowed_values (enforced), freshness on occurredAt or a datetime
+          field (enforced), uniqueness over columns and anomaly on a metric (measured).
+        fields:
+          kind: string
+          column: optional<string>
+          columns: optional<list<string>>
+          min: optional<double>
+          max: optional<double>
+          values: optional<list<any>>
+          maxAgeHours: optional<double>
+          metric:
+            type: optional<string>
+            docs: For anomaly, e.g. size or completeness:amount.
+          maxRelativeChange: optional<double>
+      DatasetCheckResult:
+        fields:
+          kind: string
+          target: string
+          ok: boolean
+          metric: double
+          message: string
+      QualityRun:
+        docs: One ingest batch's measured checks. Numbers and check names only, never event values.
+        fields:
+          dataset: string
+          checkedAt: datetime
+          rows: integer
+          ok: boolean
+          metrics: map<string, double>
+          results: list<DatasetCheckResult>
+      QualityRunsResponse:
+        fields:
+          runs: list<QualityRun>
       DatasetRef:
         fields:
           name: string
@@ -164,6 +203,12 @@ types:
         namespace: DataPlatform
         code: INTERNAL
         docs: The gateway runs without PLATFORM_PRODUCT_TOKENS, so these services are off.
+      QualityCheckFailed:
+        namespace: DataPlatform
+        code: INVALID_ARGUMENT
+        docs: Reported per event in IngestResponse.rejected; the event was not stored.
+        safe-args:
+          eventType: string
       StorageQuotaReached:
         namespace: DataPlatform
         code: INTERNAL
@@ -256,3 +301,17 @@ services:
             type: ErasureRequest
             param-type: body
         returns: ErasureResponse
+
+  QualityService:
+    name: Quality Service
+    package: app.infinitum.cumulus.data.platform
+    base-path: /api/v1/quality
+    default-auth: header
+    docs: Data-quality runs measured at ingest for a product's own datasets.
+    endpoints:
+      getRuns:
+        http: GET /datasets/{name}/runs
+        docs: The 30 newest runs, newest first.
+        args:
+          name: string
+        returns: QualityRunsResponse

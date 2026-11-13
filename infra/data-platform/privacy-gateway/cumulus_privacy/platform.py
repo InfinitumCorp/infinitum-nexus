@@ -19,6 +19,7 @@ from __future__ import annotations
 import base64
 import json
 import re
+import sys
 import threading
 import time
 import urllib.error
@@ -28,6 +29,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping, Protocol
 
+from .ingest_quality import QualityError, QualityLog, batch_report, row_failure, utcnow, validate_checks
 from .redaction import Destination, FieldRule, Redactor
 
 CLASSIFICATIONS = {"PUBLIC", "INTERNAL", "CONFIDENTIAL", "PERSONAL", "SPECIAL_CATEGORY"}
@@ -109,7 +111,11 @@ def validate_spec(name: str, spec: Mapping[str, Any]) -> dict[str, Any]:
         if f["classification"] in ("PERSONAL", "SPECIAL_CATEGORY") and rule is FieldRule.KEEP:
             raise _bad(f"field {f['name']}: personal data cannot use rule KEEP")
         fields.append({**f, "rule": rule.name})
-    return {**spec, "fields": fields}
+    try:
+        quality = validate_checks(spec.get("quality"), seen)
+    except QualityError as e:
+        raise _bad(str(e)) from e
+    return {**spec, "fields": fields, "quality": quality}
 
 
 class DataHubSink:
@@ -399,14 +405,16 @@ class IngestLimits:
 
 class Collector:
     def __init__(self, catalog: Catalog, redactor: Redactor, index: EventIndex, region: str,
-                 limits: IngestLimits | None = None) -> None:
+                 limits: IngestLimits | None = None, quality_log: QualityLog | None = None,
+                 clock: Callable[[], datetime] = utcnow) -> None:
         if region not in REGIONS:
             raise ValueError(f"PLATFORM_REGION must be one of {sorted(REGIONS)}")
         self.catalog, self.redactor, self.index, self.region = catalog, redactor, index, region
         self.limits = limits or IngestLimits()
+        self.quality_log, self.clock = quality_log, clock
 
-    def _check(self, caller: str, e: Mapping[str, Any]) -> tuple[dict[str, Any], str]:
-        """Returns (indexable document, event id) or raises PlatformError with a reason."""
+    def _check(self, caller: str, e: Mapping[str, Any]) -> tuple[dict[str, Any], str, dict[str, Any]]:
+        """Returns (indexable document, event id, dataset spec) or raises PlatformError with a reason."""
         try:
             event_id = str(uuid.UUID(str(e.get("eventId"))))
         except ValueError as err:
@@ -442,6 +450,9 @@ class Collector:
                                     {"eventType": spec["name"]})
         if not isinstance(e.get("schemaVersion"), int):
             raise _bad("schemaVersion must be an integer")
+        failed = row_failure(spec.get("quality") or [], e, self.clock())
+        if failed:
+            raise PlatformError(400, "QualityCheckFailed", failed, {"eventType": spec["name"]})
 
         rules = {k: FieldRule[f["rule"]] for k, f in fields.items()}
         red, _found = self.redactor.redact_record(payload, Destination.ANALYTICS, rules)
@@ -462,7 +473,7 @@ class Collector:
         }
         if e.get("cid"):
             doc["cid"] = self.redactor.pseudonym("cid", str(e["cid"]), Destination.ANALYTICS)
-        return doc, event_id
+        return doc, event_id, spec
 
     def ingest(self, caller: str, events: list[Any]) -> dict[str, Any]:
         if EXCLUDED_PRODUCTS.match(caller):
@@ -470,21 +481,48 @@ class Collector:
         self.limits.admit(caller, len(events))
         accepted = duplicates = 0
         rejected = []
+        batches: dict[str, tuple[dict[str, Any], list[Mapping[str, Any]]]] = {}
         for e in events:
             eid = str(e.get("eventId")) if isinstance(e, Mapping) else ""
             try:
                 if not isinstance(e, Mapping):
                     raise _bad("event must be an object")
-                doc, eid = self._check(caller, e)
+                doc, eid, spec = self._check(caller, e)
             except PlatformError as err:
                 rejected.append({"eventId": eid, "reason": err.message})
                 continue
             if self.index.create(eid, doc):
                 accepted += 1
+                batches.setdefault(spec["name"], (spec, []))[1].append(e["payload"])
             else:
                 duplicates += 1
         self.limits.record(caller, accepted)
+        self._measure(caller, batches)
         return {"accepted": accepted, "duplicates": duplicates, "rejected": rejected}
+
+    def _measure(self, caller: str, batches: Mapping[str, tuple[dict[str, Any], list[Mapping[str, Any]]]]) -> None:
+        """Record measured (batch) quality checks. Never fails the ingest: the events are stored."""
+        if self.quality_log is None:
+            return
+        for name, (spec, rows) in batches.items():
+            checks = spec.get("quality") or []
+            if not any(c["kind"] in ("uniqueness", "anomaly") or
+                       (c["kind"] == "completeness" and float(c.get("min", 1.0)) < 1.0) for c in checks):
+                continue
+            try:
+                history = [r["metrics"] for r in reversed(self.quality_log.runs(name, 10))]
+                run = batch_report(name, checks, rows, history, self.clock())
+                self.quality_log.record(caller, run)
+            except Exception as err:  # noqa: BLE001 - measuring must not lose events
+                print(f"quality run for {name} not recorded: {type(err).__name__}", file=sys.stderr)
+
+    def quality_runs(self, caller: str, name: str, limit: int = 30) -> dict[str, Any]:
+        spec = self.catalog.get(name)
+        if spec is None or spec["product"] != caller:
+            raise PlatformError(404, "DatasetNotFound", "no such dataset", {"name": name})
+        if self.quality_log is None:
+            return {"runs": []}
+        return {"runs": self.quality_log.runs(name, max(1, min(limit, 100)))}
 
 
 # --------------------------------------------------------------------------- search

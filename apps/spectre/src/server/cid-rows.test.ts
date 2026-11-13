@@ -33,13 +33,16 @@ describe("Cumulus://ID rows through the nexus-store SQL", { skip: url ? false : 
     const u = new URL(url!);
     u.pathname = `/${dbName}`;
     pool = new pg.Pool({ connectionString: u.toString(), max: 6 });
+    // Dropping the test database at the end terminates any connection still open; that is expected.
+    pool.on("error", () => {});
     for (const f of ["20261104_nexus_store.sql", "20261113_cumulus_id_rows.sql", "20261114_cumulus_id_reverse.sql"]) {
       await pool.query(readFileSync(join(root, "supabase/migrations", f), "utf8"));
     }
   });
   after(async () => {
     await pool?.end();
-    await admin?.query(`DROP DATABASE IF EXISTS ${dbName} WITH (FORCE)`);
+    // A normal drop once every connection has closed; FORCE only if one is still lingering.
+    await admin?.query(`DROP DATABASE IF EXISTS ${dbName}`).catch(() => admin.query(`DROP DATABASE IF EXISTS ${dbName} WITH (FORCE)`));
     await admin?.end();
   });
 

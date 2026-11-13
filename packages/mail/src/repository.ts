@@ -29,6 +29,10 @@ export interface MailRepository {
    * two senders running at once take different jobs.
    */
   dueOutbound(now: string, staleBefore: string, limit: number): Promise<OutboundMail[]>;
+  /** Optional, for a repository that can answer without loading (or locking) a whole mailbox. */
+  hasMailbox?(cid: string): Promise<boolean>;
+  /** Optional: conversations with unread mail in the inbox (the number by "Inbox"). */
+  unreadThreads?(cid: string): Promise<number>;
 }
 
 export class MapMailRepository implements MailRepository {

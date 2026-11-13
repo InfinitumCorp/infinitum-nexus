@@ -293,6 +293,24 @@ class OpenSearchIndex:
             raise PlatformError(500, "SearchUnavailable", f"search failed ({status})")
         return out
 
+    def release_rows(self, product: str, event_type: str, start: datetime, end: datetime, limit: int) -> list[dict[str, Any]]:
+        """Events for a differentially private release. One request: OpenSearch returns at most
+        10,000 hits, so the caller's row cap is clamped there."""
+        body = {
+            "size": min(int(limit), 10_000),
+            "_source": ["cid", "consent", "payload"],
+            "query": {"bool": {"filter": [
+                {"term": {"product": product}},
+                {"term": {"eventType": event_type}},
+                {"exists": {"field": "cid"}},
+                {"range": {"occurredAt": {"gte": _iso(start), "lt": _iso(end)}}},
+            ]}},
+        }
+        status, out = self._call("POST", f"/{READ_PATTERN}/_search", body)
+        if status >= 300:
+            raise PlatformError(500, "SearchUnavailable", f"search failed ({status})")
+        return [h["_source"] for h in out.get("hits", {}).get("hits", [])]
+
     def erase(self, cid_pseudonym: str, product: str | None) -> int:
         filters: list[dict[str, Any]] = [{"term": {"cid": cid_pseudonym}}]
         if product:

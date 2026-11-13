@@ -214,6 +214,18 @@ release needs:
 **Eligible releases:** Exchange aggregate samples, public usage statistics and benchmark reports.
 Internal dashboards use exact numbers under access policy.
 
+**Releases over stored events** (`event_release.py`, Conjure `ReleaseService`). A product
+calls `POST /api/v1/releases/datasets/{name}` with its own token, a time window, `COUNT` or
+`SUM`, a `groupBy` field and its public group values. The gateway reads the stored events
+itself (Supabase Postgres, or OpenSearch), so raw rows never reach the caller. The rules:
+
+- Only events with a Cumulus ID pseudonym and `ANALYTICS` or `EXCHANGE` consent are counted.
+- `groupBy` and `valueField` must be `KEEP` fields that are not `PERSONAL` or `SPECIAL_CATEGORY`.
+- Each release takes at most epsilon 1.0 and is charged to the dataset's shared budget
+  (`data_platform.privacy_budget`, `PRIVACY_TOTAL_EPSILON` in total).
+- The window is at most 366 days and 200,000 events.
+- The response holds only the noisy groups and the epsilon left, never exact counts.
+
 `python-dp` has Linux and macOS wheels only. Its noise test runs in CI and in the gateway
 container. On Windows, the bounding and budget tests run with a no-noise test backend.
 

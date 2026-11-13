@@ -142,3 +142,24 @@ def test_budget_is_shared_and_enforced(clean):
         b.charge("usage.daily", 1.0)
     assert a.spent("usage.daily") == pytest.approx(1.0)
     assert a.spent(str(uuid.uuid4())) == 0.0
+
+
+def test_dp_release_over_stored_events(stack, clean):
+    from cumulus_privacy.dp import exact_backend
+    from cumulus_privacy.event_release import StoredReleases
+
+    catalog, collector, _, index = stack
+    collector.ingest("spectre", [
+        event(cid="cid_a0000001"), event(cid="cid_a0000001"), event(cid="cid_b0000002"),
+        event(cid="cid_c0000003", consent=["ESSENTIAL"]), event(cid=None),
+        event(cid="cid_d0000004", occurredAt="2026-10-01T00:00:00Z"),
+    ])
+    rows = index.release_rows("spectre", DEALS["name"], datetime(2026, 11, 1, tzinfo=timezone.utc),
+                              datetime(2026, 12, 1, tzinfo=timezone.utc), 100)
+    assert len(rows) == 4 and all(r["cid"] and isinstance(r["payload"], dict) for r in rows)
+    releases = StoredReleases(catalog, index, PostgresBudget(clean, 1.0), backend=exact_backend)
+    out = releases.release("spectre", DEALS["name"], {
+        "from": "2026-11-01T00:00:00Z", "to": "2026-12-01T00:00:00Z", "metric": "COUNT",
+        "groupBy": "stage", "publicGroups": ["won"], "epsilon": 0.25,
+    })
+    assert out["groups"] == {"won": 2.0} and out["remainingEpsilon"] == pytest.approx(0.75)

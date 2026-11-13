@@ -135,6 +135,53 @@ types:
             type: integer
             docs: Events deleted. 0 when there were none; repeating the call is safe.
 
+      ReleaseMetric:
+        values:
+          - value: COUNT
+            docs: Distinct people (Cumulus ID pseudonyms) per group.
+          - value: SUM
+            docs: Sum of valueField per group, each person's total clamped to [lower, upper].
+      StoredReleaseRequest:
+        docs: >-
+          A differentially private aggregate over the caller's stored events of one dataset.
+          Only events with a Cumulus ID and ANALYTICS or EXCHANGE consent are counted.
+        fields:
+          from: datetime
+          to:
+            type: datetime
+            docs: Exclusive. The window is at most 366 days.
+          metric: ReleaseMetric
+          groupBy:
+            type: string
+            docs: A payload field with rule KEEP that is not PERSONAL or SPECIAL_CATEGORY.
+          publicGroups:
+            type: list<string>
+            docs: The group values to release, chosen without looking at the data (at most 200).
+          valueField:
+            type: optional<string>
+            docs: Numeric KEEP field to sum. Required for SUM.
+          lower: optional<double>
+          upper: optional<double>
+          epsilon:
+            type: double
+            docs: Charged to the dataset's privacy budget before any noise is drawn. At most 1.0 per release.
+          maxPartitions:
+            type: optional<integer>
+            docs: Groups one person may count in (1 to 10, default 1).
+          suppressBelow:
+            type: optional<double>
+            docs: Noisy groups under this value are listed in suppressed instead of groups.
+      StoredReleaseResponse:
+        fields:
+          dataset: string
+          metric: ReleaseMetric
+          from: datetime
+          to: datetime
+          epsilon: double
+          groups: map<string, double>
+          suppressed: list<string>
+          remainingEpsilon: double
+
     errors:
       SchemaMismatch:
         namespace: DataPlatform
@@ -176,6 +223,16 @@ types:
         docs: HTTP 429 with Retry-After (seconds to the next UTC day). The product used its PLATFORM_DAILY_EVENT_QUOTA.
         safe-args:
           product: ProductId
+      PrivacyBudgetExceeded:
+        namespace: DataPlatform
+        code: CONFLICT
+        docs: The dataset has less epsilon left than the release asks for. Nothing was charged.
+        safe-args:
+          name: string
+      DpLibraryUnavailable:
+        namespace: DataPlatform
+        code: INTERNAL
+        docs: The gateway runs without Google's DP library (python-dp); run it in the Linux container.
 
 services:
   CollectionService:
@@ -256,3 +313,21 @@ services:
             type: ErasureRequest
             param-type: body
         returns: ErasureResponse
+
+  ReleaseService:
+    name: Release Service
+    package: app.infinitum.cumulus.data.platform
+    base-path: /api/v1/releases
+    default-auth: header
+    docs: >-
+      Differentially private statistics over a product's own stored events, for figures that
+      leave the tenant: Data Exchange samples, public statistics and benchmark reports.
+    endpoints:
+      releaseDataset:
+        http: POST /datasets/{name}
+        args:
+          name: string
+          request:
+            type: StoredReleaseRequest
+            param-type: body
+        returns: StoredReleaseResponse

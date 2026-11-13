@@ -102,6 +102,13 @@ reliably there. Enable pg_cron (step 7) before you use it.
      Then it builds, starts the stack and prints its health.
    - Day to day, use the same script: `box.sh status`, `box.sh logs [service]`, `box.sh update`
      (fast-forward pull and restart) and `box.sh down`.
+   - **Backups.** The Supabase free plan has no backups you can download, so add
+     `box.sh backup` to the box's crontab once a day.
+     - It dumps the `data_platform` schema as the restricted role.
+     - Files are owner-only, in `~/cumulus-data-backups`, and the newest 7 are kept.
+     - The data is already redacted, but treat the dumps as personal data: keep them on the box
+       and never commit or upload them.
+     - To restore, run `pg_restore --data-only --schema=data_platform` into a migrated database.
 6. **Optional: connect dashboards.** Create the read-only role:
    `create role data_platform_reader login noinherit password '<generated>';`
 

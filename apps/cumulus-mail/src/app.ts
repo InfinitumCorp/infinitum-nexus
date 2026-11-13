@@ -424,8 +424,8 @@ export function createMailApp(deps: MailAppDeps) {
   };
 
   const state = async (cidValue: string) => {
-    mail.autoClean(cidValue); // the Clean rules run on their own, at most once an hour
-    const view = mail.view(cidValue);
+    await mail.autoClean(cidValue); // the Clean rules run on their own, at most once an hour
+    const view = { ...mail.view(cidValue), quota: await mail.quotaOf(cidValue) };
     const prefix = `${cidValue}|`;
     const own = Object.fromEntries([...briefs].filter(([k]) => k.startsWith(prefix)).map(([k, v]) => [k.slice(prefix.length), v]));
     return { ...view, messages: view.messages.map((m) => ({ ...m, kind: classify(m) })), briefs: own, account: await suite.summary(cidValue), tunnel: { fingerprint: mail.fingerprint(cidValue), atRest: suite.tunnel.persistent } };
@@ -606,7 +606,7 @@ export function createMailApp(deps: MailAppDeps) {
     if (!mail.snooze(me(ctx), str(ctx.body.id, 80), str(ctx.body.until, 40))) throw new HttpError(404, "That message is not in this mailbox.");
     return await state(me(ctx));
   });
-  route("POST", "/api/remove", async (ctx) => { if (ctx.body.id) mail.remove(me(ctx), str(ctx.body.id, 80)); return await state(me(ctx)); });
+  route("POST", "/api/remove", async (ctx) => { if (ctx.body.id) await mail.remove(me(ctx), str(ctx.body.id, 80)); return await state(me(ctx)); });
   // Conversation actions. Each returns an undo id, kept in memory for 10 minutes.
   const undos = new Map<string, { cid: string; before: ThreadSnapshot[]; at: number }>();
   route("POST", "/api/threads", async (ctx) => {
@@ -630,7 +630,7 @@ export function createMailApp(deps: MailAppDeps) {
     undos.delete(str(ctx.body.id, 80));
     return { restored: mail.restore(me(ctx), entry.before), state: await state(me(ctx)) };
   });
-  route("POST", "/api/trash/empty", async (ctx) => ({ removed: mail.emptyTrash(me(ctx)), state: await state(me(ctx)) }));
+  route("POST", "/api/trash/empty", async (ctx) => ({ removed: await mail.emptyTrash(me(ctx)), state: await state(me(ctx)) }));
   route("POST", "/api/alias", async (ctx) => ({ ok: mail.addAlias(me(ctx), str(ctx.body.alias, 120)), state: await state(me(ctx)) }));
   route("POST", "/api/task", async (ctx) => ({
     ok: mail.addTask(me(ctx), { title: str(ctx.body.title ?? "Task", 180), detail: str(ctx.body.detail ?? "Queued from mail", 240), messageId: ctx.body.messageId ? str(ctx.body.messageId, 80) : undefined }),
@@ -705,7 +705,7 @@ export function createMailApp(deps: MailAppDeps) {
     return withState(me(ctx));
   });
   route("POST", "/api/clean/run", async (ctx) => {
-    const done = mail.runClean(me(ctx), "you");
+    const done = await mail.runClean(me(ctx), "you");
     return withState(me(ctx), { moved: done.reduce((n, e) => n + e.ids.length, 0) });
   });
   route("POST", "/api/clean/scalvs", async (ctx) => {
@@ -724,8 +724,8 @@ export function createMailApp(deps: MailAppDeps) {
     const s = suggestions.get(cidValue);
     const pick = s?.list.find((x) => x.id === str(ctx.body.id, 80));
     if (!s || !pick) throw new HttpError(404, "That suggestion is gone. Ask SCALVS again.");
-    if (pick.kind === "mute" && pick.email) mail.muteSender(cidValue, pick.email);
-    else if (pick.kind !== "mute") mail.applyClean(cidValue, [{ kind: pick.kind, ids: pick.ids, reason: pick.reason }], pick.source === "scalvs" ? "scalvs" : "you");
+    if (pick.kind === "mute" && pick.email) await mail.muteSender(cidValue, pick.email);
+    else if (pick.kind !== "mute") await mail.applyClean(cidValue, [{ kind: pick.kind, ids: pick.ids, reason: pick.reason }], pick.source === "scalvs" ? "scalvs" : "you");
     s.list = s.list.filter((x) => x.id !== pick.id);
     return withState(cidValue);
   });
@@ -740,7 +740,7 @@ export function createMailApp(deps: MailAppDeps) {
   });
   route("POST", "/api/clean/mute", async (ctx) => {
     need(ctx, "email");
-    mail.muteSender(me(ctx), str(ctx.body.email, 200));
+    await mail.muteSender(me(ctx), str(ctx.body.email, 200));
     return withState(me(ctx));
   });
   route("POST", "/api/clean/unmute", async (ctx) => {

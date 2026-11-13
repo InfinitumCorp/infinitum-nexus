@@ -218,7 +218,7 @@ export class Workspace {
         list = all.filter((i) => i.owner === cid && i.parent === null && !i.trashedAt).sort(sort);
       }
     }
-    const usage = this.d.quota.usage(cid);
+    const usage = await this.d.quota.usage(cid);
     return { view, folder, path: this.path(cid, folder), items: await Promise.all(list.map((i) => this.view(cid, i))), usage };
   }
 
@@ -246,13 +246,13 @@ export class Workspace {
     const doc = content !== undefined && validDoc(kind, content) ? content : emptyDoc(kind);
     const bytes = new TextEncoder().encode(JSON.stringify(doc));
     if (bytes.byteLength > MAX_DOC_BYTES) throw new DriveError(413, "too_large", "That document is too large.");
-    this.d.quota.charge(cid, "cloud", bytes.byteLength);
+    await this.d.quota.charge(cid, "cloud", bytes.byteLength);
     const item = this.add(cid, { parent: p, name: cleanName(name, EXT[kind]), kind, size: bytes.byteLength, type: "application/json" });
     try {
       await this.bucket().put(blobKey(item), bytes, "application/json");
     } catch (err) {
       this.items.delete(item.id);
-      this.d.quota.release(cid, "cloud", bytes.byteLength);
+      await this.d.quota.release(cid, "cloud", bytes.byteLength);
       throw err;
     }
     return await this.view(cid, item);
@@ -261,13 +261,13 @@ export class Workspace {
   async upload(cid: string, name: unknown, parent: string | null | undefined, data: Uint8Array, type: string) {
     if (data.byteLength > MAX_UPLOAD_BYTES) throw new DriveError(413, "too_large", "Files up to 50 MB can be uploaded here.");
     const p = this.folder(cid, parent);
-    this.d.quota.charge(cid, "cloud", data.byteLength);
+    await this.d.quota.charge(cid, "cloud", data.byteLength);
     const item = this.add(cid, { parent: p, name: cleanName(name, "file"), kind: "file", size: data.byteLength, type });
     try {
       await this.bucket().put(blobKey(item), data, type);
     } catch (err) {
       this.items.delete(item.id);
-      this.d.quota.release(cid, "cloud", data.byteLength);
+      await this.d.quota.release(cid, "cloud", data.byteLength);
       throw err;
     }
     return await this.view(cid, item);
@@ -308,13 +308,13 @@ export class Workspace {
     const bytes = new TextEncoder().encode(JSON.stringify(doc));
     if (bytes.byteLength > MAX_DOC_BYTES) throw new DriveError(413, "too_large", "That document is too large to save (8 MB at most).");
     const delta = bytes.byteLength - item.size;
-    if (delta > 0) this.d.quota.charge(item.owner, "cloud", delta);
-    else if (delta < 0) this.d.quota.release(item.owner, "cloud", -delta);
+    if (delta > 0) await this.d.quota.charge(item.owner, "cloud", delta);
+    else if (delta < 0) await this.d.quota.release(item.owner, "cloud", -delta);
     try {
       await this.bucket().put(blobKey(item), bytes, "application/json");
     } catch (err) {
-      if (delta > 0) this.d.quota.release(item.owner, "cloud", delta);
-      else if (delta < 0) this.d.quota.charge(item.owner, "cloud", -delta);
+      if (delta > 0) await this.d.quota.release(item.owner, "cloud", delta);
+      else if (delta < 0) await this.d.quota.charge(item.owner, "cloud", -delta);
       throw err;
     }
     item.size = bytes.byteLength;
@@ -357,7 +357,7 @@ export class Workspace {
     for (let i = 0; i < doomed.length; i++) for (const c of this.items.values()) if (c.parent === doomed[i]!.id) doomed.push(c);
     for (const d of doomed) {
       this.items.delete(d.id);
-      if (d.size) this.d.quota.release(d.owner, "cloud", d.size);
+      if (d.size) await this.d.quota.release(d.owner, "cloud", d.size);
       if (d.kind !== "folder") await this.d.files?.delete?.(blobKey(d)).catch(() => undefined);
     }
     return { removed: doomed.length };

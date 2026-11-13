@@ -150,11 +150,11 @@ describe("shared 15 GB free tier", () => {
     const { suite } = setup();
     const a = (await signUp(suite, "alex")).account;
     await suite.mail.send(a.cid, { to: "alex@cumuluscloud.app", subject: "Note to self", body: "x".repeat(10_000) });
-    suite.cloud.put("video.mp4", a.cid, 14.99 * GB);
-    const usage = suite.quota.usage(a.cid);
+    await suite.cloud.put("video.mp4", a.cid, 14.99 * GB);
+    const usage = await suite.quota.usage(a.cid);
     assert.ok(usage.byProduct.mail > 0 && usage.byProduct.cloud > 0);
     assert.equal(usage.limitBytes, 15 * GB);
-    assert.throws(() => suite.cloud.put("more.bin", a.cid, 0.1 * GB), QuotaError);
+    await assert.rejects(suite.cloud.put("more.bin", a.cid, 0.1 * GB), QuotaError);
     await assert.rejects(suite.mail.send(a.cid, { to: "alex@cumuluscloud.app", subject: "Big", body: "x".repeat(20_000_000) }), (e: unknown) => e instanceof MailError && e.code === "quota_exceeded");
   });
 
@@ -162,7 +162,7 @@ describe("shared 15 GB free tier", () => {
     const { suite } = setup();
     const a = (await signUp(suite, "alex")).account;
     const b = (await signUp(suite, "leah")).account;
-    suite.cloud.put("odin-briefing.pdf", a.cid, 2_000_000);
+    await suite.cloud.put("odin-briefing.pdf", a.cid, 2_000_000);
     await suite.shareFile(a.cid, "odin-briefing.pdf", "leah@cumuluscloud.app");
     const notice = inbox(suite, b.cid).find((m) => m.system === "cloud");
     assert.match(notice!.subject, /alex@cumuluscloud\.app shared “odin-briefing\.pdf”/);

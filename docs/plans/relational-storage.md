@@ -1,7 +1,8 @@
 # Plan: relational storage for Cumulus://ID, Mail, Wallet and Quota
 
-Status: proposal. Nothing here is implemented yet. One decision is needed before work starts (see
-[Decision needed](#decision-needed)).
+Status: built (2026-11-13). Every store has a repository with Postgres and gateway implementations; the
+switches are settings (`CUMULUS_STORE`, `CUMULUS_ROWS`) that are off until set. What is live and what
+still needs a person is in the Status section below. The original proposal follows it.
 
 ## Status (2026-11-13)
 
@@ -50,9 +51,13 @@ What still needs a person (or a connector this session didn't have):
    `select cumulus_id.refresh_from_document()` just before that deploy goes live.
 2. **Cloudflare**: the GitHub organization secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`, so
    the auto-deploy workflows can ship any of this.
-3. **Yandex**: after #192 is merged and its commit is pinned in cumulus-id-ru (`SHA`), run
-   `ssh cumulus-id-russia 'bash -s' < scripts/setup.sh`.
-4. **id.cumuluscloud.app** keeps its state in a Cloudflare Durable Object, not Supabase; moving it means
+3. **Yandex**: mark InfinitumCorp/cumulus-id-ru#1 ready and merge it (#192's commit is pinned there), then
+   run `ssh cumulus-id-russia 'bash -s' < scripts/setup.sh`.
+4. **Supabase, Mail/Wallet/Quota rows**: apply `20261115_cumulus_rows_wallet_quota.sql` (it also adds a
+   per-key lock to the live `cumulus_id.apply`) and `20261116_cumulus_rows_mail.sql`; then, with the
+   Cloudflare secrets in place, run `cumulus_rows.refresh_from_documents()` and
+   `cumulus_rows.refresh_mail_from_document()` right before deploying `CUMULUS_ROWS=mail,wallet,quota`.
+5. **id.cumuluscloud.app** keeps its state in a Cloudflare Durable Object, not Supabase; moving it means
    reading that object, which needs Cloudflare access.
 
 ## Problem

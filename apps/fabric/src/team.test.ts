@@ -276,3 +276,48 @@ test("reminder and search query parsing", () => {
   assert.equal(q.after, "2026-11-01T00:00:00.000Z");
   assert.equal(q.before, "2026-11-02T00:00:00.000Z");
 });
+
+test("polls: create, vote, move a single vote, multiple choice, anonymous, close", () => {
+  const t = setup();
+  try {
+    const ws = t.team.createWorkspace(t.alice, "Acme");
+    t.team.joinWorkspace(t.bob, ws.inviteCode);
+    t.team.joinWorkspace(t.cara, ws.inviteCode);
+    const general = t.team.sidebar(t.alice, ws.id).channels.find((c) => c.name === "general")!;
+    assert.throws(() => t.team.createPoll(t.alice, general.id, { question: "Lunch?", options: ["Pizza"] }), status(400));
+    assert.throws(() => t.team.createPoll(t.alice, general.id, { question: "Lunch?", options: ["Pizza", "pizza"] }), status(400));
+    const poll = t.team.createPoll(t.alice, general.id, { question: "Lunch?", options: ["Pizza", "Sushi", "Soup"] });
+    assert.equal(poll.text, "Lunch?");
+    assert.deepEqual(poll.poll!.options.map((o) => o.text), ["Pizza", "Sushi", "Soup"]);
+    // The options are sealed, not stored as plain text.
+    const raw = t.store.database.prepare("SELECT ciphertext FROM team_polls").get() as { ciphertext: string };
+    assert.doesNotMatch(raw.ciphertext, /Sushi/);
+
+    t.team.vote(t.bob, poll.id, 0);
+    let view = t.team.vote(t.bob, poll.id, 1);
+    assert.deepEqual(view.poll!.options.map((o) => o.count), [0, 1, 0], "a single-choice vote moves");
+    assert.equal(view.poll!.options[1]!.mine, true);
+    view = t.team.vote(t.cara, poll.id, 1);
+    assert.deepEqual(view.poll!.options[1]!.voters, ["Bob", "Cara"]);
+    assert.equal(view.poll!.voters, 2);
+    view = t.team.vote(t.cara, poll.id, 1);
+    assert.equal(view.poll!.options[1]!.count, 1, "voting again takes the vote back");
+    assert.throws(() => t.team.vote(t.bob, poll.id, 7), status(400));
+    assert.throws(() => t.team.closePoll(t.bob, poll.id), status(403));
+    assert.equal(t.team.closePoll(t.alice, poll.id).poll!.closed, true);
+    assert.throws(() => t.team.vote(t.cara, poll.id, 0), status(400));
+    assert.ok(t.events.some((e) => e.event.type === "poll" && e.event.messageId === poll.id));
+
+    const multi = t.team.send(t.alice, general.id, { text: '/poll "Which days?" "Mon" "Tue" "Wed" --multiple --anonymous' }).message!;
+    t.team.vote(t.bob, multi.id, 0);
+    view = t.team.vote(t.bob, multi.id, 2);
+    assert.deepEqual(view.poll!.options.map((o) => o.count), [1, 0, 1]);
+    assert.deepEqual(view.poll!.options[0]!.voters, [], "anonymous polls hide who voted");
+    assert.equal(view.poll!.anonymous, true);
+    assert.throws(() => t.team.send(t.alice, general.id, { text: "/poll just a question" }), status(400));
+    t.team.remove(t.alice, multi.id);
+    assert.throws(() => t.team.vote(t.bob, multi.id, 0), status(404));
+  } finally {
+    t.close();
+  }
+});

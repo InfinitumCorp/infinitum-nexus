@@ -23,6 +23,7 @@ import {
   type FileRow,
   type GroupRow,
   type MemberRow,
+  type PollRow,
   type ReminderRow,
   type Role,
   type ScheduledRow,
@@ -38,6 +39,8 @@ export const TEAM_LIMITS = {
   page: 50,
   searchScan: 5000,
   activeWindowMs: 5 * 60_000,
+  pollOptions: 10,
+  pollOption: 120,
 };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -133,6 +136,19 @@ export interface MessageView {
   saved: boolean;
   files: FileView[];
   mentions: string[];
+  /** A poll attached to this message; the message text is its question. */
+  poll: PollView | null;
+  /** The app (webhook or workflow) that posted this on its creator's behalf. */
+  app: { id: string; name: string } | null;
+}
+
+export interface PollView {
+  options: { text: string; count: number; voters: string[]; mine: boolean }[];
+  anonymous: boolean;
+  multiple: boolean;
+  closed: boolean;
+  /** Number of people who voted. */
+  voters: number;
 }
 
 export interface SendResult {
@@ -1144,6 +1160,14 @@ export class TeamService {
         return { ephemeral: name === "mute" ? "Channel muted." : "Channel unmuted." };
       case "who":
         return { ephemeral: `In ${channelLabel(channel)}: ${this.channelPeople(me, channelId).map((p) => `@${p.username}`).join(", ")}` };
+      case "poll": {
+        const flags = { anonymous: /(^|\s)--anonymous(?=\s|$)/i.test(rest), multiple: /(^|\s)--multiple(?=\s|$)/i.test(rest) };
+        const body = rest.replace(/(^|\s)--(anonymous|multiple)(?=\s|$)/gi, " ").trim();
+        const quoted = [...body.matchAll(/"([^"]+)"|\u201c([^\u201d]+)\u201d/g)].map((m) => (m[1] ?? m[2] ?? "").trim()).filter(Boolean);
+        const parts = quoted.length >= 3 ? quoted : body.split("|").map((p) => p.trim()).filter(Boolean);
+        if (parts.length < 3) throw fail(400, 'usage: /poll "Question" "Option" "Option" [--anonymous] [--multiple]');
+        return { message: this.createPoll(me, channelId, { question: parts[0], options: parts.slice(1), ...flags }) };
+      }
       case "help":
         return { ephemeral: HELP };
       default:
@@ -1151,17 +1175,79 @@ export class TeamService {
     }
   }
 
+  // ---------- polls ----------
+
+  /** Post a poll. The question is the message text, so it is searchable and notifies like any message. */
+  createPoll(me: FabricIdentity, channelId: string, input: { question?: unknown; options?: unknown; anonymous?: unknown; multiple?: unknown }): MessageView {
+    const question = label(input.question, "question", 300);
+    if (!Array.isArray(input.options)) throw fail(400, "options are required");
+    const options = input.options.map((o) => (typeof o === "string" ? o.replace(/[\u0000-\u001f\u007f]/g, "").trim() : "")).filter(Boolean);
+    if (options.length < 2 || options.length > TEAM_LIMITS.pollOptions) throw fail(400, `a poll needs 2 to ${TEAM_LIMITS.pollOptions} options`);
+    if (options.some((o) => o.length > TEAM_LIMITS.pollOption)) throw fail(400, `an option can be up to ${TEAM_LIMITS.pollOption} characters`);
+    if (new Set(options.map((o) => o.toLowerCase())).size !== options.length) throw fail(400, "each option must be different");
+    const { channel } = this.writable(me, channelId);
+    const id = randomUUID();
+    const result = this.insertMessage(channel, me.sub, question, {
+      id, parent: null, alsoInChannel: false, fileIds: [],
+      extra: (now) => this.store.insert("team_polls", {
+        messageId: id, channelId: channel.id, ciphertext: seal(JSON.stringify(options), this.key(channel), pollAad(channel.id, id)),
+        anonymous: input.anonymous === true ? 1 : 0, multiple: input.multiple === true ? 1 : 0, createdAt: now,
+      }),
+    });
+    return this.view(me, result.row);
+  }
+
+  /** Vote for option `choice` (0-based), or take the vote back. A single-choice poll moves the vote. */
+  vote(me: FabricIdentity, messageId: string, choice: unknown, on?: boolean): MessageView {
+    const row = this.message(messageId);
+    const { channel } = this.writable(me, row.channelId);
+    const poll = row.deletedAt ? null : this.store.one<PollRow>("SELECT * FROM team_polls WHERE message_id = ?", row.id);
+    if (!poll) throw fail(404, "poll not found");
+    if (poll.closedAt) throw fail(400, "this poll is closed");
+    const count = this.pollOptions(channel, poll).length;
+    if (typeof choice !== "number" || !Number.isInteger(choice) || choice < 0 || choice >= count) throw fail(400, "no such option");
+    const has = !!this.store.one("SELECT choice FROM team_poll_votes WHERE message_id = ? AND sub = ? AND choice = ?", row.id, me.sub, choice);
+    const want = on ?? !has;
+    this.store.tx(() => {
+      if (want && !has) {
+        if (!poll.multiple) this.store.run("DELETE FROM team_poll_votes WHERE message_id = ? AND sub = ?", row.id, me.sub);
+        this.store.insert("team_poll_votes", { messageId: row.id, sub: me.sub, choice, createdAt: this.stamp() });
+      }
+      if (!want && has) this.store.run("DELETE FROM team_poll_votes WHERE message_id = ? AND sub = ? AND choice = ?", row.id, me.sub, choice);
+    });
+    this.publish(this.channelSubs(channel.id), { type: "poll", workspaceId: channel.workspaceId, channelId: channel.id, messageId: row.id, parentId: row.parentId });
+    return this.view(me, row);
+  }
+
+  /** Close a poll so no one can vote. The person who asked, or an admin. */
+  closePoll(me: FabricIdentity, messageId: string): MessageView {
+    const row = this.message(messageId);
+    const { channel, ws } = this.readable(me, row.channelId);
+    const poll = row.deletedAt ? null : this.store.one<PollRow>("SELECT * FROM team_polls WHERE message_id = ?", row.id);
+    if (!poll) throw fail(404, "poll not found");
+    if (row.sender !== me.sub && !isAdmin(ws.role)) throw fail(403, "only the person who asked or an admin can close a poll");
+    if (!poll.closedAt) {
+      this.store.run("UPDATE team_polls SET closed_at = ? WHERE message_id = ?", this.stamp(), row.id);
+      this.publish(this.channelSubs(channel.id), { type: "poll", workspaceId: channel.workspaceId, channelId: channel.id, messageId: row.id, parentId: row.parentId });
+    }
+    return this.view(me, row);
+  }
+
   // ---------- internals ----------
 
-  private insertMessage(channel: ChannelRow, sender: string, text: string, opts: { id: string; parent: TeamMessageRow | null; alsoInChannel: boolean; fileIds: string[] }): { row: TeamMessageRow; notInChannel: string[] } {
+  private insertMessage(
+    channel: ChannelRow, sender: string, text: string,
+    opts: { id: string; parent: TeamMessageRow | null; alsoInChannel: boolean; fileIds: string[]; app?: { id: string; name: string }; extra?: (now: string) => void },
+  ): { row: TeamMessageRow; notInChannel: string[] } {
     const now = this.stamp();
     const row: TeamMessageRow = {
       id: opts.id, channelId: channel.id, sender, ciphertext: seal(text, this.key(channel), messageAad(channel.id, opts.id)),
       parentId: opts.parent?.id ?? null, createdAt: now, editedAt: null, deletedAt: null, replyCount: 0, lastReplyAt: null,
-      alsoInChannel: opts.alsoInChannel ? 1 : 0, kind: "user",
+      alsoInChannel: opts.alsoInChannel ? 1 : 0, kind: "user", appId: opts.app?.id ?? null, appName: opts.app?.name ?? null,
     };
     const notInChannel = this.store.tx(() => {
       this.store.insert("team_messages", row);
+      opts.extra?.(now);
       for (const f of opts.fileIds) this.store.run("UPDATE team_files SET message_id = ? WHERE id = ?", row.id, f);
       if (opts.parent) this.store.run("UPDATE team_messages SET reply_count = reply_count + 1, last_reply_at = ? WHERE id = ?", now, opts.parent.id);
       if (!opts.parent || opts.alsoInChannel) this.store.run("UPDATE team_channels SET last_message_at = ? WHERE id = ?", now, channel.id);
@@ -1484,7 +1570,39 @@ export class TeamService {
       saved: !!this.store.one("SELECT message_id FROM team_saved WHERE message_id = ? AND sub = ?", row.id, me.sub),
       files: this.store.all<FileRow>("SELECT * FROM team_files WHERE message_id = ? ORDER BY created_at", row.id).map(fileView),
       mentions: this.store.all<{ sub: string }>("SELECT sub FROM team_mentions WHERE message_id = ?", row.id).map((m) => m.sub),
+      poll: row.deletedAt ? null : this.pollView(me, channel, row.id),
+      app: row.appId ? { id: row.appId, name: row.appName ?? "App" } : null,
     };
+  }
+
+  private pollView(me: FabricIdentity, channel: ChannelRow, messageId: string): PollView | null {
+    const poll = this.store.one<PollRow>("SELECT * FROM team_polls WHERE message_id = ?", messageId);
+    if (!poll) return null;
+    let texts: string[];
+    try {
+      texts = this.pollOptions(channel, poll);
+    } catch {
+      return null;
+    }
+    const votes = this.store.all<{ sub: string; choice: number }>("SELECT sub, choice FROM team_poll_votes WHERE message_id = ? ORDER BY created_at", messageId);
+    return {
+      options: texts.map((text, i) => {
+        const subs = votes.filter((v) => v.choice === i).map((v) => v.sub);
+        return {
+          text, count: subs.length, mine: subs.includes(me.sub),
+          voters: poll.anonymous ? [] : subs.slice(0, 50).map((s) => this.person(channel.workspaceId, s).displayName),
+        };
+      }),
+      anonymous: !!poll.anonymous,
+      multiple: !!poll.multiple,
+      closed: !!poll.closedAt,
+      voters: new Set(votes.map((v) => v.sub)).size,
+    };
+  }
+
+  private pollOptions(channel: ChannelRow, poll: PollRow): string[] {
+    const parsed: unknown = JSON.parse(open(poll.ciphertext, this.key(channel), pollAad(channel.id, poll.messageId)));
+    return Array.isArray(parsed) ? parsed.map(String) : [];
   }
 
   private scheduledView(me: FabricIdentity, row: ScheduledRow): ScheduledView {
@@ -1505,6 +1623,7 @@ const HELP = [
   "/invite @a @b · /kick @a · /join #channel · /leave · /archive · /who",
   "/dm @person message · /remind me to [what] in 10m | at 15:00 | tomorrow",
   "/status :emoji: text | clear · /away · /active · /dnd 30m | off · /mute · /unmute",
+  '/poll "Question" "Option" "Option" [--anonymous] [--multiple]',
 ].join("\n");
 
 function isAdmin(role: Role): boolean {
@@ -1597,6 +1716,7 @@ function messageAad(channelId: string, id: string): string { return `fabric-team
 function fileAad(channelId: string, id: string): string { return `fabric-team-file:${channelId}:${id}`; }
 function canvasAad(channelId: string): string { return `fabric-team-canvas:${channelId}`; }
 function reminderAad(id: string): string { return `fabric-team-reminder:${id}`; }
+function pollAad(channelId: string, id: string): string { return `fabric-team-poll:${channelId}:${id}`; }
 
 /** "10m", "2 hours", "1d" → milliseconds. */
 export function duration(text: string): number | null {

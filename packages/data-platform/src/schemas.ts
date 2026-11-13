@@ -16,6 +16,8 @@ export interface FieldSpec {
   required?: boolean;
   /** Upper bound for strings (characters) or numbers. */
   max?: number;
+  /** The only value this field may take, e.g. `filtered: true`. */
+  equals?: string | number | boolean;
 }
 
 export interface EventContract {
@@ -80,6 +82,12 @@ export const FORBIDDEN_FIELDS: ReadonlySet<string> = new Set([
   "longitude",
   "url",
   "history",
+  "geohash",
+  "plus_code",
+  "location",
+  "coordinates",
+  "media",
+  "raw",
 ]);
 
 const media: FieldSpec = { type: "media_type" };
@@ -253,6 +261,55 @@ export const CONTRACTS: Record<string, ProductContract> = {
       },
     },
   },
+  hrvst: {
+    product: "hrvst",
+    // Harvest capture is personal by nature: nothing is collected until the person opts in.
+    optInOnly: true,
+    events: {
+      "packet.created": {
+        description:
+          "A Harvest Packet passed the privacy filter. Media, text and location samples never leave HRVST; only this metadata.",
+        fields: {
+          media_type: { ...media, required: true },
+          size_bytes: { type: "integer", max: 1e11 },
+          filtered: { type: "boolean", required: true, equals: true },
+          provenance_ref: { type: "id" },
+        },
+        purposes: ["service_operation", "product_analytics", "exchange_licensing"],
+        classification: "confidential",
+        retentionDays: 365,
+        requiresObject: true,
+        requiresSubject: true,
+      },
+      "packet.kept": {
+        description: "The owner kept a packet in their Personal Silo instead of licensing it.",
+        fields: {},
+        purposes: ["service_operation", "product_analytics"],
+        classification: "confidential",
+        retentionDays: 365,
+        requiresObject: true,
+        requiresSubject: true,
+      },
+      "packet.licensed": {
+        description: "The owner licensed a packet. Settlement details stay with Exchange and FIRM.",
+        fields: { license_terms: { type: "string", required: true, max: 32 }, licensee_id: { type: "id", required: true } },
+        purposes: ["billing", "exchange_licensing"],
+        classification: "confidential",
+        retentionDays: 3650,
+        requiresObject: true,
+        requiresSubject: true,
+      },
+      "packet.deleted": {
+        description: "The owner withdrew a packet. Propagates to every derived table and index.",
+        fields: {},
+        purposes: ["service_operation", "product_analytics", "exchange_licensing", "billing"],
+        classification: "confidential",
+        retentionDays: 365,
+        requiresObject: true,
+        requiresSubject: true,
+      },
+    },
+  },
   metatron: {
     product: "metatron",
     events: {
@@ -318,6 +375,10 @@ export function checkPayload(contract: EventContract, payload: Payload): Problem
       continue;
     }
     const bad = (m: string) => problems.push({ field, message: m });
+    if (spec.equals !== undefined && value !== spec.equals) {
+      bad(`must be ${String(spec.equals)}`);
+      continue;
+    }
     switch (spec.type) {
       case "string":
         if (typeof value !== "string") bad("must be a string");

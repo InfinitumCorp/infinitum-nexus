@@ -9,7 +9,7 @@ export function open({ root, item, doc, share }) {
   try { document.execCommand("styleWithCSS", false, false); document.execCommand("defaultParagraphSeparator", false, "p"); } catch {}
 
   const count = el("div", { class: "dox-count", "aria-live": "off" });
-  const recount = () => { const words = (page.innerText.match(/\S+/g) || []).length; count.textContent = `${words} word${words === 1 ? "" : "s"}`; };
+  const recount = () => { const words = (page.innerText.match(/\S+/g) || []).length; count.textContent = words === 1 ? "1 word" : `${words} words`; };
 
   const exportHtml = () => saveFile(`${item.name}.html`, `<!doctype html><meta charset="utf-8"><title>${escapeHtml(item.name)}</title><body style="font-family:Helvetica,Arial,sans-serif;max-width:720px;margin:48px auto;line-height:1.6">${sanitize(page.innerHTML)}</body>`, "text/html");
   const exportText = () => saveFile(`${item.name}.txt`, page.innerText, "text/plain");

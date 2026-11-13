@@ -11,12 +11,12 @@ running code is in [`infra/data-platform/`](../../infra/data-platform/README.md)
 
 | # | Project | Decision | License | Where it runs | In this branch |
 |---|---|---|---|---|---|
-| 1 | LinkedIn DataHub | **Adopt now** | Apache-2.0 | Dev: pinned quickstart. Hosted: US servers, metadata only | Quickstart script, ingestion recipes, `CatalogService` contract |
+| 1 | LinkedIn DataHub | **Adopt now** | Apache-2.0 | Dev: pinned quickstart. Hosted: US servers, metadata only | Quickstart script, ingestion recipes, `CatalogService` pushing specs to DataHub |
 | 2 | Microsoft Presidio | **Adopt now** | MIT | Inside the privacy gateway, next to each data region | Redaction for analytics, AI and Exchange, with tests |
 | 3 | AWS Deequ | **Defer** (no Spark yet). Use its check vocabulary now | Apache-2.0 | Later: the Spark lakehouse jobs | Deequ-style quality suites in the gateway, with tests |
 | 4 | Apache Hudi (Uber) | **Defer** | Apache-2.0 | Later: lakehouse tables on object storage | Design notes only |
 | 5 | Apache Superset (Airbnb) | **Adopt now** | Apache-2.0 | Dev: compose profile `bi`. Hosted: US servers, reading EU data | Image with Cumulus ID sign-in and embedding config |
-| 6 | Elasticsearch | **Replace with OpenSearch** | Elasticsearch: AGPL-3.0 / SSPL / Elastic License 2.0. OpenSearch: Apache-2.0 | Dev: compose. Hosted: next to each data region | OpenSearch with the events index template, `SearchService` contract |
+| 6 | Elasticsearch | **Replace with OpenSearch** | Elasticsearch: AGPL-3.0 / SSPL / Elastic License 2.0. OpenSearch: Apache-2.0 | Dev: compose. Hosted: next to each data region | OpenSearch with the events index template; `CollectionService` and `SearchService` |
 | 7 | Netflix Metacat | **Evaluate only**. Do not run alongside DataHub | Apache-2.0 | Not deployed | Comparison below |
 | 8 | Google Differential Privacy | **Adopt now** for outbound aggregate releases | Apache-2.0 | Inside the privacy gateway | DP count and sum with a privacy budget, with tests |
 | 9 | Meta Opacus | **Defer** until a model trains on personal data | Apache-2.0 | Later: training jobs | Criteria below |
@@ -83,7 +83,9 @@ so the catalog and the redaction policy cannot drift apart.
   password, and Superset here accepts only Cumulus ID. It is deferred until Cumulus ID can issue
   a service (client-credentials) token that Superset accepts. The `CatalogService` server
   (`PUT /datasets/{name}` writing to DataHub through its REST emitter) is defined in Conjure
-  but not implemented yet.
+  is implemented: specs are saved locally first, then pushed as DataHub aspects (properties,
+  ownership, classification tags per field, schema, lineage, glossary terms). The manual DataHub
+  CI job pushes a spec and reads it back from GMS.
 - **Hosting:** to decide later. Self-host (Kafka, MySQL and OpenSearch, about 3 small VMs) or use
   Acryl's paid DataHub Cloud. Either needs William's OK, because both cost money.
 
@@ -169,8 +171,9 @@ with the same query DSL, so we use it.
   plugin is off locally only.
 - [`search/events-template.json`](../../infra/data-platform/search/events-template.json)
   defines the strict mapping: tenant, product, event type, object, time, a `text` field and a
-  `flat_object` payload. Products search through `SearchService`. The server filters on the
-  caller's tenant, and each tenant has its own filtered alias.
+  `flat_object` payload. Products search through `SearchService`. The server always adds the
+  tenant filter and the caller's product, so a product's token can never read another
+  product's events. The search token is a page cursor (`search_after`), not an offset.
 - What gets indexed is the redacted event (`prepareExport(ANALYTICS)` output), not the raw one.
 - Hosted: self-host next to each data region, or use AWS OpenSearch Service in us-east-2. The
   AWS option would put EU data in the US, so only metadata-free indexes could go there. That
@@ -236,9 +239,15 @@ When we adopt it, pin Opacus with PyTorch, set a target epsilon of 8 or less wit
 | Service | Base path | Implemented |
 |---|---|---|
 | `PrivacyGatewayService` (redact, prepareExport, verifyQuality, releaseDp) | `/api/v1` | Yes, in `privacy-gateway`. A contract test checks routes and response fields against the YAML |
-| `CollectionService` (ingest events) | `/api/v1/collect` | Contract only. The collection gateway in `packages/data-platform` (other branch) should adopt it |
-| `CatalogService` (register and get datasets in DataHub) | `/api/v1/catalog` | Contract only |
-| `SearchService` (search events in OpenSearch) | `/api/v1/search` | Contract only |
+| `CollectionService` (ingest events) | `/api/v1/collect` | Yes. Checks each event against its registered schema, product and region, redacts the payload with the dataset's field rules, and indexes it idempotently by `eventId` |
+| `CatalogService` (register and get datasets in DataHub) | `/api/v1/catalog` | Yes. A product registers and reads only its own datasets |
+| `SearchService` (search events: Postgres full-text on the free tier, or OpenSearch) | `/api/v1/search` | Yes. Tenant and product filters are added on the server |
+| `ErasureService` (right to erasure by Cumulus ID) | `/api/v1/erasure` | Yes. A product erases its own events; the pipeline token erases across products |
+
+Products call these three with their own token (`PLATFORM_PRODUCT_TOKENS`), which decides
+which product's data a caller can touch. The privacy endpoints keep their separate pipeline
+token. Military and defense products are refused at collection. The TS collection gateway in
+`packages/data-platform` (other branch) should forward to `CollectionService`.
 
 CI compiles the definitions with the official `conjure` 4.66.0 compiler, with its checksum
 pinned, into Conjure IR. Client generators are the next step: `conjure-typescript` for
@@ -257,8 +266,12 @@ Exchange or to analytics.
 
 ## Decisions for William
 
-1. **Hosting for DataHub, Superset and OpenSearch.** The options are self-hosted VMs or the
-   managed versions (Acryl DataHub Cloud, AWS OpenSearch Service, Preset). All of them cost
-   money, so nothing has been created.
+1. **Hosting.** There is a $0 plan in [FREE-HOSTING.md](FREE-HOSTING.md):
+   - Events, search, the catalog and the DP budget go in the existing Supabase project in Ireland.
+   - The gateway and Superset run on the self-hosted box, behind a free Cloudflare Tunnel.
+   - DataHub runs on demand.
+
+   The managed options (Acryl DataHub Cloud, AWS OpenSearch Service, Preset) still cost money.
+   Nothing has been created yet: the production steps wait for William's OK.
 2. **Spark lakehouse (Hudi + Deequ).** Deferred until data volume or erasure needs justify it.
 3. **Russian NER model** for Presidio on RU tenants.

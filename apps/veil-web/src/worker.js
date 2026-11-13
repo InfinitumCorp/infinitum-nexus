@@ -223,9 +223,38 @@ async function stackOverflow(q, offset, key) {
   return res && fromStackOverflow(await res.json(), offset, q);
 }
 
+// ---------------- Downloads ----------------
+
+/** The R2 key for a download path (/downloads/<name>.apk), or null. */
+export function downloadKey(pathname) {
+  const m = /^\/downloads\/([A-Za-z0-9][A-Za-z0-9._-]*\.apk)$/.exec(pathname);
+  return m ? m[1] : null;
+}
+
+/**
+ * The Android app, from the private R2 bucket veil-downloads (binding DOWNLOADS). It is
+ * too big for a static asset (25 MiB cap, and large asset uploads fail), so it isn't in public/.
+ */
+async function download(request, env, key) {
+  if (request.method !== "GET" && request.method !== "HEAD") return new Response("Use GET", { status: 405 });
+  const obj = request.method === "HEAD" ? await env.DOWNLOADS.head(key) : await env.DOWNLOADS.get(key);
+  if (!obj) return new Response("Not found", { status: 404, headers: { "Content-Type": "text/plain" } });
+  const headers = new Headers({
+    "Content-Type": "application/vnd.android.package-archive",
+    "Content-Disposition": `attachment; filename="${key}"`,
+    "Content-Length": String(obj.size),
+    "Cache-Control": "public, max-age=300",
+    "ETag": obj.httpEtag,
+    "X-Content-Type-Options": "nosniff",
+  });
+  return new Response(request.method === "HEAD" ? null : obj.body, { headers });
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+    const key = downloadKey(url.pathname);
+    if (key && env?.DOWNLOADS) return download(request, env, key);
     if (url.pathname === "/api/search" || url.pathname === "/api/ask") {
       if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: HEADERS });
       if (request.method !== "POST") return json({ error: "Use POST" }, 405);

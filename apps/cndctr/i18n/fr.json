@@ -21,5 +21,10 @@
   "Signed in as": "Connecté en tant que",
   "Summarize the launch and list the open questions": "Résumer le lancement et lister les questions en suspens",
   "Verified": "Vérifié",
-  "Write an intent and Conductor plans a score, runs it, and records the performance. Sign in with your Cumulus ID. Rehearsal is the default.": "Écrivez une intention et Conductor planifie une partition, l’exécute et enregistre la performance. Connectez‑vous avec votre Cumulus ID. La répétition est le mode par défaut."
+  "Write an intent and Conductor plans a score, runs it, and records the performance. Sign in with your Cumulus ID. Rehearsal is the default.": "Écrivez une intention et Conductor planifie une partition, l’exécute et enregistre la performance. Connectez‑vous avec votre Cumulus ID. La répétition est le mode par défaut.",
+  "Deutsch": "Deutsch",
+  "English": "English",
+  "Español": "Español",
+  "Français": "Français",
+  "Português": "Português"
 }

@@ -10,7 +10,7 @@
  * history. That is what deletion propagation needs.
  */
 import { randomUUID } from "node:crypto";
-import type { ObjectStore } from "./storage.ts";
+import { isConditional, PreconditionFailed, type ObjectStore } from "./storage.ts";
 
 export type Row = Record<string, unknown>;
 
@@ -56,22 +56,62 @@ export class Table {
   }
 
   /** Serializes commits inside this process. Cross-process writers need a CAS-capable store. */
-  private exclusive<T>(fn: () => Promise<T>): Promise<T> {
+  private exclusive<T>(op: () => Promise<T>): Promise<T> {
+    const fn = async (): Promise<T> => {
+      for (let attempt = 0; ; attempt++) {
+        try {
+          return await op();
+        } catch (e) {
+          if (!(e instanceof PreconditionFailed) || attempt >= 7) throw e;
+          await new Promise((r) => setTimeout(r, 5 * 2 ** attempt * Math.random()));
+        }
+      }
+    };
     const run = this.lock.then(fn, fn);
     this.lock = run.catch(() => undefined);
     return run;
   }
 
+  /** Etag of the metadata last read inside the current commit (null = table did not exist). */
+  private readEtag: string | null = null;
+
   async metadata(): Promise<TableMetadata> {
-    const bytes = await this.store.get(`${this.prefix}/metadata.json`);
-    if (!bytes) {
-      return { format_version: 1, table: this.name, schema_version: "1.0", last_sequence: 0, current_snapshot_id: null, snapshots: [] };
-    }
-    return JSON.parse(dec.decode(bytes)) as TableMetadata;
+    return (await this.load()).meta;
   }
 
+  /** Reads metadata for a commit and remembers its etag. Only call inside `exclusive`. */
+  private async loadForCommit(): Promise<TableMetadata> {
+    const { meta, etag } = await this.load();
+    this.readEtag = etag;
+    return meta;
+  }
+
+  private async load(): Promise<{ meta: TableMetadata; etag: string | null }> {
+    const key = `${this.prefix}/metadata.json`;
+    let etag: string | null = null;
+    let bytes: Uint8Array | undefined;
+    if (isConditional(this.store)) {
+      const r = await this.store.getWithEtag(key);
+      bytes = r?.bytes;
+      etag = r?.etag ?? null;
+    } else {
+      bytes = await this.store.get(key);
+    }
+    if (!bytes) {
+      return { meta: { format_version: 1, table: this.name, schema_version: "1.0", last_sequence: 0, current_snapshot_id: null, snapshots: [] }, etag };
+    }
+    return { meta: JSON.parse(dec.decode(bytes)) as TableMetadata, etag };
+  }
+
+  /**
+   * Swaps in new metadata. On a conditional store the swap only succeeds if nobody else
+   * committed since we read; otherwise PreconditionFailed and the operation is retried.
+   */
   private async commit(meta: TableMetadata): Promise<void> {
-    await this.store.put(`${this.prefix}/metadata.json`, enc.encode(JSON.stringify(meta, null, 1)));
+    const key = `${this.prefix}/metadata.json`;
+    const bytes = enc.encode(JSON.stringify(meta, null, 1));
+    if (isConditional(this.store)) await this.store.putIf(key, bytes, this.readEtag);
+    else await this.store.put(key, bytes);
   }
 
   private current(meta: TableMetadata): Snapshot | undefined {
@@ -106,7 +146,7 @@ export class Table {
         if (!g) groups.set(p, (g = []));
         g.push(r);
       }
-      const meta = await this.metadata();
+      const meta = await this.loadForCommit();
       const parent = this.current(meta);
       const added: DataFile[] = [];
       for (const [p, g] of groups) added.push(await this.writeFile(p, g));
@@ -141,7 +181,7 @@ export class Table {
    */
   deleteWhere(predicate: (row: Row) => boolean, reason: string): Promise<number> {
     return this.exclusive(async () => {
-      const meta = await this.metadata();
+      const meta = await this.loadForCommit();
       const snap = this.current(meta);
       if (!snap) return 0;
       let removed = 0;
@@ -180,7 +220,7 @@ export class Table {
   /** Replaces the whole table contents (used to rebuild curated tables). */
   overwrite(rows: Row[], partitionOf: (row: Row) => string, reason: string): Promise<void> {
     return this.exclusive(async () => {
-      const meta = await this.metadata();
+      const meta = await this.loadForCommit();
       const groups = new Map<string, Row[]>();
       for (const r of rows) {
         const p = partitionOf(r);

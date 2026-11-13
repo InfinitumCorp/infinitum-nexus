@@ -20,8 +20,10 @@ product backend ── Collector (sdk.ts) ──signed POST──▶ Gateway (ga
 - **Raw Cumulus IDs are never stored.** The gateway replaces the subject and every `cid` payload field with a tenant-scoped HMAC pseudonym.
 - **The server decides permissions.** A client cannot set `subject_id`, `classification`, `policy_ref` or `received_at`. The gateway derives them from tenancy, policy records and opt-ins.
 - **No content collection.** Contracts list the allowed fields. A fixed denylist rejects content fields such as body, text, password and token. A value-level PII scan rejects personal data that is put into an allowed field.
-- **Each event is stored once.** Deduplication is keyed by (tenant, event_id). SDK retries reuse the same ids, and the Cloud adapter derives ids from (file, version, action).
+- **Each event is stored once, even across servers.** On R2 or S3, each event id is claimed with an atomic create before it is stored, so two gateways can't both store it. A claim left by a crashed writer is taken over after 10 minutes if the event never arrived.
+- **Retries are safe.** Deduplication is keyed by (tenant, event_id). SDK retries reuse the same ids, and the Cloud adapter derives ids from (file, version, action).
 - **Deletion means deletion.** `file.deleted` removes the object from the normalized zone, the curated zone, the ontology, links and the search index. It also expires every older snapshot, so time travel cannot bring the data back. The raw zone keeps only the deletion tombstone.
+- **HRVST is opt-in only and metadata only.** Nothing is collected until the person opts in. Each packet must confirm the privacy filter ran (`filtered: true`). Media, text and location fields (geohash, plus code, coordinates) are refused. Withdrawing a packet purges it from every zone.
 - **Military products are excluded.** AETHER, ARGUS, E(O)N and ODIN are refused by credentials, policy records, `decide()` and a SQL check constraint.
 
 ## Ideas adopted from open-source data platforms
@@ -57,12 +59,21 @@ import { Collector } from "@infinitum/data-platform/sdk";
   - `pseudonymSecret` and the credential secrets come from the secret manager, never from source.
 - **Product backends.** Use `new Collector({ endpoint, keyId, secret, product })`, then call `track(...)` and `flush()`.
   - Browser and mobile clients send through their own backend after Cumulus ID sign-in. They never hold a product credential.
-- **Postgres.** `migrations/0001_ontology_policy.sql` creates the policy records, opt-ins, credential references, the ontology serving tables with row-level security, and the deletion log.
+- **R2 or S3.** Use `new S3ObjectStore({ endpoint, bucket, accessKeyId, secretAccessKey, prefix })` as the `store`.
+  - Requests are signed with SigV4 using only built-in Node APIs; the signer is tested against AWS's published example.
+  - Table commits use conditional writes (`If-Match` / `If-None-Match`), so several gateway instances can share one bucket without losing commits.
+- **Exchange.** `prepareOffer(...)` turns an exportable curated dataset into privacy-protected aggregate counts, never rows.
+  - It is refused unless the catalog marks the dataset exportable and not restricted, its latest quality report passed, and every contributing tenant's policy record allows export.
+- **Postgres.** Pass any `pg`-compatible client; there is no driver dependency.
+  - `PgPolicyRepository` loads and saves policy records and opt-ins. Opt-ins are stored as product-scoped pseudonyms (`optInKeyFor`), never raw Cumulus IDs.
+  - Set `pipeline.mirror = new PgOntologyMirror(client)` to copy every ontology change, including deletions and links, to Postgres in one transaction per batch.
+- **Tenancy.** `new CidTenancy({ membership: (cid) => cidService.organizationMembership(cid) })` answers membership from Cumulus ID. Answers are cached for a minute, so a revoked membership stops collection within a minute.
+- **Postgres schema.** `migrations/0001_ontology_policy.sql` creates the policy records, opt-ins, credential references, the ontology serving tables with row-level security, and the deletion log.
 
 ## Not yet
 
-- R2/S3 `ObjectStore` with conditional writes for multi-writer commits.
 - Parquet data files (the table format already records `file_format`).
-- A Postgres-backed `PolicyService`, ontology store and Cumulus ID tenancy directory.
-- Contracts for the rest of the products' events.
-- Exchange listing of exportable curated datasets.
+- Live Postgres and R2 runs in CI. The Postgres and S3 code is tested against in-memory fakes, and SigV4 against AWS's published example.
+- Publishing offers into `@infinitum/data-exchange` (consent records and revenue share live there).
+- Contracts for the other products' events (ARCHITECT, EIDETIC, SPECTRE and others), defined with each product's owner.
+- Opting out of HRVST stops new collection immediately, but does not yet purge that person's earlier packets. Today the owner withdraws packets one by one (`packet.deleted`).

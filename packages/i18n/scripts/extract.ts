@@ -28,7 +28,7 @@ function* walk(p: string): Generator<string> {
   const st = statSync(p);
   if (st.isDirectory()) { for (const f of readdirSync(p)) yield* walk(join(p, f)); return; }
   const ext = extname(p);
-  if (!EXT.has(ext) || /\.(test|spec|d)\.[jt]sx?$/.test(p) || /i18n[\\/](i18n|catalogs|react)\.js$/.test(p)) return;
+  if (!EXT.has(ext) || /\.(test|spec|d)\.[jt]sx?$/.test(p) || /i18n[\\/](i18n|catalogs|react)\.js$|(^|[\\/])i18n-catalogs\.js$/.test(p)) return;
   yield p;
 }
 

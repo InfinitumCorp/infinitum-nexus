@@ -565,7 +565,7 @@ async function renderAccounts() {
         <a class="item" href="#/accounts/${esc(c.id)}">
           <div class="avatar">${esc(initials(c.name))}</div>
           <div class="main"><div class="title">${esc(c.name)}</div><div class="sub">${esc([c.kind, c.industry, c.domain].filter(Boolean).join(" · "))}</div></div>
-          <div class="muted small">${c.openDeals} open deal${c.openDeals === 1 ? "" : "s"} · ${c.contacts} people${c.researchFacts ? ` · ${c.researchFacts} AI facts${c.lastResearch ? ` (${ago(c.lastResearch)})` : ""}` : ""}</div>
+          <div class="muted small"><span>${c.openDeals === 1 ? "1 open deal" : `${c.openDeals} open deals`}</span> · <span>${c.contacts === 1 ? "1 person" : `${c.contacts} people`}</span>${c.researchFacts ? ` · <span>${c.researchFacts === 1 ? "1 AI fact" : `${c.researchFacts} AI facts`}</span>${c.lastResearch ? ` (${ago(c.lastResearch)})` : ""}` : ""}</div>
           <button class="btn ghost small" data-queue="${esc(c.id)}">Queue</button>
         </a>`).join("")}</div>` : `<div class="empty">Add a company or government agency to start.</div>`}
     </div>`;
@@ -636,7 +636,7 @@ async function renderAccount(id) {
         <div class="row"><button class="btn" id="add-person">Add person</button><button class="btn primary" id="add-deal">New deal</button></div>
       </div>
 
-      ${a.warmPath ? `<div class="next"><div class="act">Warmest way in: ${a.warmPath.steps.length === 1 ? "you know them directly" : `${a.warmPath.steps.length - 1} introduction${a.warmPath.steps.length > 2 ? "s" : ""} away`}</div><div class="muted small">Warmth ${pct(a.warmPath.warmth)}</div></div>` : ""}
+      ${a.warmPath ? `<div class="next"><div class="act">Warmest way in: ${a.warmPath.steps.length === 1 ? "you know them directly" : (a.warmPath.steps.length === 2 ? "1 introduction away" : `${a.warmPath.steps.length - 1} introductions away`)}</div><div class="muted small">Warmth ${pct(a.warmPath.warmth)}</div></div>` : ""}
 
       <div class="section"><h2>Buying committee</h2>
         ${a.gaps.length ? `<div class="row small wrap mb10">${a.gaps.map((g) => `<span class="pill p2">${esc(g)}</span>`).join("")}</div>` : ""}
@@ -949,7 +949,7 @@ const agentState = { selected: "deal-coach", last: null };
 
 function stepsHtml(steps) {
   if (!steps?.length) return "";
-  return `<details class="steps"><summary>${steps.length} step${steps.length > 1 ? "s" : ""}</summary><ol>${steps.map((st) =>
+  return `<details class="steps"><summary>${steps.length === 1 ? "1 step" : `${steps.length} steps`}</summary><ol>${steps.map((st) =>
     `<li>${esc(TOOL_LABEL[st.tool] || st.tool)}${st.input?.query ? `: “${esc(st.input.query)}”` : ""}${st.error ? ` <span class="faint">(${esc(st.error)})</span>` : ""}</li>`).join("")}</ol></details>`;
 }
 
@@ -1021,7 +1021,7 @@ async function renderAgents() {
         <p class="faint small mt10">${sel.canPropose.length ? "Changes this agent suggests wait for your approval. Nothing is sent to customers." : "This agent only reads your data."}</p>
         <div id="agent-out">${agentState.last && agentState.last.run.agentId === sel.id ? runHtml(agentState.last) : ""}</div>
       </div>
-      ${runs.length ? `<div class="section"><h2>Recent runs</h2><div class="list">${runs.slice(0, 10).map((r) => `<details class="item run-item"><summary><div class="main"><div class="title">${esc(agentName(r.agentId))}: ${esc(r.prompt.slice(0, 90))}</div><div class="sub">${date(r.at)} · ${r.proposalIds.length} proposal${r.proposalIds.length === 1 ? "" : "s"}</div></div></summary><div class="run-output">${esc(r.output)}</div>${stepsHtml(r.steps)}</details>`).join("")}</div></div>` : ""}
+      ${runs.length ? `<div class="section"><h2>Recent runs</h2><div class="list">${runs.slice(0, 10).map((r) => `<details class="item run-item"><summary><div class="main"><div class="title">${esc(agentName(r.agentId))}: ${esc(r.prompt.slice(0, 90))}</div><div class="sub">${r.proposalIds.length === 1 ? `${date(r.at)} · 1 proposal` : `${date(r.at)} · ${r.proposalIds.length} proposals`}</div></div></summary><div class="run-output">${esc(r.output)}</div>${stepsHtml(r.steps)}</details>`).join("")}</div></div>` : ""}
     </div>`;
   refreshAgentsBadge();
   wireProposals(main(), () => renderAgents());
@@ -1205,7 +1205,7 @@ async function renderMetatron() {
               <div class="faint small">${w ? `${STAGE_LABEL[o.whatIf.stage]} ${o.whatIf.winRateChange > 0 ? "+" : ""}${o.whatIf.winRateChange} pts: expected ${money(w.expected, c.currency)}${w.probTarget !== undefined ? `, ${pct(w.probTarget)} chance` : ""}` : "Pick a stage to test a change"}</div></div>
           </div>
           ${i === 0 && c.drivers.length ? `<div class="list">${c.drivers.map((d) => `<button class="item" data-deal="${esc(d.dealId)}"><span class="pill">${esc(STAGE_LABEL[d.stage])}</span><div class="main"><div class="title">${esc(d.name)}</div><div class="sub">${pct(d.probability)} × ${money(d.amount, c.currency)}</div></div><div class="muted small">${money(d.expectedValue, c.currency)}</div></button>`).join("")}</div>` : ""}`;
-      }).join("") + (o.later ? `<div class="faint small">${o.later} open deal${o.later === 1 ? "" : "s"} expected to close later.</div>` : "")
+      }).join("") + (o.later ? `<div class="faint small">${o.later === 1 ? "1 open deal expected to close later." : `${o.later} open deals expected to close later.`}</div>` : "")
         : `<div class="empty">No open deals close in this window. <a href="#/pipeline">Add deals</a> to see an outlook.</div>`;
       $("#mt-outlook-out").querySelectorAll("[data-deal]").forEach((b) => (b.onclick = () => openDeal(b.dataset.deal)));
     } catch (e) { $("#mt-outlook-out").innerHTML = `<div class="error">${esc(e.message)}</div>`; }

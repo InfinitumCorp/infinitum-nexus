@@ -23,7 +23,12 @@ export default {
   "Signed in as": "Signed in as",
   "Summarize the launch and list the open questions": "Summarize the launch and list the open questions",
   "Verified": "Verified",
-  "Write an intent and Conductor plans a score, runs it, and records the performance. Sign in with your Cumulus ID. Rehearsal is the default.": "Write an intent and Conductor plans a score, runs it, and records the performance. Sign in with your Cumulus ID. Rehearsal is the default."
+  "Write an intent and Conductor plans a score, runs it, and records the performance. Sign in with your Cumulus ID. Rehearsal is the default.": "Write an intent and Conductor plans a score, runs it, and records the performance. Sign in with your Cumulus ID. Rehearsal is the default.",
+  "Deutsch": "Deutsch",
+  "English": "English",
+  "Español": "Español",
+  "Français": "Français",
+  "Português": "Português"
  },
  "ru": {
   "Accompaniment": "Сопровождение",
@@ -48,7 +53,12 @@ export default {
   "Signed in as": "Вы вошли как",
   "Summarize the launch and list the open questions": "Сделайте обзор запуска и перечислите открытые вопросы",
   "Verified": "Проверено",
-  "Write an intent and Conductor plans a score, runs it, and records the performance. Sign in with your Cumulus ID. Rehearsal is the default.": "Введите задачу, и Conductor спланирует нотный лист, запустит его и запишет выполнение. Войдите с помощью Cumulus ID. По умолчанию используется репетиция."
+  "Write an intent and Conductor plans a score, runs it, and records the performance. Sign in with your Cumulus ID. Rehearsal is the default.": "Введите задачу, и Conductor спланирует нотный лист, запустит его и запишет выполнение. Войдите с помощью Cumulus ID. По умолчанию используется репетиция.",
+  "Deutsch": "Deutsch",
+  "English": "English",
+  "Español": "Español",
+  "Français": "Français",
+  "Português": "Português"
  },
  "uk": {
   "Accompaniment": "Супровід",
@@ -73,7 +83,12 @@ export default {
   "Signed in as": "Вхід як",
   "Summarize the launch and list the open questions": "Підсумуйте запуск і перелічіть відкриті питання",
   "Verified": "Підтверджено",
-  "Write an intent and Conductor plans a score, runs it, and records the performance. Sign in with your Cumulus ID. Rehearsal is the default.": "Напишіть завдання, і Conductor спланує партитуру, запустить її та зафіксує виконання. Увійдіть за допомогою вашого Cumulus ID. За замовчуванням — репетиція."
+  "Write an intent and Conductor plans a score, runs it, and records the performance. Sign in with your Cumulus ID. Rehearsal is the default.": "Напишіть завдання, і Conductor спланує партитуру, запустить її та зафіксує виконання. Увійдіть за допомогою вашого Cumulus ID. За замовчуванням — репетиція.",
+  "Deutsch": "Deutsch",
+  "English": "English",
+  "Español": "Español",
+  "Français": "Français",
+  "Português": "Português"
  },
  "es": {
   "Accompaniment": "Acompañamiento",
@@ -98,7 +113,12 @@ export default {
   "Signed in as": "Conectado como",
   "Summarize the launch and list the open questions": "Resume el lanzamiento y enumera las preguntas abiertas",
   "Verified": "Verificado",
-  "Write an intent and Conductor plans a score, runs it, and records the performance. Sign in with your Cumulus ID. Rehearsal is the default.": "Escribe una intención y Conductor planifica una partitura, la ejecuta y registra la actuación. Inicia sesión con tu Cumulus ID. El modo por defecto es Ensayo."
+  "Write an intent and Conductor plans a score, runs it, and records the performance. Sign in with your Cumulus ID. Rehearsal is the default.": "Escribe una intención y Conductor planifica una partitura, la ejecuta y registra la actuación. Inicia sesión con tu Cumulus ID. El modo por defecto es Ensayo.",
+  "Deutsch": "Deutsch",
+  "English": "English",
+  "Español": "Español",
+  "Français": "Français",
+  "Português": "Português"
  },
  "fr": {
   "Accompaniment": "Accompagnement",
@@ -123,7 +143,12 @@ export default {
   "Signed in as": "Connecté en tant que",
   "Summarize the launch and list the open questions": "Résumer le lancement et lister les questions en suspens",
   "Verified": "Vérifié",
-  "Write an intent and Conductor plans a score, runs it, and records the performance. Sign in with your Cumulus ID. Rehearsal is the default.": "Écrivez une intention et Conductor planifie une partition, l’exécute et enregistre la performance. Connectez‑vous avec votre Cumulus ID. La répétition est le mode par défaut."
+  "Write an intent and Conductor plans a score, runs it, and records the performance. Sign in with your Cumulus ID. Rehearsal is the default.": "Écrivez une intention et Conductor planifie une partition, l’exécute et enregistre la performance. Connectez‑vous avec votre Cumulus ID. La répétition est le mode par défaut.",
+  "Deutsch": "Deutsch",
+  "English": "English",
+  "Español": "Español",
+  "Français": "Français",
+  "Português": "Português"
  },
  "de": {
   "Accompaniment": "Begleitung",
@@ -141,14 +166,19 @@ export default {
   "Perform failed": "Ausführen fehlgeschlagen",
   "Rehearsal": "Probe",
   "Sign in still works from the link above. Performing a score needs JavaScript.": "Anmelden funktioniert weiterhin über den Link oben. Das Ausführen eines Scores benötigt JavaScript.",
-  "Sign in with Cumulus ID": "Mit Cumulus‑ID anmelden",
+  "Sign in with Cumulus ID": "Mit Cumulus ID anmelden",
   "Sign out": "Abmelden",
   "Sign out failed": "Abmelden fehlgeschlagen",
-  "Sign-in failed. Try again with your Cumulus ID.": "Anmeldung fehlgeschlagen. Versuchen Sie es erneut mit Ihrer Cumulus‑ID.",
+  "Sign-in failed. Try again with your Cumulus ID.": "Anmeldung fehlgeschlagen. Versuchen Sie es erneut mit Ihrer Cumulus ID.",
   "Signed in as": "Angemeldet als",
   "Summarize the launch and list the open questions": "Start zusammenfassen und offene Fragen auflisten",
   "Verified": "Verifiziert",
-  "Write an intent and Conductor plans a score, runs it, and records the performance. Sign in with your Cumulus ID. Rehearsal is the default.": "Formulieren Sie eine Absicht und Conductor plant einen Score, führt ihn aus und zeichnet die Performance auf. Melden Sie sich mit Ihrer Cumulus‑ID an. Standardmäßig ist Probe aktiv."
+  "Write an intent and Conductor plans a score, runs it, and records the performance. Sign in with your Cumulus ID. Rehearsal is the default.": "Formulieren Sie eine Absicht und Conductor plant einen Score, führt ihn aus und zeichnet die Performance auf. Melden Sie sich mit Ihrer Cumulus ID an. Standardmäßig ist Probe aktiv.",
+  "Deutsch": "Deutsch",
+  "English": "English",
+  "Español": "Español",
+  "Français": "Français",
+  "Português": "Português"
  },
  "pt": {
   "Accompaniment": "Acompanhamento",
@@ -173,7 +203,12 @@ export default {
   "Signed in as": "Conectado como",
   "Summarize the launch and list the open questions": "Resuma o lançamento e liste as questões abertas",
   "Verified": "Verificado",
-  "Write an intent and Conductor plans a score, runs it, and records the performance. Sign in with your Cumulus ID. Rehearsal is the default.": "Escreva uma intenção e o Conductor planeja uma partitura, a executa e grava a performance. Entre com seu Cumulus ID. O ensaio é o padrão."
+  "Write an intent and Conductor plans a score, runs it, and records the performance. Sign in with your Cumulus ID. Rehearsal is the default.": "Escreva uma intenção e o Conductor planeja uma partitura, a executa e grava a performance. Entre com seu Cumulus ID. O ensaio é o padrão.",
+  "Deutsch": "Deutsch",
+  "English": "English",
+  "Español": "Español",
+  "Français": "Français",
+  "Português": "Português"
  },
  "zh": {
   "Accompaniment": "伴奏",
@@ -198,7 +233,12 @@ export default {
   "Signed in as": "已登录为",
   "Summarize the launch and list the open questions": "总结发布并列出未解问题",
   "Verified": "已验证",
-  "Write an intent and Conductor plans a score, runs it, and records the performance. Sign in with your Cumulus ID. Rehearsal is the default.": "写下意图，Conductor 将规划乐谱、执行并记录表现。使用您的 Cumulus ID 登录。默认模式为排练。"
+  "Write an intent and Conductor plans a score, runs it, and records the performance. Sign in with your Cumulus ID. Rehearsal is the default.": "写下意图，Conductor 将规划乐谱、执行并记录表现。使用您的 Cumulus ID 登录。默认模式为排练。",
+  "Deutsch": "Deutsch",
+  "English": "English",
+  "Español": "Español",
+  "Français": "Français",
+  "Português": "Português"
  },
  "ar": {
   "Accompaniment": "المرافقة",
@@ -223,6 +263,11 @@ export default {
   "Signed in as": "تم تسجيل الدخول باسم",
   "Summarize the launch and list the open questions": "لخص الإطلاق وقائمة الأسئلة المفتوحة",
   "Verified": "موثق",
-  "Write an intent and Conductor plans a score, runs it, and records the performance. Sign in with your Cumulus ID. Rehearsal is the default.": "اكتب نية ويخطط Conductor لمسار، ويشغله، ويسجل الأداء. سجّل الدخول باستخدام Cumulus ID الخاص بك. التدريب هو الإعداد الافتراضي."
+  "Write an intent and Conductor plans a score, runs it, and records the performance. Sign in with your Cumulus ID. Rehearsal is the default.": "اكتب نية ويخطط Conductor لمسار، ويشغله، ويسجل الأداء. سجّل الدخول باستخدام Cumulus ID الخاص بك. التدريب هو الإعداد الافتراضي.",
+  "Deutsch": "Deutsch",
+  "English": "English",
+  "Español": "Español",
+  "Français": "Français",
+  "Português": "Português"
  }
 };

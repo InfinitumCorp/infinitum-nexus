@@ -1,12 +1,10 @@
 # Open-source feature survey III — social platforms, 2026-11-11
 
-The operator asked for social platforms, their data-collection code, and the algorithms they use for marketing. The same day's general survey is [OSS-INTEGRATION-SURVEY-3](OSS-INTEGRATION-SURVEY-3-2026-11-11.md) ([#132](https://github.com/InfinitumCorp/infinitum-nexus/pull/132)). It is not repeated here. Two standing rules: no product UI changes, and do not touch the websites. Nothing here collects a person's posts, location, or contacts. Ranking a draft inside Zerkalo uses predicted rates the caller already has.
+The operator asked for social platforms, their data-collection code, and the algorithms they use for marketing. The same day's general survey is [OSS-INTEGRATION-SURVEY-3](OSS-INTEGRATION-SURVEY-3-2026-11-11.md) ([#132](https://github.com/InfinitumCorp/infinitum-nexus/pull/132)). It is not repeated here. Two standing rules: no product UI changes, and do not touch the websites. Nothing here collects a person's posts, location, or contacts.
 
 ## What landed
 
-`zerkalo/feed_rank.py` is a translation of the For You value model in [xai-org/x-algorithm](https://github.com/xai-org/x-algorithm) (Apache-2.0, confirmed from the LICENSE file, not the older AGPL tree). A draft is a set of predicted probabilities and durations. Each is multiplied by the weight published in `home-mixer/params/param.rs` on this date. A likely report (weight -234) outranks a like (weight 0.708) only because the weight sits on a probability, not on a raw count. The rehearsal feed in `simulation.py` is unchanged. Phoenix, visibility filters, election filters, and takedown code were not copied. The Apache license is in `zerkalo/third_party/x-algorithm/`.
-
-Published weights used as the default: favorite 0.708, reply 5, retweet 1, share 2.118, share via DM 5, copy-link share 20, quote 5, follow 4, click 0.274, dwell 0.05, report -234, mute -58.8, not interested -53.07, block -31.2.
+Nothing from this survey remains in the Infinitum repos.
 
 ## Fifty platforms
 

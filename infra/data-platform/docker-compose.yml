@@ -16,6 +16,13 @@ services:
       PRIVACY_PSEUDONYM_KEY: ${PRIVACY_PSEUDONYM_KEY:?set PRIVACY_PSEUDONYM_KEY in .env}
       PRIVACY_TOTAL_EPSILON: ${PRIVACY_TOTAL_EPSILON:-3.0}
       PRESIDIO_SPACY_MODEL: en_core_web_sm
+      # Collection, catalog and search: one token per product ("spectre=<tok>;cumulus-mail=<tok>").
+      PLATFORM_PRODUCT_TOKENS: ${PLATFORM_PRODUCT_TOKENS:-}
+      PLATFORM_REGION: ${PLATFORM_REGION:-EU}
+      OPENSEARCH_URL: http://opensearch:9200
+      OPENSEARCH_REFRESH_ON_WRITE: "1" # dev only: new events are searchable at once
+      DATAHUB_GMS_URL: ${DATAHUB_GMS_URL:-}
+      DATAHUB_GMS_TOKEN: ${DATAHUB_GMS_TOKEN:-}
     volumes:
       - privacy-budget:/var/lib/privacy-gateway
     ports:

@@ -43,6 +43,13 @@ export interface OntologyObject {
   updated_at: string;
 }
 
+/** One change to the ontology, journaled so a serving copy (Postgres) can follow it. */
+export type OntologyChange =
+  | { op: "upsert"; object: OntologyObject }
+  | { op: "delete"; type: ObjectType; id: string; tenant_id: string }
+  | { op: "link"; link: Link }
+  | { op: "unlink"; link: Link };
+
 export interface Link {
   type: LinkType;
   from: string;
@@ -73,6 +80,14 @@ export class Ontology {
   private objects = new Map<string, OntologyObject>();
   private links: Link[] = [];
   private index = new Map<string, Set<string>>();
+  private journal: OntologyChange[] = [];
+
+  /** Returns and clears the changes since the last call. */
+  drainChanges(): OntologyChange[] {
+    const out = this.journal;
+    this.journal = [];
+    return out;
+  }
 
   canRead(v: Viewer, o: OntologyObject): boolean {
     if (o.tenant_id !== v.tenant_id) return false;
@@ -106,6 +121,7 @@ export class Ontology {
       : o;
     this.objects.set(key, merged);
     this.reindex(key, merged);
+    this.journal.push({ op: "upsert", object: merged });
     return merged;
   }
 
@@ -120,11 +136,19 @@ export class Ontology {
   }
 
   link(l: Link): void {
-    if (!this.links.some((x) => x.type === l.type && x.from === l.from && x.to === l.to && x.tenant_id === l.tenant_id)) this.links.push(l);
+    if (!this.links.some((x) => x.type === l.type && x.from === l.from && x.to === l.to && x.tenant_id === l.tenant_id)) {
+      this.links.push(l);
+      this.journal.push({ op: "link", link: l });
+    }
   }
 
   unlink(pred: (l: Link) => boolean): void {
-    this.links = this.links.filter((l) => !pred(l));
+    const keep: Link[] = [];
+    for (const l of this.links) {
+      if (pred(l)) this.journal.push({ op: "unlink", link: l });
+      else keep.push(l);
+    }
+    this.links = keep;
   }
 
   linksOf(v: Viewer, type: ObjectType, id: string): Link[] {
@@ -140,6 +164,7 @@ export class Ontology {
     this.unindex(key);
     const k = `${type}:${id}`;
     this.unlink((l) => l.tenant_id === tenant && (l.from === k || l.to === k));
+    this.journal.push({ op: "delete", type, id, tenant_id: tenant });
     return true;
   }
 

@@ -19,7 +19,7 @@ A static PWA (no framework) for infinitumveil.app. It is hosted as a Cloudflare 
 - `/`: the VEIL landing page, plus 404.html, robots.txt, sitemap.xml, llms.txt, assets/cumulus-id.js and icons/ (from the site build);
 - `/start/`: this folder's `public/` (start page, `search.html`, `search.js`, lib/, icons/), with download links made absolute (`/downloads/...`);
 - `/bot`: `public/bot.html`;
-- `/downloads/`: the real APK from `apps/veil-browser-android/build`, never the stub in this repo;
+- `/downloads/*.apk`: served by `src/worker.js` from the private R2 bucket `veil-downloads` (binding `DOWNLOADS`). The real APK (about 10 MB with Tor for arm64, 28 MB with all three CPU types) is over the static-asset size cap, so it is never in the merged folder: upload it to the bucket (key `veil-browser.apk`). The extension zip stays a static file in `/downloads/`;
 - `POST /api/search` and `POST /api/ask`: `src/worker.js`, with the D1 binding `VEIL_INDEX` and the Workers AI binding `AI`.
 
 Deploying only this folder, or only the site build, removes the other half. The search box then falls back to an old copy that leaves VEIL. Always deploy the merged folder.

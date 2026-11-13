@@ -34,3 +34,32 @@ test("numeric character references decode to the text the page renders", () => {
   const found = extractFromSource('<footer><span>AI-powered. Blockchain-governed&#8482;.</span><span>&#169; 2026 Infinitum Corporation</span><span>Next &#x2192;</span></footer>', ".html");
   assert.deepEqual(found.sort(), ["AI-powered. Blockchain-governed™.", "Next →", "© 2026 Infinitum Corporation"].sort());
 });
+
+test("a regex literal containing // or quotes does not hide the strings after it", () => {
+  const src = [
+    "function download() {",
+    String.raw`  const name = ${"`"}report-${"${"}cid.replace(/^cid:\/\/infinitum\//, "")}.json${"`"};`,
+    String.raw`  const q = s.replace(/["']/g, "");`,
+    String.raw`  const url = path.replace(/\/+$/, "");`,
+    "}",
+    'toast("Report downloaded");',
+    'const label = active ? "Retire" : "Reinstate";',
+  ].join("\n");
+  const got = extractFromSource(src, ".tsx").sort();
+  assert.deepEqual(got, ["Reinstate", "Report downloaded", "Retire"]);
+});
+
+test("JSX closing and self-closing tags are not mistaken for a regex", () => {
+  const src = '<div class="row"><Copy text={a} /><button type="button" onClick={() => setQr(null)}>{qr ? "Hide QR" : "Show QR"}</button></div>';
+  assert.deepEqual(extractFromSource(src, ".tsx").sort(), ["Hide QR", "Show QR"]);
+});
+
+test("division is not mistaken for a regex", () => {
+  const src = "const half = total / 2; const rate = done / all; x /= 3;\ntoast(\"Halfway there\");";
+  assert.deepEqual(extractFromSource(src, ".js"), ["Halfway there"]);
+});
+
+test("isUiText keeps the singular half of a plural, not CSS", () => {
+  for (const s of ["1 word", "1 open deal expected to close later.", "1 introduction away"]) assert.ok(isUiText(s), s);
+  for (const s of ["1 auto", "1 1 auto", "1 solid"]) assert.ok(!isUiText(s), s);
+});

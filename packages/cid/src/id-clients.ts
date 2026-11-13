@@ -90,7 +90,12 @@ export const ID_CLIENTS: Record<string, IdClient> = {
   fabric: {
     name: "FabriC++",
     app: "fabric",
-    origins: ["https://infinitumfabric.app", "https://www.infinitumfabric.app"],
+    origins: [
+      "https://infinitumfabric.app",
+      "https://www.infinitumfabric.app",
+      // Fabric Russia (Yandex Cloud, fabric-russia): Synapse signs in from here (InfinitumCorp/fabric-ru).
+      "https://ru.infinitumfabric.app",
+    ],
   },
   "firm-wallet": {
     name: "$FIRM Wallet",
@@ -151,6 +156,13 @@ export const ID_CLIENTS: Record<string, IdClient> = {
     name: "Infinitum Developer",
     app: "cumulus",
     origins: ["https://developer.infinitumcorporation.ai"],
+  },
+  // Nøde: free community Wi-Fi (InfinitumCorp/node). A public product, so https only and no
+  // loopback. Its access tokens carry aud "node", which the Nøde API checks.
+  node: {
+    name: "Nøde",
+    app: "node",
+    origins: ["https://node.infinitumcorporation.ai"],
   },
 };
 

@@ -21,5 +21,10 @@
   "Signed in as": "تم تسجيل الدخول باسم",
   "Summarize the launch and list the open questions": "لخص الإطلاق وقائمة الأسئلة المفتوحة",
   "Verified": "موثق",
-  "Write an intent and Conductor plans a score, runs it, and records the performance. Sign in with your Cumulus ID. Rehearsal is the default.": "اكتب نية ويخطط Conductor لمسار، ويشغله، ويسجل الأداء. سجّل الدخول باستخدام Cumulus ID الخاص بك. التدريب هو الإعداد الافتراضي."
+  "Write an intent and Conductor plans a score, runs it, and records the performance. Sign in with your Cumulus ID. Rehearsal is the default.": "اكتب نية ويخطط Conductor لمسار، ويشغله، ويسجل الأداء. سجّل الدخول باستخدام Cumulus ID الخاص بك. التدريب هو الإعداد الافتراضي.",
+  "Deutsch": "Deutsch",
+  "English": "English",
+  "Español": "Español",
+  "Français": "Français",
+  "Português": "Português"
 }

@@ -13,6 +13,7 @@ describe("shared product clients", () => {
     assert.ok(idClientFor("scalvs", "https://ru.scalvs.app/account"));
     assert.ok(idClientFor("cndctr", "https://cndctr.app/api/auth/callback"));
     assert.ok(idClientFor("fabric", "https://infinitumfabric.app/api/auth/callback"));
+    assert.ok(idClientFor("fabric", "https://ru.infinitumfabric.app/_synapse/client/oidc/callback"));
     assert.ok(idClientFor("defense", "https://infinitumdefense.com/"));
     assert.equal(idClientFor("scalvs", "https://scalvs.app.evil.example/"), null);
     assert.equal(idClientFor("cndctr", "http://cndctr.app/"), null);
@@ -35,6 +36,15 @@ describe("shared product clients", () => {
     assert.equal(idClientFor("conjure", "https://conjure-ru-preview.infinitumcorporation.ai/auth/cid/callback"), null);
     assert.equal(idClientFor("conjure", "https://conjure-ru.infinitumcorporation.ai.evil.example/"), null);
     assert.equal(idClientFor("infinitum", "https://conjure-ru.infinitumcorporation.ai/"), null);
+  });
+
+  it("lets Nøde sign in on node.infinitumcorporation.ai over https only", () => {
+    assert.equal(idClientFor("node", "https://node.infinitumcorporation.ai/#/host"), null, "a fragment is never a redirect");
+    assert.equal(idClientFor("node", "https://node.infinitumcorporation.ai/?tab=host")?.app, "node");
+    assert.equal(idClientFor("node", "http://node.infinitumcorporation.ai/"), null);
+    assert.equal(idClientFor("node", "http://127.0.0.1:8080/"), null, "public product: no loopback");
+    assert.equal(idClientFor("node", "https://node.infinitumcorporation.ai.evil.example/"), null);
+    assert.equal(idClientFor("infinitum", "https://node.infinitumcorporation.ai/"), null);
   });
 
   it("lets the Russia copies of the corporation and VEIL VPN sites sign in", () => {

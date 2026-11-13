@@ -155,9 +155,18 @@ and loads [`superset_config.py`](../../infra/data-platform/superset/superset_con
   email. Cumulus ID groups map to roles: `data-platform-admins` → Admin and `data-analysts` →
   Alpha. Anyone else gets Gamma. There is no Superset password. People without a Cumulus ID
   create one from the Cumulus ID sign-in page and come back signed in.
-- **Embedded analytics:** `EMBEDDED_SUPERSET` is on. A product backend mints a guest token
-  (5 minutes) and embeds the dashboard with the Superset embedded SDK.
-  `CUMULUS_EMBED_ORIGINS` sets `frame-ancestors`.
+- **Embedded analytics:** `EMBEDDED_SUPERSET` is on. The product signs its user in with
+  Cumulus ID, then its backend calls `POST /api/v1/embed/dashboards/{dashboardId}/guest-token`
+  on the gateway (product token; Conjure `EmbedService`) with the tenant and the viewer's CID.
+  It passes the token to the Superset embedded SDK. The gateway (`embed.py`):
+  - only allows dashboards listed for that product in `PLATFORM_EMBED_DASHBOARDS`;
+  - pins every chart with the row-level-security clause `product = … AND tenant = …`;
+  - names the viewer by their analytics pseudonym;
+  - signs the 5-minute token with `SUPERSET_GUEST_TOKEN_SECRET` (HS256, shared with Superset).
+
+  No Superset service account or password exists. `CUMULUS_EMBED_ORIGINS` sets
+  `frame-ancestors`. Dashboards for embedding are built on `data_platform.events_bi`, which has
+  the `product` and `tenant` columns the clause filters on.
 - Superset reads only datasets that went through `prepareExport(ANALYTICS)`. It never reads
   raw product tables.
 - **Amplitude:** Superset is an internal tool, so the Amplitude rule doesn't apply.

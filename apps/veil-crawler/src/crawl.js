@@ -10,7 +10,7 @@ import { crawlable, hostOf, robotsPath } from "./url.js";
 
 export const UA = "Mozilla/5.0 (compatible; VEILBot/1.0; +https://infinitumveil.app/bot)";
 export const LIMITS = Object.freeze({
-  hostsPerRun: 30,
+  hostsPerRun: 60,
   minDelayS: 10,                 // never faster than one request per 10 s per host
   robotsTtlMs: 24 * 3600e3,      // robots.txt re-read daily
   robotsRetryMs: 3600e3,         // robots.txt unreachable: try the host again in an hour
@@ -18,11 +18,23 @@ export const LIMITS = Object.freeze({
   fetchTimeoutMs: 15e3,
   maxBytes: 2 * 1024 * 1024,
   maxRedirects: 5,
-  maxDepth: 3,
-  maxPagesPerHost: 200,
+  maxDepth: 3,                   // clicks from a site's home page (each site counts its own depth)
+  maxPagesPerHost: 200,          // for sites outside the Tranco list; popular sites get more (capFor)
   maxQueued: 1_000_000,
   minText: 150,
+  rankedShare: 2 / 3,            // of each round's hosts, this share goes to popular (ranked) sites
+  countEveryMs: 3600e3,          // the queue is recounted hourly, not every round (D1 rows read)
 });
+
+/** How many pages VEILBot keeps from a site, by its Tranco rank (null = not in the list). */
+export function capFor(rank) {
+  if (rank == null) return LIMITS.maxPagesPerHost;
+  if (rank <= 1000) return 2000;
+  if (rank <= 10000) return 1000;
+  if (rank <= 100000) return 500;
+  return LIMITS.maxPagesPerHost;
+}
+const CAP_SQL = `CASE WHEN h.rank <= 1000 THEN 2000 WHEN h.rank <= 10000 THEN 1000 WHEN h.rank <= 100000 THEN 500 ELSE ${LIMITS.maxPagesPerHost} END`;
 
 const HEADERS = { "User-Agent": UA, "Accept": "text/html,application/xhtml+xml;q=0.9,*/*;q=0.1", "Accept-Language": "en;q=0.9,*;q=0.5" };
 
@@ -112,18 +124,30 @@ async function setState(db, url, state) {
   await db.prepare("UPDATE frontier SET state = ? WHERE url = ?").bind(state, url).run();
 }
 
-async function queueLinks(db, links, base, depth, now) {
+/**
+ * Queue links. A link within the site is queued at `depth`. A link to another site queues that
+ * site's home page at depth 0 instead: every site is explored from its own front door, so the
+ * crawl keeps spreading across the web instead of dying out three clicks from the seeds.
+ */
+export async function queueLinks(db, links, base, depth, now, fromHost = hostOf(base)) {
   const stmts = [];
   const seen = new Set();
   for (const l of links) {
     if (l.nofollow) continue;
-    const url = crawlable(l.href, base);
-    if (!url || seen.has(url)) continue;
-    seen.add(url);
+    let url = crawlable(l.href, base);
+    if (!url) continue;
     const host = hostOf(url);
     if (neverCrawl(host)) continue;
+    let d = depth;
+    if (host !== fromHost) {
+      url = crawlable(`https://${host}/`);
+      d = 0;
+      if (!url) continue;
+    }
+    if (seen.has(url)) continue;
+    seen.add(url);
     stmts.push(db.prepare("INSERT OR IGNORE INTO hosts (host) VALUES (?)").bind(host));
-    stmts.push(db.prepare("INSERT OR IGNORE INTO frontier (url, host, depth, added_at) VALUES (?, ?, ?, ?)").bind(url, host, depth, now));
+    stmts.push(db.prepare("INSERT OR IGNORE INTO frontier (url, host, depth, added_at) VALUES (?, ?, ?, ?)").bind(url, host, d, now));
   }
   if (stmts.length) await db.batch(stmts);
   return stmts.length / 2;
@@ -213,21 +237,39 @@ export async function crawlHost(db, h, now, fetchFn, room) {
 
   await setState(db, job.url, 1);
   if (got.url !== job.url) await db.prepare("INSERT OR REPLACE INTO frontier (url, host, depth, added_at, state) VALUES (?, ?, ?, ?, 1)").bind(got.url, h.host, job.depth, now).run();
-  await db.prepare("UPDATE hosts SET pages = pages + 1, errors = 0 WHERE host = ?").bind(h.host).run();
+  const after = await db.prepare("UPDATE hosts SET pages = pages + 1, errors = 0 WHERE host = ? RETURNING pages").bind(h.host).first();
+  // A site that reached its cap is never crawled again: drop the rest of its queue.
+  if (after && after.pages >= capFor(h.rank)) await db.prepare("DELETE FROM frontier WHERE host = ? AND state = 0").bind(h.host).run();
   return outcome;
+}
+
+/** Queued URLs, counted at most hourly (counting a big queue every minute costs D1 reads). */
+async function queuedCount(db, now) {
+  const m = await db.prepare("SELECT value, at FROM meta WHERE key = 'queued'").first();
+  if (m && now - m.at < LIMITS.countEveryMs) return m.value;
+  const n = (await db.prepare("SELECT count(*) AS n FROM frontier WHERE state = 0").first()).n;
+  await db.prepare("INSERT OR REPLACE INTO meta (key, value, at) VALUES ('queued', ?, ?)").bind(n, now).run();
+  return n;
+}
+
+const PICK = `SELECT host, robots, robots_at, rank FROM hosts h
+  WHERE blocked = 0 AND next_at <= ? AND pages < ${CAP_SQL}
+    AND EXISTS (SELECT 1 FROM frontier f WHERE f.host = h.host AND f.state = 0)`;
+
+/** Hosts for this round: popular sites first (by rank), the rest by who has waited longest. */
+async function pickHosts(db, now, n) {
+  const ranked = (await db.prepare(`${PICK} AND rank IS NOT NULL ORDER BY rank LIMIT ?`).bind(now, Math.ceil(n * LIMITS.rankedShare)).all()).results;
+  const taken = new Set(ranked.map((h) => h.host));
+  const rest = (await db.prepare(`${PICK} ORDER BY next_at LIMIT ?`).bind(now, n).all()).results.filter((h) => !taken.has(h.host));
+  return ranked.concat(rest).slice(0, n);
 }
 
 /** One cron round. */
 export async function crawlOnce(db, { now = Date.now(), fetch: fetchFn = fetch, hostsPerRun = LIMITS.hostsPerRun, seed = true } = {}) {
   if (seed) await ensureSeeds(db, now);
-  const queued = (await db.prepare("SELECT count(*) AS n FROM frontier WHERE state = 0").first()).n;
+  const queued = await queuedCount(db, now);
   const room = LIMITS.maxQueued - queued;
-  const { results: hosts } = await db.prepare(
-    `SELECT host, robots, robots_at FROM hosts h
-     WHERE blocked = 0 AND next_at <= ? AND pages < ?
-       AND EXISTS (SELECT 1 FROM frontier f WHERE f.host = h.host AND f.state = 0)
-     ORDER BY next_at LIMIT ?`,
-  ).bind(now, LIMITS.maxPagesPerHost, hostsPerRun).all();
+  const hosts = await pickHosts(db, now, hostsPerRun);
   const outcomes = await Promise.all(hosts.map((h) => crawlHost(db, h, now, fetchFn, room).catch(() => "error")));
   const summary = {};
   for (const o of outcomes) summary[o] = (summary[o] || 0) + 1;

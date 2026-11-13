@@ -13,7 +13,7 @@ import { CumulusTunnel, type SealedEnvelope } from "./tunnel.ts";
 type Content = Pick<MailMessage, "subject" | "body" | "attachments">;
 export type StoredMessage = Omit<MailMessage, "subject" | "body" | "attachments"> & Partial<Content> & { sealed?: SealedEnvelope };
 
-const contentOf = (m: MailMessage): Content => ({ subject: m.subject, body: m.body, attachments: m.attachments ?? [] });
+const contentOf = (m: MailMessage): Content => ({ subject: m.subject, body: m.body, attachments: m.attachments });
 const digest = (c: Content) => createHash("sha256").update(JSON.stringify(c)).digest("base64");
 
 /** Re-sealing every message on every save would be slow; reuse an envelope while its content is unchanged. */
@@ -53,7 +53,8 @@ export function openMailbox(box: StoredMailbox, tunnel: CumulusTunnel, cid = box
       const { payload } = tunnel.open<Content>(cid, m.sealed);
       m.subject = payload.subject;
       m.body = payload.body;
-      m.attachments = payload.attachments ?? [];
+      if (payload.attachments) m.attachments = payload.attachments;
+      else delete m.attachments; // a message without files reads back without the field, as it was
       delete m.sealed;
       delete m.locked;
     } catch {

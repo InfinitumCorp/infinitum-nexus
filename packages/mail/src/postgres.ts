@@ -77,8 +77,12 @@ export class PgMailRepository implements MailRepository {
   readonly #db: MailQueryable;
   readonly #s: string;
   readonly #tunnel?: CumulusTunnel;
-  /** Each mailbox's messages as last read or written here: position and stored JSON, by message id. */
-  readonly #seen = new Map<string, Map<string, { ord: number; json: string }>>();
+  /**
+   * For each mailbox object this repository handed out, its messages as read (position and JSON, by
+   * id), so writing it back touches only what changed. Kept per object, not per account: two requests
+   * holding their own copies of one mailbox never compare against each other's.
+   */
+  readonly #seen = new WeakMap<object, Map<string, { ord: number; json: string }>>();
 
   /** Accounts whose tunnel keys are known to be the stored ones. */
   readonly #keysStored = new Set<string>();
@@ -108,7 +112,9 @@ export class PgMailRepository implements MailRepository {
         `INSERT INTO ${this.#s}.mail_tunnel_keys (cid, data) VALUES ($1, $2) ON CONFLICT (cid) DO NOTHING RETURNING cid`,
         [cid, JSON.stringify(mine)],
       );
-      stored = rows.length ? mine : await read();
+      if (!rows.length) stored = await read();
+      // Keys written here are checked again next time: the transaction they went in may roll back.
+      else return;
     }
     if (!stored) return; // nobody has keys yet; they're stored with the account's first write
     tunnel.adopt(stored);
@@ -129,7 +135,7 @@ export class PgMailRepository implements MailRepository {
     // Remember each message as the PostOffice sees it (opened), to write back only what changes.
     const seen = new Map<string, { ord: number; json: string }>();
     if (fromRows) stored.rows.forEach((r, i) => seen.set(r.id, { ord: Number(r.ord), json: JSON.stringify(messages[i]) }));
-    this.#seen.set(cid, seen);
+    this.#seen.set(box, seen);
     return box;
   }
 
@@ -145,7 +151,8 @@ export class PgMailRepository implements MailRepository {
       `INSERT INTO ${this.#s}.mail_mailboxes (cid, data) VALUES ($1, $2) ON CONFLICT (cid) DO UPDATE SET data = EXCLUDED.data`,
       [box.cid, JSON.stringify(meta)],
     );
-    const before = this.#seen.get(box.cid);
+    // A mailbox not read here (new, or a copy) replaces all of the account's message rows.
+    const before = this.#seen.get(box);
     const after = new Map<string, { ord: number; json: string }>();
     // Newest first in the list, so positions count up from the oldest. A message keeps its position
     // while it is still in order, so delivering one new message writes one row.
@@ -174,7 +181,7 @@ export class PgMailRepository implements MailRepository {
     } else {
       await this.#db.query(`DELETE FROM ${this.#s}.mail_messages WHERE cid = $1 AND NOT (id = ANY($2::text[]))`, [box.cid, [...after.keys()]]);
     }
-    this.#seen.set(box.cid, after);
+    this.#seen.set(box, after);
   }
 
   async mailboxCids(): Promise<string[]> {

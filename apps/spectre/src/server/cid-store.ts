@@ -13,8 +13,10 @@
  *                                      ledger and the other documents were saved, and rolls back
  *                                      whenever RemoteState re-runs or abandons the request.
  *
- * CUMULUS_ROWS (with CUMULUS_STORE=postgres only) moves more products into the same database and the
- * same per-request transaction: a comma-separated list of "mail", "wallet", "quota". Their documents
+ * CUMULUS_ROWS moves more products into the same database and the same per-request transaction: a
+ * comma-separated list of "mail", "wallet", "quota" with CUMULUS_STORE=postgres, or "wallet", "quota"
+ * with CUMULUS_STORE=gateway (through nexus-store, migration 20261115_cumulus_rows_wallet_quota.sql;
+ * copy the documents in with `select cumulus_rows.refresh_from_documents()`). Their documents
  * ("cumulus-mail", "firm-wallet", "cumulus-quota") are then no longer loaded or saved. Copy them in
  * first with packages/cumulus/src/rows-cli.ts; the documents stay as they were, so removing a product
  * from CUMULUS_ROWS is the rollback (anything written to its rows since is not carried back).
@@ -26,7 +28,7 @@
  * is the rollback.
  */
 import { PgCidRepository, PgRequestScope, RemoteCidRepository, type CidReadOp, type CidRepository, type PgPoolClient, type Queryable } from "@infinitum/cid";
-import { parseRowProducts, productRepositories, type CumulusConfig, type RowProduct } from "@infinitum/cumulus";
+import { RemoteRows, parseRowProducts, productRepositories, type CumulusConfig, type RowProduct } from "@infinitum/cumulus";
 import type { NexusGateway, TransactionParticipant } from "./remote.ts";
 
 let databaseUrlOverride: string | undefined;
@@ -72,19 +74,27 @@ export function suiteDocuments(storage: CidStorage, stores: { cid: object; mail:
 export function cidStorageFromEnv(env: Record<string, string | undefined> = process.env, gateway?: NexusGateway): CidStorage {
   const mode = (env.CUMULUS_STORE ?? "document").trim().toLowerCase();
   const products = parseRowProducts(env.CUMULUS_ROWS);
-  if (products.length && mode !== "postgres") throw new Error("CUMULUS_ROWS needs CUMULUS_STORE=postgres");
+  if (products.length && mode !== "postgres" && mode !== "gateway") throw new Error("CUMULUS_ROWS needs CUMULUS_STORE=postgres or gateway");
+  if (mode === "gateway" && products.includes("mail")) throw new Error("CUMULUS_ROWS=mail needs CUMULUS_STORE=postgres (through the gateway: wallet and quota)");
   if (mode === "document" || mode === "") return { inDocuments: true, products };
   if (mode === "gateway") {
     const read = gateway?.readRows?.bind(gateway);
     if (!read) throw new Error("CUMULUS_STORE=gateway needs the nexus-store gateway (NEXUS_STORE_URL); this host's store doesn't keep ID rows");
     const repo = new RemoteCidRepository((ops: CidReadOp[]) => read(ops));
+    // Wallet and quota rows go through the same lookups and the same commit (CUMULUS_ROWS).
+    const more = products.length ? new RemoteRows((ops) => read(ops)) : undefined;
+    const reset = () => {
+      repo.begin();
+      more?.begin();
+    };
     return {
       inDocuments: false,
       products,
       repository: repo,
-      rows: repo,
+      repositories: more ? { wallet: products.includes("wallet") ? more.wallet : undefined, quota: products.includes("quota") ? more.quota : undefined } : undefined,
+      rows: more ? { pending: () => [...repo.pending(), ...more.pending()] } : repo,
       // A new request, and every re-run, starts from the rows as saved.
-      participant: { begin: async () => repo.begin(), commit: async () => repo.begin(), rollback: async () => repo.begin() },
+      participant: { begin: async () => reset(), commit: async () => reset(), rollback: async () => reset() },
     };
   }
   if (mode !== "postgres") throw new Error(`CUMULUS_STORE must be "document", "gateway" or "postgres", not "${env.CUMULUS_STORE}"`);

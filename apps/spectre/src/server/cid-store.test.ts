@@ -11,7 +11,7 @@ describe("cidStorageFromEnv", () => {
   it("keeps today's document path unless told otherwise", () => {
     assert.deepEqual(cidStorageFromEnv({}), { inDocuments: true, products: [] });
     assert.deepEqual(cidStorageFromEnv({ CUMULUS_STORE: "document" }), { inDocuments: true, products: [] });
-    assert.throws(() => cidStorageFromEnv({ CUMULUS_ROWS: "mail" }), /CUMULUS_ROWS needs CUMULUS_STORE=postgres/);
+    assert.throws(() => cidStorageFromEnv({ CUMULUS_ROWS: "mail" }), /CUMULUS_ROWS needs CUMULUS_STORE=postgres or gateway/);
     assert.throws(() => cidStorageFromEnv({ CUMULUS_STORE: "postgres", CID_DATABASE_URL: "postgres://x", CUMULUS_ROWS: "mail,ledger" }), /unknown product "ledger"/);
   });
 

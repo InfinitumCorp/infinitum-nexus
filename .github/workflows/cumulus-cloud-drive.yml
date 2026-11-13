@@ -61,3 +61,5 @@ jobs:
       - run: pnpm --filter @infinitum/cumulus exec node --test --experimental-strip-types src/rows.test.ts
       # The Mail app end to end with CUMULUS_STORE=postgres and CUMULUS_ROWS=mail,wallet,quota.
       - run: pnpm --filter @infinitum/cumulus-mail exec node --test --experimental-strip-types src/rows.http.test.ts
+      # CUMULUS_STORE=gateway with CUMULUS_ROWS=wallet,quota: rows through nexus-store's SQL, and two servers racing.
+      - run: pnpm --filter @infinitum/cumulus-mail exec node --test --experimental-strip-types src/rows-gateway.http.test.ts

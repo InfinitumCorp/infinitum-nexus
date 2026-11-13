@@ -26,7 +26,8 @@ local socket with peer authentication.
 | Mail on Postgres: PgMailRepository (mailbox rows sealed at rest, row locks so concurrent deliveries are kept, SKIP LOCKED outbound claims) | This PR |
 | Mail step 2 on Postgres: one row per message (only changed messages written, each sealed at write time), outbound subject and body sealed to the sender | #213 |
 | Tunnel keys as rows (`mail_tunnel_keys`, wrapped with the master key; servers adopt the first stored keys) | #214 |
-| `CUMULUS_ROWS=mail,wallet,quota` (with `CUMULUS_STORE=postgres`): those products on rows in the same request transaction, their documents no longer loaded; `packages/cumulus/src/rows-cli.ts` copies and verifies the documents first | This PR |
+| `CUMULUS_ROWS=mail,wallet,quota` (with `CUMULUS_STORE=postgres`): those products on rows in the same request transaction, their documents no longer loaded; `packages/cumulus/src/rows-cli.ts` copies and verifies the documents first | #220 |
+| `CUMULUS_ROWS=wallet,quota` with `CUMULUS_STORE=gateway` (Supabase through nexus-store, migration `20261115_cumulus_rows_wallet_quota.sql`; no edge function change). Also fixes a race in the row writes: two servers creating the same key at once both passed the "doesn't exist yet" check | This PR |
 | Message paging (reads still load a whole mailbox) | Not started |
 
 US Supabase project: the `cumulus_id` tables and `refresh_from_document()` exist (created 2026-11-12;
@@ -206,6 +207,10 @@ On a host already running `CUMULUS_STORE=postgres`:
    master key, mail is sealed in the tables and the tunnel keys are copied too.
 3. Set `CUMULUS_ROWS=mail,wallet,quota` and deploy. The documents stay as they were; removing a product
    from `CUMULUS_ROWS` is the rollback (anything written to its rows since is not carried back).
+
+On a host running `CUMULUS_STORE=gateway` (Supabase): apply `20261115_cumulus_rows_wallet_quota.sql`, run
+`select cumulus_rows.refresh_from_documents()` just before the deploy that sets
+`CUMULUS_ROWS=wallet,quota` goes live, and check the counts it returns against the documents.
 
 ### Cutover runbook (Cumulus://ID, phase 4)
 

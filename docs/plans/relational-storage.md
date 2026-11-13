@@ -3,6 +3,41 @@
 Status: proposal. Nothing here is implemented yet. One decision is needed before work starts (see
 [Decision needed](#decision-needed)).
 
+## Status (2026-11-13)
+
+Decided: **Supabase for the US, Yandex for Russia.** Postgres hosts don't need a database password
+anywhere: US products reach Supabase through the `nexus-store` edge function they already use
+(`CUMULUS_STORE=gateway`), and the Russia issuer uses Postgres on its own Yandex server over the
+local socket with peer authentication.
+
+| Piece | State |
+|---|---|
+| Cumulus://ID repository, async API, Postgres repository, backfill, `CUMULUS_STORE=postgres` | On main (#153, #159, #161, #162, #164) |
+| No direct ID store reads outside `@infinitum/cid`; account export and Labyrinth directory through the repository | On main (#163, #166) |
+| Authenticator-app seeds sealed at rest (key derived from the ledger signing key) | On main (#165, #167) |
+| `CUMULUS_STORE=gateway` (rows through nexus-store, saved with the ledger in one transaction) | On main (#190); one round trip per signed-in request in #193 |
+| Single-server Postgres for the Russia issuer (`main.ts`) | On main (#192); server setup in InfinitumCorp/cumulus-id-ru#1 |
+| Rollback that keeps new accounts (rows back to the document), pre-switch check | #197 |
+| Row-write metrics | #201 |
+| FIRM Wallet repository, Postgres wallet (no double spend under concurrency) | #198, #199 |
+| Storage quota repository | #204 |
+| Mail (PostOffice), Tunnel | Not started |
+
+US Supabase project: the `cumulus_id` tables and `refresh_from_document()` exist (created 2026-11-12;
+9 accounts, 8 passkeys, 7 sessions, 7 grants copied and compared equal to the document).
+
+What still needs a person (or a connector this session didn't have):
+
+1. **Supabase**: apply `20261113_cumulus_id_rows.sql` and `20261114_cumulus_id_reverse.sql`, deploy the
+   updated `nexus-store` function, then merge #196 (`CUMULUS_STORE=gateway` for Mail) and run
+   `select cumulus_id.refresh_from_document()` just before that deploy goes live.
+2. **Cloudflare**: the GitHub organization secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`, so
+   the auto-deploy workflows can ship any of this.
+3. **Yandex**: after #192's commit is pinned in cumulus-id-ru (`SHA`), run
+   `ssh cumulus-id-russia 'bash -s' < scripts/setup.sh`.
+4. **id.cumuluscloud.app** keeps its state in a Cloudflare Durable Object, not Supabase; moving it means
+   reading that object, which needs Cloudflare access.
+
 ## Problem
 
 Every Cumulus store is a set of in-memory `Map`s (`CidStore`, `PostOfficeStore`, `WalletStore`,

@@ -100,7 +100,7 @@ describe("Attachments", () => {
     const pat = await signUp("patfiles");
     const parsed = { from: { address: "priya@example.com" }, subject: "Photos", text: "Here", attachments: [{ filename: "beach.jpg", mimeType: "image/jpeg", content: new TextEncoder().encode("JPEGDATA").buffer }] };
     const inbound = await storeInboundFiles(toInbound("priya@example.com", pat.address, parsed), parsed, store);
-    suite.mail.receive(inbound);
+    await suite.mail.receive(inbound);
     const att = inbound.attachments![0]!;
     assert.match(att.id!, /^in\/[0-9a-f-]{36}$/);
     const got = await download(pat.cookie, att.id!);

@@ -63,6 +63,8 @@ export interface OfferInput {
   licenseTerms: string;
   priceUsd: number;
   threshold?: number;
+  /** Noise source passed to dpCountDistinct; defaults to CSPRNG Laplace noise. Tests inject a fixed value. */
+  noise?: (scale: number) => number;
 }
 
 export function prepareOffer(i: OfferInput): ExchangeOffer {
@@ -91,6 +93,7 @@ export function prepareOffer(i: OfferInput): ExchangeOffer {
     group: (r) => String(r[i.groupColumn]),
     ...(i.groups ? { groups: i.groups } : {}),
     ...(i.threshold !== undefined ? { threshold: i.threshold } : {}),
+    ...(i.noise ? { noise: i.noise } : {}),
   });
   return {
     dataset_id: d.id,

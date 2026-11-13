@@ -70,11 +70,15 @@ export class LocalFsBlobStore implements BlobStore {
       }
       await rename(tmp, dest);
       await rename(sumTmp, `${dest}.sha256`);
-      const dirHandle = await open(dir, "r");
-      try {
-        await dirHandle.sync();
-      } finally {
-        await dirHandle.close();
+      // Persist the renames. Windows cannot fsync a directory handle (EPERM) and makes
+      // renames durable through NTFS journaling, so the directory sync is POSIX only.
+      if (process.platform !== "win32") {
+        const dirHandle = await open(dir, "r");
+        try {
+          await dirHandle.sync();
+        } finally {
+          await dirHandle.close();
+        }
       }
       return { size, sha256: digest };
     } catch (err) {

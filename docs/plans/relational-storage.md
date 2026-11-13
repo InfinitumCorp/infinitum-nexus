@@ -66,7 +66,9 @@ What still needs a person (or a connector this session didn't have):
    `20261119_cumulus_rows_mail_due.sql` with them (the unread count and due drafts without fetching
    mailboxes; one lock order so two people mailing each other at once can't deadlock). Apply all five
    migrations, and redeploy `nexus-store` (#231), before deploying code that uses them: older SQL
-   doesn't know the newer lookups.
+   doesn't know the newer lookups. With `20261120_cumulus_rows_compare.sql` too,
+   `select cumulus_rows.compare_with_documents(array['mail', 'wallet', 'quota'])` reports
+   `"same": true` (or the keys that differ) after the refresh and before the switch.
 5. **id.cumuluscloud.app** keeps its state in a Cloudflare Durable Object, not Supabase; moving it means
    reading that object, which needs Cloudflare access.
 

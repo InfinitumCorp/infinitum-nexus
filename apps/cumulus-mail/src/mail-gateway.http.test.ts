@@ -86,7 +86,7 @@ describe("Mail rows through the gateway (CUMULUS_ROWS=mail,wallet,quota)", { ski
     u.pathname = `/${dbName}`;
     pool = new pg.Pool({ connectionString: u.toString(), max: 8 });
     pool.on("error", () => {});
-    for (const f of ["20261104_nexus_store.sql", "20261113_cumulus_id_rows.sql", "20261115_cumulus_rows_wallet_quota.sql", "20261116_cumulus_rows_mail.sql", "20261117_cumulus_rows_mail_counts.sql", ...(process.env.SKIP_LOCK_ORDER ? [] : ["20261118_cumulus_rows_lock_order.sql"]), "20261119_cumulus_rows_mail_due.sql"]) {
+    for (const f of ["20261104_nexus_store.sql", "20261113_cumulus_id_rows.sql", "20261115_cumulus_rows_wallet_quota.sql", "20261116_cumulus_rows_mail.sql", "20261117_cumulus_rows_mail_counts.sql", ...(process.env.SKIP_LOCK_ORDER ? [] : ["20261118_cumulus_rows_lock_order.sql"]), "20261119_cumulus_rows_mail_due.sql", "20261120_cumulus_rows_compare.sql"]) {
       await pool.query(readFileSync(join(root, "supabase/migrations", f), "utf8"));
     }
     const probe = createServer();
@@ -270,6 +270,16 @@ describe("Mail rows through the gateway (CUMULUS_ROWS=mail,wallet,quota)", { ski
     const counts = (await pool.query("SELECT cumulus_rows.refresh_mail_from_document() AS r")).rows[0].r;
     assert.equal(counts.mailboxes, 2);
     assert.equal(counts.outbound, 1);
+    const compare = async () => (await pool.query("SELECT cumulus_rows.compare_with_documents() AS r")).rows[0].r;
+    const same = await compare();
+    assert.equal(same.same, true, JSON.stringify(same));
+    assert.equal(same.counts.mailboxes.rows, 2);
+    // A message that changed in the rows is reported by key.
+    await pool.query(`UPDATE cumulus_rows.mail_messages SET data = jsonb_set(data, '{subject}', '"Edited"') WHERE cid = $1 AND id = (SELECT id FROM cumulus_rows.mail_messages WHERE cid = $1 LIMIT 1)`, [kit.cid]);
+    const changed = await compare();
+    assert.equal(changed.same, false);
+    assert.deepEqual(changed.differences.mailboxes.changed, [kit.cid]);
+    await pool.query("SELECT cumulus_rows.refresh_mail_from_document()");
     const h = host(base);
     for (const who of [kit, jo]) {
       const want = (await before.mail.view(who.cid)).messages;

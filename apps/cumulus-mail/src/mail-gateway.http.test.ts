@@ -86,7 +86,7 @@ describe("Mail rows through the gateway (CUMULUS_ROWS=mail,wallet,quota)", { ski
     u.pathname = `/${dbName}`;
     pool = new pg.Pool({ connectionString: u.toString(), max: 8 });
     pool.on("error", () => {});
-    for (const f of ["20261104_nexus_store.sql", "20261113_cumulus_id_rows.sql", "20261115_cumulus_rows_wallet_quota.sql", "20261116_cumulus_rows_mail.sql", "20261117_cumulus_rows_mail_counts.sql", ...(process.env.SKIP_LOCK_ORDER ? [] : ["20261118_cumulus_rows_lock_order.sql"])]) {
+    for (const f of ["20261104_nexus_store.sql", "20261113_cumulus_id_rows.sql", "20261115_cumulus_rows_wallet_quota.sql", "20261116_cumulus_rows_mail.sql", "20261117_cumulus_rows_mail_counts.sql", ...(process.env.SKIP_LOCK_ORDER ? [] : ["20261118_cumulus_rows_lock_order.sql"]), "20261119_cumulus_rows_mail_due.sql"]) {
       await pool.query(readFileSync(join(root, "supabase/migrations", f), "utf8"));
     }
     const probe = createServer();
@@ -237,6 +237,25 @@ describe("Mail rows through the gateway (CUMULUS_ROWS=mail,wallet,quota)", { ski
     const inbox = async (cid: string) => (await one.state.transaction(() => one.suite.mail.view(cid))).messages.filter((m) => m.folder === "inbox" && m.subject.startsWith("Round")).length;
     assert.equal(await inbox(ana.cid), 3);
     assert.equal(await inbox(ben.cid), 3);
+  });
+
+  it("scheduled send through the gateway fetches only mailboxes with a draft that is due", async () => {
+    const h = host(base);
+    const [sky, tom] = await h.state.transaction(async () => [
+      await h.suite.cid.createAccount({ username: "skyler" }),
+      await h.suite.cid.createAccount({ username: "tomasz" }),
+    ]);
+    const when = new Date(Date.now() + 1000).toISOString();
+    await h.state.transaction(() => h.suite.mail.schedule(sky.cid, { to: "tomasz@cumuluscloud.app", subject: "Soon", body: "x" }, when));
+    await new Promise((r) => setTimeout(r, 1200));
+    const fetched: string[] = [];
+    onRead = async (ops) => { for (const o of ops as { op: string; cid?: string; only?: string }[]) if (o.op === "mailbox" && !o.only) fetched.push(o.cid!); };
+    const sent = await h.state.transaction(() => h.suite.mail.sendAllDue());
+    onRead = async () => {};
+    assert.ok(sent >= 1);
+    assert.ok(fetched.includes(sky.cid));
+    assert.ok(!fetched.some((cid) => cid !== sky.cid && cid !== tom.cid), `only the due sender and the recipient were fetched: ${fetched.length}`);
+    assert.equal((await h.state.transaction(() => h.suite.mail.view(tom.cid))).messages.filter((m) => m.subject === "Soon").length, 1);
   });
 
   it("copies an existing cumulus-mail document into the rows with nothing lost", async () => {

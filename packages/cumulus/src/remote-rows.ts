@@ -21,7 +21,7 @@ export type RowsReadOp =
   | { op: "transfersOf"; cid: string; limit: number }
   | { op: "quotaUsage"; cid: string }
   | { op: "mailbox"; cid: string; only?: "exists" | "unread" }
-  | { op: "mailboxCids" }
+  | { op: "mailboxCids"; dueBy?: string }
   | { op: "mailAddress"; address: string }
   | { op: "mailOutbound"; id: string }
   | { op: "mailOpenOutbound" }
@@ -124,6 +124,16 @@ export class RemoteRows {
         }
         const [n] = (await rows.#read([{ op: "mailbox", cid, only: "unread" }])) as number[];
         return Number(n ?? 0);
+      },
+      dueDraftCids: async (now) => {
+        const [cids] = (await rows.#read([{ op: "mailboxCids", dueBy: now }])) as string[][];
+        // Plus any mailbox this request changed or read, checked as the request sees it.
+        const mine: string[] = [];
+        for (const cid of new Set([...rows.#mailWrites.keys(), ...rows.#mailboxes.keys()])) {
+          const box = await rows.#mailbox(cid);
+          if (box?.messages.some((m) => m.folder === "drafts" && m.sendAt && Date.parse(m.sendAt) <= Date.parse(now))) mine.push(cid);
+        }
+        return [...new Set([...(cids ?? []), ...mine])];
       },
       mailboxCids: async () => {
         const [cids] = (await rows.#read([{ op: "mailboxCids" }])) as string[][];

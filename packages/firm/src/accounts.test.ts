@@ -133,5 +133,38 @@ describe("FIRM Wallet on PostgreSQL, two payments at once", { skip: pgPool ? fal
     assert.deepEqual(outcomes, ["insufficient_funds", "sent"]);
     assert.deepEqual(await setup.balances("cid:a"), { FIRM: "0", USDC: "3" }, "never spent twice");
   });
-});
 
+  test("two transactions opening the same person's wallet at once: one wallet, the same address for both", async () => {
+    const schema = `wallet_open_${process.pid}`;
+    pgSchemas.push(schema);
+    await migrateWallet(pgPool!, schema);
+    let arrived = 0;
+    let release!: () => void;
+    const bothRead = new Promise<void>((r) => (release = r));
+    const open = async () => {
+      const client = await pgPool!.connect();
+      const db = {
+        async query(text: string, params?: unknown[]) {
+          const r = await client.query(text, params);
+          if (/FROM "[^"]+"\.wallet_accounts WHERE cid = \$1/.test(text) && params?.[0] === "cid:new") {
+            if (++arrived === 2) release();
+            await Promise.race([bothRead, new Promise((r) => setTimeout(r, 500))]);
+          }
+          return r;
+        },
+      };
+      try {
+        await client.query("BEGIN");
+        const account = await new WalletAccounts({ repository: new PgWalletRepository({ db, schema }) }).open("cid:new");
+        await client.query("COMMIT");
+        return account.address;
+      } finally {
+        client.release();
+      }
+    };
+    const [x, y] = await Promise.all([open(), open()]);
+    assert.equal(x, y);
+    const stored = await new WalletAccounts({ repository: new PgWalletRepository({ db: pgPool!, schema }) }).get("cid:new");
+    assert.equal(stored?.address, x);
+  });
+});

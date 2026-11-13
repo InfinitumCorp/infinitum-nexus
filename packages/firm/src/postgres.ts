@@ -64,6 +64,9 @@ export class PgWalletRepository implements WalletRepository {
   }
 
   async account(cid: string): Promise<WalletAccount | undefined> {
+    // The row lock can't cover a wallet that doesn't exist yet; this lock on the CID can, so two servers
+    // opening the same person's wallet at once make one wallet, not two with the second overwriting.
+    await this.#q("SELECT pg_advisory_xact_lock(hashtext($1))", [`firm-wallet|${this.#schema}|${cid}`]);
     const { rows } = await this.#q("SELECT data FROM T.wallet_accounts WHERE cid = $1 FOR UPDATE", [cid]);
     return rows[0]?.data;
   }

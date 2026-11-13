@@ -70,6 +70,11 @@ export class PgWalletRepository implements WalletRepository {
     const { rows } = await this.#q("SELECT data FROM T.wallet_accounts WHERE cid = $1 FOR UPDATE", [cid]);
     return rows[0]?.data;
   }
+  /** For showing a wallet or its balances: no lock, so it never waits for (or holds up) a payment. */
+  async peekAccount(cid: string): Promise<WalletAccount | undefined> {
+    const { rows } = await this.#q("SELECT data FROM T.wallet_accounts WHERE cid = $1", [cid]);
+    return rows[0]?.data;
+  }
   async cidForAddress(address: string): Promise<string | undefined> {
     const { rows } = await this.#q("SELECT cid FROM T.wallet_accounts WHERE address = $1", [address.toLowerCase()]);
     return rows[0]?.cid;

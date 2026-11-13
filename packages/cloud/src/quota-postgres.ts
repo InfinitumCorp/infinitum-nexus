@@ -50,6 +50,11 @@ export class PgQuotaRepository implements QuotaRepository {
     const { rows } = await this.#db.query(`SELECT mail_bytes, cloud_bytes FROM ${this.#t} WHERE cid = $1 FOR UPDATE`, [cid]);
     return rows[0] ? { mail: Number(rows[0].mail_bytes), cloud: Number(rows[0].cloud_bytes) } : undefined;
   }
+  /** For the meter: no lock, so showing it never waits for (or holds up) an upload. */
+  async peekUsage(cid: string): Promise<Record<QuotaProduct, number> | undefined> {
+    const { rows } = await this.#db.query(`SELECT mail_bytes, cloud_bytes FROM ${this.#t} WHERE cid = $1`, [cid]);
+    return rows[0] ? { mail: Number(rows[0].mail_bytes), cloud: Number(rows[0].cloud_bytes) } : undefined;
+  }
   async putUsage(cid: string, row: Record<QuotaProduct, number>): Promise<void> {
     await this.#db.query(
       `INSERT INTO ${this.#t} (cid, mail_bytes, cloud_bytes) VALUES ($1, $2, $3)

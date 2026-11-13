@@ -116,5 +116,23 @@ describe("storage quota on PostgreSQL, two uploads at once", { skip: pgPool ? fa
     const after = await new StorageQuota({ repository: new PgQuotaRepository({ db: pgPool!, schema }), freeGb: 1 }).usage("cid:a");
     assert.equal(after.usedBytes, 0.6 * GB + seed, "never over the plan");
   });
+
+  test("the storage meter doesn't wait for an upload in progress", async () => {
+    const schema = `quota_peek_${process.pid}`;
+    pgSchemas.push(schema);
+    await migrateQuota(pgPool!, schema);
+    const quota = new StorageQuota({ repository: new PgQuotaRepository({ db: pgPool!, schema }), freeGb: 1 });
+    await quota.charge("cid:m", "mail", 1000);
+    const client = await pgPool!.connect();
+    try {
+      await client.query("BEGIN");
+      await new PgQuotaRepository({ db: client, schema }).usage("cid:m"); // an upload holds the lock
+      const shown = await Promise.race([quota.usage("cid:m"), new Promise((r) => setTimeout(() => r("waited"), 1500))]);
+      assert.equal((shown as { usedBytes: number }).usedBytes, 1000);
+    } finally {
+      await client.query("ROLLBACK");
+      client.release();
+    }
+  });
 });
 

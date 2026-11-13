@@ -25,7 +25,7 @@ export {
 } from "./domain.ts";
 export type { CumulusDomain } from "./domain.ts";
 export type { CidEvent, CidEventName } from "./service.ts";
-export type { Account, Authenticator, Session, SessionMethod, LinkedIdentity, Grant, Organization, AppId, CidConfig } from "./service.ts";
+export type { Account, Authenticator, Session, SessionMethod, LinkedIdentity, Grant, Organization, AppId, CidConfig, IssuerLogin, IssuerClaims } from "./service.ts";
 export { PROVIDERS, SocialClient, appleClientSecret, socialFromEnv } from "./social.ts";
 export type { SocialProviderId, SocialCredentials, SocialProfile } from "./social.ts";
 export { verifyRegistration, verifyAssertion, parseAuthenticatorData, coseToKey, COSE_ALG } from "./webauthn.ts";
@@ -40,7 +40,7 @@ export type { IdClient } from "./id-clients.ts";
 export { oidcDiscovery, profileOf, registerProductIdp, safeProductReturn } from "./product-idp.ts";
 export type { ProductIdpHelpers } from "./product-idp.ts";
 export { exportCidAccounts, CID_EXPORT_FORMAT, CID_EXPORT_VERSION } from "./account-export.ts";
-export type { CidExport, CidExportAccount, CidExportAuthenticator, CidExportIdentity, CidExportGrant } from "./account-export.ts";
+export type { CidExport, CidExportAccount, CidExportAuthenticator, CidExportIdentity, CidExportGrant, CidExportOrganization } from "./account-export.ts";
 export { encodeCbor, decodeCbor } from "./cbor.ts";
 export { MapCidRepository } from "./repository.ts";
 export type { CidRepository, OneTimeKind } from "./repository.ts";

@@ -115,6 +115,7 @@
     <form class="search" role="search" id="search-form">
       <input id="q" type="search" enterkeyhint="search" placeholder="Ask anything or enter address" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Ask anything or enter address" />
     </form>
+    <div data-cumulus-bar data-create="false"></div>
   </header>
   <main id="main">
     <div id="thread" aria-live="polite"></div>
@@ -134,5 +135,6 @@
   <footer>VEIL searches and answers for you, on this page: search engines never see your address, nothing comes from Wikipedia, and nothing is kept. Answers are written by AI from the pages shown and can be wrong; check the sources.</footer>
   <script src="lib/trackers.js"></script>
   <script src="search.js"></script>
+  <script src="cumulus-bar.js" data-client="veil" defer></script>
 </body>
 </html>

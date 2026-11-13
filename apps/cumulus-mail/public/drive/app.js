@@ -15,24 +15,15 @@ function appsMenu() {
   return el("div", { class: "menu-wrap" }, [btn, menu]);
 }
 
-function accountMenu() {
-  const menu = el("div", { class: "menu right", hidden: true, role: "menu" }, [
-    el("p", { class: "menu-note" }, [S.me.email]),
-    el("a", { href: "/#/account", role: "menuitem" }, ["Your Cumulus://ID"]),
-    el("button", { role: "menuitem", onClick: async () => { await api("/api/auth/signout", { method: "POST", body: {} }).catch(() => {}); location.href = "/"; } }, ["Sign out"]),
-  ]);
-  const btn = el("button", { class: "avatar", "aria-label": `Account: ${S.me.email}`, onClick: (e) => { e.stopPropagation(); menu.hidden = !menu.hidden; } }, [S.me.username.slice(0, 1).toUpperCase()]);
-  document.addEventListener("click", () => { menu.hidden = true; });
-  return el("div", { class: "menu-wrap" }, [btn, menu]);
-}
-
 function topBar() {
+  // The Cumulus://ID account bar (/id/bar.js) fills the new header once it is in the page.
+  queueMicrotask(() => window.CumulusBar?.setProfile(S.me ? { name: S.me.name || S.me.username, username: S.me.username, email: S.me.email } : null));
   const q = el("input", { type: "search", placeholder: "Search Drive", "aria-label": "Search Drive", value: S.route[0] === "search" ? decodeURIComponent(S.route[1] || "") : "" });
   q.addEventListener("keydown", (e) => { if (e.key === "Enter") location.hash = q.value.trim() ? `#/search/${encodeURIComponent(q.value.trim())}` : "#/"; });
   return el("header", { class: "bar" }, [
     el("a", { class: "mark", href: "#/" }, ["Cumulus://", el("span", {}, ["Drive"])]),
     el("label", { class: "search" }, [el("span", { class: "glass", "aria-hidden": "true" }, ["⌕"]), q]),
-    el("div", { class: "bar-end" }, [appsMenu(), accountMenu()]),
+    el("div", { class: "bar-end" }, [appsMenu(), el("div", { "data-cumulus-bar": "" })]),
   ]);
 }
 

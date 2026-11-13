@@ -63,7 +63,8 @@ async function roundTrip(target: CidRepository) {
   assert.equal(await svc.can(alex.cid, "LBRNTH", "repo:read"), true);
   // The migration export reads through the repository too, so it sees the copied accounts.
   const exported = await exportCidAccounts(svc);
-  assert.deepEqual(exported.counts, { accounts: 2, authenticators: 1, identities: 1, grants: 1 });
+  assert.deepEqual(exported.counts, { accounts: 2, authenticators: 1, identities: 1, grants: 1, organizations: 1 });
+  assert.equal(exported.organizations.length, 1, "organizations are read through the repository too");
 
   // The reverse copy (rollback to the document) gives back the same entities and lookups.
   const back = await cidStoreFromRepository(target);

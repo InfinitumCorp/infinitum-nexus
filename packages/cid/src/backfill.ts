@@ -86,7 +86,7 @@ export function checkCidStore(s: CidStore): CidCheck {
   for (const [key, cid] of [...s.byIdentity, ...s.byFederation]) {
     if (!s.accounts.has(cid)) problems.push(`sign-in link ${key} points at missing account ${cid}`);
   }
-  const skippedOneTime = s.challenges.size + s.pendingMfa.size + s.oauthPending.size + s.deviceHandoffs.size;
+  const skippedOneTime = s.challenges.size + s.pendingMfa.size + s.oauthPending.size + s.deviceHandoffs.size + s.issuerLogins.size;
   return { counts: counts(s), skippedOneTime, problems };
 }
 

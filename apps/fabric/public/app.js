@@ -152,10 +152,15 @@ text.addEventListener("keydown", (event) => {
   }
 });
 
-document.querySelector("#logout").addEventListener("click", async () => {
-  await api("/api/auth/logout", { method: "POST" });
+// The Cumulus://ID account bar's "Sign out" navigates to #signout (data-signout).
+const signOutFromHash = async () => {
+  if (location.hash !== "#signout") return;
+  await api("/api/auth/logout", { method: "POST" }).catch(() => {});
   location.href = "/";
-});
+};
+window.addEventListener("hashchange", signOutFromHash);
+signOutFromHash();
+const showAccount = (person) => window.CumulusBar?.setProfile(person ? { name: person.name || person.username, username: person.username, email: person.email || undefined } : null);
 
 const params = new URLSearchParams(location.search);
 if (params.get("error") === "sign-in-failed") showError("Sign-in failed. Try again.");
@@ -167,7 +172,7 @@ try {
   me = await api("/api/me");
   signedOut.hidden = true;
   app.hidden = false;
-  document.querySelector("#logout").hidden = false;
+  showAccount(me);
   title.textContent = `Signed in as ${me.username}`;
   await refreshSessions();
   setInterval(() => {
@@ -176,5 +181,5 @@ try {
 } catch {
   signedOut.hidden = false;
   app.hidden = true;
-  document.querySelector("#logout").hidden = true;
+  showAccount(null);
 }

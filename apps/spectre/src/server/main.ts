@@ -47,6 +47,10 @@ import { localCidStorage } from "./local-cid.ts";
  *     RESEND_API_KEY, MAIL_FROM                         email
  *     TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM  SMS; inbound webhook: {SPECTRE_ORIGIN}/api/hooks/twilio/sms
  *   CRON_SECRET          lets an outside scheduler call POST /api/cron/automations (a local timer runs anyway)
+ *   SPECTRE_AUTH         unset: Cumulus://ID runs in process (passkeys, MFA, social sign-in).
+ *                        oidc: sign in at the standalone issuer as an OpenID Connect client (set at cut-over).
+ *     CID_ISSUER         default https://id.cumuluscloud.app/realms/cumulus
+ *     CID_CLIENT_ID      default spectre (public client, PKCE S256, no secret)
  */
 
 // Enable METATRON by default for advertised prediction performance.

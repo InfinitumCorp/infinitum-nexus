@@ -111,7 +111,9 @@ export type SessionMethod =
   | `social:${SocialProviderId}` | `social:${SocialProviderId}+totp`
   | "device-handoff"
   /** Signed in at the Cumulus://ID issuer; this product holds a local mirror of the account. */
-  | "cumulus-id";
+  | "cumulus-id"
+  /** Signed in at the standalone Cumulus://ID issuer; this host is its OpenID Connect client. */
+  | "oidc";
 
 export interface Authenticator {
   id: string;
@@ -135,6 +137,8 @@ export interface Session {
   createdAt: string;
   expiresAt: string;
   revokedAt?: string;
+  /** "oidc" sessions: the issuer's ID token, sent back as id_token_hint at sign-out. */
+  idTokenHint?: string;
 }
 
 export interface Grant {
@@ -151,6 +155,11 @@ export interface Organization {
   name: string;
   admins: string[];
   sso?: SsoConfig & { emailDomain?: string };
+  /**
+   * "issuer": the standalone Cumulus://ID issuer reports this organization (org_id in its ID
+   * tokens), so membership and admins follow the issuer. Unset: the organization exists only here.
+   */
+  source?: "issuer";
 }
 
 interface Challenge {
@@ -185,12 +194,42 @@ interface DeviceHandoff {
   redirectUri?: string;
 }
 
+/**
+ * A sign-in this host started at the standalone Cumulus://ID issuer (OpenID Connect client mode).
+ * Kept server side, keyed by the SHA-256 of `state`, and taken once by the callback.
+ */
+export interface IssuerLogin {
+  nonce: string;
+  /** PKCE code_verifier. */
+  verifier: string;
+  redirectUri: string;
+  /** Same-origin path to return to after sign-in. */
+  next?: string;
+  expiresAt: number;
+}
+
+/** Claims of a verified ID token from the standalone Cumulus://ID issuer. */
+export interface IssuerClaims {
+  sub: string;
+  preferred_username?: unknown;
+  username?: unknown;
+  handle?: unknown;
+  email?: unknown;
+  /** With the profile scope: the person's organization at the issuer (org_<uuid>), its name and their role. */
+  org_id?: unknown;
+  org_name?: unknown;
+  org_role?: unknown;
+  [k: string]: unknown;
+}
+
 /** Short-lived, single-use items, by kind (see CidRepository's one-time methods). */
 export interface CidOneTime {
   challenge: Challenge;
   mfa: PendingMfa;
   oauth: PendingAuth;
   handoff: DeviceHandoff;
+  /** A sign-in this host started at the standalone issuer (OpenID Connect client mode). */
+  issuer: IssuerLogin;
 }
 
 /** How long a browser-to-app sign-in code stays valid. */
@@ -212,6 +251,7 @@ export class CidStore {
   byIdentity = new Map<string, string>(); // `${provider}|${subject}` -> cid
   oauthPending = new Map<string, PendingAuth>();
   deviceHandoffs = new Map<string, DeviceHandoff>(); // key: SHA-256 of the code
+  issuerLogins = new Map<string, IssuerLogin>(); // key: SHA-256 of the state
 }
 
 /* ------------------------------------------------------------------ */
@@ -790,10 +830,116 @@ export class CidService {
     return { account: this.accountNow(session.cid), session };
   }
 
-  async listSessions(cid: string): Promise<Omit<Session, "tokenHash">[]> {
+  async listSessions(cid: string): Promise<Omit<Session, "tokenHash" | "idTokenHint">[]> {
     return (await this.repo.sessionsOf(cid))
       .filter((s) => !s.revokedAt && new Date(s.expiresAt) > this.now())
-      .map(({ tokenHash: _t, ...rest }) => rest);
+      .map(({ tokenHash: _t, idTokenHint: _i, ...rest }) => rest);
+  }
+
+  /* ---------------- OpenID Connect client mode (standalone Cumulus://ID issuer) ---------------- */
+
+  /** Keeps a started issuer sign-in until its callback (a single-use "issuer" item). Expired ones are swept. */
+  async rememberIssuerLogin(state: string, login: Omit<IssuerLogin, "expiresAt">, ttlMs = 10 * 60_000) {
+    const now = this.now().getTime();
+    await this.repo.sweepOneTime("issuer", now);
+    await this.repo.putOneTime("issuer", hashToken(state), { ...login, expiresAt: now + ttlMs });
+  }
+
+  /** The sign-in started with `state`, once: a second call, or an expired one, returns null. */
+  async takeIssuerLogin(state: string): Promise<IssuerLogin | null> {
+    const login = await this.repo.takeOneTime("issuer", hashToken(state));
+    return login && login.expiresAt >= this.now().getTime() ? login : null;
+  }
+
+  /**
+   * Session for someone the issuer signed in. The caller has already verified the ID token
+   * (signature, iss, aud, exp, nonce). The local account is keyed by `sub`, which is the same
+   * cid this store uses; it is created from the claims on first sign-in, so grants, workspaces
+   * and CRM data keyed by cid keep working.
+   */
+  async signInFromIssuer(claims: IssuerClaims, device: string, idToken?: string): Promise<{ token: string; session: Session; created: boolean }> {
+    const cid = claims.sub;
+    if (typeof cid !== "string" || !/^cid_[0-9a-f-]{36}$/.test(cid)) throw new CidError("invalid_subject", "The ID token's subject is not a Cumulus://ID");
+    let created = false;
+    if (!(await this.repo.account(cid))) {
+      const str = (v: unknown) => (typeof v === "string" ? v : "");
+      const wanted = str(claims.preferred_username || claims.username).trim().toLowerCase();
+      const username = USERNAME.test(wanted) && !RESERVED.has(wanted) && !(await this.repo.cidForUsername(wanted))
+        ? wanted
+        : await this.freeUsername(wanted || "member");
+      const email = str(claims.email).toLowerCase();
+      const handle = str(claims.handle);
+      await this.insertAccount({
+        cid,
+        username,
+        mailAddress: email.endsWith(`@${this.mailDomain}`) ? email : `${username}@${this.mailDomain}`,
+        handle: /^@[a-z0-9._-]{1,64}$/.test(handle) ? handle : `@${username}.veil`,
+        createdAt: this.now().toISOString(),
+        entitlements: FREE_ENTITLEMENTS,
+      }, { event: "account.created", org: null, via: "issuer" });
+      created = true;
+    }
+    await this.syncIssuerOrg(cid, claims);
+    const issued = await this.issueSession(cid, device, "oidc");
+    if (idToken) {
+      issued.session.idTokenHint = idToken;
+      await this.repo.putSession(issued.session);
+    }
+    return { ...issued, created };
+  }
+
+  /**
+   * Organization membership from the issuer's org_id / org_name / org_role claims. The local
+   * organization is created if missing, the account joins it, and the local admin list follows
+   * org_role. Without org_id, a membership is cleared only when it came from the issuer: an
+   * organization that exists only here is left alone. Every change is written back through the
+   * repository (in-memory store or Postgres).
+   */
+  private async syncIssuerOrg(cid: string, claims: IssuerClaims) {
+    const account = await this.account(cid);
+    const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
+    const orgId = str(claims.org_id);
+    const leave = async (org: Organization | undefined) => {
+      if (org && org.admins.includes(cid)) {
+        org.admins = org.admins.filter((a) => a !== cid);
+        await this.repo.putOrg(org);
+      }
+    };
+    if (!/^org_[0-9a-f-]{36}$/.test(orgId)) {
+      const current = account.orgId ? await this.repo.org(account.orgId) : undefined;
+      if (current?.source === "issuer") {
+        await leave(current);
+        account.orgId = undefined;
+        await this.repo.putAccount(account);
+        await this.record("audit", cid, current.id, { event: "org.member_left", via: "issuer" });
+      }
+      return;
+    }
+    const name = str(claims.org_name).slice(0, 120);
+    let org = await this.repo.org(orgId);
+    if (!org) {
+      org = { id: orgId, name: name || orgId, admins: [], source: "issuer" };
+      await this.repo.putOrg(org);
+      await this.record("identity", cid, orgId, { event: "org.created", via: "issuer" });
+    } else {
+      // The issuer now reports it, so it follows the issuer from here on.
+      org.source = "issuer";
+      if (name) org.name = name;
+      await this.repo.putOrg(org);
+    }
+    if (account.orgId && account.orgId !== orgId) await leave(await this.repo.org(account.orgId));
+    if (account.orgId !== orgId) {
+      account.orgId = orgId;
+      await this.repo.putAccount(account);
+    }
+    const admin = str(claims.org_role) === "admin";
+    const wasAdmin = org.admins.includes(cid);
+    if (admin && !wasAdmin) org.admins = [...org.admins, cid];
+    if (!admin && wasAdmin) org.admins = org.admins.filter((a) => a !== cid);
+    if (admin !== wasAdmin) {
+      await this.repo.putOrg(org);
+      await this.record("audit", cid, orgId, { event: admin ? "org.admin_added" : "org.admin_removed", via: "issuer" });
+    }
   }
 
   async revokeSession(cid: string, sessionId: string, actor = cid) {

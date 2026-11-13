@@ -53,7 +53,7 @@ export class HttpGateway implements NexusGateway {
     });
     if (res.status === 409) throw new ConflictError();
     const text = await res.text();
-    if (!res.ok) throw new Error(`Data store error ${res.status}: ${text.slice(0, 200)}`);
+    if (!res.ok) throw new StoreError(`Data store error ${res.status}: ${text.slice(0, 200)}`);
     return JSON.parse(text) as T;
   }
   load(since: number, versions: Record<string, number>) {
@@ -151,7 +151,12 @@ export class RemoteState {
     this.ledgerStore.committed.push(...entries.sort((a, b) => a.seq - b.seq));
     for (const row of docs) {
       const store = this.docs[row.id];
-      if (!store) continue;
+      if (!store) {
+        // A document this host doesn't keep (e.g. `cid` once ID is in rows): remember its version so
+        // the gateway stops sending it with every request.
+        this.versions[row.id] = row.version;
+        continue;
+      }
       applySnapshot(store, row.data);
       this.versions[row.id] = row.version;
       this.baseline[row.id] = JSON.stringify(row.data);
@@ -240,6 +245,9 @@ export class RemoteState {
         // Postgres ended the request's transaction to let another one through (a deadlock, or a
         // serialization failure): nothing of it can be saved, so treat it as a conflict and re-run.
         if (!outcome.ok && isRetryableDatabaseError(outcome.error)) throw new ConflictError();
+        // The store itself failed part way (a gateway read, a database statement): the request did only
+        // part of its work, so nothing of it is saved. Refusals (a wrong code, a taken name) still are.
+        if (!outcome.ok && isStoreFailure(outcome.error)) throw outcome.error;
         await this.commit();
         // The ledger and documents are saved: now the participants. A failure here leaves them
         // behind the ledger, which can't be undone any more; it is reported, never silent.
@@ -279,6 +287,16 @@ export class RemoteState {
   }
 }
 
+
+/** The data store failed (as opposed to the request refusing something). */
+export class StoreError extends Error {}
+
+/** A gateway error, or any Postgres error (a five-character SQLSTATE such as 23505). */
+export function isStoreFailure(err: unknown): boolean {
+  if (err instanceof StoreError) return true;
+  const code = (err as { code?: unknown } | null)?.code;
+  return typeof code === "string" && /^[0-9A-Z]{5}$/.test(code);
+}
 
 /** Postgres errors after which the whole transaction is gone but running it again can succeed. */
 export function isRetryableDatabaseError(err: unknown): boolean {

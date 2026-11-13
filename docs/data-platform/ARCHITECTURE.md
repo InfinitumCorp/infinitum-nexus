@@ -130,6 +130,8 @@ as Deequ checks inside the Spark jobs, and the metrics repository feeds anomaly 
 
 ## 4. Hudi: lakehouse (defer)
 
+Full evaluation, triggers and the Iceberg/Delta comparison: [EVALUATIONS.md](EVALUATIONS.md#2-apache-hudi).
+
 Hudi gives incremental upserts, corrections and deletes on files in object storage. The right
 time to adopt it is when analytics volume outgrows Postgres plus OpenSearch, or when we need
 record-level deletes across a large history (GDPR erasure). Neither is true yet.
@@ -181,6 +183,8 @@ with the same query DSL, so we use it.
 
 ## 7. Metacat: evaluation only
 
+Full evaluation: [EVALUATIONS.md](EVALUATIONS.md#3-metacat).
+
 Metacat (Netflix) is a federated metadata API. It doesn't copy metadata. It answers live by
 calling connectors (Hive, Postgres, MySQL, Redshift, S3, Snowflake), and it publishes change
 events.
@@ -218,6 +222,8 @@ Internal dashboards use exact numbers under access policy.
 container. On Windows, the bounding and budget tests run with a no-noise test backend.
 
 ## 9. Opacus: DP model training (defer)
+
+Full evaluation and adoption requirements: [EVALUATIONS.md](EVALUATIONS.md#1-opacus).
 
 Opacus trains PyTorch models with DP-SGD. No Cumulus model trains on personal data today.
 Models are external, reached through OmniRoute and open models, and AI context is redacted by

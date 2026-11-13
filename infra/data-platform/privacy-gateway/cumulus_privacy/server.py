@@ -25,6 +25,7 @@ from typing import Any, Callable
 
 from .dp import BudgetExceeded, PrivacyBudget, release
 from .event_release import StoredReleases
+from .embed import GuestTokens, parse_embed_dashboards
 from .pipeline import prepare_export
 from .platform import Catalog, Collector, DataHubSink, Eraser, IngestLimits, OpenSearchIndex, PlatformError, Searcher
 from .quality import run_suite
@@ -100,6 +101,7 @@ class Gateway:
         searcher: Searcher | None = None,
         product_tokens: dict[str, str] | None = None,
         eraser: Eraser | None = None,
+        guest_tokens: GuestTokens | None = None,
         releases: StoredReleases | None = None,
     ) -> None:
         if len(token) < 32:
@@ -109,6 +111,7 @@ class Gateway:
         self.product_tokens = product_tokens or {}
         self.eraser = eraser
         self.releases = releases
+        self.guest_tokens = guest_tokens
         self.routes = [
             Route("POST", "/api/v1/redact", self.redact, "gateway"),
             Route("POST", "/api/v1/exports/prepare", self.prepare, "gateway"),
@@ -121,6 +124,7 @@ class Gateway:
             Route("POST", "/api/v1/erasure/subjects", self.erase, "product"),
             Route("POST", "/api/v1/erasure/subjects/all-products", self.erase_everywhere, "gateway"),
             Route("POST", "/api/v1/releases/datasets/{name}", self.release_dataset, "product"),
+            Route("POST", "/api/v1/embed/dashboards/{dashboardId}/guest-token", self.guest_token, "product"),
         ]
 
     def match(self, method: str, path: str) -> tuple[Route, dict[str, str]] | None:
@@ -160,6 +164,8 @@ class Gateway:
 
     def release_dataset(self, b: dict[str, Any], caller: str = "", name: str = "") -> Any:
         return self._platform(self.releases).release(caller, name, b)
+    def guest_token(self, b: dict[str, Any], caller: str = "", dashboardId: str = "") -> Any:  # noqa: N803
+        return self._platform(self.guest_tokens).mint(caller, dashboardId, b)
 
     def search(self, b: dict[str, Any], caller: str = "", **_: str) -> Any:
         return self._platform(self.searcher).search(caller, b)
@@ -332,7 +338,13 @@ def main() -> None:
         catalog = None
     if dsn:
         threading.Thread(target=_purge_daily, args=(index,), daemon=True).start()
-    gw = Gateway(redactor, budget, token, catalog, collector, searcher, products, eraser, releases)
+    guest_tokens = None
+    guest_secret = os.environ.get("SUPERSET_GUEST_TOKEN_SECRET", "")
+    dashboards = parse_embed_dashboards(os.environ.get("PLATFORM_EMBED_DASHBOARDS", ""))
+    if products and guest_secret and dashboards:
+        guest_tokens = GuestTokens(guest_secret, dashboards, redactor,
+                                   audience=os.environ.get("SUPERSET_GUEST_TOKEN_AUDIENCE", "superset"))
+    gw = Gateway(redactor, budget, token, catalog, collector, searcher, products, eraser, guest_tokens, releases)
     host = os.environ.get("HOST", "127.0.0.1")
     port = int(os.environ.get("PORT", "8090"))
     httpd = ThreadingHTTPServer((host, port), make_handler(gw))

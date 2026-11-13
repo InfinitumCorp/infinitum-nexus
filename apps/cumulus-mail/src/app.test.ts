@@ -115,7 +115,7 @@ describe("Cumulus://Mail over HTTP", () => {
     const leahState = await leah.call("GET", "/api/state");
     const got = leahState.data.messages.find((m: any) => m.subject === "Your share");
     assert.equal(got.payment.amount, "12.25");
-    assert.equal(suite.wallets.balances(leahCid).USDC, "12.25");
+    assert.equal((await suite.wallets.balances(leahCid)).USDC, "12.25");
 
     const wallet = await leah.call("GET", "/api/wallet");
     assert.equal(wallet.data.balances.USDC, "12.25");

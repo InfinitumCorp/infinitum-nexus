@@ -95,7 +95,7 @@ async function usePasskey(o) {
 
 /* ---------------- state & routing ---------------- */
 
-const state = { me: undefined, thread: [] };
+const state = { me: undefined, thread: [], authMode: "cid" };
 
 function route() {
   const [page, id] = location.hash.replace(/^#\/?/, "").split("/");
@@ -104,12 +104,22 @@ function route() {
 window.addEventListener("hashchange", () => render());
 
 async function boot() {
+  // "oidc": this host signs in at the standalone Cumulus://ID issuer. The route is absent otherwise.
+  try {
+    const res = await fetch("/api/auth/mode", { credentials: "same-origin" });
+    if (res.ok && (await res.json()).mode === "oidc") state.authMode = "oidc";
+  } catch { /* in-process sign-in */ }
   try { state.me = await api("GET", "/api/me"); } catch { state.me = null; }
   render();
 }
 
 function render() {
   const { page, id } = route();
+  // The account bar's "Sign out" comes here (data-signout="#/signout").
+  if (page === "signout") {
+    if (state.me) { signOut(); return; }
+    history.replaceState(null, "", "#/");
+  }
   if (!state.me) {
     if (page === "mfa" && id) return renderMfa(id);
     return renderAuth(page === "signin-error" && id ? decodeURIComponent(id) : "");
@@ -141,7 +151,26 @@ function goAfterSignIn(apiNext) {
   render();
 }
 
+/** Client mode: one link to the issuer, and one that opens its account creation (prompt=create). */
+function renderIssuerAuth(message) {
+  const back = productReturn();
+  const next = back ? `next=${encodeURIComponent(back)}` : "";
+  root.innerHTML = `
+    <div class="auth"><div class="auth-card">
+      <div class="logo">+SPCTR<sup class="tm">™</sup></div>
+      <p class="muted">One Cumulus://ID<sup class="tm">™</sup> for every Infinitum product</p>
+      <a class="btn primary" id="signin" href="/api/auth/login${next ? `?${next}` : ""}">Sign in with Cumulus://ID<sup class="tm">™</sup></a>
+      <div class="divider">No Cumulus://ID<sup class="tm">™</sup> yet?</div>
+      <a class="btn" id="signup" href="/api/auth/login?prompt=create${next ? `&${next}` : ""}">Create a Cumulus://ID<sup class="tm">™</sup></a>
+      <div class="error" id="err"></div>
+      <p class="faint small">Your password, PIN, authenticator app and linked accounts are managed at Cumulus://ID<sup class="tm">™</sup>.</p>
+    </div></div>`;
+  $("#err").textContent = message;
+  if (new URLSearchParams(location.search).get("create") === "1") $("#signup").focus();
+}
+
 function renderAuth(message = "") {
+  if (state.authMode === "oidc") return renderIssuerAuth(message);
   root.innerHTML = `
     <div class="auth"><div class="auth-card">
       <div class="logo">+SPCTR<sup class="tm">™</sup></div>
@@ -219,6 +248,40 @@ function renderMfa(mfaToken) {
   $("#code").onkeydown = (e) => { if (e.key === "Enter") submit(); };
 }
 
+/* ---------------- Cumulus://ID account bar ---------------- */
+
+async function signOut() {
+  let out = null;
+  try { out = await api("POST", "/api/auth/signout"); } catch { /* already signed out */ }
+  state.me = null;
+  window.CumulusBar?.setProfile(null);
+  // Client mode: end the app session at Cumulus://ID too.
+  if (out && typeof out.logoutUrl === "string" && out.logoutUrl.startsWith("https://")) { location.assign(out.logoutUrl); return; }
+  history.replaceState(null, "", "#/");
+  render();
+}
+
+/** The same account bar as every Infinitum product. +SPCTR keeps its own session and tells the bar who is signed in. */
+function mountAccountBar() {
+  const show = () => {
+    const me = state.me;
+    window.CumulusBar.setProfile(me ? { name: me.username, username: me.username, email: me.mailAddress, org_name: me.orgName || undefined } : null);
+    const host = $("[data-cumulus-bar]");
+    if (host) host.hidden = false;
+  };
+  if (window.CumulusBar) return show();
+  if ($("#cumulus-bar-js")) return;
+  const s = document.createElement("script");
+  s.id = "cumulus-bar-js";
+  s.src = "/id/bar.js";
+  s.dataset.client = "spectre";
+  s.dataset.product = "spectre";
+  s.dataset.signin = state.authMode === "oidc" ? "/api/auth/login" : "/";
+  s.dataset.signout = "#/signout";
+  s.onload = show;
+  document.body.append(s);
+}
+
 /* ---------------- shell ---------------- */
 
 function renderShell(page) {
@@ -241,6 +304,7 @@ function renderShell(page) {
           </nav>
           <div class="spacer"></div>
           <nav class="nav"><a href="/labyrinth">Labyrinth *LBRNTH<sup class="tm">™</sup></a><a href="#/settings" data-p="settings">${icon.settings}Settings</a></nav>
+          <div id="lang-switch" class="lang-slot"></div>
           <div class="me">
             <div class="avatar">${esc(initials(state.me.username))}</div>
             <div class="who"><div>${esc(state.me.username)}</div>${state.me.cumulus
@@ -249,10 +313,14 @@ function renderShell(page) {
           </div>
           <button class="btn ghost small" id="signout">Sign out</button>
         </aside>
-        <main></main>
+        <div class="content">
+          <header class="topbar"><div data-cumulus-bar hidden></div></header>
+          <main></main>
+        </div>
       </div>`;
     $("#menu").onclick = () => $(".shell").classList.toggle("open");
-    $("#signout").onclick = async () => { await api("POST", "/api/auth/signout"); state.me = null; render(); };
+    $("#signout").onclick = () => signOut();
+    mountAccountBar();
     const gs = $("#global-search");
     if (gs) {
       gs.onkeydown = async (e) => {
@@ -865,7 +933,13 @@ async function renderSettings() {
         <h2>FIRM Wallet<sup class="tm">™</sup></h2>
         <firm-suite product="spectre metatron"></firm-suite>
       </div>`}
-      <div class="section">
+      ${data.manageAt ? `<div class="section">
+        <h2>Ways to sign in</h2>
+        <div class="list">
+          <div class="item"><div class="main"><div class="title">Cumulus://ID<sup class="tm">™</sup></div><div class="sub">Password, PIN, authenticator app and linked accounts</div></div>
+            <a class="btn small" href="${esc(data.manageAt)}" target="_blank" rel="noopener noreferrer">Manage</a></div>
+        </div>
+      </div>` : `<div class="section">
         <h2>Ways to sign in</h2>
         <div class="list">
           <div class="item"><div class="main"><div class="title">Passkeys</div><div class="sub">${data.passkeys ? `${data.passkeys} on this account` : "None yet"}</div></div></div>
@@ -878,7 +952,7 @@ async function renderSettings() {
           }).join("")}
         </div>
         <p class="faint small mt10">Linked accounts sign you in to this same Cumulus://ID<sup class="tm">™</sup>. Your multifactor setting still applies.</p>
-      </div>
+      </div>`}
       <div class="section" id="plans">
         <h2>Plan and billing</h2>
         <div class="list">

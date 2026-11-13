@@ -10,15 +10,18 @@
  *   --from-nexus-docs    read it from the nexus_docs table at NEXUS_DATABASE_URL
  * Target: CID_DATABASE_URL (the Postgres that will hold the tables).
  *
+ * Reverse (rollback to the document): --to-snapshot FILE writes the rows at CID_DATABASE_URL back out as
+ * a `cid` document (cid.json format), atomically, and checks it the same way.
+ *
  * Without --write it is a dry run: it checks the document and prints counts, and touches nothing.
  * With --write it creates the tables if needed, upserts every entity (safe to repeat), reads each
  * one back and exits non-zero if anything differs. Nothing switches over: products keep using the
  * document until CUMULUS_STORE=postgres is set (phase 4). Connection strings come from the
  * environment only, so they never appear in shell history or process listings.
  */
-import { readFileSync } from "node:fs";
+import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import { parseArgs } from "node:util";
-import { backfillCid, checkCidStore, cidStoreFromSnapshot } from "./backfill.ts";
+import { backfillCid, checkCidStore, cidStoreFromRepository, cidStoreFromSnapshot } from "./backfill.ts";
 import { PgCidRepository, migrateCid } from "./postgres.ts";
 
 const { values } = parseArgs({
@@ -26,6 +29,7 @@ const { values } = parseArgs({
     snapshot: { type: "string" },
     "from-nexus-docs": { type: "boolean", default: false },
     write: { type: "boolean", default: false },
+    "to-snapshot": { type: "string" },
     schema: { type: "string", default: "public" },
   },
 });
@@ -48,6 +52,27 @@ async function loadSnapshot(): Promise<Record<string, unknown>> {
     }
   }
   throw new Error("Give a source: --snapshot FILE or --from-nexus-docs");
+}
+
+if (values["to-snapshot"]) {
+  const url = process.env.CID_DATABASE_URL;
+  if (!url) throw new Error("--to-snapshot needs CID_DATABASE_URL");
+  const pool = new pg.Pool({ connectionString: url, max: 2 });
+  try {
+    const store = await cidStoreFromRepository(new PgCidRepository({ db: pool, schema: values.schema }));
+    const check = checkCidStore(store);
+    for (const p of check.problems.slice(0, 50)) console.log(`problem: ${p}`);
+    const snapshot: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(store)) snapshot[k] = v instanceof Map ? { __map: [...v.entries()] } : v;
+    const tmp = `${values["to-snapshot"]}.tmp`;
+    writeFileSync(tmp, JSON.stringify(snapshot), { mode: 0o600 });
+    renameSync(tmp, values["to-snapshot"]);
+    console.log(JSON.stringify({ step: "to-snapshot", counts: check.counts, problems: check.problems.length, file: values["to-snapshot"] }));
+    process.exitCode = check.problems.length ? 2 : 0;
+  } finally {
+    await pool.end();
+  }
+  process.exit();
 }
 
 const store = cidStoreFromSnapshot(await loadSnapshot());

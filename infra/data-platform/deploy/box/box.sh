@@ -6,6 +6,7 @@
 #   bash infra/data-platform/deploy/box/box.sh status    # containers, gateway health, tunnel
 #   bash infra/data-platform/deploy/box/box.sh logs [service]
 #   bash infra/data-platform/deploy/box/box.sh update    # pull the current branch, rebuild, restart
+#   bash infra/data-platform/deploy/box/box.sh backup    # dump the data_platform schema (keeps 7)
 #   bash infra/data-platform/deploy/box/box.sh down
 #
 # Never prints secret values.
@@ -65,6 +66,26 @@ status() {
   "${compose[@]}" logs --tail 20 cloudflared 2>/dev/null | grep -Ei "registered tunnel connection|error" | tail -n 4 || true
 }
 
+backup() {
+  # The Supabase free plan has no downloadable backups, so the box keeps its own: a daily
+  # data-only dump of the data_platform schema (already-redacted events, specs, DP ledger),
+  # owner-only files, newest 7 kept. Run it from cron on the box, e.g.
+  #   23 2 * * * bash /path/to/box.sh backup >> /var/log/cumulus-data-backup.log 2>&1
+  local dir="${BOX_BACKUP_DIR:-$HOME/cumulus-data-backups}" url file
+  url="$(value_of DATABASE_URL)"
+  [ -n "$url" ] || die "DATABASE_URL is empty"
+  mkdir -p "$dir" && chmod 700 "$dir"
+  file="$dir/data_platform-$(date -u +%Y%m%dT%H%M%SZ).dump"
+  # --enable-row-security: RLS is forced on these tables, so pg_dump must apply the policies.
+  # The URL goes in through the environment, never on the command line.
+  docker run --rm --network host -e PGURL="$url" postgres:17.11-alpine \
+    sh -c 'pg_dump "$PGURL" --schema=data_platform --data-only --enable-row-security --format=custom' > "$file.part"
+  [ -s "$file.part" ] || { rm -f "$file.part"; die "backup is empty"; }
+  chmod 600 "$file.part" && mv "$file.part" "$file"
+  ls -1t "$dir"/data_platform-*.dump | tail -n +8 | xargs -r rm -f
+  echo "box: backup written ($(du -h "$file" | cut -f1))"
+}
+
 cmd="${1:-status}"
 case "$cmd" in
   check) check ;;
@@ -77,5 +98,6 @@ case "$cmd" in
     "${compose[@]}" up -d --build --wait --wait-timeout 900
     status ;;
   down) "${compose[@]}" down ;;
-  *) die "usage: box.sh check|up|status|logs [service]|update|down" ;;
+  backup) backup ;;
+  *) die "usage: box.sh check|up|status|logs [service]|update|backup|down" ;;
 esac

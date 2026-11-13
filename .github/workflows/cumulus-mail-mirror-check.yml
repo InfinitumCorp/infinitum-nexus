@@ -9,6 +9,7 @@ on:
   push:
     paths:
       - .github/workflows/cumulus-mail-mirror-check.yml
+      - apps/cumulus-mail/downloads/worker.js
 
 permissions:
   contents: read
@@ -21,6 +22,10 @@ jobs:
       matrix:
         origin: [https://mail.cumuluscloud.app, https://ru.mail.cumuluscloud.app]
     steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: apps/cumulus-mail/downloads/worker.js
+          sparse-checkout-cone-mode: false
       - name: Check ${{ matrix.origin }}
         env:
           ORIGIN: ${{ matrix.origin }}
@@ -37,7 +42,13 @@ jobs:
           check /api/auth/providers 200
           check /api/state 401
           check /download/ 200
-          check /download/files/manifest.json 200
+          # Installers stay "Coming soon" (404) until the owner sets DOWNLOADS_OPEN in
+          # apps/cumulus-mail/downloads/worker.js; after that the manifest must be served.
+          if grep -q "DOWNLOADS_OPEN = true" apps/cumulus-mail/downloads/worker.js; then
+            check /download/files/manifest.json 200
+          else
+            check /download/files/manifest.json 404
+          fi
           echo "Certificate:"
           echo | openssl s_client -connect "${ORIGIN#https://}:443" -servername "${ORIGIN#https://}" 2>/dev/null | openssl x509 -noout -subject -enddate
           exit $fail

@@ -18,6 +18,8 @@ services:
       PRIVACY_TOTAL_EPSILON: ${PRIVACY_TOTAL_EPSILON:-3.0}
       PRESIDIO_SPACY_MODEL: en_core_web_sm
       PLATFORM_PRODUCT_TOKENS: ${PLATFORM_PRODUCT_TOKENS:-}
+      PLATFORM_EMBED_DASHBOARDS: ${PLATFORM_EMBED_DASHBOARDS:-}
+      SUPERSET_GUEST_TOKEN_SECRET: ${SUPERSET_GUEST_TOKEN_SECRET:-}
       PLATFORM_REGION: EU
       # Supabase session pooler, data_platform_gateway role. Catalog, events, search and the
       # DP budget all live there.
@@ -58,6 +60,7 @@ services:
       CUMULUS_ID_CLIENT_SECRET: ${CUMULUS_ID_CLIENT_SECRET:-}
       CUMULUS_ID_SIGNUP_URL: ${CUMULUS_ID_SIGNUP_URL:-https://id.cumuluscloud.app/signup}
       CUMULUS_EMBED_ORIGINS: ${CUMULUS_EMBED_ORIGINS:-}
+      SUPERSET_GUEST_TOKEN_SECRET: ${SUPERSET_GUEST_TOKEN_SECRET:-}
     command: ["/bin/sh", "-c", "superset db upgrade && superset init && exec /usr/bin/run-server.sh"]
     mem_limit: 2g
     healthcheck:

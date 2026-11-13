@@ -155,7 +155,7 @@ def test_release_over_http(setup, redactor, tmp_path):
     releases, budget, _ = setup
     token = "s" * 40
     gw = Gateway(redactor, budget, "g" * 40, releases.catalog, None, None,
-                 parse_product_tokens(f"spectre={token}"), None, releases)
+                 parse_product_tokens(f"spectre={token}"), None, releases=releases)
     httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(gw))
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
     url = f"http://127.0.0.1:{httpd.server_address[1]}/api/v1/releases/datasets/{DEALS['name']}"

@@ -33,13 +33,16 @@ describe("Cumulus://ID rows through the nexus-store SQL", { skip: url ? false : 
     const u = new URL(url!);
     u.pathname = `/${dbName}`;
     pool = new pg.Pool({ connectionString: u.toString(), max: 6 });
-    for (const f of ["20261104_nexus_store.sql", "20261113_cumulus_id_rows.sql"]) {
+    // Dropping the test database at the end terminates any connection still open; that is expected.
+    pool.on("error", () => {});
+    for (const f of ["20261104_nexus_store.sql", "20261113_cumulus_id_rows.sql", "20261114_cumulus_id_reverse.sql"]) {
       await pool.query(readFileSync(join(root, "supabase/migrations", f), "utf8"));
     }
   });
   after(async () => {
     await pool?.end();
-    await admin?.query(`DROP DATABASE IF EXISTS ${dbName} WITH (FORCE)`);
+    // A normal drop once every connection has closed; FORCE only if one is still lingering.
+    await admin?.query(`DROP DATABASE IF EXISTS ${dbName}`).catch(() => admin.query(`DROP DATABASE IF EXISTS ${dbName} WITH (FORCE)`));
     await admin?.end();
   });
 
@@ -161,6 +164,61 @@ describe("Cumulus://ID rows through the nexus-store SQL", { skip: url ? false : 
     const g = server(signer);
     assert.equal((await g.state.transaction(() => g.cid.authenticate(issued.token)))?.account.cid, lee.cid);
     assert.equal(await g.state.transaction(() => g.cid.can(lee.cid, "LBRNTH", "repo:read")), true);
+  });
+
+  it("refuses a write whose data names a different row than the one it checks", async () => {
+    const forged = [{ kind: "account", id: "cid_checked", expect: null, data: { cid: "cid_other", username: "forged", mailAddress: "f@x", handle: "@f", createdAt: "t", entitlements: {} } }];
+    await assert.rejects(pool.query("SELECT public.nexus_commit_cid('[]'::jsonb, '[]'::jsonb, $1::jsonb)", [JSON.stringify(forged)]), /does not match its data/);
+    assert.equal(Number((await pool.query("SELECT count(*)::int AS n FROM cumulus_id.cid_accounts WHERE username = 'forged'")).rows[0].n), 0);
+  });
+
+  it("document_from_rows gives back the document refresh_from_document copied, and restore_document writes it", async () => {
+    const signer = generateSigner();
+    const store = new CidStore();
+    const docCid = new CidService({ ledger: new Ledger(undefined, { authorizedSigners: [signer.publicKey] }), signer, rpId: "localhost", origins: ["http://localhost"], store });
+    const mia = await docCid.createAccount({ username: "mia" });
+    const noah = await docCid.createAccount({ username: "noah" });
+    await (docCid as any).issueSession(mia.cid, "laptop", "passkey");
+    await (docCid as any).issueSession(noah.cid, "phone", "passkey");
+    await docCid.grant(noah.cid, "cumulus-mail", ["mail:read"]);
+    store.authenticators.set("auth_m", { id: "auth_m", cid: mia.cid, kind: "passkey", label: "Laptop", credentialId: "cred_m", publicKeyCose: "pk", signCount: 1, backedUp: true, addedAt: "2026-11-13T00:00:00.000Z" });
+    store.byCredentialId.set("cred_m", "auth_m");
+    store.byIdentity.set("github|42", noah.cid);
+    store.accounts.get(noah.cid)!.identities = [{ provider: "github", subject: "42", linkedAt: "2026-11-13T00:00:00.000Z" }];
+    store.challenges.set("left-behind", { value: "v", purpose: "login", expiresAt: 9e15 });
+    const snapshot: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(store)) snapshot[k] = v instanceof Map ? { __map: [...v.entries()] } : v;
+    await pool.query("INSERT INTO public.nexus_docs (id, version, data) VALUES ('cid', 1, $1) ON CONFLICT (id) DO UPDATE SET data = excluded.data, version = public.nexus_docs.version + 1", [JSON.stringify(snapshot)]);
+    await pool.query("SELECT cumulus_id.refresh_from_document()");
+
+    const rebuilt = (await pool.query("SELECT cumulus_id.document_from_rows() AS d")).rows[0].d as Record<string, { __map: [string, unknown][] }>;
+    const maps = (doc: Record<string, unknown>) => {
+      const out: Record<string, unknown> = {};
+      for (const k of ["accounts", "byUsername", "byFederation", "byIdentity", "authenticators", "byCredentialId", "sessions", "byTokenHash", "grants", "orgs"]) {
+        out[k] = [...((doc[k] as { __map: [string, unknown][] }).__map)].sort(([a], [b]) => a.localeCompare(b));
+      }
+      return JSON.parse(JSON.stringify(out));
+    };
+    assert.deepEqual(maps(rebuilt), maps(snapshot));
+    assert.deepEqual(rebuilt.challenges.__map, [], "single-use items aren't carried back");
+
+    const before = Number((await pool.query("SELECT version FROM public.nexus_docs WHERE id = 'cid'")).rows[0].version);
+    const restored = (await pool.query("SELECT cumulus_id.restore_document() AS r")).rows[0].r;
+    assert.deepEqual(restored, { version: before + 1, accounts: 2, authenticators: 1, sessions: 2, grants: 1 });
+    const doc = (await pool.query("SELECT data FROM public.nexus_docs WHERE id = 'cid'")).rows[0].data;
+    assert.deepEqual(maps(doc), maps(snapshot), "the document a rollback restores is the one that was copied");
+
+    // The pre-switch check: same after a copy; after the document moves on, it names what differs.
+    assert.equal((await pool.query("SELECT cumulus_id.compare_with_document() AS c")).rows[0].c.same, true);
+    const moved = structuredClone(doc);
+    moved.sessions.__map = moved.sessions.__map.slice(1);
+    moved.accounts.__map[0][1].handle = "@changed.veil";
+    await pool.query("UPDATE public.nexus_docs SET data = $1 WHERE id = 'cid'", [JSON.stringify(moved)]);
+    const c = (await pool.query("SELECT cumulus_id.compare_with_document() AS c")).rows[0].c;
+    assert.equal(c.same, false);
+    assert.deepEqual(c.differences.accounts.changed, [moved.accounts.__map[0][0]]);
+    assert.equal(c.differences.sessions.onlyInRows.length, 1);
+    assert.equal(c.differences.grants, undefined, "kinds that match aren't listed");
   });
 
   it("only answers whitelisted lookups", async () => {

@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import { PGlite } from "@electric-sql/pglite";
 import { Ledger, generateSigner } from "@infinitum/firmament";
 import { CidService, PgCidRepository, PgRequestScope, migrateCid, type PgPoolClient, type Queryable } from "@infinitum/cid";
-import { ConflictError, MemoryGateway, RemoteState, type TransactionParticipant } from "./remote.ts";
+import { ConflictError, MemoryGateway, RemoteState, type NexusGateway, type TransactionParticipant } from "./remote.ts";
 
 /** A one-connection "pool" over PGlite (multi-statement text without parameters goes through exec). */
 function pglitePool(pg: PGlite): Queryable & { connect(): Promise<PgPoolClient> } {
@@ -149,3 +149,33 @@ describe("HttpGateway and Cumulus://ID rows", () => {
     assert.deepEqual(bodies[0].ops, [{ op: "account", cid: "cid_a" }]);
   });
 });
+
+describe("RemoteState row metrics", () => {
+  it("counts row writes and the commits that carried them, never their contents", async () => {
+    const memory = new MemoryGateway();
+    const saved: unknown[][] = [];
+    const gateway: NexusGateway = {
+      load: (since, versions) => memory.load(since, versions),
+      commit: async (e, d, rows) => {
+        if (rows) saved.push(rows);
+        return memory.commit(e, d);
+      },
+    };
+    const state = new RemoteState(gateway, {});
+    const lines: string[] = [];
+    state.metricsLog = (l) => lines.push(l);
+    let pending: unknown[] = [];
+    state.rows = { pending: () => pending };
+    pending = [{ kind: "account", id: "cid_secret", data: { username: "secret-name" } }, { kind: "session", id: "s1", data: {} }];
+    await state.transaction(async () => 1);
+    pending = [];
+    await state.transaction(async () => 2);
+    assert.equal(saved.length, 1, "rows only go with a commit when there are some");
+    assert.equal(state.stats.rowWrites, 2);
+    assert.equal(state.stats.rowCommits, 1);
+    (state as unknown as { emit(r: string): void }).emit("check");
+    assert.ok(lines.at(-1)!.includes('"rowWrites":2'));
+    assert.ok(!lines.join("").includes("secret-name"), "metrics never carry content");
+  });
+});
+

@@ -27,6 +27,7 @@ export type CidReadOp =
   | { op: "authenticatorsOf"; cid: string }
   | { op: "session"; id: string }
   | { op: "sessionByTokenHash"; tokenHash: string }
+  | { op: "sessionBundle"; tokenHash: string }
   | { op: "sessionsOf"; cid: string }
   | { op: "grant"; cid: string; app: string }
   | { op: "grantsOf"; cid: string }
@@ -61,6 +62,8 @@ export class RemoteCidRepository implements CidRepository {
   #known = new Map<string, Known>();
   #writes: string[] = []; // keys in first-write order
   #sweeps: CidWriteOp[] = [];
+  /** Accounts whose grants were all read this request: a grant not among them doesn't exist. */
+  #grantsLoaded = new Set<string>();
 
   constructor(read: CidReader) {
     this.#read = read;
@@ -73,6 +76,7 @@ export class RemoteCidRepository implements CidRepository {
     this.#known.clear();
     this.#writes = [];
     this.#sweeps = [];
+    this.#grantsLoaded.clear();
   }
 
   /** The request's writes, in order, for the commit. */
@@ -227,8 +231,22 @@ export class RemoteCidRepository implements CidRepository {
   async session(id: string): Promise<Session | undefined> {
     return (await this.#entity("session", id, { op: "session", id })) ?? undefined;
   }
-  sessionByTokenHash(tokenHash: string): Promise<Session | undefined> {
-    return this.#lookup<Session>("session", { op: "sessionByTokenHash", tokenHash }, (s) => s.tokenHash === tokenHash, (s) => s.id);
+  /**
+   * Every signed-in request starts here, so one round trip brings the session, its account and the
+   * account's grants (sessionBundle); the checks that follow are answered from memory.
+   */
+  async sessionByTokenHash(tokenHash: string): Promise<Session | undefined> {
+    for (const [, value] of this.#local("session")) if (value && value.tokenHash === tokenHash) return copy(value);
+    const bundle = (await this.#one({ op: "sessionBundle", tokenHash })) as { session: Session; account: Account | null; grants: Grant[] } | null;
+    if (!bundle?.session) return undefined;
+    const { session, account, grants } = bundle;
+    if (account) this.#saw("account", account.cid, account);
+    for (const g of grants ?? []) this.#saw("grant", `${g.cid}|${g.app}`, g);
+    this.#grantsLoaded.add(session.cid);
+    const e = this.#known.get(`session:${session.id}`);
+    if (e?.dirty) return e.value && e.value.tokenHash === tokenHash ? copy(e.value) : undefined;
+    this.#saw("session", session.id, session);
+    return copy(e ? e.value : session);
   }
   async sessionsOf(cid: string): Promise<Session[]> {
     const server = (await this.#one({ op: "sessionsOf", cid })) as Session[];
@@ -240,6 +258,8 @@ export class RemoteCidRepository implements CidRepository {
   }
 
   async grant(cid: string, app: string): Promise<Grant | undefined> {
+    const k = `grant:${cid}|${app}`;
+    if (!this.#known.has(k) && this.#grantsLoaded.has(cid)) this.#known.set(k, { value: null, base: null, dirty: false });
     return (await this.#entity("grant", `${cid}|${app}`, { op: "grant", cid, app })) ?? undefined;
   }
   async grantsOf(cid: string): Promise<Grant[]> {

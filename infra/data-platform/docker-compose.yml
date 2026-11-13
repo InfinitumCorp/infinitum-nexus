@@ -18,6 +18,8 @@ services:
       PRESIDIO_SPACY_MODEL: en_core_web_sm
       # Collection, catalog and search: one token per product ("spectre=<tok>;cumulus-mail=<tok>").
       PLATFORM_PRODUCT_TOKENS: ${PLATFORM_PRODUCT_TOKENS:-}
+      PLATFORM_EMBED_DASHBOARDS: ${PLATFORM_EMBED_DASHBOARDS:-}
+      SUPERSET_GUEST_TOKEN_SECRET: ${SUPERSET_GUEST_TOKEN_SECRET:-}
       PLATFORM_REGION: ${PLATFORM_REGION:-EU}
       OPENSEARCH_URL: http://opensearch:9200
       OPENSEARCH_REFRESH_ON_WRITE: "1" # dev only: new events are searchable at once
@@ -90,6 +92,7 @@ services:
       CUMULUS_ID_CLIENT_SECRET: ${CUMULUS_ID_CLIENT_SECRET:-}
       CUMULUS_ID_SIGNUP_URL: ${CUMULUS_ID_SIGNUP_URL:-https://id.cumuluscloud.app/signup}
       CUMULUS_EMBED_ORIGINS: ${CUMULUS_EMBED_ORIGINS:-}
+      SUPERSET_GUEST_TOKEN_SECRET: ${SUPERSET_GUEST_TOKEN_SECRET:-}
     command: ["/bin/sh", "-c", "superset db upgrade && superset init && exec /usr/bin/run-server.sh"]
     ports:
       - "127.0.0.1:8088:8088"

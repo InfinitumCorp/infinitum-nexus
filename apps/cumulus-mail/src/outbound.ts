@@ -101,12 +101,12 @@ export async function deliverOutbound(
   send: Sender,
   limit = 20,
 ): Promise<number> {
-  const jobs = await transaction(async () => mail.claimOutbound(limit));
+  const jobs = await transaction(async () => await mail.claimOutbound(limit));
   if (!jobs.length) return 0;
   const results = await Promise.all(
     jobs.map(async (job) => {
       const result: OutboundResult = await send(job).catch((err: unknown) => ({ ok: false, error: String((err as Error)?.message ?? err), permanent: false }));
-      await transaction(async () => mail.finishOutbound(job.id, result));
+      await transaction(async () => await mail.finishOutbound(job.id, result));
       return result;
     }),
   );

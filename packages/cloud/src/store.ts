@@ -34,14 +34,14 @@ export class CloudStore {
     this.notifier = opts.notifier;
   }
 
-  put(key: string, owner: string, size: number, license = "personal"): CloudObject {
+  async put(key: string, owner: string, size: number, license = "personal"): Promise<CloudObject> {
     if (!Number.isFinite(size) || size < 0) throw new RangeError("size must be a finite number of bytes");
     const previous = this.objects.get(key);
     if (previous && previous.owner !== owner) throw new Error("That file belongs to someone else");
     if (this.quota) {
       const delta = size - (previous?.size ?? 0);
-      if (delta > 0) this.quota.charge(owner, "cloud", delta);
-      else this.quota.release(owner, "cloud", -delta);
+      if (delta > 0) await this.quota.charge(owner, "cloud", delta);
+      else await this.quota.release(owner, "cloud", -delta);
     }
     const obj: CloudObject = { key, owner, size, license, createdAt: new Date().toISOString(), sharedWith: previous?.sharedWith };
     this.objects.set(key, obj);
@@ -56,11 +56,11 @@ export class CloudStore {
     return [...this.objects.values()].filter((o) => o.owner === owner);
   }
 
-  remove(key: string, owner: string): boolean {
+  async remove(key: string, owner: string): Promise<boolean> {
     const obj = this.objects.get(key);
     if (!obj || obj.owner !== owner) return false;
     this.objects.delete(key);
-    this.quota?.release(owner, "cloud", obj.size);
+    await this.quota?.release(owner, "cloud", obj.size);
     return true;
   }
 

@@ -61,6 +61,12 @@ CUMULUS_ID_SIGNUP_URL = os.environ.get("CUMULUS_ID_SIGNUP_URL", "https://id.cumu
 FEATURE_FLAGS = {"EMBEDDED_SUPERSET": True, "DASHBOARD_RBAC": True}
 GUEST_ROLE_NAME = "Public"
 GUEST_TOKEN_JWT_EXP_SECONDS = 300
+# The privacy gateway mints guest tokens with this shared secret (embed.py), so no Superset
+# service account or password is needed. Without it, embedding stays off.
+if os.environ.get("SUPERSET_GUEST_TOKEN_SECRET"):
+    GUEST_TOKEN_JWT_SECRET = os.environ["SUPERSET_GUEST_TOKEN_SECRET"]
+    GUEST_TOKEN_JWT_ALGO = "HS256"
+    GUEST_TOKEN_JWT_AUDIENCE = os.environ.get("SUPERSET_GUEST_TOKEN_AUDIENCE", "superset")
 _embed = os.environ.get("CUMULUS_EMBED_ORIGINS", "").split()
 TALISMAN_ENABLED = True
 TALISMAN_CONFIG = {

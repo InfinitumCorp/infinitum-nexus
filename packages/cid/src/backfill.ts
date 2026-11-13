@@ -86,7 +86,7 @@ export function checkCidStore(s: CidStore): CidCheck {
   for (const [key, cid] of [...s.byIdentity, ...s.byFederation]) {
     if (!s.accounts.has(cid)) problems.push(`sign-in link ${key} points at missing account ${cid}`);
   }
-  const skippedOneTime = s.challenges.size + s.pendingMfa.size + s.oauthPending.size + s.deviceHandoffs.size;
+  const skippedOneTime = s.challenges.size + s.pendingMfa.size + s.oauthPending.size + s.deviceHandoffs.size + s.issuerLogins.size;
   return { counts: counts(s), skippedOneTime, problems };
 }
 
@@ -156,3 +156,44 @@ export async function backfillCid(source: CidStore, target: CidRepository, optio
 const sessionsOf = (s: CidStore, cid: string): Session[] => [...s.sessions.values()].filter((x) => x.cid === cid);
 const keysOf = (s: CidStore, cid: string): Authenticator[] => [...s.authenticators.values()].filter((x) => x.cid === cid);
 const grantsOf = (s: CidStore, cid: string): Grant[] => [...s.grants.values()].filter((x) => x.cid === cid);
+
+/**
+ * The reverse copy, for a rollback to the document: a CidStore holding everything in `source`
+ * (accounts in first-written order, their sign-in links, passkeys, sessions, grants and orgs).
+ * Single-use items are not carried over; they expire within minutes.
+ */
+export async function cidStoreFromRepository(source: CidRepository): Promise<CidStore> {
+  const store = new CidStore();
+  for (const a of await source.allAccounts()) {
+    store.accounts.set(a.cid, a);
+    store.byUsername.set(a.username, a.cid);
+    for (const i of a.identities ?? []) {
+      const key = `${i.provider}|${i.subject}`;
+      const cid = await source.cidForIdentity(key);
+      if (cid) store.byIdentity.set(key, cid);
+    }
+    if (a.federated) {
+      const key = `${a.federated.issuer}|${a.federated.subject}`;
+      const cid = await source.cidForFederation(key);
+      if (cid) store.byFederation.set(key, cid);
+    }
+    if (a.orgId && !store.orgs.has(a.orgId)) {
+      const org = await source.org(a.orgId);
+      if (org) store.orgs.set(org.id, org);
+    }
+  }
+  // Keys, sessions and grants account by account (each list in its own first-written order).
+  for (const cid of store.accounts.keys()) {
+    for (const k of await source.authenticatorsOf(cid)) {
+      store.authenticators.set(k.id, k);
+      store.byCredentialId.set(k.credentialId, k.id);
+    }
+    for (const x of await source.sessionsOf(cid)) {
+      store.sessions.set(x.id, x);
+      store.byTokenHash.set(x.tokenHash, x.id);
+    }
+    for (const g of await source.grantsOf(cid)) store.grants.set(`${g.cid}|${g.app}`, g);
+  }
+  return store;
+}
+

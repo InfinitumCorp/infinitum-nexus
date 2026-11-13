@@ -48,6 +48,11 @@ export class TestCidServer {
         case "session": out.push(await r.session(o.id)); break;
         case "sessionByTokenHash": out.push(await r.sessionByTokenHash(o.tokenHash)); break;
         case "sessionsOf": out.push(await r.sessionsOf(o.cid)); break;
+        case "sessionBundle": {
+          const session = await r.sessionByTokenHash(o.tokenHash);
+          out.push(session ? { session, account: (await r.account(session.cid)) ?? null, grants: await r.grantsOf(session.cid) } : null);
+          break;
+        }
         case "grant": out.push(await r.grant(o.cid, o.app)); break;
         case "grantsOf": out.push(await r.grantsOf(o.cid)); break;
         case "org": out.push(await r.org(o.id)); break;
@@ -78,6 +83,11 @@ export class TestCidServer {
       if ("expect" in o && !same(current, o.expect)) throw new RowConflict(`${o.kind} ${o.id} changed`);
     };
     const data = json(o.data) as any;
+    // Same rule as the SQL: the row a write checks must be the row it writes.
+    if (data && ["account", "authenticator", "session", "grant", "org"].includes(o.kind)) {
+      const key = o.kind === "account" ? data.cid : o.kind === "grant" ? `${data.cid}|${data.app}` : data.id;
+      if (key !== o.id) throw new Error(`cid write: ${o.kind} ${o.id} does not match its data`);
+    }
     switch (o.kind) {
       case "account": {
         await check(await r.account(o.id));

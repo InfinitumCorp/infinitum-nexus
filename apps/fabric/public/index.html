@@ -18,7 +18,7 @@
     </nav>
     <div class="app-actions">
       <span id="domain" class="app-meta"></span>
-      <button id="logout" class="btn small" type="button" hidden>Sign out</button>
+      <div data-cumulus-bar></div>
     </div>
   </header>
   <main id="main" class="app-main">
@@ -55,6 +55,7 @@
     </section>
   </main>
   <footer class="firm"><firm-suite product="fabric" compact></firm-suite></footer>
+  <script src="/cumulus-bar.js" data-client="fabric" data-signin="/api/auth/login" data-signout="#signout" defer></script>
   <script type="module" src="/firm-suite.js"></script>
   <script type="module" src="/app.js"></script>
 </body>

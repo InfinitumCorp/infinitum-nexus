@@ -43,8 +43,8 @@
       if (open && onOpen) onOpen();
     });
   }
-  // Apps and Sign In are drop-down menus; opening one closes the other.
-  var menus = [["apps-button", "apps-panel"], ["signin", "signin-panel"]];
+  // Apps is a drop-down menu. Sign-in is the Cumulus://ID account bar (cumulus-bar.js).
+  var menus = [["apps-button", "apps-panel"]];
   function closeMenus(except) {
     menus.forEach(function (m) {
       if (m[1] === except) return;

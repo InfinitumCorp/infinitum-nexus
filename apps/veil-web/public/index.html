@@ -35,13 +35,11 @@
     .brand sup { font-size: .5em; letter-spacing: 0; margin-left: 1px; align-self: flex-start; margin-top: 15px; }
     .spacer { flex: 1; }
     .top-links { display: flex; align-items: center; gap: 22px; }
-    .nav-link, .signin { position: relative; padding: 8px 0; font-size: 13px; color: var(--ink); text-decoration: none; white-space: nowrap; background: none; border: 0; }
-    .nav-link::after, .signin::after, .app-link::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: var(--ink); transform: scaleX(0); transition: transform .15s ease; }
+    .nav-link { position: relative; padding: 8px 0; font-size: 13px; color: var(--ink); text-decoration: none; white-space: nowrap; background: none; border: 0; }
+    .nav-link::after, .app-link::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: var(--ink); transform: scaleX(0); transition: transform .15s ease; }
     .nav-link:hover::after, .nav-link:focus-visible::after, .nav-link[aria-expanded="true"]::after,
-    .signin:hover::after, .signin:focus-visible::after { transform: scaleX(1); }
     .apps-menu { position: relative; }
     .apps-panel { position: absolute; top: 40px; left: -12px; z-index: 10; width: 300px; display: flex; flex-direction: column; padding: 8px; background: #fff; border: 1px solid var(--rule); border-radius: 4px; box-shadow: 0 8px 28px rgba(17, 24, 32, .12); }
-    .signin-panel { left: auto; right: -12px; width: 260px; }
     .menu-app { display: flex; flex-direction: column; gap: 1px; padding: 9px 12px; border-radius: 3px; text-decoration: none; }
     .menu-app:hover, .menu-app:focus-visible { background: var(--hover); }
     .menu-app-name { font-size: 14px; }
@@ -114,13 +112,7 @@
           <a class="menu-app" role="menuitem" href="https://infinitumcorporation.ai/products/scalus" rel="noreferrer"><span class="menu-app-name">SCALVS.ai™</span><span class="menu-app-summary">AI workforce platform</span></a>
         </div>
       </div>
-      <div class="apps-menu">
-        <button type="button" class="signin" id="signin" aria-haspopup="true" aria-expanded="false" aria-controls="signin-panel">Sign In</button>
-        <div class="apps-panel signin-panel" id="signin-panel" role="menu" aria-label="Sign in" hidden>
-          <a class="menu-app" role="menuitem" href="https://infinitumcorporation.ai/products/cumulus-id" rel="noreferrer"><span class="menu-app-name">Cumulus://ID™</span><span class="menu-app-summary">Your Infinitum account</span></a>
-          <a class="menu-app" role="menuitem" href="https://mail.cumuluscloud.app/" rel="noreferrer"><span class="menu-app-name">Cumulus://Mail™</span><span class="menu-app-summary">Sign in to your email</span></a>
-        </div>
-      </div>
+      <div class="account-bar" data-cumulus-bar data-create="false"></div>
     </nav>
   </header>
 
@@ -166,5 +158,6 @@
   <script type="module" src="firm-suite.js"></script>
   <script src="lib/trackers.js"></script>
   <script src="app.js"></script>
+  <script src="cumulus-bar.js" data-client="veil" defer></script>
 </body>
 </html>

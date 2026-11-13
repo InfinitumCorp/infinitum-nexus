@@ -182,6 +182,21 @@ types:
           suppressed: list<string>
           remainingEpsilon: double
 
+      GuestTokenRequest:
+        fields:
+          tenant:
+            type: TenantId
+            docs: Every chart in the dashboard is filtered to this tenant (and the calling product).
+          cid:
+            type: Cid
+            docs: The signed-in viewer's Cumulus ID. Superset sees only its pseudonym.
+      GuestTokenResponse:
+        fields:
+          token:
+            type: string
+            docs: Pass to the Superset embedded SDK (fetchGuestToken). Short-lived; ask again when it expires.
+          expiresAt: datetime
+
     errors:
       SchemaMismatch:
         namespace: DataPlatform
@@ -233,6 +248,13 @@ types:
         namespace: DataPlatform
         code: INTERNAL
         docs: The gateway runs without Google's DP library (python-dp); run it in the Linux container.
+
+      DashboardNotFound:
+        namespace: DataPlatform
+        code: NOT_FOUND
+        docs: The dashboard is not registered for embedding in the calling product (PLATFORM_EMBED_DASHBOARDS).
+        safe-args:
+          dashboardId: string
 
 services:
   CollectionService:
@@ -331,3 +353,21 @@ services:
             type: StoredReleaseRequest
             param-type: body
         returns: StoredReleaseResponse
+
+  EmbedService:
+    name: Embed Service
+    package: app.infinitum.cumulus.data.platform
+    base-path: /api/v1/embed
+    default-auth: header
+    docs: >-
+      Superset guest tokens for dashboards embedded in a product. The product signs its user in
+      with Cumulus ID first; viewers never see a Superset login.
+    endpoints:
+      createGuestToken:
+        http: POST /dashboards/{dashboardId}/guest-token
+        args:
+          dashboardId: string
+          request:
+            type: GuestTokenRequest
+            param-type: body
+        returns: GuestTokenResponse

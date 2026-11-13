@@ -156,6 +156,14 @@ export class CumulusTunnel {
     return this.store.keys.has(cid);
   }
 
+  /** Use keys stored elsewhere (another server made them first) in place of any held here. */
+  adopt(keys: StoredTunnelKeys) {
+    const held = this.store.keys.get(keys.cid);
+    if (held && JSON.stringify(held) === JSON.stringify(keys)) return;
+    this.store.keys.set(keys.cid, keys);
+    this.unwrapped.delete(keys.cid);
+  }
+
   /** Short, human-comparable fingerprint of an account's tunnel keys (like a safety number). */
   fingerprint(cid: string): string {
     const k = this.store.keys.get(cid);

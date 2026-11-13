@@ -24,8 +24,9 @@ local socket with peer authentication.
 | Storage quota on Postgres (no overspend under concurrency) | #207 |
 | Mail step 1: MailRepository (mailbox as the unit, async PostOffice, one read and one write per mailbox per call) | #211 |
 | Mail on Postgres: PgMailRepository (mailbox rows sealed at rest, row locks so concurrent deliveries are kept, SKIP LOCKED outbound claims) | This PR |
-| Mail step 2 on Postgres: one row per message (only changed messages written, each sealed at write time), outbound subject and body sealed to the sender | This PR |
-| Tunnel keys as rows; message paging (reads still load a whole mailbox) | Not started |
+| Mail step 2 on Postgres: one row per message (only changed messages written, each sealed at write time), outbound subject and body sealed to the sender | #213 |
+| Tunnel keys as rows (`mail_tunnel_keys`, wrapped with the master key; servers adopt the first stored keys) | This PR |
+| Message paging (reads still load a whole mailbox) | Not started |
 
 US Supabase project: the `cumulus_id` tables and `refresh_from_document()` exist (created 2026-11-12;
 9 accounts, 8 passkeys, 7 sessions, 7 grants copied and compared equal to the document).

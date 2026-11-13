@@ -10,7 +10,8 @@
  *   senders running at once take different jobs, and none is sent twice.
  * - With a tunnel, message subjects, bodies and attachments are sealed to the owner before they're
  *   written (the same envelopes as the snapshot's at-rest sealing) and opened when read; an outbound
- *   job's subject and body are sealed to its sender.
+ *   job's subject and body are sealed to its sender. The tunnel keys themselves (wrapped with the
+ *   master key) are kept in mail_tunnel_keys, so every server seals and opens with the same keys.
  *
  * The connection is passed in (a `pg` client inside the request's transaction, Hyperdrive, or a
  * request scope); off unless a PostOffice is given this repository.
@@ -18,7 +19,7 @@
 import { openMailbox, sealMailbox } from "./at-rest.ts";
 import type { OutboundMail, StoredMailbox } from "./postoffice.ts";
 import type { MailRepository } from "./repository.ts";
-import type { CumulusTunnel, SealedEnvelope } from "./tunnel.ts";
+import type { CumulusTunnel, SealedEnvelope, StoredTunnelKeys } from "./tunnel.ts";
 import type { MailMessage } from "./model.ts";
 
 export interface MailQueryable {
@@ -42,6 +43,10 @@ CREATE TABLE IF NOT EXISTS ${s}.mail_addresses (
   cid text NOT NULL
 );
 CREATE INDEX IF NOT EXISTS mail_addresses_cid ON ${s}.mail_addresses (cid);
+CREATE TABLE IF NOT EXISTS ${s}.mail_tunnel_keys (
+  cid text PRIMARY KEY,
+  data jsonb NOT NULL
+);
 CREATE TABLE IF NOT EXISTS ${s}.mail_messages (
   cid text NOT NULL,
   id text NOT NULL,
@@ -75,6 +80,9 @@ export class PgMailRepository implements MailRepository {
   /** Each mailbox's messages as last read or written here: position and stored JSON, by message id. */
   readonly #seen = new Map<string, Map<string, { ord: number; json: string }>>();
 
+  /** Accounts whose tunnel keys are known to be the stored ones. */
+  readonly #keysStored = new Set<string>();
+
   constructor(options: { db: MailQueryable; schema?: string; tunnel?: CumulusTunnel }) {
     const schema = options.schema ?? "public";
     if (!IDENT.test(schema)) throw new Error(`Bad schema name: ${schema}`);
@@ -83,7 +91,32 @@ export class PgMailRepository implements MailRepository {
     this.#tunnel = options.tunnel;
   }
 
+  /**
+   * Make the tunnel hold the account's stored keys before anything is sealed or opened for it: adopt
+   * them if they're stored, store this server's if it made them first. Keys are wrapped with the master
+   * key, so they're safe at rest. If two servers make keys for one account at once, the first stored
+   * wins and the other adopts it.
+   */
+  async #syncKeys(cid: string): Promise<void> {
+    const tunnel = this.#tunnel;
+    if (!tunnel || this.#keysStored.has(cid)) return;
+    const read = async () => (await this.#db.query(`SELECT data FROM ${this.#s}.mail_tunnel_keys WHERE cid = $1`, [cid])).rows[0]?.data as StoredTunnelKeys | undefined;
+    let stored = await read();
+    if (!stored && tunnel.has(cid)) {
+      const mine = tunnel.ensure(cid);
+      const { rows } = await this.#db.query(
+        `INSERT INTO ${this.#s}.mail_tunnel_keys (cid, data) VALUES ($1, $2) ON CONFLICT (cid) DO NOTHING RETURNING cid`,
+        [cid, JSON.stringify(mine)],
+      );
+      stored = rows.length ? mine : await read();
+    }
+    if (!stored) return; // nobody has keys yet; they're stored with the account's first write
+    tunnel.adopt(stored);
+    this.#keysStored.add(cid);
+  }
+
   async mailbox(cid: string): Promise<StoredMailbox | undefined> {
+    await this.#syncKeys(cid);
     const { rows } = await this.#db.query(`SELECT data FROM ${this.#s}.mail_mailboxes WHERE cid = $1 FOR UPDATE`, [cid]);
     if (!rows[0]) return undefined;
     const { messages: legacy, ...meta } = rows[0].data as StoredMailbox;
@@ -106,6 +139,7 @@ export class PgMailRepository implements MailRepository {
    * only removed ones are deleted.
    */
   async putMailbox(box: StoredMailbox): Promise<void> {
+    await this.#syncKeys(box.cid);
     const { messages, ...meta } = box;
     await this.#db.query(
       `INSERT INTO ${this.#s}.mail_mailboxes (cid, data) VALUES ($1, $2) ON CONFLICT (cid) DO UPDATE SET data = EXCLUDED.data`,
@@ -165,7 +199,7 @@ export class PgMailRepository implements MailRepository {
 
   async outbound(id: string): Promise<OutboundMail | undefined> {
     const { rows } = await this.#db.query(`SELECT data FROM ${this.#s}.mail_outbound WHERE id = $1 FOR UPDATE`, [id]);
-    return rows[0] && this.#openJob(rows[0].data);
+    return rows[0] && (await this.#openJob(rows[0].data));
   }
 
   /** With a tunnel, a job's subject and body are sealed to the sender, like their copy in Sent. */
@@ -176,15 +210,17 @@ export class PgMailRepository implements MailRepository {
     return { ...rest, subject: "", sealed: this.#tunnel.seal(job.fromCid, [job.fromCid], { subject, body }) };
   }
 
-  #openJob(data: OutboundMail & { sealed?: SealedEnvelope }): OutboundMail {
+  async #openJob(data: OutboundMail & { sealed?: SealedEnvelope }): Promise<OutboundMail> {
     if (!data.sealed) return data;
     const { sealed, ...job } = data;
     if (!this.#tunnel) throw new Error(`Outbound job ${job.id} is sealed and this repository has no tunnel`);
+    await this.#syncKeys(job.fromCid);
     const { payload } = this.#tunnel.open<{ subject: string; body: string }>(job.fromCid, sealed);
     return { ...job, subject: payload.subject, body: payload.body };
   }
 
   async putOutbound(job: OutboundMail): Promise<void> {
+    await this.#syncKeys(job.fromCid);
     await this.#db.query(
       `INSERT INTO ${this.#s}.mail_outbound (id, status, data) VALUES ($1, $2, $3)
        ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, data = EXCLUDED.data`,
@@ -194,7 +230,7 @@ export class PgMailRepository implements MailRepository {
 
   async openOutbound(): Promise<OutboundMail[]> {
     const { rows } = await this.#db.query(`SELECT data FROM ${this.#s}.mail_outbound WHERE status IN ('queued', 'sending') ORDER BY seq`);
-    return rows.map((r) => this.#openJob(r.data));
+    return Promise.all(rows.map((r) => this.#openJob(r.data)));
   }
 
   async dueOutbound(now: string, staleBefore: string, limit: number): Promise<OutboundMail[]> {
@@ -205,6 +241,6 @@ export class PgMailRepository implements MailRepository {
         ORDER BY seq LIMIT $3 FOR UPDATE SKIP LOCKED`,
       [now, staleBefore, Math.max(0, Math.floor(limit))],
     );
-    return rows.map((r) => this.#openJob(r.data));
+    return Promise.all(rows.map((r) => this.#openJob(r.data)));
   }
 }

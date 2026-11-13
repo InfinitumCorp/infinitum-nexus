@@ -92,6 +92,8 @@ begin
   execute 'grant select, insert, update on data_platform.privacy_budget to data_platform_gateway';
   execute 'grant execute on function data_platform.purge_expired_events() to data_platform_gateway';
   execute 'grant select, insert, delete on data_platform.quality_runs to data_platform_gateway';
+  -- The box's data-only backup (pg_dump as this role) reads the identity sequence's position.
+  execute 'grant select on sequence data_platform.quality_runs_id_seq to data_platform_gateway';
   execute 'alter table data_platform.quality_runs force row level security';
   if not exists (select 1 from pg_policies where schemaname = 'data_platform' and tablename = 'quality_runs' and policyname = 'gateway_all') then
     execute 'create policy gateway_all on data_platform.quality_runs for all to data_platform_gateway using (true) with check (true)';

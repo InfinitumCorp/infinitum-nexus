@@ -9,6 +9,7 @@ import { CidStore } from "../service.ts";
 import type { CidOneTime } from "../service.ts";
 import { MapCidRepository, type CidRepository, type OneTimeKind } from "../repository.ts";
 import { PgCidRepository } from "../postgres.ts";
+import { autoCommitRemoteRepository } from "./remote-server.ts";
 
 const copy = <T>(v: T): T => (v === undefined ? v : structuredClone(v));
 
@@ -86,5 +87,6 @@ export function testRepository(): CidRepository | undefined {
     const schema = `cid_test_${process.pid}_${Date.now().toString(36)}_${++schemas}`;
     return new PgCidRepository({ db: pgPool, schema, migrate: true });
   }
+  if (process.env.CID_TEST_REMOTE_REPO) return autoCommitRemoteRepository();
   return process.env.CID_TEST_COPYING_REPO ? new CopyingCidRepository() : undefined;
 }

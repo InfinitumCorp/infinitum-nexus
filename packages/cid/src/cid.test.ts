@@ -4,6 +4,7 @@ import { generateKeyPairSync, sign } from "node:crypto";
 import { Ledger, generateSigner } from "@infinitum/firmament";
 import { CidService, CidError, MAIL_DOMAIN, hotp, verifyTotp, base32Decode, base32Encode } from "./index.ts";
 import { VirtualAuthenticator } from "./testing/virtual-authenticator.ts";
+import { isDerEcdsaSignature } from "./webauthn.ts";
 import { testRepository } from "./testing/copying-repository.ts";
 
 const RP_ID = "id.cumuluscloud.app";
@@ -77,11 +78,38 @@ describe("CID passkeys and security keys", () => {
     const { account, auth, key } = await withPasskey(cid, "alex");
     const { challenge } = await cid.startSignIn();
     const assertion = auth.get({ credentialId: key.credentialId, challenge, origin: ORIGIN });
-    assert.equal(Buffer.from(assertion.signature, "base64url").length, 64, "ES256 signatures are raw r||s");
+    // WebAuthn §6.5.6: ES256 assertion signatures are ASN.1 DER, as real passkeys send them.
+    const sig = Buffer.from(assertion.signature, "base64url");
+    assert.equal(sig[0], 0x30, "ES256 signatures are a DER SEQUENCE");
+    assert.ok(isDerEcdsaSignature(sig));
     const result = await cid.finishSignIn(assertion, "MacBook · VEIL");
     assert.equal(result.status, "ok");
     if (result.status !== "ok") return;
     assert.equal((await cid.authenticate(result.token))?.account.cid, account.cid);
+  });
+
+  it("still accepts ES256 signatures sent as raw 64-byte r||s", async () => {
+    const { cid } = setup();
+    const { account, auth, key } = await withPasskey(cid, "alex");
+    const { challenge } = await cid.startSignIn();
+    const assertion = auth.get({ credentialId: key.credentialId, challenge, origin: ORIGIN, signatureEncoding: "ieee-p1363" });
+    assert.equal(Buffer.from(assertion.signature, "base64url").length, 64);
+    const result = await cid.finishSignIn(assertion, "MacBook · VEIL");
+    assert.equal(result.status, "ok");
+    if (result.status !== "ok") return;
+    assert.equal((await cid.authenticate(result.token))?.account.cid, account.cid);
+  });
+
+  it("rejects a tampered ES256 signature in either encoding", async () => {
+    const { cid } = setup();
+    const { auth, key } = await withPasskey(cid, "alex");
+    for (const signatureEncoding of ["der", "ieee-p1363"] as const) {
+      const { challenge } = await cid.startSignIn();
+      const assertion = auth.get({ credentialId: key.credentialId, challenge, origin: ORIGIN, signatureEncoding });
+      const sig = Buffer.from(assertion.signature, "base64url");
+      sig[sig.length - 1] ^= 0x01;
+      await rejectsWith(cid.finishSignIn({ ...assertion, signature: sig.toString("base64url") }, "MacBook · VEIL"), "webauthn_failed");
+    }
   });
 
   it("supports Ed25519 passkeys", async () => {
@@ -389,6 +417,50 @@ describe("CID storage boundary", () => {
     const cid = new CidService({ ledger: new Ledger(undefined, { authorizedSigners: [signer.publicKey] }), signer, rpId: RP_ID, origins: [ORIGIN], repository: new CopyingCidRepository() });
     assert.throws(() => cid.syncView(), (e: CidError) => e.code === "sync_unavailable");
     const memory = setup().cid;
-    if (!process.env.CID_TEST_COPYING_REPO && !process.env.CID_TEST_PG) assert.equal(typeof memory.syncView().can, "function");
+    if (!process.env.CID_TEST_COPYING_REPO && !process.env.CID_TEST_PG && !process.env.CID_TEST_REMOTE_REPO) assert.equal(typeof memory.syncView().can, "function");
+  });
+});
+
+describe("CID OpenID Connect client mode (sign-in at the standalone issuer)", () => {
+  const SUB = "cid_11111111-2222-4333-8444-555555555555";
+  const ORG = "org_aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+
+  it("keeps a started sign-in once, through the repository, and drops expired ones", async () => {
+    const { cid, advance } = setup();
+    await cid.rememberIssuerLogin("state-1", { nonce: "n1", verifier: "v1", redirectUri: "https://spectre.example/cb", next: "/#/today" });
+    const login = await cid.takeIssuerLogin("state-1");
+    assert.equal(login?.nonce, "n1");
+    assert.equal(login?.next, "/#/today");
+    assert.equal(await cid.takeIssuerLogin("state-1"), null, "single use");
+    await cid.rememberIssuerLogin("state-2", { nonce: "n2", verifier: "v2", redirectUri: "https://spectre.example/cb" });
+    advance(11 * 60_000);
+    assert.equal(await cid.takeIssuerLogin("state-2"), null, "expired after 10 minutes");
+  });
+
+  it("creates the local account, its organization and admin role from the claims, and saves them", async () => {
+    const { cid } = setup();
+    const first = await cid.signInFromIssuer({ sub: SUB, preferred_username: "grace", email: "grace@cumuluscloud.app", org_id: ORG, org_name: "Hopper Labs", org_role: "admin" }, "Browser", "id-token-1");
+    assert.equal(first.created, true);
+    const account = await cid.getAccount(SUB);
+    assert.equal(account.username, "grace");
+    assert.equal(account.orgId, ORG, "the membership was written back");
+    assert.equal((await cid.organizationMembership(SUB))?.admin, true);
+    assert.equal((await cid.authenticate(first.token))?.account.cid, SUB);
+    assert.ok(!(await cid.listSessions(SUB)).some((s) => "idTokenHint" in s), "the ID token never leaves in session lists");
+    // Signed in again as a member: the admin role follows the issuer, and nothing is created twice.
+    const again = await cid.signInFromIssuer({ sub: SUB, preferred_username: "grace", org_id: ORG, org_role: "member" }, "Browser");
+    assert.equal(again.created, false);
+    assert.equal((await cid.organizationMembership(SUB))?.admin, false);
+    // No org_id any more: an issuer-sourced organization is left.
+    await cid.signInFromIssuer({ sub: SUB }, "Browser");
+    assert.equal((await cid.getAccount(SUB)).orgId, undefined);
+  });
+
+  it("refuses a subject that isn't a cid, and picks a free username when the wanted one is taken", async () => {
+    const { cid } = setup();
+    await rejectsWith(cid.signInFromIssuer({ sub: "user-123" }, "Browser"), "invalid_subject");
+    await cid.createAccount({ username: "grace" });
+    await cid.signInFromIssuer({ sub: SUB, preferred_username: "grace" }, "Browser");
+    assert.notEqual((await cid.getAccount(SUB)).username, "grace");
   });
 });

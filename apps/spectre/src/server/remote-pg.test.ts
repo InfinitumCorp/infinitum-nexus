@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import { PGlite } from "@electric-sql/pglite";
 import { Ledger, generateSigner } from "@infinitum/firmament";
 import { CidService, PgCidRepository, PgRequestScope, migrateCid, type PgPoolClient, type Queryable } from "@infinitum/cid";
-import { ConflictError, MemoryGateway, RemoteState, type TransactionParticipant } from "./remote.ts";
+import { ConflictError, MemoryGateway, RemoteState, type NexusGateway, type TransactionParticipant } from "./remote.ts";
 
 /** A one-connection "pool" over PGlite (multi-statement text without parameters goes through exec). */
 function pglitePool(pg: PGlite): Queryable & { connect(): Promise<PgPoolClient> } {
@@ -131,3 +131,51 @@ describe("RemoteState participants", () => {
     assert.ok(lines.some((l) => JSON.parse(l).reason === "participant-commit-failed"));
   });
 });
+
+describe("HttpGateway and Cumulus://ID rows", () => {
+  it("sends row lookups as cid.read, and row writes with the commit only when there are some", async () => {
+    const { HttpGateway } = await import("./remote.ts");
+    const bodies: any[] = [];
+    const fetchImpl = (async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body));
+      bodies.push(body);
+      return Response.json(body.op === "cid.read" ? { results: [null] } : { cid: 2 });
+    }) as unknown as typeof fetch;
+    const g = new HttpGateway("https://store.example/nexus-store", "k".repeat(40), fetchImpl);
+    assert.deepEqual(await g.readRows([{ op: "account", cid: "cid_a" }]), [null]);
+    await g.commit([], [], [{ kind: "account", id: "cid_a", data: null }]);
+    await g.commit([], []);
+    assert.deepEqual(bodies.map((b) => [b.op, "cid" in b]), [["cid.read", false], ["commit", true], ["commit", false]]);
+    assert.deepEqual(bodies[0].ops, [{ op: "account", cid: "cid_a" }]);
+  });
+});
+
+describe("RemoteState row metrics", () => {
+  it("counts row writes and the commits that carried them, never their contents", async () => {
+    const memory = new MemoryGateway();
+    const saved: unknown[][] = [];
+    const gateway: NexusGateway = {
+      load: (since, versions) => memory.load(since, versions),
+      commit: async (e, d, rows) => {
+        if (rows) saved.push(rows);
+        return memory.commit(e, d);
+      },
+    };
+    const state = new RemoteState(gateway, {});
+    const lines: string[] = [];
+    state.metricsLog = (l) => lines.push(l);
+    let pending: unknown[] = [];
+    state.rows = { pending: () => pending };
+    pending = [{ kind: "account", id: "cid_secret", data: { username: "secret-name" } }, { kind: "session", id: "s1", data: {} }];
+    await state.transaction(async () => 1);
+    pending = [];
+    await state.transaction(async () => 2);
+    assert.equal(saved.length, 1, "rows only go with a commit when there are some");
+    assert.equal(state.stats.rowWrites, 2);
+    assert.equal(state.stats.rowCommits, 1);
+    (state as unknown as { emit(r: string): void }).emit("check");
+    assert.ok(lines.at(-1)!.includes('"rowWrites":2'));
+    assert.ok(!lines.join("").includes("secret-name"), "metrics never carry content");
+  });
+});
+

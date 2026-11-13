@@ -3,6 +3,55 @@
 Status: proposal. Nothing here is implemented yet. One decision is needed before work starts (see
 [Decision needed](#decision-needed)).
 
+## Status (2026-11-13)
+
+Decided: **Supabase for the US, Yandex for Russia.** Postgres hosts don't need a database password
+anywhere: US products reach Supabase through the `nexus-store` edge function they already use
+(`CUMULUS_STORE=gateway`), and the Russia issuer uses Postgres on its own Yandex server over the
+local socket with peer authentication.
+
+| Piece | State |
+|---|---|
+| Cumulus://ID repository, async API, Postgres repository, backfill, `CUMULUS_STORE=postgres` | On main (#153, #159, #161, #162, #164) |
+| No direct ID store reads outside `@infinitum/cid`; account export and Labyrinth directory through the repository | On main (#163, #166) |
+| Authenticator-app seeds sealed at rest (key derived from the ledger signing key) | On main (#165, #167) |
+| `CUMULUS_STORE=gateway` (rows through nexus-store, saved with the ledger in one transaction) | On main (#190); one round trip per signed-in request in #193 |
+| Single-server Postgres for the Russia issuer (`main.ts`) | #192; server setup in InfinitumCorp/cumulus-id-ru#1 (draft until #192 is pinned) |
+| Rollback that keeps new accounts (rows back to the document), pre-switch check | #197 |
+| Row-write metrics | #201 |
+| FIRM Wallet repository, Postgres wallet (no double spend under concurrency) | #198, #199 |
+| Storage quota repository | #204 |
+| Storage quota on Postgres (no overspend under concurrency) | #207 |
+| Mail step 1: MailRepository (mailbox as the unit, async PostOffice, one read and one write per mailbox per call) | #211 |
+| Mail on Postgres: PgMailRepository (mailbox rows sealed at rest, row locks so concurrent deliveries are kept, SKIP LOCKED outbound claims) | This PR |
+| Mail step 2 on Postgres: one row per message (only changed messages written, each sealed at write time), outbound subject and body sealed to the sender | #213 |
+| Tunnel keys as rows (`mail_tunnel_keys`, wrapped with the master key; servers adopt the first stored keys) | This PR |
+| Message paging (reads still load a whole mailbox) | Not started |
+
+US Supabase project: the `cumulus_id` tables and `refresh_from_document()` exist (created 2026-11-12;
+9 accounts, 8 passkeys, 7 sessions, 7 grants copied and compared equal to the document).
+
+Why Mail and Tunnel aren't a mechanical repeat of the others: a mailbox is stored as one object
+holding all its messages, and with a master key it is sealed at rest by `sealMailStore`, which runs
+synchronously while the store is snapshotted; the Tunnel keys it needs are read synchronously there and
+in delivery. The plan's `mail_messages` table (ciphertext columns, index by owner, folder and time)
+replaces the whole-mailbox object, sealing moves from snapshot time to write time, and Tunnel keys are
+read once per request into a cache so sealing can stay synchronous inside it. Do Mail as its own
+series: repository with the mailbox as today's unit first, then per-message rows.
+
+What still needs a person (or a connector this session didn't have):
+
+1. **Supabase**: done 2026-11-13. Both migrations are applied, `nexus-store` v2 is deployed, and
+   `compare_with_document()` reports the rows equal to the document (9 accounts, 7 sessions). Left:
+   merge #196 (`CUMULUS_STORE=gateway` for Mail) once Cloudflare deploys run (item 2), and run
+   `select cumulus_id.refresh_from_document()` just before that deploy goes live.
+2. **Cloudflare**: the GitHub organization secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`, so
+   the auto-deploy workflows can ship any of this.
+3. **Yandex**: after #192 is merged and its commit is pinned in cumulus-id-ru (`SHA`), run
+   `ssh cumulus-id-russia 'bash -s' < scripts/setup.sh`.
+4. **id.cumuluscloud.app** keeps its state in a Cloudflare Durable Object, not Supabase; moving it means
+   reading that object, which needs Cloudflare access.
+
 ## Problem
 
 Every Cumulus store is a set of in-memory `Map`s (`CidStore`, `PostOfficeStore`, `WalletStore`,
@@ -119,6 +168,32 @@ Size of the change, measured on `main`:
 
 Each phase keeps the full test suite green and can stop without leaving a half state.
 
+### Hosted on Supabase without a database password: `CUMULUS_STORE=gateway`
+
+Products that already reach Supabase through the `nexus-store` edge function (Mail) don't need a
+Postgres connection string at all:
+
+- `supabase/migrations/20261113_cumulus_id_rows.sql` creates the `cumulus_id` tables (not exposed by
+  the Data API, RLS on, no grants to `anon`/`authenticated`), `public.cid_read` (whitelisted lookups),
+  `public.nexus_commit_cid` (the ledger, documents and the request's ID writes in one transaction;
+  every write carries the value the request read, and a row changed since then is a conflict, so the
+  request re-runs) and `cumulus_id.refresh_from_document()` (the backfill: replaces the rows with the
+  `cid` document's contents in one transaction, leaving the document untouched).
+- `nexus-store` gains `op: "cid.read"` and accepts `cid` writes on `commit`; callers that don't send
+  them get exactly the old behavior.
+- Check at any time: `select cumulus_id.compare_with_document()` says whether the rows match the
+  document, and lists the keys that differ.
+- Cutover: deploy the edge function, run `select cumulus_id.refresh_from_document()` and set
+  `CUMULUS_STORE=gateway` on the product in the same deploy. Rollback: `select
+  cumulus_id.restore_document()` (rebuilds the `cid` document from the rows, accounts created since the
+  switch included; `supabase/migrations/20261114_cumulus_id_reverse.sql`), then set it back to
+  `document`.
+
+The US tables were created and backfilled on 2026-11-12 (9 accounts, 8 passkeys, 7 sessions,
+7 grants; every row compared equal to the document). The id.cumuluscloud.app Worker keeps its state in
+a Durable Object, not Supabase, and Russia's Yandex Managed PostgreSQL needs Yandex Cloud access;
+both are still to do.
+
 ### Cutover runbook (Cumulus://ID, phase 4)
 
 1. Pick the Postgres host and create a database. On Cloudflare, put Hyperdrive in front of it and
@@ -131,8 +206,9 @@ Each phase keeps the full test suite green and can stop without leaving a half s
    commit in the same step as the ledger (RemoteState participants) and the `cid` document is left
    as it was.
 4. Watch the `nexus-store` metrics line: `participantFailures` must stay 0.
-5. Rollback: set `CUMULUS_STORE=document` again. Accounts created after the cutover exist only in
-   Postgres until a reverse copy is written, so roll back early or not at all.
+5. Rollback: write the rows back out first, so nothing created since the cutover is lost:
+   `pnpm --filter @infinitum/cid backfill --to-snapshot cid.json` (single server) or
+   `select cumulus_id.restore_document()` (Supabase), then set `CUMULUS_STORE=document` again.
 
 ### 4. Risks
 

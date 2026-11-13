@@ -32,7 +32,7 @@ test("errors that will repeat are permanent; service trouble is retried", async 
 
 test("deliverOutbound claims, sends and records outcomes", async () => {
   const po = new PostOffice({ clock: () => new Date("2026-11-09T10:00:00Z") });
-  po.provision({ cid: "a", address: "alex@cumuluscloud.app", name: "Alex" });
+  await po.provision({ cid: "a", address: "alex@cumuluscloud.app", name: "Alex" });
   await po.send("a", { to: "priya@gmail.com", subject: "One", body: "1" });
   await po.send("a", { to: "gone@example.com", subject: "Two", body: "2" });
   const sent: string[] = [];
@@ -42,18 +42,18 @@ test("deliverOutbound claims, sends and records outcomes", async () => {
   });
   assert.equal(count, 1);
   assert.deepEqual(sent.sort(), ["One", "Two"]);
-  assert.equal(po.outboundQueue().length, 0);
-  const notices = po.view("a").messages.filter((m) => m.system === "postmaster");
+  assert.equal((await po.outboundQueue()).length, 0);
+  const notices = (await po.view("a")).messages.filter((m) => m.system === "postmaster");
   assert.deepEqual(notices.map((m) => m.subject), ["Not delivered: Two"]);
   assert.equal(await deliverOutbound(tx, po, async () => assert.fail("nothing left to send")), 0);
 });
 
 test("a sender that throws counts as a temporary failure", async () => {
   const po = new PostOffice({ clock: () => new Date("2026-11-09T10:00:00Z") });
-  po.provision({ cid: "a", address: "alex@cumuluscloud.app", name: "Alex" });
+  await po.provision({ cid: "a", address: "alex@cumuluscloud.app", name: "Alex" });
   await po.send("a", { to: "priya@gmail.com", subject: "Boom", body: "x" });
   assert.equal(await deliverOutbound(tx, po, async () => { throw new Error("network down"); }), 0);
-  assert.equal(po.outboundQueue().length, 1, "back in the queue for a retry");
+  assert.equal((await po.outboundQueue()).length, 1, "back in the queue for a retry");
 });
 
 test("HTML version: escaped, paragraphs, line breaks and links", () => {
@@ -65,7 +65,7 @@ test("HTML version: escaped, paragraphs, line breaks and links", () => {
 
 test("each result is recorded as soon as it's known", async () => {
   const po = new PostOffice({ clock: () => new Date("2026-11-09T10:00:00Z") });
-  po.provision({ cid: "a", address: "alex@cumuluscloud.app", name: "Alex" });
+  await po.provision({ cid: "a", address: "alex@cumuluscloud.app", name: "Alex" });
   await po.send("a", { to: "fast@gmail.com", subject: "Fast", body: "1" });
   await po.send("a", { to: "slow@gmail.com", subject: "Slow", body: "2" });
   let release!: () => void;
@@ -79,7 +79,7 @@ test("each result is recorded as soon as it's known", async () => {
     return { ok: true };
   });
   await new Promise((r) => setTimeout(r, 10));
-  recordedBeforeSlow = po.outboundQueue().length === 0 && (po as any).store.outbound.size === 2 &&
+  recordedBeforeSlow = (await po.outboundQueue()).length === 0 && (po as any).store.outbound.size === 2 &&
     [...(po as any).store.outbound.values()].some((j: any) => j.subject === "Fast" && j.status === "sent");
   release();
   assert.equal(await run, 2);

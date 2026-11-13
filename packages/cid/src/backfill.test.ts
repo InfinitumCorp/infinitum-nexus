@@ -7,7 +7,7 @@
 import { describe, it, after } from "node:test";
 import assert from "node:assert/strict";
 import { Ledger, generateSigner } from "@infinitum/firmament";
-import { backfillCid, checkCidStore, cidStoreFromSnapshot } from "./backfill.ts";
+import { backfillCid, checkCidStore, cidStoreFromRepository, cidStoreFromSnapshot } from "./backfill.ts";
 import { exportCidAccounts } from "./account-export.ts";
 import { CidService, CidStore } from "./service.ts";
 import { CopyingCidRepository } from "./testing/copying-repository.ts";
@@ -36,6 +36,7 @@ async function populated() {
   store.orgs.set("org_1", { id: "org_1", name: "Infinitum", admins: [sam.cid] });
   store.accounts.get(sam.cid)!.orgId = "org_1";
   store.byIdentity.set(`google|123`, alex.cid);
+  store.accounts.get(alex.cid)!.identities = [{ provider: "google", subject: "123", linkedAt: "2026-11-12T00:00:00.000Z" }];
   store.challenges.set("c1", { value: "v", purpose: "login", expiresAt: Date.now() + 60_000 });
   return { store, alex, sam };
 }
@@ -62,7 +63,20 @@ async function roundTrip(target: CidRepository) {
   assert.equal(await svc.can(alex.cid, "LBRNTH", "repo:read"), true);
   // The migration export reads through the repository too, so it sees the copied accounts.
   const exported = await exportCidAccounts(svc);
-  assert.deepEqual(exported.counts, { accounts: 2, authenticators: 1, identities: 0, grants: 1 });
+  assert.deepEqual(exported.counts, { accounts: 2, authenticators: 1, identities: 1, grants: 1, organizations: 1 });
+  assert.equal(exported.organizations.length, 1, "organizations are read through the repository too");
+
+  // The reverse copy (rollback to the document) gives back the same entities and lookups.
+  const back = await cidStoreFromRepository(target);
+  const entities = (st: CidStore) => {
+    const out: Record<string, unknown> = {};
+    for (const k of ["accounts", "byUsername", "byFederation", "byIdentity", "authenticators", "byCredentialId", "sessions", "byTokenHash", "grants", "orgs"] as const) {
+      out[k] = [...(st[k] as Map<string, unknown>).entries()].sort(([a], [b]) => a.localeCompare(b));
+    }
+    return JSON.parse(JSON.stringify(out));
+  };
+  assert.deepEqual(entities(back), entities(source));
+  assert.equal(back.challenges.size, 0, "single-use items aren't carried back");
 }
 
 describe("Cumulus://ID backfill", () => {

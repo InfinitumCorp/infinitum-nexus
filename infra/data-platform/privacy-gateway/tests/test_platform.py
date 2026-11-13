@@ -194,7 +194,7 @@ def test_datahub_proposals():
     lineage = json.loads(props["upstreamLineage"]["aspect"]["value"])
     assert lineage["upstreams"][0]["dataset"] == dataset_urn("spectre.deals")
     owners = json.loads(props["ownership"]["aspect"]["value"])["owners"]
-    assert owners == [{"owner": "urn:li:corpuser:team-spectre", "type": "DATAOWNER"}]
+    assert owners == [{"owner": "urn:li:corpGroup:team-spectre", "type": "DATAOWNER"}]
 
 
 # ------------------------------------------------------------------ collection

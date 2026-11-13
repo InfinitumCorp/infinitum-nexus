@@ -60,8 +60,12 @@ async function load(since: number, versions: Record<string, number>) {
   return { entries, docs };
 }
 
-async function commit(entries: unknown[], docs: unknown[]) {
-  const res = await rest("rpc/nexus_commit", { method: "POST", body: JSON.stringify({ p_entries: entries, p_docs: docs }) });
+// With `cid` (Cumulus://ID row writes, CUMULUS_STORE=gateway), the rows are saved in the same
+// transaction as the ledger and documents, and a row changed since the caller read it is a conflict.
+async function commit(entries: unknown[], docs: unknown[], cid?: unknown[]) {
+  const res = cid?.length
+    ? await rest("rpc/nexus_commit_cid", { method: "POST", body: JSON.stringify({ p_entries: entries, p_docs: docs, p_cid: cid }) })
+    : await rest("rpc/nexus_commit", { method: "POST", body: JSON.stringify({ p_entries: entries, p_docs: docs }) });
   const text = await res.text();
   if (res.ok) return json(JSON.parse(text));
   if (text.includes("nexus_conflict")) return json({ error: "conflict" }, 409);
@@ -69,10 +73,20 @@ async function commit(entries: unknown[], docs: unknown[]) {
   return json({ error: "commit failed" }, 500);
 }
 
+// Cumulus://ID row lookups (public.cid_read answers only its whitelisted lookups).
+async function readRows(ops: unknown) {
+  if (!Array.isArray(ops) || ops.length < 1 || ops.length > 50) return json({ error: "1 to 50 ops" }, 400);
+  const res = await rest("rpc/cid_read", { method: "POST", body: JSON.stringify({ p_ops: ops }) });
+  const text = await res.text();
+  if (res.ok) return json({ results: JSON.parse(text) });
+  console.error("cid.read failed", res.status, text.slice(0, 300));
+  return json({ error: "read failed" }, 500);
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method !== "POST") return json({ error: "method not allowed" }, 405);
   if (!(await authorized(req.headers.get("x-nexus-key")))) return json({ error: "unauthorized" }, 401);
-  let body: { op?: string; since?: number; versions?: Record<string, number>; entries?: unknown[]; docs?: unknown[] };
+  let body: { op?: string; since?: number; versions?: Record<string, number>; entries?: unknown[]; docs?: unknown[]; cid?: unknown[]; ops?: unknown };
   try {
     body = await req.json();
   } catch {
@@ -80,7 +94,8 @@ Deno.serve(async (req: Request) => {
   }
   try {
     if (body.op === "load") return json(await load(body.since ?? -1, body.versions ?? {}));
-    if (body.op === "commit") return await commit(body.entries ?? [], body.docs ?? []);
+    if (body.op === "commit") return await commit(body.entries ?? [], body.docs ?? [], Array.isArray(body.cid) ? body.cid : undefined);
+    if (body.op === "cid.read") return await readRows(body.ops);
     return json({ error: "unknown op" }, 400);
   } catch (err) {
     console.error(err);

@@ -68,7 +68,14 @@ form.addEventListener("submit", async (event) => {
   }
 });
 
-logout.addEventListener("click", async () => {
+/** The Cumulus://ID account bar shows who is signed in to this CNDCTR session. */
+function showAccount(me) {
+  window.CumulusBar?.setProfile(me ? { name: me.name || me.username, username: me.username, email: me.email || undefined } : null);
+}
+let account = null;
+window.addEventListener("load", () => showAccount(account));
+
+async function signOut() {
   const response = await fetch("/api/auth/logout", { method: "POST" });
   if (!response.ok && response.status !== 204) {
     showError("Sign out failed");
@@ -79,14 +86,27 @@ logout.addEventListener("click", async () => {
   out.textContent = "";
   delete out.dataset.state;
   who.textContent = "";
-});
+  account = null;
+  showAccount(null);
+}
+
+logout.addEventListener("click", signOut);
+// The account bar's "Sign out" navigates to #signout (data-signout).
+const onSignoutHash = () => {
+  if (location.hash !== "#signout") return;
+  history.replaceState(null, "", location.pathname + location.search);
+  signOut();
+};
+window.addEventListener("hashchange", onSignoutHash);
 
 async function refresh() {
   const params = new URLSearchParams(location.search);
   if (params.get("error") === "sign-in-failed") showError("Sign-in failed. Try again with your Cumulus ID.");
   const response = await fetch("/api/me");
   if (response.status === 401) return;
-  showApp(await readJson(response));
+  account = await readJson(response);
+  showApp(account);
+  showAccount(account);
 }
 
 refresh().catch((error) => showError(error.message || "Could not reach CNDCTR"));

@@ -39,6 +39,10 @@ class PostgresCatalog(Catalog):
             row = c.execute("select spec from data_platform.datasets where name = %s", (name,)).fetchone()
         return row[0] if row else None
 
+    def all(self) -> list[dict[str, Any]]:
+        with _connect(self.dsn) as c:
+            return [r[0] for r in c.execute("select spec from data_platform.datasets order by name").fetchall()]
+
     def _put(self, name: str, spec: dict[str, Any]) -> None:
         with _connect(self.dsn) as c:
             row = c.execute(

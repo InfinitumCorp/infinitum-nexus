@@ -79,6 +79,17 @@ so the catalog and the redaction policy cannot drift apart.
 - **Ingestion:** `datahub/recipes/supabase-postgres.yml` loads schemas and lineage from Postgres
   with a read-only metadata role. Profiling is off because it reads rows.
   `datahub/recipes/opensearch.yml` loads the event index mappings.
+- **Catalog replay:** `python -m cumulus_privacy.catalog_sync` (or, on the box,
+  `docker compose exec privacy-gateway python -m cumulus_privacy.catalog_sync`). DataHub runs on
+  demand, so it starts empty, while the catalog of record lives in Supabase. The sync pushes
+  every stored spec with:
+  - owners: `team-*` names become DataHub groups, anything else is a person;
+  - classification tags, the schema and glossary terms;
+  - spec lineage.
+
+  It then links each logical dataset to the physical tables the Postgres recipe ingests: each
+  dataset → `data_platform.events` → `data_platform.events_bi`. It reads metadata only, never
+  event rows. If DataHub refuses one spec, the rest are still pushed.
 - **Not done yet:** ingesting from Superset. DataHub's Superset source signs in with a Superset
   password, and Superset here accepts only Cumulus ID. It is deferred until Cumulus ID can issue
   a service (client-credentials) token that Superset accepts. The `CatalogService` server
@@ -144,6 +155,8 @@ as Deequ checks inside the Spark jobs, and the metrics repository feeds anomaly 
 
 ## 4. Hudi: lakehouse (defer)
 
+Full evaluation, triggers and the Iceberg/Delta comparison: [EVALUATIONS.md](EVALUATIONS.md#2-apache-hudi).
+
 Hudi gives incremental upserts, corrections and deletes on files in object storage. The right
 time to adopt it is when analytics volume outgrows Postgres plus OpenSearch, or when we need
 record-level deletes across a large history (GDPR erasure). Neither is true yet.
@@ -167,9 +180,18 @@ and loads [`superset_config.py`](../../infra/data-platform/superset/superset_con
   email. Cumulus ID groups map to roles: `data-platform-admins` → Admin and `data-analysts` →
   Alpha. Anyone else gets Gamma. There is no Superset password. People without a Cumulus ID
   create one from the Cumulus ID sign-in page and come back signed in.
-- **Embedded analytics:** `EMBEDDED_SUPERSET` is on. A product backend mints a guest token
-  (5 minutes) and embeds the dashboard with the Superset embedded SDK.
-  `CUMULUS_EMBED_ORIGINS` sets `frame-ancestors`.
+- **Embedded analytics:** `EMBEDDED_SUPERSET` is on. The product signs its user in with
+  Cumulus ID, then its backend calls `POST /api/v1/embed/dashboards/{dashboardId}/guest-token`
+  on the gateway (product token; Conjure `EmbedService`) with the tenant and the viewer's CID.
+  It passes the token to the Superset embedded SDK. The gateway (`embed.py`):
+  - only allows dashboards listed for that product in `PLATFORM_EMBED_DASHBOARDS`;
+  - pins every chart with the row-level-security clause `product = … AND tenant = …`;
+  - names the viewer by their analytics pseudonym;
+  - signs the 5-minute token with `SUPERSET_GUEST_TOKEN_SECRET` (HS256, shared with Superset).
+
+  No Superset service account or password exists. `CUMULUS_EMBED_ORIGINS` sets
+  `frame-ancestors`. Dashboards for embedding are built on `data_platform.events_bi`, which has
+  the `product` and `tenant` columns the clause filters on.
 - Superset reads only datasets that went through `prepareExport(ANALYTICS)`. It never reads
   raw product tables.
 - **Amplitude:** Superset is an internal tool, so the Amplitude rule doesn't apply.
@@ -194,6 +216,8 @@ with the same query DSL, so we use it.
   needs William's OK.
 
 ## 7. Metacat: evaluation only
+
+Full evaluation: [EVALUATIONS.md](EVALUATIONS.md#3-metacat).
 
 Metacat (Netflix) is a federated metadata API. It doesn't copy metadata. It answers live by
 calling connectors (Hive, Postgres, MySQL, Redshift, S3, Snowflake), and it publishes change
@@ -232,6 +256,8 @@ Internal dashboards use exact numbers under access policy.
 container. On Windows, the bounding and budget tests run with a no-noise test backend.
 
 ## 9. Opacus: DP model training (defer)
+
+Full evaluation and adoption requirements: [EVALUATIONS.md](EVALUATIONS.md#1-opacus).
 
 Opacus trains PyTorch models with DP-SGD. No Cumulus model trains on personal data today.
 Models are external, reached through OmniRoute and open models, and AI context is redacted by

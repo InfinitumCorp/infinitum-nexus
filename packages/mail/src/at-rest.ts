@@ -7,7 +7,7 @@
  */
 import { createHash } from "node:crypto";
 import type { MailMessage } from "./model.ts";
-import type { PostOfficeStore } from "./postoffice.ts";
+import type { PostOfficeStore, StoredMailbox } from "./postoffice.ts";
 import { CumulusTunnel, type SealedEnvelope } from "./tunnel.ts";
 
 type Content = Pick<MailMessage, "subject" | "body" | "attachments">;
@@ -19,56 +19,64 @@ const digest = (c: Content) => createHash("sha256").update(JSON.stringify(c)).di
 /** Re-sealing every message on every save would be slow; reuse an envelope while its content is unchanged. */
 const cache = new WeakMap<CumulusTunnel, Map<string, { hash: string; env: SealedEnvelope }>>();
 
-/** A copy of the post office store, ready to write, with message content sealed to each owner. */
-export function sealMailStore(store: PostOfficeStore, tunnel: CumulusTunnel): PostOfficeStore {
+/** A copy of one mailbox, ready to write, with message content sealed to its owner. */
+export function sealMailbox(box: StoredMailbox, tunnel: CumulusTunnel, cid = box.cid): StoredMailbox {
   const memo = cache.get(tunnel) ?? new Map();
   cache.set(tunnel, memo);
-  const out = { ...store, mailboxes: new Map() } as PostOfficeStore;
-  for (const [cid, box] of store.mailboxes) {
-    tunnel.ensure(cid);
-    const messages = box.messages.map((m): StoredMessage => {
-      const locked = (m as StoredMessage).sealed && m.locked;
-      if (locked) {
-        const { subject: _s, body: _b, attachments: _a, locked: _l, ...meta } = m;
-        return meta; // couldn't be opened on load: keep the original envelope untouched
-      }
-      const content = contentOf(m);
-      const hash = digest(content);
-      const key = `${cid}|${m.id}`;
-      let hit = memo.get(key);
-      if (!hit || hit.hash !== hash) {
-        hit = { hash, env: tunnel.seal(cid, [cid], content) };
-        memo.set(key, hit);
-      }
-      const { subject: _s, body: _b, attachments: _a, sealed: _old, locked: _l, ...meta } = m as StoredMessage & { locked?: boolean };
-      return { ...meta, sealed: hit.env };
-    });
-    out.mailboxes.set(cid, { ...box, messages: messages as MailMessage[] });
+  tunnel.ensure(cid);
+  const messages = box.messages.map((m): StoredMessage => {
+    const locked = (m as StoredMessage).sealed && m.locked;
+    if (locked) {
+      const { subject: _s, body: _b, attachments: _a, locked: _l, ...meta } = m;
+      return meta; // couldn't be opened on load: keep the original envelope untouched
+    }
+    const content = contentOf(m);
+    const hash = digest(content);
+    const key = `${cid}|${m.id}`;
+    let hit = memo.get(key);
+    if (!hit || hit.hash !== hash) {
+      hit = { hash, env: tunnel.seal(cid, [cid], content) };
+      memo.set(key, hit);
+    }
+    const { subject: _s, body: _b, attachments: _a, sealed: _old, locked: _l, ...meta } = m as StoredMessage & { locked?: boolean };
+    return { ...meta, sealed: hit.env };
+  });
+  return { ...box, messages: messages as MailMessage[] };
+}
+
+/** Open one mailbox's sealed messages in place after loading. Returns how many could not be opened. */
+export function openMailbox(box: StoredMailbox, tunnel: CumulusTunnel, cid = box.cid): number {
+  let locked = 0;
+  for (const m of box.messages as (StoredMessage & { locked?: boolean })[]) {
+    if (!m.sealed) continue;
+    try {
+      const { payload } = tunnel.open<Content>(cid, m.sealed);
+      m.subject = payload.subject;
+      m.body = payload.body;
+      m.attachments = payload.attachments ?? [];
+      delete m.sealed;
+      delete m.locked;
+    } catch {
+      m.subject = "Encrypted message";
+      m.body = "This message is encrypted with a key this server doesn't have. Check the tunnel master key.";
+      m.attachments = [];
+      m.locked = true;
+      locked++;
+    }
   }
+  return locked;
+}
+
+/** A copy of the post office store, ready to write, with message content sealed to each owner. */
+export function sealMailStore(store: PostOfficeStore, tunnel: CumulusTunnel): PostOfficeStore {
+  const out = { ...store, mailboxes: new Map() } as PostOfficeStore;
+  for (const [cid, box] of store.mailboxes) out.mailboxes.set(cid, sealMailbox(box, tunnel, cid));
   return out;
 }
 
 /** Open sealed messages in place after loading. Returns how many could not be opened. */
 export function openMailStore(store: PostOfficeStore, tunnel: CumulusTunnel): number {
   let locked = 0;
-  for (const [cid, box] of store.mailboxes) {
-    for (const m of box.messages as (StoredMessage & { locked?: boolean })[]) {
-      if (!m.sealed) continue;
-      try {
-        const { payload } = tunnel.open<Content>(cid, m.sealed);
-        m.subject = payload.subject;
-        m.body = payload.body;
-        m.attachments = payload.attachments ?? [];
-        delete m.sealed;
-        delete m.locked;
-      } catch {
-        m.subject = "Encrypted message";
-        m.body = "This message is encrypted with a key this server doesn't have. Check the tunnel master key.";
-        m.attachments = [];
-        m.locked = true;
-        locked++;
-      }
-    }
-  }
+  for (const [cid, box] of store.mailboxes) locked += openMailbox(box, tunnel, cid);
   return locked;
 }

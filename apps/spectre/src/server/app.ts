@@ -33,12 +33,16 @@ import { createVeilControl, serveNodeVeil } from "@infinitum/veil/server";
 import type { DeviceExitConfig, VeilServer } from "@infinitum/veil/server";
 import { runLlmAgent, LlmError } from "@infinitum/scalus";
 import { parseOpenClawMention, openClawFromEnv, OpenClawError, type OpenClawClient } from "./openclaw.ts";
+import { createOidcClient, oidcClientFromEnv, OidcClientError, type OidcClientConfig } from "./cid-oidc-client.ts";
 import { parseSearchMention, searchFromEnv, type Search, type SearchAnswer, type ChatMessage } from "@infinitum/ai/search";
 import { AGENTS, AGENT_IDS, agentDefinition, applyProposal, newProposalId, newRunId, type AgentId, type AgentRunRecord } from "../core/agent-team.ts";
 
 /**
  * +SPCTR HTTP app. Sign-in is Cumulus://ID; access requires the "spectre" grant on the
  * person's CID, so revoking it in the CID permissions dashboard cuts Spectre off immediately.
+ * By default Cumulus://ID runs in process (passkeys, MFA, social sign-in). With SPECTRE_AUTH=oidc
+ * +SPCTR is instead an OpenID Connect client of the standalone issuer and keeps only its own
+ * session, keyed by the issuer's `sub` (the same cid).
  */
 
 export const SPECTRE_SCOPES = ["crm:read", "crm:write"];
@@ -97,6 +101,11 @@ export interface AppDeps {
    * POST /api/id/export off. Set only for the move to InfinitumCorp/cumulus-id.
    */
   cidExportKeySha256?: string | null;
+  /**
+   * Sign in at the standalone Cumulus://ID issuer (OpenID Connect client mode). Omit to read
+   * SPECTRE_AUTH (=oidc), CID_ISSUER and CID_CLIENT_ID; null keeps the in-process sign-in.
+   */
+  oidcClient?: OidcClientConfig | null;
   /** Tests: scripted model for Conjure simulations. */
   conjureComplete?: Complete;
   /** Hosted Conjure for "@conjure" in Ask. Defaults to CONJURE_URL + CONJURE_PRODUCT_KEY; null turns it off. */
@@ -225,6 +234,17 @@ export function createApp(deps: AppDeps) {
   const nextCookie = (value: string, maxAge: number) =>
     `${NEXT_COOKIE}=${encodeURIComponent(value)}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${maxAge}${domainAttr}${deps.secureCookies ? "; Secure" : ""}`;
 
+  // OpenID Connect client mode. Null: passkeys, MFA and social sign-in run here, as before.
+  const issuerConfig = deps.oidcClient === undefined ? oidcClientFromEnv(process.env) : deps.oidcClient;
+  const idClient = issuerConfig ? createOidcClient(issuerConfig) : null;
+  /** Sign-in routes of the in-process CID. In client mode they answer 404: the issuer owns them. */
+  const localAuthRoute: typeof route = idClient
+    ? (method, path) => route(method, path, () => { throw new HttpError(404, "Not found"); }, false, { csrf: false })
+    : route;
+  const OIDC_COOKIE = "spctr_oidc";
+  const oidcCookie = (value: string, maxAge: number) =>
+    `${OIDC_COOKIE}=${value}; HttpOnly; Path=/api/auth; SameSite=Lax; Max-Age=${maxAge}${deps.secureCookies ? "; Secure" : ""}`;
+
   const ensureGrant = async (account: Account) => {
     const ws = account.orgId ?? account.cid;
     let missing = false;
@@ -241,13 +261,13 @@ export function createApp(deps: AppDeps) {
 
   /* ---------------- Auth (Cumulus://ID) ---------------- */
 
-  route("POST", "/api/auth/signup", async (ctx) => {
+  localAuthRoute("POST", "/api/auth/signup", async (ctx) => {
     need(ctx, "username");
     const account = await cid.createAccount({ username: String(ctx.body.username) });
     return { cid: account.cid, options: await cid.startAuthenticatorRegistration(account.cid, "passkey") };
   }, false);
 
-  route("POST", "/api/auth/signup/finish", async (ctx) => {
+  localAuthRoute("POST", "/api/auth/signup/finish", async (ctx) => {
     need(ctx, "cid", "response");
     await cid.finishAuthenticatorRegistration(String(ctx.body.cid), ctx.body.response, { kind: "passkey", label: String(ctx.body.label ?? "Passkey") });
     const account = await cid.getAccount(String(ctx.body.cid));
@@ -257,11 +277,11 @@ export function createApp(deps: AppDeps) {
     return { signedUp: true, options };
   }, false);
 
-  route("POST", "/api/auth/signin", async (ctx) => {
+  localAuthRoute("POST", "/api/auth/signin", async (ctx) => {
     return { options: await cid.startSignIn(ctx.body.username ? String(ctx.body.username) : undefined) };
   }, false);
 
-  route("POST", "/api/auth/signin/finish", async (ctx) => {
+  localAuthRoute("POST", "/api/auth/signin/finish", async (ctx) => {
     need(ctx, "response");
     const device = String(ctx.req.headers["user-agent"] ?? "Browser").slice(0, 120);
     const result = await cid.finishSignIn(ctx.body.response, device);
@@ -271,7 +291,7 @@ export function createApp(deps: AppDeps) {
     return { status: "ok" };
   }, false);
 
-  route("POST", "/api/auth/mfa", async (ctx) => {
+  localAuthRoute("POST", "/api/auth/mfa", async (ctx) => {
     need(ctx, "mfaToken", "code");
     const next = safeProductReturn(parseCookies(ctx.req.headers.cookie)[NEXT_COOKIE]);
     const { token, session } = await cid.completeMfa(String(ctx.body.mfaToken), String(ctx.body.code));
@@ -283,16 +303,67 @@ export function createApp(deps: AppDeps) {
   }, false);
 
   route("POST", "/api/auth/signout", async (ctx) => {
+    const session = cid.store.sessions.get(ctx.user!.sessionId);
+    const idTokenHint = session?.idTokenHint;
+    if (session) delete session.idTokenHint;
     await cid.revokeSession(ctx.user!.account.cid, ctx.user!.sessionId);
     ctx.res.setHeader("Set-Cookie", `${COOKIE}=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0`);
-    return { ok: true };
+    if (!idClient) return { ok: true };
+    // Client mode: the page then sends the browser to the issuer, which ends its app session too.
+    const logoutUrl = await idClient.logoutUrl({ postLogoutRedirectUri: `${deps.origin}/`, idTokenHint }).catch(() => null);
+    return { ok: true, logoutUrl };
   });
+
+  /* ---------------- OpenID Connect client mode (standalone Cumulus://ID) ---------------- */
+
+  if (idClient) {
+    const redirectUri = `${deps.origin}/api/auth/callback`;
+    const signinError = (message: string) => new Redirect(`/#/signin-error/${encodeURIComponent(message)}`);
+
+    // Tells the page to show "Sign in with Cumulus://ID" instead of the passkey form.
+    route("GET", "/api/auth/mode", () => ({ mode: "oidc", issuer: idClient.issuer, account: idClient.accountUrl() }), false);
+
+    route("GET", "/api/auth/login", async (ctx) => {
+      const p = ctx.query.get("prompt");
+      const prompt = p === "create" || p === "login" ? p : undefined;
+      const { url, state, nonce, verifier } = await idClient.authorize({ redirectUri, prompt });
+      const next = safeProductReturn(ctx.query.get("next")) ?? undefined;
+      await cid.rememberIssuerLogin(state, { nonce, verifier, redirectUri, next });
+      // Binds the callback to this browser; the server copy makes the state single use.
+      ctx.res.setHeader("Set-Cookie", oidcCookie(state, 600));
+      return new Redirect(url);
+    }, false);
+
+    // The issuer sends the browser back here, so this can't carry Spectre's request header.
+    route("GET", "/api/auth/callback", async (ctx) => {
+      ctx.res.setHeader("Set-Cookie", oidcCookie("", 0));
+      const state = ctx.query.get("state") ?? "";
+      const browserState = parseCookies(ctx.req.headers.cookie)[OIDC_COOKIE] ?? "";
+      const login = state ? await cid.takeIssuerLogin(state) : null;
+      if (!login || browserState !== state) return signinError("Sign-in request expired. Please try again.");
+      const error = ctx.query.get("error");
+      if (error) return signinError(error === "access_denied" ? "Sign-in was cancelled." : "Cumulus://ID couldn't sign you in.");
+      const code = ctx.query.get("code");
+      if (!code) return signinError("Cumulus://ID couldn't sign you in.");
+      try {
+        const { claims, idToken } = await idClient.finish({ code, verifier: login.verifier, redirectUri: login.redirectUri, nonce: login.nonce });
+        const device = String(ctx.req.headers["user-agent"] ?? "Browser").slice(0, 120);
+        const { token, session } = await cid.signInFromIssuer(claims, device, idToken);
+        await ensureGrant(await cid.getAccount(session.cid));
+        ctx.res.setHeader("Set-Cookie", [oidcCookie("", 0), sessionCookie(token)]);
+        return new Redirect(login.next ?? "/#/today");
+      } catch (err) {
+        if (!(err instanceof OidcClientError) && !(err instanceof CidError)) console.error(err);
+        return signinError(err instanceof CidError ? err.message : "Cumulus://ID couldn't sign you in. Please try again.");
+      }
+    }, false, { csrf: false });
+  }
 
   /* ---------------- Social sign-in (Google, Apple, Microsoft, GitHub, ChatGPT, Cognito) ---------------- */
 
-  route("GET", "/api/auth/providers", () => cid.socialProvidersEnabled(), false);
+  localAuthRoute("GET", "/api/auth/providers", () => cid.socialProvidersEnabled(), false);
 
-  route("GET", "/api/auth/oauth/:provider/start", async (ctx) => {
+  localAuthRoute("GET", "/api/auth/oauth/:provider/start", async (ctx) => {
     const linking = ctx.query.get("link") === "1";
     if (linking && !ctx.user) throw new HttpError(401, "Please sign in");
     const mirror = ctx.req.headers["x-spctr-mirror"];
@@ -335,8 +406,8 @@ export function createApp(deps: AppDeps) {
     }
   };
   // The provider sends the browser back here, so these can't carry Spectre's request header.
-  route("GET", "/api/auth/oauth/:provider/callback", oauthCallback, false, { csrf: false });
-  route("POST", "/api/auth/oauth/:provider/callback", oauthCallback, false, { csrf: false });
+  localAuthRoute("GET", "/api/auth/oauth/:provider/callback", oauthCallback, false, { csrf: false });
+  localAuthRoute("POST", "/api/auth/oauth/:provider/callback", oauthCallback, false, { csrf: false });
 
   // Product sign-in. Without a signing key this still issues a cid and an opaque token.
   // With CID_OIDC_SIGNING_KEY it also signs ID tokens whose sub is that cid.
@@ -357,13 +428,16 @@ export function createApp(deps: AppDeps) {
     exportKeySha256: (deps.cidExportKeySha256 === undefined ? process.env.CID_EXPORT_KEY_SHA256 : deps.cidExportKeySha256) || undefined,
   });
 
-  route("GET", "/api/me/identities", async (ctx) => ({
+  route("GET", "/api/me/identities", async (ctx) => idClient
+    // Passkeys, the authenticator app and linked accounts are managed at the issuer.
+    ? { manageAt: idClient.accountUrl(), linked: [], available: [], passkeys: null }
+    : {
     linked: (await cid.linkedIdentities(ctx.user!.account.cid)).map(({ provider, email, linkedAt }) => ({ provider, email, linkedAt })),
     available: cid.socialProvidersEnabled(),
     passkeys: (await cid.listAuthenticators(ctx.user!.account.cid)).length,
-  }));
+  });
 
-  route("POST", "/api/me/identities/:provider/unlink", async (ctx) => {
+  localAuthRoute("POST", "/api/me/identities/:provider/unlink", async (ctx) => {
     await cid.unlinkIdentity(ctx.user!.account.cid, ctx.params.provider);
     return { ok: true };
   });
@@ -372,7 +446,8 @@ export function createApp(deps: AppDeps) {
     const a = ctx.user!.account;
     // The Cumulus account that comes with every CID: Mail (unread), Cloud storage, FIRM Wallet.
     const cumulus = await deps.suite?.summary(a.cid);
-    return { cid: a.cid, username: a.username, mailAddress: a.mailAddress, handle: a.handle, workspace: ctx.user!.workspace, cumulus };
+    const orgName = (await cid.organizationMembership(a.cid))?.name;
+    return { cid: a.cid, username: a.username, mailAddress: a.mailAddress, handle: a.handle, workspace: ctx.user!.workspace, ...(orgName ? { orgName } : {}), cumulus };
   });
 
   /* ---------------- Today / dashboard ---------------- */

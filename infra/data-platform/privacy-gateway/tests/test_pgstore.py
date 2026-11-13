@@ -67,6 +67,7 @@ def test_catalog_round_trip_and_ownership(stack):
         catalog.register("cumulus-mail", DEALS["name"], hijack)
     assert e.value.name == "TenantNotAuthorized"
     assert catalog.get(DEALS["name"])["product"] == "spectre"
+    assert [spec["name"] for spec in catalog.all()] == [DEALS["name"]]  # what catalog_sync replays
 
 
 def test_ingest_search_and_scoping(stack):

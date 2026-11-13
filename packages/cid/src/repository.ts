@@ -68,7 +68,7 @@ export class MapCidRepository implements CidRepository {
 
   private oneTime(kind: OneTimeKind): Map<string, { expiresAt: number }> {
     const s = this.store;
-    return (kind === "challenge" ? s.challenges : kind === "mfa" ? s.pendingMfa : kind === "oauth" ? s.oauthPending : s.deviceHandoffs) as Map<string, { expiresAt: number }>;
+    return (kind === "challenge" ? s.challenges : kind === "mfa" ? s.pendingMfa : kind === "oauth" ? s.oauthPending : kind === "issuer" ? s.issuerLogins : s.deviceHandoffs) as Map<string, { expiresAt: number }>;
   }
 
   async account(cid: string) {

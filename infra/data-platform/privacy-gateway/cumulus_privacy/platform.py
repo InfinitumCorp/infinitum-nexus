@@ -118,6 +118,17 @@ def validate_spec(name: str, spec: Mapping[str, Any]) -> dict[str, Any]:
     return {**spec, "fields": fields, "quality": quality}
 
 
+def proposal(urn: str, aspect_name: str, value: Any) -> dict[str, Any]:
+    """One DataHub metadata change proposal (UPSERT of one aspect)."""
+    return {
+        "entityType": "dataset",
+        "entityUrn": urn,
+        "changeType": "UPSERT",
+        "aspectName": aspect_name,
+        "aspect": {"value": json.dumps(value), "contentType": "application/json"},
+    }
+
+
 class DataHubSink:
     """Pushes a dataset spec to DataHub GMS as metadata change proposals (REST API
     ``POST /aspects?action=ingestProposal``)."""
@@ -128,14 +139,17 @@ class DataHubSink:
         self.timeout = timeout
 
     @staticmethod
-    def proposals(spec: Mapping[str, Any]) -> list[dict[str, Any]]:
+    def proposals(spec: Mapping[str, Any], extra_properties: Mapping[str, str] | None = None) -> list[dict[str, Any]]:
         urn = dataset_urn(spec["name"])
         stamp = {"time": 0, "actor": "urn:li:corpuser:datahub"}
         type_map = {"string": "StringType", "integer": "NumberType", "double": "NumberType",
                     "boolean": "BooleanType", "datetime": "TimeType", "list": "ArrayType", "map": "MapType"}
 
         def owner_urn(o: str) -> str:
-            return o if o.startswith("urn:li:") else f"urn:li:corpuser:{o}"
+            # Teams are DataHub groups; anything else is a person (their Cumulus ID).
+            if o.startswith("urn:li:"):
+                return o
+            return f"urn:li:corpGroup:{o}" if o.startswith("team-") else f"urn:li:corpuser:{o}"
 
         classes = sorted({f["classification"] for f in spec["fields"]})
         aspects: dict[str, Any] = {
@@ -146,6 +160,7 @@ class DataHubSink:
                     "product": spec["product"],
                     "region": spec["region"],
                     "retentionDays": str(spec["retentionDays"]),
+                    **dict(extra_properties or {}),
                 },
             },
             "ownership": {
@@ -180,22 +195,13 @@ class DataHubSink:
                 "terms": [{"urn": t if t.startswith("urn:li:") else f"urn:li:glossaryTerm:{t}"} for t in spec["glossaryTerms"]],
                 "auditStamp": stamp,
             }
-        return [
-            {
-                "entityType": "dataset",
-                "entityUrn": urn,
-                "changeType": "UPSERT",
-                "aspectName": name,
-                "aspect": {"value": json.dumps(value), "contentType": "application/json"},
-            }
-            for name, value in aspects.items()
-        ]
+        return [proposal(urn, name, value) for name, value in aspects.items()]
 
-    def push(self, spec: Mapping[str, Any]) -> None:
+    def send(self, proposals: list[dict[str, Any]]) -> None:
         headers = {"Content-Type": "application/json", "X-RestLi-Protocol-Version": "2.0.0"}
         if self.token:
             headers["Authorization"] = f"Bearer {self.token}"
-        for p in self.proposals(spec):
+        for p in proposals:
             req = urllib.request.Request(
                 f"{self.gms_url}/aspects?action=ingestProposal",
                 data=json.dumps({"proposal": p}).encode(),
@@ -204,6 +210,9 @@ class DataHubSink:
             )
             with urllib.request.urlopen(req, timeout=self.timeout) as r:
                 r.read()
+
+    def push(self, spec: Mapping[str, Any], extra_properties: Mapping[str, str] | None = None) -> None:
+        self.send(self.proposals(spec, extra_properties))
 
 
 class Catalog:
@@ -219,6 +228,9 @@ class Catalog:
 
     def get(self, name: str) -> dict[str, Any] | None:
         return self._load().get(name)
+
+    def all(self) -> list[dict[str, Any]]:
+        return [spec for _, spec in sorted(self._load().items())]
 
     def _put(self, name: str, spec: dict[str, Any]) -> None:
         """Store the spec unless the name belongs to another product."""

@@ -46,12 +46,11 @@ public class MainActivity extends Activity {
             open(target(main));
             return;
         }
-        // Russian and Belarusian networks throttle Cloudflare on and off, so a probe can pass and the
-        // page still stall. Use the mirror there without probing.
-        if (throttledCountry()) {
-            open(target(mirror));
-            return;
-        }
+        // Russian and Belarusian networks throttle Cloudflare on and off, so a probe of the main site
+        // can pass and the page still stall: prefer the mirror there whenever it answers. If the
+        // mirror itself can't be reached (its DNS name failed to resolve on an MTS phone), open the
+        // main site rather than a dead "site can't be reached" page.
+        final boolean preferMirror = throttledCountry();
         final Handler ui = new Handler(Looper.getMainLooper());
         new Thread(() -> {
             // Probe both at once so the wait is one PROBE_MS at most.
@@ -60,14 +59,25 @@ public class MainActivity extends Activity {
             Thread b = new Thread(() -> ok[1] = reachable(mirror));
             a.start();
             b.start();
+            long until = System.currentTimeMillis() + PROBE_MS + 500;
             try {
-                a.join(PROBE_MS + 500);
-                b.join(500);
+                a.join(Math.max(1, until - System.currentTimeMillis()));
+                b.join(Math.max(1, until - System.currentTimeMillis()));
             } catch (InterruptedException ignored) {
             }
-            String base = !ok[0] && ok[1] ? mirror : main;
+            String base = pick(preferMirror, ok[0], ok[1]) ? mirror : main;
             ui.post(() -> open(target(base)));
         }).start();
+    }
+
+    /**
+     * True to open the mirror. Where Cloudflare is throttled, the mirror wins whenever it answers;
+     * elsewhere only when the main site doesn't and the mirror does. An unreachable mirror is never
+     * opened.
+     */
+    static boolean pick(boolean preferMirror, boolean mainOk, boolean mirrorOk) {
+        if (!mirrorOk) return false;
+        return preferMirror || !mainOk;
     }
 
     /** True when the mobile network or the SIM is Russian or Belarusian. */

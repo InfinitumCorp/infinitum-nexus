@@ -15,7 +15,7 @@ function msg(over: Partial<MailMessage> & { id: string }): MailMessage {
 }
 
 describe("SCALVS Clean", () => {
-  it("tells people from newsletters, notices, receipts and bounces", () => {
+  it("tells people from newsletters, notices, receipts and bounces", async () => {
     assert.equal(classify(msg({ id: "a" })), "person");
     assert.equal(classify(msg({ id: "b", from: { name: "Shop", email: "news@shop.example" } })), "newsletter");
     assert.equal(classify(msg({ id: "c", body: "Big sale. Unsubscribe here." , from: { name: "X", email: "anna@x.example" } })), "newsletter");
@@ -24,7 +24,7 @@ describe("SCALVS Clean", () => {
     assert.equal(classify(msg({ id: "f", system: "postmaster" })), "bounce");
   });
 
-  it("never touches starred, paid, security or unread personal mail", () => {
+  it("never touches starred, paid, security or unread personal mail", async () => {
     assert.ok(isProtected(msg({ id: "a", starred: true })));
     assert.ok(isProtected(msg({ id: "b", payment: { asset: "USDC", amount: "1", txId: "t" } })));
     assert.ok(isProtected(msg({ id: "c", system: "security" })));
@@ -32,7 +32,7 @@ describe("SCALVS Clean", () => {
     assert.ok(!isProtected(msg({ id: "e", unread: true, from: { name: "N", email: "noreply@x.example" } })));
   });
 
-  it("archives old read newsletters and leaves new or unread ones", () => {
+  it("archives old read newsletters and leaves new or unread ones", async () => {
     const news = { name: "News", email: "newsletter@paper.example" };
     const plan = planSweep([
       msg({ id: "old", from: news, at: daysAgo(10) }),
@@ -47,39 +47,39 @@ describe("SCALVS Clean", () => {
   it("cleans a real mailbox, mutes senders, routes their new mail and undoes", async () => {
     let now = NOW;
     const po = new PostOffice({ clock: () => now });
-    po.provision({ cid: "a", address: "alex@cumuluscloud.app" });
-    po.provision({ cid: "b", address: "deals@cumuluscloud.app" });
+    await po.provision({ cid: "a", address: "alex@cumuluscloud.app" });
+    await po.provision({ cid: "b", address: "deals@cumuluscloud.app" });
     await po.send("b", { to: "alex@cumuluscloud.app", subject: "50% off", body: "Unsubscribe any time." });
-    const promo = po.view("a").messages[0]!;
-    po.markThreadRead("a", promo.threadId);
-    assert.equal(po.previewClean("a").length, 0, "too new to clean");
+    const promo = (await po.view("a")).messages[0]!;
+    await po.markThreadRead("a", promo.threadId);
+    assert.equal((await po.previewClean("a")).length, 0, "too new to clean");
 
     now = new Date(NOW.getTime() + 8 * 86_400_000);
-    const done = po.runClean("a");
+    const done = await po.runClean("a");
     assert.equal(done[0]?.kind, "archive");
-    assert.equal(po.message("a", promo.id)?.folder, "archive");
-    assert.equal(po.undoClean("a", done[0]!.id), 1);
-    assert.equal(po.message("a", promo.id)?.folder, "inbox");
+    assert.equal((await po.message("a", promo.id))?.folder, "archive");
+    assert.equal(await po.undoClean("a", done[0]!.id), 1);
+    assert.equal((await po.message("a", promo.id))?.folder, "inbox");
 
-    po.muteSender("a", "deals@cumuluscloud.app");
-    assert.equal(po.message("a", promo.id)?.folder, "archive");
+    await po.muteSender("a", "deals@cumuluscloud.app");
+    assert.equal((await po.message("a", promo.id))?.folder, "archive");
     await po.send("b", { to: "alex@cumuluscloud.app", subject: "Last chance", body: "Hurry" });
-    assert.equal(po.view("a").messages.find((m) => m.subject === "Last chance")?.folder, "archive");
-    assert.throws(() => po.muteSender("a", "security@cumuluscloud.app"), /can't be muted/);
+    assert.equal((await po.view("a")).messages.find((m) => m.subject === "Last chance")?.folder, "archive");
+    await assert.rejects(po.muteSender("a", "security@cumuluscloud.app"), /can't be muted/);
   });
 
   it("runs on its own at most once an hour and only when switched on", async () => {
     let now = NOW;
     const po = new PostOffice({ clock: () => now });
-    po.provision({ cid: "a", address: "alex@cumuluscloud.app" });
-    po.notify("a", "postmaster", { subject: "Not delivered", body: "x" });
+    await po.provision({ cid: "a", address: "alex@cumuluscloud.app" });
+    await po.notify("a", "postmaster", { subject: "Not delivered", body: "x" });
     now = new Date(NOW.getTime() + 31 * 86_400_000);
-    assert.equal(po.autoClean("a").length, 1);
-    po.notify("a", "postmaster", { subject: "Not delivered 2", body: "x" });
+    assert.equal((await po.autoClean("a")).length, 1);
+    await po.notify("a", "postmaster", { subject: "Not delivered 2", body: "x" });
     now = new Date(now.getTime() + 31 * 86_400_000);
-    assert.equal(po.autoClean("a").length, 1, "an hour has passed");
-    po.setCleanRules("a", { auto: false });
+    assert.equal((await po.autoClean("a")).length, 1, "an hour has passed");
+    await po.setCleanRules("a", { auto: false });
     now = new Date(now.getTime() + 2 * 3_600_000);
-    assert.equal(po.autoClean("a").length, 0);
+    assert.equal((await po.autoClean("a")).length, 0);
   });
 });

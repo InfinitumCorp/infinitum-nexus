@@ -25,6 +25,7 @@ from typing import Any, Callable
 
 from .dp import BudgetExceeded, PrivacyBudget, release
 from .ingest_quality import MemoryQualityLog
+from .embed import GuestTokens, parse_embed_dashboards
 from .pipeline import prepare_export
 from .platform import Catalog, Collector, DataHubSink, Eraser, IngestLimits, OpenSearchIndex, PlatformError, Searcher
 from .quality import run_suite
@@ -100,6 +101,7 @@ class Gateway:
         searcher: Searcher | None = None,
         product_tokens: dict[str, str] | None = None,
         eraser: Eraser | None = None,
+        guest_tokens: GuestTokens | None = None,
     ) -> None:
         if len(token) < 32:
             raise ValueError("PRIVACY_GATEWAY_TOKEN must be at least 32 characters")
@@ -107,6 +109,7 @@ class Gateway:
         self.catalog, self.collector, self.searcher = catalog, collector, searcher
         self.product_tokens = product_tokens or {}
         self.eraser = eraser
+        self.guest_tokens = guest_tokens
         self.routes = [
             Route("POST", "/api/v1/redact", self.redact, "gateway"),
             Route("POST", "/api/v1/exports/prepare", self.prepare, "gateway"),
@@ -119,6 +122,7 @@ class Gateway:
             Route("POST", "/api/v1/erasure/subjects", self.erase, "product"),
             Route("GET", "/api/v1/quality/datasets/{name}/runs", self.quality_runs, "product"),
             Route("POST", "/api/v1/erasure/subjects/all-products", self.erase_everywhere, "gateway"),
+            Route("POST", "/api/v1/embed/dashboards/{dashboardId}/guest-token", self.guest_token, "product"),
         ]
 
     def match(self, method: str, path: str) -> tuple[Route, dict[str, str]] | None:
@@ -155,6 +159,9 @@ class Gateway:
 
     def get_dataset(self, b: dict[str, Any], caller: str = "", name: str = "") -> Any:
         return self._platform(self.catalog).read(caller, name)
+
+    def guest_token(self, b: dict[str, Any], caller: str = "", dashboardId: str = "") -> Any:  # noqa: N803
+        return self._platform(self.guest_tokens).mint(caller, dashboardId, b)
 
     def search(self, b: dict[str, Any], caller: str = "", **_: str) -> Any:
         return self._platform(self.searcher).search(caller, b)
@@ -331,7 +338,13 @@ def main() -> None:
         catalog = None
     if dsn:
         threading.Thread(target=_purge_daily, args=(index,), daemon=True).start()
-    gw = Gateway(redactor, budget, token, catalog, collector, searcher, products, eraser)
+    guest_tokens = None
+    guest_secret = os.environ.get("SUPERSET_GUEST_TOKEN_SECRET", "")
+    dashboards = parse_embed_dashboards(os.environ.get("PLATFORM_EMBED_DASHBOARDS", ""))
+    if products and guest_secret and dashboards:
+        guest_tokens = GuestTokens(guest_secret, dashboards, redactor,
+                                   audience=os.environ.get("SUPERSET_GUEST_TOKEN_AUDIENCE", "superset"))
+    gw = Gateway(redactor, budget, token, catalog, collector, searcher, products, eraser, guest_tokens)
     host = os.environ.get("HOST", "127.0.0.1")
     port = int(os.environ.get("PORT", "8090"))
     httpd = ThreadingHTTPServer((host, port), make_handler(gw))

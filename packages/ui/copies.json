@@ -4,5 +4,14 @@
     "apps/architect/src/app-shell-css.ts",
     "apps/cumulus-mail/public/app-shell.css",
     "apps/fabric/public/app-shell.css"
+  ],
+  "barDescription": "Every vendored copy of cumulus-bar.js (the Cumulus://ID account bar, from InfinitumCorp/cumulus-id public/id/bar.js), for apps whose CSP allows only 'self'. The sync script rewrites them; the test fails if one drifts.",
+  "barCopies": [
+    "apps/spectre/public/id/bar.js",
+    "apps/cumulus-mail/public/id/bar.js",
+    "apps/veil-web/public/cumulus-bar.js",
+    "apps/cndctr/public/cumulus-bar.js",
+    "apps/fabric/public/cumulus-bar.js",
+    "apps/firm-wallet/public/cumulus-bar.js"
   ]
 }

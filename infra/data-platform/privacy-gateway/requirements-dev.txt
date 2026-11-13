@@ -1,3 +1,4 @@
 -r requirements.txt
 pytest==9.2.0
 pyyaml==6.0.3
+PyJWT==2.10.1  # checks that Superset can decode the guest tokens embed.py signs

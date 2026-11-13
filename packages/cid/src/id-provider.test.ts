@@ -45,6 +45,8 @@ describe("shared product clients", () => {
     assert.equal(idClientFor("node", "http://127.0.0.1:8080/"), null, "public product: no loopback");
     assert.equal(idClientFor("node", "https://node.infinitumcorporation.ai.evil.example/"), null);
     assert.equal(idClientFor("infinitum", "https://node.infinitumcorporation.ai/"), null);
+    assert.equal(idClientFor("node", "https://node-ru.infinitumcorporation.ai/")?.app, "node", "Russian mirror");
+    assert.equal(idClientFor("node", "https://node-ru.web.app/")?.app, "node", "Russian mirror, Firebase address");
   });
 
   it("lets the Russia copies of the corporation and VEIL VPN sites sign in", () => {

@@ -49,5 +49,7 @@ jobs:
       - run: pnpm --filter @infinitum/cloud typecheck
       - run: pnpm --filter @infinitum/cloud test
       - run: pnpm --filter @infinitum/cid test
+      # FIRM Wallet on PgWalletRepository, including two payments racing for one balance.
+      - run: pnpm --filter @infinitum/firm exec node --test --experimental-strip-types src/accounts.test.ts
       # CUMULUS_STORE=postgres end to end: accounts become rows, the cid document is no longer saved.
       - run: pnpm --filter @infinitum/spectre exec node --test --experimental-strip-types src/server/cid-store.test.ts src/server/cid-rows.test.ts

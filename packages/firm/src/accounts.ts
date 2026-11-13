@@ -152,8 +152,11 @@ export class WalletAccounts {
     if (fromCid === toCid) throw new WalletError("same_wallet", "You can't send to your own wallet");
     const units = parseAmount(amount);
     if (units <= 0n) throw new WalletError("invalid_amount", "Amount must be more than zero");
-    const from = await this.require(fromCid);
-    const to = await this.require(toCid);
+    // Read (and, on Postgres, lock) the two wallets in a fixed order, so opposite payments can't deadlock.
+    const [first, second] = fromCid < toCid ? [fromCid, toCid] : [toCid, fromCid];
+    const a = await this.require(first);
+    const b = await this.require(second);
+    const [from, to] = first === fromCid ? [a, b] : [b, a];
     const balance = BigInt(from.balances[asset]);
     if (balance < units) throw new WalletError("insufficient_funds", `Not enough ${asset}. Balance: ${formatAmount(balance)}`);
     const before = [{ ...from, balances: { ...from.balances } }, { ...to, balances: { ...to.balances } }];

@@ -51,3 +51,5 @@ jobs:
       - run: pnpm --filter @infinitum/cid test
       # CUMULUS_STORE=postgres end to end: accounts become rows, the cid document is no longer saved.
       - run: pnpm --filter @infinitum/spectre exec node --test --experimental-strip-types src/server/cid-store.test.ts src/server/cid-rows.test.ts
+      # Mail end to end on Cumulus://ID rows (CUMULUS_STORE=gateway), before Mail switches.
+      - run: pnpm --filter @infinitum/cumulus-mail exec node --test --experimental-strip-types src/cid-gateway.http.test.ts

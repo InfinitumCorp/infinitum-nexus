@@ -55,17 +55,17 @@ describe("SCALVS Clean", () => {
     assert.equal(po.previewClean("a").length, 0, "too new to clean");
 
     now = new Date(NOW.getTime() + 8 * 86_400_000);
-    const done = po.runClean("a");
+    const done = await po.runClean("a");
     assert.equal(done[0]?.kind, "archive");
     assert.equal(po.message("a", promo.id)?.folder, "archive");
     assert.equal(po.undoClean("a", done[0]!.id), 1);
     assert.equal(po.message("a", promo.id)?.folder, "inbox");
 
-    po.muteSender("a", "deals@cumuluscloud.app");
+    await po.muteSender("a", "deals@cumuluscloud.app");
     assert.equal(po.message("a", promo.id)?.folder, "archive");
     await po.send("b", { to: "alex@cumuluscloud.app", subject: "Last chance", body: "Hurry" });
     assert.equal(po.view("a").messages.find((m) => m.subject === "Last chance")?.folder, "archive");
-    assert.throws(() => po.muteSender("a", "security@cumuluscloud.app"), /can't be muted/);
+    await assert.rejects(po.muteSender("a", "security@cumuluscloud.app"), /can't be muted/);
   });
 
   it("runs on its own at most once an hour and only when switched on", async () => {
@@ -74,12 +74,12 @@ describe("SCALVS Clean", () => {
     po.provision({ cid: "a", address: "alex@cumuluscloud.app" });
     po.notify("a", "postmaster", { subject: "Not delivered", body: "x" });
     now = new Date(NOW.getTime() + 31 * 86_400_000);
-    assert.equal(po.autoClean("a").length, 1);
+    assert.equal((await po.autoClean("a")).length, 1);
     po.notify("a", "postmaster", { subject: "Not delivered 2", body: "x" });
     now = new Date(now.getTime() + 31 * 86_400_000);
-    assert.equal(po.autoClean("a").length, 1, "an hour has passed");
+    assert.equal((await po.autoClean("a")).length, 1, "an hour has passed");
     po.setCleanRules("a", { auto: false });
     now = new Date(now.getTime() + 2 * 3_600_000);
-    assert.equal(po.autoClean("a").length, 0);
+    assert.equal((await po.autoClean("a")).length, 0);
   });
 });

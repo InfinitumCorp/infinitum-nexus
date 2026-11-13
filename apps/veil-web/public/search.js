@@ -15,6 +15,7 @@
   var webQuery = "";  // the query the web results belong to
   var next = null;
   var shown = 0;
+  var webFrom = [];   // which sources the web results came from
 
   if (inApp) $("brand").href = "index.html";
 
@@ -177,6 +178,22 @@
     }
   });
 
+  // Touch screens have no hover: the first tap on a citation shows its source card, a second
+  // tap on the same citation opens the page.
+  var lastPointer = "";
+  $("thread").addEventListener("pointerdown", function (e) { lastPointer = e.pointerType || ""; });
+  $("thread").addEventListener("click", function (e) {
+    var c = e.target.closest && e.target.closest(".cite");
+    var turn = c && c.closest(".turn");
+    if (!turn || lastPointer !== "touch") return;
+    var card = turn.querySelector('.src[data-n="' + c.getAttribute("data-n") + '"]');
+    if (!card || card.classList.contains("lit")) return;
+    e.preventDefault();
+    Array.prototype.forEach.call(document.querySelectorAll(".src.lit"), function (s) { s.classList.remove("lit"); });
+    card.classList.add("lit");
+    if (card.scrollIntoView) card.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "nearest" });
+  });
+
   function finishTurn(t, related) {
     t.dot.className = "dot";
     renderAnswer(t.answer, t.text, t.sources, false);
@@ -256,12 +273,23 @@
     $("fq").disabled = on;
   }
 
+  /** The question being answered goes in the tab title and the address, so reload and sharing land on it. */
+  function showQuery(q) {
+    document.title = q + " · VEIL</> Search";
+    try {
+      var u = new URL(location.href);
+      u.searchParams.set("q", q);
+      window.history.replaceState(null, "", u.toString()); // `history` here is the follow-up list
+    } catch (e) { /* some file:// WebViews refuse; the title still changes */ }
+  }
+
   function ask(q, retry) {
     q = String(q || "").trim();
     if (!q || busy) return;
     setBusy(true);
     $("followup").hidden = false;
     var first = !history.length;
+    showQuery(q);
     var t = newTurn(q);
     if (!first || retry) t.root.scrollIntoView({ behavior: "smooth", block: "start" });
     var related = [];
@@ -335,8 +363,9 @@
       item.appendChild(a);
       if (r.snippet) item.appendChild(el("p", "snippet", r.snippet));
       box.appendChild(item);
+      shown++;
     });
-    shown += results.length;
+    updateMeta();
   }
 
   /** The web results belong to the first question: they sit at the end of its turn, above any follow-ups. */
@@ -346,28 +375,39 @@
     if (!results.length) return;
     turn.webSlot = $("web");
     $("web").hidden = false;
+    webFrom = data.from || [];
     renderResults(results);
-    var from = (data.from || []).map(sourceName).join(", ");
-    $("meta").textContent = "Private search · " + shown + " results" + (from ? " from " + from : "") +
-      ((data.from || []).indexOf("stackoverflow") >= 0 ? " (Stack Overflow content is CC BY-SA)" : "");
     next = data.next || null;
     $("more").hidden = !next;
+  }
+
+  function updateMeta() {
+    var from = webFrom.map(sourceName).join(", ");
+    $("meta").textContent = "Private search · " + shown + " results" + (from ? " from " + from : "") +
+      (webFrom.indexOf("stackoverflow") >= 0 ? " (Stack Overflow content is CC BY-SA)" : "");
   }
 
   $("more").addEventListener("click", function () {
     if (!next) return;
     var btn = $("more");
     btn.disabled = true;
+    btn.textContent = "Loading…";
     fetch(BASE + "/api/search", {
       method: "POST",
       headers: { "Content-Type": "text/plain;charset=UTF-8" },
       body: JSON.stringify({ q: webQuery, next: next }),
       credentials: "omit", cache: "no-store", referrerPolicy: "no-referrer",
-    }).then(function (res) { return res.json(); }).then(function (data) {
+    }).then(function (res) {
+      if (!res.ok) throw new Error("status " + res.status);
+      return res.json();
+    }).then(function (data) {
       renderResults(data.results || []);
       next = data.next || null;
       btn.hidden = !next;
-    }).catch(function () { /* keep the button so they can try again */ }).then(function () { btn.disabled = false; });
+      btn.textContent = "More results";
+    }).catch(function () {
+      btn.textContent = "Couldn't load more. Try again"; // the button stays, so they can
+    }).then(function () { btn.disabled = false; });
   });
 
   // ---------------- Start ----------------

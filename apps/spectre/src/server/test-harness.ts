@@ -16,10 +16,10 @@ const here = dirname(fileURLToPath(import.meta.url));
 const ORIGIN = "http://localhost";
 
 /** Shared harness for the growth-feature HTTP tests. */
-export async function harness(opts: { providers?: Providers; cronSecret?: string; twilioAuthToken?: string; labyrinth?: CumulusConfig["labyrinth"]; labyrinthEndpoint?: string | null; labyrinthDirectoryKeySha256?: string | null; cidExportKeySha256?: string | null; oidcClient?: OidcClientConfig | null } = {}) {
+export async function harness(opts: { providers?: Providers; cronSecret?: string; twilioAuthToken?: string; labyrinth?: CumulusConfig["labyrinth"]; labyrinthEndpoint?: string | null; labyrinthDirectoryKeySha256?: string | null; cidExportKeySha256?: string | null; oidcClient?: OidcClientConfig | null; repository?: CumulusConfig["repository"] } = {}) {
   const signer = generateSigner();
   const ledger = new Ledger(undefined, { authorizedSigners: [signer.publicKey] });
-  const suite = createCumulus({ ledger, signer, rpId: "localhost", origins: [ORIGIN], labyrinth: opts.labyrinth });
+  const suite = createCumulus({ ledger, signer, rpId: "localhost", origins: [ORIGIN], labyrinth: opts.labyrinth, repository: opts.repository });
   const cid = suite.cid;
   let now = new Date("2026-11-05T09:00:00Z");
   const crm = new SpectreCRM({ ledger, signer, clock: () => now });

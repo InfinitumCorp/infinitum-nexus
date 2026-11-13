@@ -303,9 +303,13 @@ export function createApp(deps: AppDeps) {
   }, false);
 
   route("POST", "/api/auth/signout", async (ctx) => {
-    const session = cid.store.sessions.get(ctx.user!.sessionId);
+    // Through the repository, so it works with ID in rows too (the in-memory store is empty there).
+    const session = await cid.repo.session(ctx.user!.sessionId);
     const idTokenHint = session?.idTokenHint;
-    if (session) delete session.idTokenHint;
+    if (session && idTokenHint) {
+      const { idTokenHint: _used, ...rest } = session;
+      await cid.repo.putSession(rest); // the hint is used once, here, and not kept on the revoked session
+    }
     await cid.revokeSession(ctx.user!.account.cid, ctx.user!.sessionId);
     ctx.res.setHeader("Set-Cookie", `${COOKIE}=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0`);
     if (!idClient) return { ok: true };

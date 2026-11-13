@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash, randomUUID, webcrypto } from "node:crypto";
 import { harness } from "./test-harness.ts";
+import { CopyingCidRepository } from "../../../../packages/cid/src/testing/copying-repository.ts";
 import { oidcClientFromEnv, DEFAULT_CID_ISSUER } from "./cid-oidc-client.ts";
 
 /**
@@ -91,7 +92,8 @@ const person = (overrides: Record<string, unknown> = {}) => {
 
 async function oidcHarness() {
   const issuer = await fakeIssuer();
-  const h = await harness({ oidcClient: { issuer: ISSUER, clientId: CLIENT_ID, fetch: issuer.fetch } });
+  // A repository that copies values in and out, as ID rows do: nothing may rely on the in-memory store.
+  const h = await harness({ oidcClient: { issuer: ISSUER, clientId: CLIENT_ID, fetch: issuer.fetch }, repository: new CopyingCidRepository() });
   const get = (path: string, cookie?: string) => fetch(h.base + path, { redirect: "manual", headers: cookie ? { cookie } : {} });
   /** /api/auth/login → issuer → /api/auth/callback. */
   const signIn = async (claims: Record<string, unknown>, opts: { prompt?: string } = {}) => {
@@ -155,7 +157,7 @@ test("OIDC client mode: sign-in with PKCE, state and nonce creates a +SPCTR sess
     const again = await signIn(grace);
     assert.equal(again.location, "/#/today");
     assert.equal((await h.call("GET", "/api/me", undefined, again.cookie)).body.cid, grace.sub);
-    assert.equal([...h.suite.cid.store.accounts.values()].filter((a) => a.username.startsWith("grace")).length, 1);
+    assert.equal((await h.suite.cid.repo.allAccounts()).filter((a) => a.username.startsWith("grace")).length, 1);
 
     // Sign-out ends the local session and hands back the issuer's logout with id_token_hint.
     const out = await h.call("POST", "/api/auth/signout", {}, r.cookie);
@@ -167,7 +169,7 @@ test("OIDC client mode: sign-in with PKCE, state and nonce creates a +SPCTR sess
     assert.match(logout.searchParams.get("id_token_hint") ?? "", /^[\w-]+\.[\w-]+\.[\w-]+$/);
     assert.equal((await h.call("GET", "/api/me", undefined, r.cookie)).status, 401);
     // The stored hint is not kept once the session ends.
-    for (const s of h.suite.cid.store.sessions.values()) if (s.revokedAt) assert.equal(s.idTokenHint, undefined);
+    for (const a of await h.suite.cid.repo.allAccounts()) for (const s of await h.suite.cid.repo.sessionsOf(a.cid)) if (s.revokedAt) assert.equal(s.idTokenHint, undefined);
   } finally {
     await h.close();
   }
@@ -213,7 +215,7 @@ test("OIDC client mode: organizations follow the issuer's org_id, org_name and o
     const gMe = await h.call("GET", "/api/me", undefined, g.cookie);
     assert.equal(gMe.body.workspace, orgId);
     assert.equal(gMe.body.orgName, "Acme Analytics"); // shown in the account bar
-    assert.deepEqual(cid.store.orgs.get(orgId), { id: orgId, name: "Acme Analytics", admins: [], source: "issuer" });
+    assert.deepEqual((await cid.repo.org(orgId)), { id: orgId, name: "Acme Analytics", admins: [], source: "issuer" });
     assert.equal((await cid.organizationMembership(grace.sub))?.admin, false);
     assert.equal((await h.call("POST", "/api/companies", { name: "Shared Co" }, g.cookie)).status, 200);
 
@@ -221,16 +223,16 @@ test("OIDC client mode: organizations follow the issuer's org_id, org_name and o
     const alan = person({ preferred_username: "alan", email: "alan@cumuluscloud.app", handle: "@alan.veil", ...org, org_role: "admin" });
     const a = await signIn(alan);
     assert.equal((await h.call("GET", "/api/me", undefined, a.cookie)).body.workspace, orgId);
-    assert.deepEqual(cid.store.orgs.get(orgId)!.admins, [alan.sub]);
+    assert.deepEqual((await cid.repo.org(orgId))!.admins, [alan.sub]);
     assert.equal((await cid.organizationMembership(alan.sub))?.admin, true);
     const seen = (await h.call("GET", "/api/companies", undefined, a.cookie)).body.map((c: { name: string }) => c.name);
     assert.deepEqual(seen, ["Shared Co"]);
 
     // A demotion at the issuer is reflected on the next sign-in, and a rename follows the issuer.
     await signIn({ ...alan, org_name: "Acme Analytics Ltd", org_role: "member" });
-    assert.deepEqual(cid.store.orgs.get(orgId)!.admins, []);
+    assert.deepEqual((await cid.repo.org(orgId))!.admins, []);
     assert.equal((await cid.organizationMembership(alan.sub))?.admin, false);
-    assert.equal(cid.store.orgs.get(orgId)!.name, "Acme Analytics Ltd");
+    assert.equal((await cid.repo.org(orgId))!.name, "Acme Analytics Ltd");
 
     // Removed from the organization at the issuer: back to a personal workspace.
     const solo = await signIn({ ...grace, org_id: undefined, org_name: undefined, org_role: undefined });
@@ -250,13 +252,13 @@ test("OIDC client mode: an organization that exists only locally is not cleared 
     const r = await signIn(person({ sub: before.cid, cid: before.cid, preferred_username: "lin" }));
     assert.equal((await h.call("GET", "/api/me", undefined, r.cookie)).body.workspace, local.id);
     assert.equal((await cid.getAccount(before.cid)).orgId, local.id);
-    assert.deepEqual(cid.store.orgs.get(local.id)!.admins, [before.cid]);
-    assert.equal(cid.store.orgs.get(local.id)!.source, undefined);
+    assert.deepEqual((await cid.repo.org(local.id))!.admins, [before.cid]);
+    assert.equal((await cid.repo.org(local.id))!.source, undefined);
 
     // Once the issuer reports that same (imported) organization, it follows the issuer.
     await signIn(person({ sub: before.cid, cid: before.cid, org_id: local.id, org_name: "Local Only Co", org_role: "member" }));
-    assert.equal(cid.store.orgs.get(local.id)!.source, "issuer");
-    assert.deepEqual(cid.store.orgs.get(local.id)!.admins, []);
+    assert.equal((await cid.repo.org(local.id))!.source, "issuer");
+    assert.deepEqual((await cid.repo.org(local.id))!.admins, []);
   } finally {
     await h.close();
   }
@@ -277,8 +279,8 @@ for (const [name, claims, message] of [
       assert.equal(r.back.status, 302);
       assert.ok(isSigninError(r.location), `${message}: ${r.location}`);
       assert.equal(r.cookie, undefined, "no session cookie");
-      assert.equal(h.suite.cid.store.accounts.has(grace.sub), false, "no account created");
-      assert.equal(h.suite.cid.store.sessions.size, 0);
+      assert.equal(await h.suite.cid.repo.account(grace.sub), undefined, "no account created");
+      assert.equal((await Promise.all((await h.suite.cid.repo.allAccounts()).map((a) => h.suite.cid.repo.sessionsOf(a.cid)))).flat().length, 0);
     } finally {
       await h.close();
     }

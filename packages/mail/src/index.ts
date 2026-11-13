@@ -78,3 +78,5 @@ export type { ThreadAction, ThreadSnapshot } from "./postoffice.ts";
 export { CLOUDFLARE_AUTHSERV_ID, inboundAuth, parseAuthenticationResults, refuseReason } from "./auth-results.ts";
 export type { AuthResult, InboundAuth, ParsedAuthResults } from "./auth-results.ts";
 export { createCumulusMailLabyrinth } from "./labyrinth.ts";
+export { MapMailRepository, CopyingMailRepository } from "./repository.ts";
+export type { MailRepository } from "./repository.ts";

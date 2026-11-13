@@ -162,7 +162,7 @@ export const ID_CLIENTS: Record<string, IdClient> = {
   node: {
     name: "Nøde",
     app: "node",
-    origins: ["https://node.infinitumcorporation.ai"],
+    origins: ["https://node.infinitumcorporation.ai", "https://node-ru.infinitumcorporation.ai", "https://node-ru.web.app"],
   },
 };
 

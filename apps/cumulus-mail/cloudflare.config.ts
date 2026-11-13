@@ -38,6 +38,12 @@ export default defineConfig({
       // Mirrors for networks that throttle Cloudflare (Russian ISPs): ru. is AWS (also throttled in
       // Russia since 2026-11); ru2. is Firebase Hosting -> Cloud Run (mirror/), which gets through.
       MAIL_EXTRA_ORIGINS: bindings.text(`https://ru.${host},https://ru2.${host}`),
+      // Cumulus://ID as rows in Supabase through nexus-store (no database password); see
+      // apps/spectre/src/server/cid-store.ts and docs/plans/relational-storage.md. Set back to
+      // "document" to roll back. Needs supabase/migrations/20261113_cumulus_id_rows.sql applied and the
+      // updated nexus-store edge function deployed first, and cumulus_id.refresh_from_document() run
+      // right before this deploy goes live.
+      CUMULUS_STORE: bindings.text("gateway"),
       // Infinitum Search (POST /api/web-search) on VEIL's own engine; needs no key.
       VEIL_SEARCH_URL: bindings.text("https://infinitumveil.app/api/search"),
       FIRMAMENT_SIGNER_KEY: bindings.secret(),

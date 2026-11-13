@@ -1222,7 +1222,11 @@ function tornado(rows, output) {
 }
 
 async function renderMetatron() {
-  const [tpl, sig] = await Promise.all([api("GET", "/api/metatron/templates"), api("GET", "/api/metatron/signals?weeks=26")]);
+  let [tpl, sig, saved] = await Promise.all([
+    api("GET", "/api/metatron/templates"),
+    api("GET", "/api/metatron/signals?weeks=26"),
+    api("GET", "/api/metatron/scenarios").catch(() => ({ scenarios: [] })),
+  ]);
   const stageOpts = OPEN.map((s) => `<option value="${s}">${STAGE_LABEL[s]}</option>`).join("");
   main().innerHTML = `
     <div class="page narrow mt">
@@ -1248,8 +1252,10 @@ async function renderMetatron() {
 
       <div class="section"><h2>What if?</h2>
         <form id="mt-scn" class="mt-controls">
-          <label class="field mt-wide">Scenario<select class="input" name="template">${tpl.templates.map((t) => `<option value="${esc(t.id)}">${esc(t.title)}</option>`).join("")}</select></label>
+          <label class="field mt-wide">Scenario<select class="input" name="template"></select></label>
           <button class="btn primary">Run</button>
+          <button type="button" class="btn" id="mt-save">Save</button>
+          <button type="button" class="btn ghost" id="mt-del" hidden>Delete</button>
         </form>
         <p class="muted" id="mt-question"></p>
         <details class="mt-edit"><summary class="small">Edit the model</summary>
@@ -1289,14 +1295,64 @@ async function renderMetatron() {
   runOutlook();
 
   const sf = $("#mt-scn");
-  const fill = () => {
-    const t = tpl.templates.find((x) => x.id === sf.template.value);
-    $("#mt-question").textContent = t.question;
-    $("#mt-json").value = JSON.stringify({ model: t.model, interventions: t.interventions, events: t.events, focus: t.focus }, null, 2);
-    $("#mt-scn-out").innerHTML = "";
+  // Options are "t:<template id>" or "s:<saved scenario id>".
+  const options = (pick) => {
+    sf.template.innerHTML = `<optgroup label="Templates">${tpl.templates.map((t) => `<option value="t:${esc(t.id)}">${esc(t.title)}</option>`).join("")}</optgroup>`
+      + (saved.scenarios.length ? `<optgroup label="Saved">${saved.scenarios.map((x) => `<option value="s:${esc(x.id)}">${esc(x.name)}</option>`).join("")}</optgroup>` : "");
+    if (pick) sf.template.value = pick;
   };
+  const selected = () => { const [kind, id] = [sf.template.value.slice(0, 1), sf.template.value.slice(2)]; return { kind, id }; };
+  const show = (spec, question) => {
+    $("#mt-question").textContent = question || "";
+    $("#mt-json").value = JSON.stringify(spec, null, 2);
+    $("#mt-scn-out").innerHTML = "";
+    $("#mt-err").textContent = "";
+  };
+  const fill = async () => {
+    const { kind, id } = selected();
+    $("#mt-del").hidden = kind !== "s";
+    if (kind === "s") {
+      try {
+        const s = await api("GET", `/api/metatron/scenarios/${encodeURIComponent(id)}`);
+        const from = s.templateId && tpl.templates.find((t) => t.id === s.templateId);
+        show({ model: s.model, interventions: s.interventions, events: s.events, focus: s.focus }, `Saved ${date(s.updatedAt)}${from ? ` · from “${from.title}”` : ""}`);
+      } catch (err) { $("#mt-err").textContent = err.message; }
+      return;
+    }
+    const t = tpl.templates.find((x) => x.id === id);
+    show({ model: t.model, interventions: t.interventions, events: t.events, focus: t.focus }, t.question);
+  };
+  const reload = async (pick) => { saved = await api("GET", "/api/metatron/scenarios"); options(pick); await fill(); };
+  options();
   sf.template.onchange = fill;
   fill();
+  $("#mt-save").onclick = () => {
+    $("#mt-err").textContent = "";
+    let spec;
+    try { spec = JSON.parse($("#mt-json").value); } catch { $("#mt-err").textContent = "The model isn't valid JSON."; return; }
+    const { kind, id } = selected();
+    const current = kind === "s" ? saved.scenarios.find((x) => x.id === id) : tpl.templates.find((t) => t.id === id);
+    const body = { model: spec.model, interventions: spec.interventions, events: spec.events, focus: spec.focus };
+    modal(`<h2>Save scenario</h2>
+      <label class="field">Name<input class="input" name="name" required maxlength="120" value="${esc(current?.name ?? current?.title ?? "")}"></label>
+      ${kind === "s" ? `<label class="row small muted"><input type="checkbox" name="copy"> Save as a new scenario</label>` : ""}`, async (f) => {
+      const name = String(f.get("name") || "").trim();
+      const s = kind === "s" && !f.get("copy")
+        ? await api("PATCH", `/api/metatron/scenarios/${encodeURIComponent(id)}`, { ...body, name })
+        : await api("POST", "/api/metatron/scenarios", { ...body, name, ...(kind === "t" ? { templateId: id } : {}) });
+      toast("Scenario saved");
+      await reload(`s:${s.id}`);
+    });
+  };
+  $("#mt-del").onclick = async () => {
+    const { kind, id } = selected();
+    if (kind !== "s" || !confirm("Delete this saved scenario? This can't be undone.")) return;
+    try {
+      await api("DELETE", `/api/metatron/scenarios/${encodeURIComponent(id)}`);
+      toast("Scenario deleted");
+      await reload(`t:${tpl.templates[0].id}`);
+    } catch (err) { $("#mt-err").textContent = err.message; }
+  };
   sf.onsubmit = async (e) => {
     e.preventDefault();
     $("#mt-err").textContent = "";

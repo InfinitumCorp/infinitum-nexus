@@ -177,8 +177,8 @@ describe("FIRM Wallet with Mail", () => {
     await suite.credit(a.cid, "USDC", "204", "Cumulus Data Exchange");
     const r = await suite.mail.send(a.cid, { to: "leah@cumuluscloud.app", subject: "Dinner", body: "My half.", payment: { asset: "USDC", amount: "42.50" } });
     assert.equal(r.payment?.amount, "42.5");
-    assert.deepEqual(suite.wallets.balances(a.cid).USDC, "161.5");
-    assert.deepEqual(suite.wallets.balances(b.cid).USDC, "42.5");
+    assert.deepEqual((await suite.wallets.balances(a.cid)).USDC, "161.5");
+    assert.deepEqual((await suite.wallets.balances(b.cid)).USDC, "42.5");
     const got = inbox(suite, b.cid).find((m) => m.subject === "Dinner")!;
     assert.equal(got.payment?.amount, "42.5");
     const payments = (await ledger.query({ product: "firm-wallet" })).filter((e) => e.type === "payment");
@@ -205,10 +205,10 @@ describe("FIRM Wallet with Mail", () => {
     const a = (await signUp(suite, "alex")).account;
     const b = (await signUp(suite, "leah")).account;
     await suite.credit(a.cid, "FIRM", "10", "Settlement");
-    const leahWallet = suite.wallets.get(b.cid)!.address;
+    const leahWallet = (await suite.wallets.get(b.cid))!.address;
     await suite.pay(a.cid, leahWallet, "FIRM", "3", "thanks");
     await suite.pay(a.cid, "leah@cumuluscloud.app", "FIRM", "2");
-    assert.equal(suite.wallets.balances(b.cid).FIRM, "5");
+    assert.equal((await suite.wallets.balances(b.cid)).FIRM, "5");
     assert.equal(inbox(suite, b.cid).filter((m) => m.system === "wallet").length, 2);
     assert.ok(inbox(suite, a.cid).some((m) => m.subject.startsWith("You sent 3 FIRM")));
   });

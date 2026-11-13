@@ -752,8 +752,8 @@ export function createMailApp(deps: MailAppDeps) {
   /* ---------------- FIRM Wallet, inside Mail ---------------- */
 
   route("GET", "/api/wallet", async (ctx) => {
-    const w = suite.wallets.get(me(ctx))!;
-    return { address: w.address, balances: suite.wallets.balances(me(ctx)), history: suite.wallets.history(me(ctx)).map((t) => ({ ...t, direction: t.to === me(ctx) ? "in" : "out", counterparty: t.from === null ? "Settlement" : mail.addressOf(t.to === me(ctx) ? t.from : t.to) })) };
+    const w = (await suite.wallets.get(me(ctx)))!;
+    return { address: w.address, balances: await suite.wallets.balances(me(ctx)), history: (await suite.wallets.history(me(ctx))).map((t) => ({ ...t, direction: t.to === me(ctx) ? "in" : "out", counterparty: t.from === null ? "Settlement" : mail.addressOf(t.to === me(ctx) ? t.from : t.to) })) };
   });
   route("POST", "/api/wallet/pay", async (ctx) => {
     need(ctx, "to", "asset", "amount");

@@ -18,3 +18,7 @@ export { prepareAnchorCall } from "./anchor-client.ts";
 export type { AnchorCall } from "./anchor-client.ts";
 
 export { createFirmLabyrinth, createFirmWalletLabyrinth, createTokensLabyrinth } from "./labyrinth.ts";
+
+/** Wallet storage boundary (relational storage phase 5). */
+export { MapWalletRepository, CopyingWalletRepository } from "./repository.ts";
+export type { WalletRepository } from "./repository.ts";

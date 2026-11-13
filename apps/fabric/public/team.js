@@ -853,7 +853,14 @@ $("#new-dm").addEventListener("click", tryRun(async () => {
 
 $("#create-ws").addEventListener("submit", tryRun(async (e) => { e.preventDefault(); state.wsId = (await api(T("/workspaces"), { method: "POST", body: { name: $("#ws-name").value } })).id; await start(); }));
 $("#join-ws").addEventListener("submit", tryRun(async (e) => { e.preventDefault(); state.wsId = (await api(T("/join"), { method: "POST", body: { code: $("#ws-code").value } })).id; await start(); }));
-$("#logout").addEventListener("click", tryRun(async () => { await api("/api/auth/logout", { method: "POST" }); location.href = "/team"; }));
+// The Cumulus://ID account bar's "Sign out" navigates to #signout (data-signout).
+const signOutFromHash = async () => {
+  if (location.hash !== "#signout") return;
+  await api("/api/auth/logout", { method: "POST" }).catch(() => {});
+  location.href = "/team";
+};
+window.addEventListener("hashchange", signOutFromHash);
+signOutFromHash();
 
 document.addEventListener("keydown", (e) => {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { e.preventDefault(); $("#search").focus(); }
@@ -873,10 +880,11 @@ async function start() {
 if (new URLSearchParams(location.search).get("error") === "sign-in-failed") showError("Sign-in failed. Try again.");
 try {
   state.me = await api("/api/me");
-  $("#logout").hidden = false;
+  const person = state.me;
+  window.CumulusBar?.setProfile({ name: person.name || person.username, username: person.username, email: person.email || undefined });
   await start();
   $("#me-button").hidden = !state.bar;
 } catch (e) {
-  if (/unauthorized/.test(e.message)) $("#signed-out").hidden = false;
+  if (/unauthorized/.test(e.message)) { $("#signed-out").hidden = false; window.CumulusBar?.setProfile(null); }
   else showError(e.message);
 }

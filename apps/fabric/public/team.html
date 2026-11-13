@@ -21,7 +21,7 @@
     </form>
     <div class="app-actions">
       <button id="me-button" class="btn small" type="button" hidden></button>
-      <button id="logout" class="btn small" type="button" hidden>Sign out</button>
+      <div data-cumulus-bar></div>
     </div>
   </header>
   <main id="main" class="t-main">
@@ -125,6 +125,7 @@
       </form>
     </dialog>
   </main>
+  <script src="/cumulus-bar.js" data-client="fabric" data-signin="/api/auth/login?return=/team" data-signout="#signout" defer></script>
   <script type="module" src="/team.js"></script>
 </body>
 </html>

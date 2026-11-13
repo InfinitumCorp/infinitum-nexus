@@ -237,6 +237,9 @@ export class RemoteState {
         } catch (error) {
           outcome = { ok: false, error };
         }
+        // Postgres ended the request's transaction to let another one through (a deadlock, or a
+        // serialization failure): nothing of it can be saved, so treat it as a conflict and re-run.
+        if (!outcome.ok && isRetryableDatabaseError(outcome.error)) throw new ConflictError();
         await this.commit();
         // The ledger and documents are saved: now the participants. A failure here leaves them
         // behind the ledger, which can't be undone any more; it is reported, never silent.
@@ -276,6 +279,12 @@ export class RemoteState {
   }
 }
 
+
+/** Postgres errors after which the whole transaction is gone but running it again can succeed. */
+export function isRetryableDatabaseError(err: unknown): boolean {
+  const code = (err as { code?: unknown } | null)?.code;
+  return code === "40P01" /* deadlock_detected */ || code === "40001" /* serialization_failure */;
+}
 
 /** In-memory gateway with the same rules as the database function (tests, local runs). */
 export class MemoryGateway implements NexusGateway {

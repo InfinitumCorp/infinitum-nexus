@@ -114,6 +114,27 @@ describe("Hosted state (serverless instances sharing Supabase)", () => {
     assert.equal(a.crm.list("companies", acct.cid).length, 0);
   });
 
+  it("re-runs a request Postgres ended to break a deadlock, and saves nothing from the failed run", async () => {
+    const db = new MemoryGateway();
+    const a = instance(db);
+    const acct = await a.state.transaction(() => a.cid.createAccount({ username: "alex" }));
+    let runs = 0;
+    const result = await a.state.transaction(async () => {
+      runs++;
+      a.crm.addCompany(acct.cid, acct.cid, { name: `Run ${runs}` });
+      if (runs === 1) throw Object.assign(new Error("deadlock detected"), { code: "40P01" });
+      return "done";
+    });
+    assert.equal(result, "done");
+    assert.equal(runs, 2);
+    assert.deepEqual(a.crm.list("companies", acct.cid).map((c) => c.name), ["Run 2"], "the failed run's change was dropped");
+    assert.equal(a.state.stats.conflicts, 1);
+    // Any other error is the request's own and isn't re-run.
+    let other = 0;
+    await assert.rejects(a.state.transaction(async () => { other++; throw Object.assign(new Error("duplicate"), { code: "23505" }); }), /duplicate/);
+    assert.equal(other, 1);
+  });
+
   it("doesn't write anything for read-only requests", async () => {
     const db = new MemoryGateway();
     const a = instance(db);

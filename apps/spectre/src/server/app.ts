@@ -23,6 +23,7 @@ import { OPEN_STAGES, STAGES } from "../core/model.ts";
 import { askSpectre, aiConnected, AiNotConnected, type AiConfig } from "./ai.ts";
 import { registerGrowthRoutes, type GrowthEvent } from "./growth-routes.ts";
 import { registerConjureRoutes, dealSeed } from "./conjure-routes.ts";
+import { registerMetatronRoutes } from "./metatron-routes.ts";
 import { registerEngageRoutes, RawResponse } from "./engage-routes.ts";
 import { dispatch, runDue, type AutomationEngine } from "../core/automations.ts";
 import type { Providers } from "../core/messaging.ts";
@@ -33,6 +34,7 @@ import type { DeviceExitConfig, VeilServer } from "@infinitum/veil/server";
 import { runLlmAgent, LlmError } from "@infinitum/scalus";
 import { parseOpenClawMention, openClawFromEnv, OpenClawError, type OpenClawClient } from "./openclaw.ts";
 import { createOidcClient, oidcClientFromEnv, OidcClientError, type OidcClientConfig } from "./cid-oidc-client.ts";
+import { parseSearchMention, searchFromEnv, type Search, type SearchAnswer, type ChatMessage } from "@infinitum/ai/search";
 import { AGENTS, AGENT_IDS, agentDefinition, applyProposal, newProposalId, newRunId, type AgentId, type AgentRunRecord } from "../core/agent-team.ts";
 
 /**
@@ -110,6 +112,12 @@ export interface AppDeps {
   conjureLive?: ConjureLiveClient | null;
   /** SCALVS agent (on OpenClaw) for "@scalvs" / "@scalus" in Ask. Defaults to OPENCLAW_GATEWAY_URL + OPENCLAW_GATEWAY_TOKEN; null turns it off. */
   openclaw?: OpenClawClient | null;
+  /**
+   * Infinitum Search for "@search <question>" in Ask: a web answer with numbered sources.
+   * Defaults to SEARXNG_URL / YANDEX_SEARCH_API_KEY + YANDEX_FOLDER_ID / BRAVE_SEARCH_API_KEY,
+   * answered by +SPCTR's own open-model router; null turns it off.
+   */
+  search?: Search | null;
   /**
    * VEIL browser proxy. A plan is required for the exit and for bridges.
    * Local Tor in the extension does not call this.
@@ -239,9 +247,9 @@ export function createApp(deps: AppDeps) {
 
   const ensureGrant = async (account: Account) => {
     const ws = account.orgId ?? account.cid;
-    if (!SPECTRE_SCOPES.every((s) => cid.can(account.cid, "spectre", s))) {
-      await cid.grant(account.cid, "spectre", SPECTRE_SCOPES);
-    }
+    let missing = false;
+    for (const s of SPECTRE_SCOPES) if (!(await cid.can(account.cid, "spectre", s))) missing = true;
+    if (missing) await cid.grant(account.cid, "spectre", SPECTRE_SCOPES);
     return ws;
   };
 
@@ -256,21 +264,21 @@ export function createApp(deps: AppDeps) {
   localAuthRoute("POST", "/api/auth/signup", async (ctx) => {
     need(ctx, "username");
     const account = await cid.createAccount({ username: String(ctx.body.username) });
-    return { cid: account.cid, options: cid.startAuthenticatorRegistration(account.cid, "passkey") };
+    return { cid: account.cid, options: await cid.startAuthenticatorRegistration(account.cid, "passkey") };
   }, false);
 
   localAuthRoute("POST", "/api/auth/signup/finish", async (ctx) => {
     need(ctx, "cid", "response");
     await cid.finishAuthenticatorRegistration(String(ctx.body.cid), ctx.body.response, { kind: "passkey", label: String(ctx.body.label ?? "Passkey") });
-    const account = cid.getAccount(String(ctx.body.cid));
+    const account = await cid.getAccount(String(ctx.body.cid));
     await ensureGrant(account);
     // A just-registered passkey proves possession; sign in with it immediately.
-    const options = cid.startSignIn(account.username);
+    const options = await cid.startSignIn(account.username);
     return { signedUp: true, options };
   }, false);
 
   localAuthRoute("POST", "/api/auth/signin", async (ctx) => {
-    return { options: cid.startSignIn(ctx.body.username ? String(ctx.body.username) : undefined) };
+    return { options: await cid.startSignIn(ctx.body.username ? String(ctx.body.username) : undefined) };
   }, false);
 
   localAuthRoute("POST", "/api/auth/signin/finish", async (ctx) => {
@@ -279,7 +287,7 @@ export function createApp(deps: AppDeps) {
     const result = await cid.finishSignIn(ctx.body.response, device);
     if (result.status === "mfa_required") return result;
     setSession(ctx.res, result.token);
-    await ensureGrant(cid.getAccount(result.session.cid));
+    await ensureGrant(await cid.getAccount(result.session.cid));
     return { status: "ok" };
   }, false);
 
@@ -290,7 +298,7 @@ export function createApp(deps: AppDeps) {
     const cookies = [sessionCookie(token)];
     if (next) cookies.push(nextCookie("", 0));
     ctx.res.setHeader("Set-Cookie", cookies);
-    await ensureGrant(cid.getAccount(session.cid));
+    await ensureGrant(await cid.getAccount(session.cid));
     return next ? { status: "ok", next } : { status: "ok" };
   }, false);
 
@@ -320,7 +328,7 @@ export function createApp(deps: AppDeps) {
       const prompt = p === "create" || p === "login" ? p : undefined;
       const { url, state, nonce, verifier } = await idClient.authorize({ redirectUri, prompt });
       const next = safeProductReturn(ctx.query.get("next")) ?? undefined;
-      cid.rememberIssuerLogin(state, { nonce, verifier, redirectUri, next });
+      await cid.rememberIssuerLogin(state, { nonce, verifier, redirectUri, next });
       // Binds the callback to this browser; the server copy makes the state single use.
       ctx.res.setHeader("Set-Cookie", oidcCookie(state, 600));
       return new Redirect(url);
@@ -331,7 +339,7 @@ export function createApp(deps: AppDeps) {
       ctx.res.setHeader("Set-Cookie", oidcCookie("", 0));
       const state = ctx.query.get("state") ?? "";
       const browserState = parseCookies(ctx.req.headers.cookie)[OIDC_COOKIE] ?? "";
-      const login = state ? cid.takeIssuerLogin(state) : null;
+      const login = state ? await cid.takeIssuerLogin(state) : null;
       if (!login || browserState !== state) return signinError("Sign-in request expired. Please try again.");
       const error = ctx.query.get("error");
       if (error) return signinError(error === "access_denied" ? "Sign-in was cancelled." : "Cumulus://ID couldn't sign you in.");
@@ -341,7 +349,7 @@ export function createApp(deps: AppDeps) {
         const { claims, idToken } = await idClient.finish({ code, verifier: login.verifier, redirectUri: login.redirectUri, nonce: login.nonce });
         const device = String(ctx.req.headers["user-agent"] ?? "Browser").slice(0, 120);
         const { token, session } = await cid.signInFromIssuer(claims, device, idToken);
-        await ensureGrant(cid.getAccount(session.cid));
+        await ensureGrant(await cid.getAccount(session.cid));
         ctx.res.setHeader("Set-Cookie", [oidcCookie("", 0), sessionCookie(token)]);
         return new Redirect(login.next ?? "/#/today");
       } catch (err) {
@@ -389,7 +397,7 @@ export function createApp(deps: AppDeps) {
         return new Redirect(`/#/mfa/${result.mfaToken}`);
       }
       ctx.res.setHeader("Set-Cookie", [...clearOauth, sessionCookie(result.token)]);
-      await ensureGrant(cid.getAccount(result.session.cid));
+      await ensureGrant(await cid.getAccount(result.session.cid));
       return new Redirect(next ?? "/#/today");
     } catch (err) {
       const message = err instanceof CidError ? err.message : "Sign-in failed. Please try again.";
@@ -413,17 +421,20 @@ export function createApp(deps: AppDeps) {
     Redirect,
     HttpError,
     signer: oidc,
-    labyrinthDirectoryKeySha256: (deps.labyrinthDirectoryKeySha256 === undefined ? process.env.CID_DIRECTORY_KEY_SHA256 : deps.labyrinthDirectoryKeySha256) || undefined,
+    // CID_DIRECTORY_KEY_SHA256 (Russia host) plus CID_DIRECTORY_KEY_SHA256_US (US host, lbrnth-host-us).
+    labyrinthDirectoryKeySha256: (deps.labyrinthDirectoryKeySha256 === undefined
+      ? [process.env.CID_DIRECTORY_KEY_SHA256, process.env.CID_DIRECTORY_KEY_SHA256_US].filter(Boolean).join(",")
+      : deps.labyrinthDirectoryKeySha256) || undefined,
     exportKeySha256: (deps.cidExportKeySha256 === undefined ? process.env.CID_EXPORT_KEY_SHA256 : deps.cidExportKeySha256) || undefined,
   });
 
-  route("GET", "/api/me/identities", (ctx) => idClient
+  route("GET", "/api/me/identities", async (ctx) => idClient
     // Passkeys, the authenticator app and linked accounts are managed at the issuer.
     ? { manageAt: idClient.accountUrl(), linked: [], available: [], passkeys: null }
     : {
-    linked: cid.linkedIdentities(ctx.user!.account.cid).map(({ provider, email, linkedAt }) => ({ provider, email, linkedAt })),
+    linked: (await cid.linkedIdentities(ctx.user!.account.cid)).map(({ provider, email, linkedAt }) => ({ provider, email, linkedAt })),
     available: cid.socialProvidersEnabled(),
-    passkeys: cid.listAuthenticators(ctx.user!.account.cid).length,
+    passkeys: (await cid.listAuthenticators(ctx.user!.account.cid)).length,
   });
 
   localAuthRoute("POST", "/api/me/identities/:provider/unlink", async (ctx) => {
@@ -431,11 +442,11 @@ export function createApp(deps: AppDeps) {
     return { ok: true };
   });
 
-  route("GET", "/api/me", (ctx) => {
+  route("GET", "/api/me", async (ctx) => {
     const a = ctx.user!.account;
     // The Cumulus account that comes with every CID: Mail (unread), Cloud storage, FIRM Wallet.
-    const cumulus = deps.suite?.summary(a.cid);
-    const orgName = cid.organizationMembership(a.cid)?.name;
+    const cumulus = await deps.suite?.summary(a.cid);
+    const orgName = (await cid.organizationMembership(a.cid))?.name;
     return { cid: a.cid, username: a.username, mailAddress: a.mailAddress, handle: a.handle, workspace: ctx.user!.workspace, ...(orgName ? { orgName } : {}), cumulus };
   });
 
@@ -786,6 +797,32 @@ export function createApp(deps: AppDeps) {
   const conjureLive = deps.conjureLive === undefined ? conjureLiveFromEnv() : deps.conjureLive;
   const livePredictions = new Map<string, string>(); // prediction id -> workspace that asked
   const openclaw = deps.openclaw === undefined ? openClawFromEnv() : deps.openclaw;
+  // "@search <question>": answers come from +SPCTR's own open-model router when it is connected.
+  const searchChat = async (messages: ChatMessage[]) => {
+    if (!aiConnected(deps.ai)) throw new AiNotConnected();
+    const system = messages.filter((m) => m.role === "system").map((m) => m.content).join("\n\n");
+    const rest = messages.filter((m) => m.role !== "system").map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
+    return (await deps.ai.router.chat({ system, messages: rest, maxTokens: 1200 })).text;
+  };
+  let search: Search | null = null;
+  if (deps.search !== undefined) search = deps.search;
+  else {
+    try {
+      search = searchFromEnv(process.env, aiConnected(deps.ai) ? { chat: searchChat } : {});
+    } catch (err) {
+      console.warn(`Infinitum Search is off: ${(err as Error).message}`);
+    }
+  }
+  const searchTimes = new Map<string, number[]>();
+  const searchLimited = (cid: string) => {
+    const now = Date.now();
+    const times = (searchTimes.get(cid) ?? []).filter((t) => now - t < 60_000);
+    const over = times.length >= 12;
+    if (!over) times.push(now);
+    searchTimes.set(cid, times);
+    if (searchTimes.size > 10_000) searchTimes.clear();
+    return over;
+  };
 
   /** What Ask (and a @scalvs agent) knows about a workspace. */
   const askContext = (ws: string) => {
@@ -830,6 +867,15 @@ export function createApp(deps: AppDeps) {
         throw err;
       }
     }
+    const found = parseSearchMention(String(ctx.body.question));
+    if (found) {
+      if (!search) throw new HttpError(503, "Search isn't connected. Set SEARXNG_URL, YANDEX_SEARCH_API_KEY + YANDEX_FOLDER_ID, or BRAVE_SEARCH_API_KEY to use @search.");
+      if (!found.query) throw new HttpError(400, "Write a question after @search.");
+      if (searchLimited(ctx.user!.account.cid)) throw new HttpError(429, "Too many searches. Try again in a minute.");
+      // Only the question goes out to the web; nothing from the workspace.
+      const r = await search.ask(found.query.slice(0, 1000));
+      return { answer: searchAnswerText(r), search: { sources: r.sources, engine: r.engine } };
+    }
     const context = askContext(ws);
 
     try {
@@ -843,6 +889,9 @@ export function createApp(deps: AppDeps) {
 
   /** Whether @scalvs works here, and which agent answers. Never the gateway URL or token. */
   route("GET", "/api/openclaw", () => ({ connected: Boolean(openclaw), agent: openclaw?.agent ?? null }));
+
+  /** Whether @search works here. Never an engine URL or key. */
+  route("GET", "/api/web-search", () => ({ connected: Boolean(search), engines: search?.engines ?? [], answers: Boolean(search?.answers) }));
 
   /** Follow a live @conjure forecast started from Ask (only from the workspace that asked). */
   route("GET", "/api/conjure/live/:id", async (ctx) => {
@@ -1260,7 +1309,9 @@ export function createApp(deps: AppDeps) {
     origin: deps.origin,
   });
 
-  registerConjureRoutes({ route, crm, ai: deps.ai, httpError: (status, message) => new HttpError(status, message), complete: deps.conjureComplete });
+  registerConjureRoutes({ route, crm, ai: deps.ai, httpError: (status, message) => new HttpError(status, message), complete: deps.conjureComplete, search });
+
+  registerMetatronRoutes({ route, crm, httpError: (status, message) => new HttpError(status, message), scoresFor });
 
   const veilControl = createVeilControl({
     cid: deps.cid,
@@ -1353,12 +1404,12 @@ export function createApp(deps: AppDeps) {
         ctx.user = undefined;
         if (r.auth || r.optionalAuth) {
           const token = parseCookies(req.headers.cookie)[COOKIE];
-          const session = token ? cid.authenticate(token) : null;
+          const session = token ? await cid.authenticate(token) : null;
           if (!session && r.auth) throw new HttpError(401, "Please sign in");
           if (session) {
             if (r.auth) {
               const scope = MUTATING.has(req.method!) ? "crm:write" : "crm:read";
-              if (!cid.can(session.account.cid, "spectre", scope)) throw new HttpError(403, "Spectre's access was revoked in your Cumulus://ID permissions");
+              if (!await cid.can(session.account.cid, "spectre", scope)) throw new HttpError(403, "Spectre's access was revoked in your Cumulus://ID permissions");
             }
             ctx.user = { account: session.account, workspace: session.account.orgId ?? session.account.cid, sessionId: session.session.id };
           }
@@ -1402,4 +1453,11 @@ export function createApp(deps: AppDeps) {
   };
 
   return { handle, runDueAutomations, server: () => createServer((req, res) => void handle(req, res)) };
+}
+
+/** An @search reply for the Ask thread: the answer, then the numbered sources. */
+export function searchAnswerText(r: SearchAnswer): string {
+  const sources = r.sources.map((s) => `[${s.n}] ${s.title} — ${s.url}`).join("\n");
+  const answer = r.answer ?? (sources ? "No written answer right now. Sources found:" : "Nothing found on the web for that.");
+  return sources ? `${answer}\n\nSources\n${sources}` : answer;
 }

@@ -27,6 +27,7 @@ const i18n = startI18n({ catalogs, switcher: "#lang-switch" });
 
 - **Catalog keys are the English text.** `scripts/extract.ts` finds UI strings in the source, so an app needs no code changes to be translated.
 - **Patterns.** Template-literal and JSX expressions become `{0}`, `{1}`… placeholders. For example, `"{0} / {1} active agents"` matches the rendered text "3 / 5 active agents".
+- **Plurals.** Render whole English phrases, not a suffix: `n === 1 ? "1 file" : \`${n} files\``, never `` `${n} file${n === 1 ? "" : "s"}` ``. A translation can then replace a count with an ICU plural block, `{0, plural, one {# файл} few {# файла} many {# файлов} other {# файла}}`. The runtime picks the form with `Intl.PluralRules`, and `#` is the number as rendered. `i18n.t(key, { 0: n })` resolves the same blocks.
 - **Opting out.** Text inside `translate="no"`, `contenteditable`, `<code>`, `<pre>` and `<textarea>` is never touched. Mark user content with `translate="no"`: mail bodies, chat, AI output, task titles.
 - **Explicit API.** `i18n.t("Key", { n: 3 })`, `i18n.lookup(text)`, `i18n.setLocale("ar" | null)` and `i18n.subscribe(fn)` are available when code builds strings itself. For React, `src/react.js` provides `useI18n(i18n)`.
 - **`data-i18n` attributes.** `data-i18n="key"` and `data-i18n-attr="placeholder:key"` work for hand-keyed markup through `i18n.apply(root)`.

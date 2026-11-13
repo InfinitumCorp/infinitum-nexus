@@ -10,7 +10,9 @@ export function parseJsonObject(raw: string): Record<string, unknown> {
   return JSON.parse(text.slice(start, end + 1));
 }
 
-const placeholders = (s: string) => (s.match(/\{\w+\}|%\d*\$?[sd]/g) ?? []).sort().join("|");
+// A plural block `{0, plural, one {# file} other {# files}}` stands for `{0}`.
+const PLURAL_BLOCK = /\{(\w+),\s*plural,(?:\s*(?:=\d+|zero|one|two|few|many|other)\s*\{[^{}]*\})+\s*\}/g;
+const placeholders = (s: string) => (s.replace(PLURAL_BLOCK, "{$1}").match(/\{\w+\}|%\d*\$?[sd]/g) ?? []).sort().join("|");
 const tags = (s: string) => (s.match(/<\/?[a-zA-Z][^>]*>/g) ?? []).map((t) => t.replace(/\s.*$/, "")).sort().join("|");
 
 /** Keys whose translation is missing or broke a placeholder or HTML tag. */

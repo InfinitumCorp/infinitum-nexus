@@ -22,6 +22,8 @@ export default defineConfig({
     name: "cumulus-mail",
     entrypoint: "./src/worker.ts",
     compatibilityDate: "2026-11-01",
+    // Global users run on US servers (Ashburn, Virginia); Russia is served by the ru.* copies on Yandex Cloud.
+    placement: { region: "gcp:us-east4" },
     compatibilityFlags: ["nodejs_compat"],
     domains: [host],
     // The web app (public/: index.html, app.js, manifest, sw.js…) is served as static assets; the
@@ -36,6 +38,8 @@ export default defineConfig({
       // Mirrors for networks that throttle Cloudflare (Russian ISPs): ru. is AWS (also throttled in
       // Russia since 2026-11); ru2. is Firebase Hosting -> Cloud Run (mirror/), which gets through.
       MAIL_EXTRA_ORIGINS: bindings.text(`https://ru.${host},https://ru2.${host}`),
+      // Infinitum Search (POST /api/web-search) on VEIL's own engine; needs no key.
+      VEIL_SEARCH_URL: bindings.text("https://infinitumveil.app/api/search"),
       FIRMAMENT_SIGNER_KEY: bindings.secret(),
       NEXUS_STORE_URL: bindings.secret(),
       NEXUS_STORE_KEY: bindings.secret(),
@@ -43,6 +47,8 @@ export default defineConfig({
       EMAIL: bindings.sendEmail(),
       MAIL_FILES: bindings.r2({ name: "cumulus-mail-files" }),
       DOWNLOADS_SITE: bindings.worker({ worker: "cumulus-downloads" }),
+      // US Labyrinth (Worker lbrnth-host-us), reached Worker-to-Worker so Cloudflare Access never applies.
+      LBRNTH_US: bindings.worker({ worker: "lbrnth-host-us" }),
       GOOGLE_CLIENT_ID: bindings.secret(),
       GOOGLE_CLIENT_SECRET: bindings.secret(),
       // Hosted Labyrinth relay target (https://<cloud-run-host>/api/labyrinth), set with wrangler secret put.

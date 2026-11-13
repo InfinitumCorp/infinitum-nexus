@@ -289,7 +289,7 @@ export function createDriveApp(opts: {
       match.keys.forEach((key, index) => {
         params[key] = decodeURIComponent(groups?.[index + 1] ?? "");
       });
-      const principal = authenticate(req, auth);
+      const principal = await authenticate(req, auth);
       if (match.auth !== "none") {
         if (!principal) throw new DriveError(401, "unauthorized", "Sign in with Cumulus://ID");
         const who = limiter.allow(`cid:${principal.cid}`);
@@ -297,10 +297,10 @@ export function createDriveApp(opts: {
           res.setHeader("Retry-After", String(who.retryAfterSec));
           throw new DriveError(429, "rate_limited", "Too many requests");
         }
-        if (match.auth === "read" && !auth.can(principal.cid, "drive:read")) {
+        if (match.auth === "read" && !(await auth.can(principal.cid, "drive:read"))) {
           throw new DriveError(403, "forbidden", "Cumulus://Cloud read access was revoked");
         }
-        if (match.auth === "write" && !auth.can(principal.cid, "drive:write")) {
+        if (match.auth === "write" && !(await auth.can(principal.cid, "drive:write"))) {
           throw new DriveError(403, "forbidden", "Cumulus://Cloud write access was revoked");
         }
       }
@@ -318,7 +318,7 @@ export function createDriveApp(opts: {
   };
 }
 
-function authenticate(req: IncomingMessage, auth: DriveAuth): DrivePrincipal | null {
+async function authenticate(req: IncomingMessage, auth: DriveAuth): Promise<DrivePrincipal | null> {
   const header = req.headers.authorization;
   if (!header) return null;
   const match = /^Bearer\s+(\S+)$/.exec(header);

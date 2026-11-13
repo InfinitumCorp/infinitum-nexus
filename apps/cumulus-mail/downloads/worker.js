@@ -1,5 +1,10 @@
 // downloads.cumuluscloud.app: the page comes from static assets; /files/* streams installers from R2.
 
+// Owner's direction (2026-11-12): not ready to deploy. While false, no installer, stable /get/ link or
+// manifest is served, so the page shows every download as "Coming soon". Set to true to open downloads.
+export const DOWNLOADS_OPEN = false;
+const comingSoon = () => new Response("Coming soon.", { status: 404, headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-cache" } });
+
 const TYPES = {
   exe: "application/vnd.microsoft.portable-executable",
   dmg: "application/x-apple-diskimage",
@@ -66,6 +71,7 @@ export default {
     const url = new URL(request.url);
     const up = /^\/upload\/([A-Za-z0-9][A-Za-z0-9._-]{0,120})$/.exec(url.pathname);
     if (up && !up[1].includes("..")) return upload(request, env, up[1], url);
+    if (!DOWNLOADS_OPEN && (url.pathname.startsWith("/get/") || url.pathname.startsWith("/files/"))) return comingSoon();
     // Stable links (/get/windows, /get/android, ...) point at the current version of each installer.
     const get = /^\/get\/([a-z0-9-]{1,40})$/.exec(url.pathname);
     if (get) {

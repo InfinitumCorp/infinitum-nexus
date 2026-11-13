@@ -78,7 +78,7 @@ describe("+SPCTR app over HTTP", () => {
     const { cookie, cid: id } = await signUp("alex");
     const me = await call("GET", "/api/me", undefined, cookie);
     assert.equal(me.body.mailAddress, "alex@cumuluscloud.app");
-    assert.ok(cid.can(id, "spectre", "crm:write"));
+    assert.ok(await cid.can(id, "spectre", "crm:write"));
     const grants = await ledger.query({ type: "grant", subject: id });
     assert.equal(grants.length, 1);
   });

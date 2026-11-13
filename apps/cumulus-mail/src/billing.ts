@@ -8,18 +8,21 @@
  * revenue API (infinitum-revenue) for a Stripe Checkout session, and the browser goes there.
  * Prices only ever appear on Stripe Checkout. Stripe keys live only in the revenue API.
  *
+ * Business plans (BUSINESS_PLANS) switch the buyer's billing org to a business org first and take
+ * `&seats=<n>` for per-seat plans.
+ *
  *   GET /api/billing/manage?return=<url>   Stripe customer portal: cards, invoices, change or cancel.
  *   GET /api/billing/me                    What this CID pays for, for apps to unlock features.
  *                                          Cookie session here, or "Authorization: Bearer <CID token>"
  *                                          from a product site (CORS for Infinitum product origins).
  *
  * Only the self-serve plans in SELLABLE can be bought this way. Military products are never sold
- * here, whatever the revenue catalog says; sales-assisted and business-only plans go through sales.
+ * here, whatever the revenue catalog says; sales-assisted plans go through sales.
  */
 import { ID_CLIENTS, type Account, type CidService } from "@infinitum/cid";
-import { BillingLinkStore, RevenueClient, RevenueError, billingFor, effectiveEntitlements } from "@infinitum/billing";
+import { BillingLinkStore, RevenueClient, RevenueError, billingFor, effectiveEntitlements, hasBilling } from "@infinitum/billing";
 
-/** Plan id -> product name shown on the sign-in page. Individual, self-serve, paid plans only. */
+/** Plan id -> product name shown on the sign-in page. Self-serve, paid plans only. */
 export const SELLABLE: Record<string, string> = {
   scalvs_pro: "SCALVS.ai",
   cndctr_pro: ":\\ARCHITECT\\",
@@ -32,7 +35,35 @@ export const SELLABLE: Record<string, string> = {
   throne_care: "#THRONE",
   throne_book_lease: "#THRONE",
   academy_membership: "Infinitum Academy",
+  veil_premium: "VEIL",
+  // Business plans (self-serve): the buyer's billing org becomes a business org first.
+  scalvs_team: "SCALVS.ai",
+  cndctr_business: ":\\ARCHITECT\\",
+  spectre_starter: "+SPCTR",
+  spectre_growth: "+SPCTR",
+  fabric_business: "FABRIC",
+  metatron_business: "METATRON¹⁰⁰",
+  // Conjure: Pro for anyone; Team per seat, business orgs only.
+  conjure_pro: "Conjure",
+  conjure_team: "Conjure",
 };
+
+/** Plans only a business org may hold. Per-seat ones take `seats` (1..10000). */
+export const BUSINESS_PLANS: Record<string, { perSeat: boolean }> = {
+  scalvs_team: { perSeat: true },
+  cndctr_business: { perSeat: true },
+  spectre_starter: { perSeat: true },
+  spectre_growth: { perSeat: true },
+  fabric_business: { perSeat: true },
+  metatron_business: { perSeat: false },
+  conjure_team: { perSeat: true },
+};
+
+export function seatsFor(plan: string, raw: string | null): number | undefined {
+  if (!BUSINESS_PLANS[plan]?.perSeat) return undefined;
+  const n = Math.floor(Number(raw ?? 1));
+  return Number.isFinite(n) ? Math.min(Math.max(n, 1), 10000) : 1;
+}
 
 /** Military-only products: never sold through public checkout. */
 export const MILITARY_PRODUCTS = new Set(["eidetic", "eon", "orbis", "pollen", "slug", "odin", "daemon", "argus", "aether"]);
@@ -69,10 +100,10 @@ export function registerBilling(h: BillingHelpers) {
   const { route, cid, str, Redirect, HttpError, store, revenue } = h;
   const home = "https://infinitumcorporation.ai/";
 
-  const account = (ctx: any): Account | null => {
+  const account = async (ctx: any): Promise<Account | null> => {
     if (ctx.user?.account) return ctx.user.account as Account;
     const m = /^Bearer\s+([A-Za-z0-9_-]{20,200})$/.exec(String(ctx.req.headers.authorization ?? ""));
-    const hit = m ? cid.authenticate(m[1]!) : null;
+    const hit = m ? await cid.authenticate(m[1]!) : null;
     return hit ? hit.account : null;
   };
   const signInFirst = (ctx: any, path: string, forName: string) => {
@@ -90,11 +121,14 @@ export function registerBilling(h: BillingHelpers) {
     const product = Object.prototype.hasOwnProperty.call(SELLABLE, plan) ? SELLABLE[plan]! : null;
     if (!product || MILITARY_PRODUCTS.has(plan.split("_")[0]!)) throw new HttpError(400, "That plan can't be bought online. Contact us at info@infinitumcorporation.ai.");
     const returnUrl = returnUrlFor(q.get("return"), home);
-    const who = account(ctx);
+    const who = await account(ctx);
     if (!who) return signInFirst(ctx, "/api/billing/subscribe", product);
     let session;
     try {
-      session = await (await billingFor(revenue, store, who)).subscriptionCheckout({ planId: plan, returnUrl });
+      const org = await billingFor(revenue, store, who);
+      if (BUSINESS_PLANS[plan]) await org.updateOrg({ kind: "business" });
+      const quantity = seatsFor(plan, q.get("seats"));
+      session = await org.subscriptionCheckout({ planId: plan, ...(quantity ? { quantity } : {}), returnUrl });
     } catch (e) { throw failed(e, "Checkout"); }
     if (!isStripeUrl(session.url)) throw new HttpError(502, "Checkout returned an unexpected address. Please contact us.");
     return new Redirect(session.url);
@@ -103,7 +137,7 @@ export function registerBilling(h: BillingHelpers) {
   route("GET", "/api/billing/manage", async (ctx: any) => {
     const q = ctx.query as URLSearchParams;
     const returnUrl = returnUrlFor(q.get("return"), home);
-    const who = account(ctx);
+    const who = await account(ctx);
     if (!who) return signInFirst(ctx, "/api/billing/manage", "your Infinitum subscriptions");
     let portal;
     try { portal = await (await billingFor(revenue, store, who)).portal({ returnUrl }); } catch (e) { throw failed(e, "Billing"); }
@@ -117,13 +151,12 @@ export function registerBilling(h: BillingHelpers) {
       ctx.res.setHeader("Access-Control-Allow-Origin", o);
       ctx.res.setHeader("Vary", "Origin");
     }
-    const who = account(ctx);
+    const who = await account(ctx);
     if (!who) throw new HttpError(401, "Not signed in");
     // No billing org yet means nothing bought yet: don't create one just to look.
-    const link = store.links.get(who.cid);
-    if (!link) return { cid: who.cid, plans: {}, features: [], creditsCents: 0, products: [] };
+    if (!hasBilling(revenue, store, who.cid)) return { cid: who.cid, plans: {}, features: [], creditsCents: 0, products: [] };
     let ent;
-    try { ent = await revenue.withApiKey(link.apiKey).entitlements(); } catch (e) { throw failed(e, "Billing"); }
+    try { ent = await (await billingFor(revenue, store, who)).entitlements(); } catch (e) { throw failed(e, "Billing"); }
     const eff = effectiveEntitlements({ storageGb: 0 }, ent);
     return {
       cid: who.cid,

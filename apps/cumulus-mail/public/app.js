@@ -688,7 +688,7 @@ function cleanView() {
   };
   const by = { rules: "Automatic", scalvs: "SCALVS", you: "You" };
   return el("section", { class: "pane" }, [el("div", { class: "sheet" }, [
-    el("h1", {}, [waiting ? `${waiting} message${waiting === 1 ? "" : "s"} ready to clean` : "Your inbox is clean"]),
+    el("h1", {}, [waiting === 1 ? "1 message ready to clean" : waiting ? `${waiting} messages ready to clean` : "Your inbox is clean"]),
     el("p", { class: "muted" }, [c.rules.auto ? `SCALVS cleans on its own${c.lastRun ? ` · last run ${ago(c.lastRun)}` : ""}. Everything it moves can be undone.` : "Automatic cleaning is off."]),
     el("div", { class: "actions" }, [
       el("button", { class: "primary", disabled: !waiting, onClick: () => act(() => api("/api/clean/run", {})) }, ["Clean now"]),
@@ -707,7 +707,7 @@ function cleanView() {
       el("div", {}, [
         el("div", { class: "by" }, [s.source === "scalvs" ? "SCALVS" : "Rules"]),
         el("div", {}, [s.reason]),
-        el("div", { class: "sub" }, [s.kind === "mute" ? `Mute ${s.email}` : `${s.kind === "trash" ? "Move to Trash" : "Archive"} · ${s.count} message${s.count === 1 ? "" : "s"}`]),
+        el("div", { class: "sub" }, s.kind === "mute" ? [`Mute ${s.email}`] : [s.kind === "trash" ? "Move to Trash" : "Archive", " · ", s.count === 1 ? "1 message" : `${s.count} messages`]),
       ]),
       el("div", { class: "btns" }, [
         el("button", { class: "primary", onClick: () => act(() => api("/api/clean/approve", { id: s.id })) }, ["Approve"]),
@@ -728,7 +728,7 @@ function cleanView() {
 
     ...(c.senders.length || c.rules.muted.length ? [el("h3", {}, ["Senders"])] : []),
     ...c.senders.map((s) => el("div", { class: "item" }, [
-      el("div", {}, [el("div", {}, [s.name]), el("div", { class: "sub" }, [`${s.email} · ${s.count} message${s.count === 1 ? "" : "s"}`])]),
+      el("div", {}, [el("div", {}, [s.name]), el("div", { class: "sub" }, [s.email, " · ", s.count === 1 ? "1 message" : `${s.count} messages`])]),
       el("button", { class: "outline", onClick: () => act(() => api("/api/clean/mute", { email: s.email })) }, ["Mute"]),
     ])),
     ...c.rules.muted.map((email) => el("div", { class: "item" }, [

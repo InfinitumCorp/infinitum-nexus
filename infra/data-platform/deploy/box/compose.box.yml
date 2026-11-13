@@ -1,0 +1,83 @@
+# Cumulus data platform: $0 production profile for the existing self-hosted box.
+#
+#   cp infra/data-platform/deploy/box/.env.example infra/data-platform/deploy/box/.env
+#   docker compose -f infra/data-platform/deploy/box/compose.box.yml --env-file infra/data-platform/deploy/box/.env up -d
+#
+# Storage and search live in the Supabase free-tier Postgres in Ireland (DATABASE_URL, schema
+# data_platform), so this box keeps no event data. OpenSearch is not run here.
+# Nothing publishes a host port: the only way in is the outbound Cloudflare Tunnel, with
+# Cloudflare Access in front of Superset. See docs/data-platform/FREE-HOSTING.md.
+name: cumulus-data-box
+
+services:
+  privacy-gateway:
+    build: ../../privacy-gateway
+    environment:
+      PRIVACY_GATEWAY_TOKEN: ${PRIVACY_GATEWAY_TOKEN:?set PRIVACY_GATEWAY_TOKEN}
+      PRIVACY_PSEUDONYM_KEY: ${PRIVACY_PSEUDONYM_KEY:?set PRIVACY_PSEUDONYM_KEY}
+      PRIVACY_TOTAL_EPSILON: ${PRIVACY_TOTAL_EPSILON:-3.0}
+      PRESIDIO_SPACY_MODEL: en_core_web_sm
+      PLATFORM_PRODUCT_TOKENS: ${PLATFORM_PRODUCT_TOKENS:-}
+      PLATFORM_EMBED_DASHBOARDS: ${PLATFORM_EMBED_DASHBOARDS:-}
+      SUPERSET_GUEST_TOKEN_SECRET: ${SUPERSET_GUEST_TOKEN_SECRET:-}
+      PLATFORM_REGION: EU
+      # Supabase session pooler, data_platform_gateway role. Catalog, events, search and the
+      # DP budget all live there.
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL (Supabase pooler, data_platform_gateway role)}
+      # Free-tier guards: stop taking events before Supabase's 500 MB limit, and cap each
+      # product per UTC day so one noisy product cannot fill the database for the others.
+      PLATFORM_STORAGE_LIMIT_MB: ${PLATFORM_STORAGE_LIMIT_MB:-450}
+      PLATFORM_DAILY_EVENT_QUOTA: ${PLATFORM_DAILY_EVENT_QUOTA:-200000}
+      PLATFORM_MAX_BATCH: ${PLATFORM_MAX_BATCH:-1000}
+      DATAHUB_GMS_URL: ${DATAHUB_GMS_URL:-}
+      DATAHUB_GMS_TOKEN: ${DATAHUB_GMS_TOKEN:-}
+    mem_limit: 1g
+    restart: unless-stopped
+
+  superset-db: # Superset's own metadata only (users, charts); no product data.
+    image: postgres:17.11-alpine
+    environment:
+      POSTGRES_DB: superset
+      POSTGRES_USER: superset
+      POSTGRES_PASSWORD: ${SUPERSET_DB_PASSWORD:?set SUPERSET_DB_PASSWORD}
+    volumes:
+      - superset-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U superset -d superset"]
+      interval: 5s
+      retries: 30
+    restart: unless-stopped
+
+  superset:
+    build: ../../superset
+    depends_on:
+      superset-db: { condition: service_healthy }
+    environment:
+      SUPERSET_SECRET_KEY: ${SUPERSET_SECRET_KEY:?set SUPERSET_SECRET_KEY}
+      SUPERSET_DATABASE_URI: postgresql+psycopg2://superset:${SUPERSET_DB_PASSWORD}@superset-db:5432/superset
+      CUMULUS_ID_ISSUER: ${CUMULUS_ID_ISSUER:-https://id.cumuluscloud.app/realms/cumulus}
+      CUMULUS_ID_CLIENT_ID: ${CUMULUS_ID_CLIENT_ID:-}
+      CUMULUS_ID_CLIENT_SECRET: ${CUMULUS_ID_CLIENT_SECRET:-}
+      CUMULUS_ID_SIGNUP_URL: ${CUMULUS_ID_SIGNUP_URL:-https://id.cumuluscloud.app/signup}
+      CUMULUS_EMBED_ORIGINS: ${CUMULUS_EMBED_ORIGINS:-}
+      SUPERSET_GUEST_TOKEN_SECRET: ${SUPERSET_GUEST_TOKEN_SECRET:-}
+    command: ["/bin/sh", "-c", "superset db upgrade && superset init && exec /usr/bin/run-server.sh"]
+    mem_limit: 2g
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:8088/health || exit 1"]
+      interval: 10s
+      retries: 30
+    restart: unless-stopped
+
+  # Outbound-only tunnel to Cloudflare (free). Public hostnames are mapped in the Cloudflare
+  # dashboard: data-api.<domain> -> http://privacy-gateway:8090, bi.<domain> -> http://superset:8088.
+  cloudflared:
+    image: cloudflare/cloudflared:2026.10.0
+    command: ["tunnel", "--no-autoupdate", "run"]
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?set CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on: [privacy-gateway, superset]
+    restart: unless-stopped
+
+volumes:
+  superset-db:

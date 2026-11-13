@@ -42,6 +42,11 @@ export type { ProductIdpHelpers } from "./product-idp.ts";
 export { exportCidAccounts, CID_EXPORT_FORMAT, CID_EXPORT_VERSION } from "./account-export.ts";
 export type { CidExport, CidExportAccount, CidExportAuthenticator, CidExportIdentity, CidExportGrant, CidExportOrganization } from "./account-export.ts";
 export { encodeCbor, decodeCbor } from "./cbor.ts";
+export { MapCidRepository } from "./repository.ts";
+export type { CidRepository, OneTimeKind } from "./repository.ts";
+export type { CidOneTime } from "./service.ts";
+export { UpstreamIdClient, UpstreamIdError, parseUpstreamProfile, upstreamIssuerFromEnv } from "./upstream.ts";
+export type { UpstreamIdConfig, UpstreamProfile } from "./upstream.ts";
 export {
   CUMULUS_DOMAIN_DEFAULTS,
   MAIL_DOMAIN as CUMULUS_MAIL_DOMAIN,
@@ -54,3 +59,15 @@ export {
 export type { CidIssuerMetadata, CumulusDomains } from "./domains.ts";
 export { answerLabyrinthDirectory, labyrinthDirectoryKeyMatches, LabyrinthDirectoryError, LABYRINTH_SCOPES } from "./labyrinth-directory.ts";
 export type { LabyrinthDirectoryIdentity, LabyrinthDirectoryOrg, LabyrinthDirectoryScope, CidTokenResolver } from "./labyrinth-directory.ts";
+/** Cumulus://ID on PostgreSQL (relational-storage phase 2). Off unless a CidService is given one. */
+export { PgCidRepository, PgRequestScope, migrateCid, cidSchemaSql } from "./postgres.ts";
+export type { Queryable, PgPoolClient, PgCidRepositoryOptions } from "./postgres.ts";
+/** Phase 3: copy the `cid` document into a repository and verify it (see backfill-cli.ts). */
+export { backfillCid, checkCidStore, cidStoreFromSnapshot, cidStoreFromRepository } from "./backfill.ts";
+export type { BackfillReport, CidCheck, CidCounts } from "./backfill.ts";
+/** Sealing account secrets (authenticator-app seeds) at rest. */
+export { secretBox, deriveCidSecretKey, cidSecretKeyFromEnv, cidSecretKeyForHost } from "./secret-box.ts";
+export type { SecretBox } from "./secret-box.ts";
+/** Cumulus://ID rows behind the nexus-store gateway (CUMULUS_STORE=gateway). */
+export { RemoteCidRepository } from "./remote-repository.ts";
+export type { CidReadOp, CidWriteOp, CidReader } from "./remote-repository.ts";

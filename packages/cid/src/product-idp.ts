@@ -117,9 +117,9 @@ export function registerProductIdp(h: ProductIdpHelpers) {
     }
   };
 
-  const accountFromToken = (token: string) => {
+  const accountFromToken = async (token: string) => {
     if (!token.includes(".")) {
-      const hit = cid.authenticate(token);
+      const hit = await cid.authenticate(token);
       if (!hit) throw new HttpError(401, "Not signed in");
       return { account: hit.account, sessionId: hit.session.id };
     }
@@ -131,9 +131,9 @@ export function registerProductIdp(h: ProductIdpHelpers) {
       throw new HttpError(401, "Not signed in");
     }
     if (typeof claims.sid !== "string" || claims.sub !== claims.cid) throw new HttpError(401, "Not signed in");
-    const live = cid.listSessions(String(claims.sub)).some((s) => s.id === claims.sid);
+    const live = (await cid.listSessions(String(claims.sub))).some((s) => s.id === claims.sid);
     if (!live) throw new HttpError(401, "Not signed in");
-    return { account: cid.getAccount(String(claims.sub)), sessionId: claims.sid };
+    return { account: await cid.getAccount(String(claims.sub)), sessionId: claims.sid };
   };
 
   const presented = (ctx: any): string => {
@@ -169,8 +169,8 @@ export function registerProductIdp(h: ProductIdpHelpers) {
       return new Redirect(`/?next=${encodeURIComponent(back)}&for=${encodeURIComponent(client.name)}${create}`);
     }
     const account = ctx.user.account as Account;
-    if (!cid.can(account.cid, client.app, "profile:read")) await cid.grant(account.cid, client.app, ["profile:read"]);
-    const idp = idpOfMethod(cid.listSessions(account.cid).find((s) => s.id === ctx.user.sessionId)?.method);
+    if (!(await cid.can(account.cid, client.app, "profile:read"))) await cid.grant(account.cid, client.app, ["profile:read"]);
+    const idp = idpOfMethod((await cid.listSessions(account.cid)).find((s) => s.id === ctx.user.sessionId)?.method);
     const { code } = await cid.grantDeviceHandoff(account.cid, challenge, clientId, {
       idp,
       nonce: nonce || undefined,
@@ -228,7 +228,7 @@ export function registerProductIdp(h: ProductIdpHelpers) {
       await cid.revokeSession(redeemed.session.cid, redeemed.session.id);
       throw new HttpError(400, "That sign-in code belongs to another product.");
     }
-    return tokenResponse(cid.getAccount(redeemed.session.cid), redeemed.session, clientId, redeemed.idp, redeemed.nonce, redeemed.token);
+    return tokenResponse(await cid.getAccount(redeemed.session.cid), redeemed.session, clientId, redeemed.idp, redeemed.nonce, redeemed.token);
   };
 
   const token = async (ctx: any, strict: boolean) => {
@@ -275,7 +275,7 @@ export function registerProductIdp(h: ProductIdpHelpers) {
     const tokenValue = str(q.get("token"), 8000);
     try {
       if (OPAQUE.test(tokenValue) || JWT.test(tokenValue)) {
-        const hit = accountFromToken(tokenValue);
+        const hit = await accountFromToken(tokenValue);
         await cid.revokeSession(hit.account.cid, hit.sessionId);
       }
     } catch {
@@ -284,16 +284,16 @@ export function registerProductIdp(h: ProductIdpHelpers) {
     return new Redirect(url.toString());
   }, false);
 
-  const userinfo = (ctx: any) => {
+  const userinfo = async (ctx: any) => {
     cors(ctx);
-    return profileOf(accountFromToken(presented(ctx)).account);
+    return profileOf((await accountFromToken(presented(ctx))).account);
   };
   route("GET", "/api/id/userinfo", userinfo, false);
   if (signer) route("GET", "/realms/cumulus/protocol/openid-connect/userinfo", userinfo, false);
 
   route("POST", "/api/id/signout", async (ctx) => {
     cors(ctx);
-    const hit = accountFromToken(presented(ctx));
+    const hit = await accountFromToken(presented(ctx));
     await cid.revokeSession(hit.account.cid, hit.sessionId);
     return { ok: true };
   }, false, { csrf: false });
@@ -305,12 +305,12 @@ export function registerProductIdp(h: ProductIdpHelpers) {
   // challenges or OAuth state. Off unless CID_EXPORT_KEY_SHA256 is set; no CORS headers at all.
   const exportKey = h.exportKeySha256;
   if (exportKey) {
-    route("POST", "/api/id/export", (ctx) => {
+    route("POST", "/api/id/export", async (ctx) => {
       for (const name of ["Access-Control-Allow-Origin", "Access-Control-Allow-Credentials", "Access-Control-Allow-Methods", "Access-Control-Allow-Headers", "Access-Control-Max-Age"]) {
         ctx.res.removeHeader(name);
       }
       if (!labyrinthDirectoryKeyMatches(ctx.req.headers["x-cid-export-key"], exportKey)) throw new HttpError(401, "Unknown export client");
-      return exportCidAccounts(cid);
+      return await exportCidAccounts(cid);
     }, false, { csrf: false });
   }
 
@@ -320,10 +320,10 @@ export function registerProductIdp(h: ProductIdpHelpers) {
   if (directoryKey) {
     route("POST", "/api/id/labyrinth-directory", async (ctx) => {
       if (!labyrinthDirectoryKeyMatches(ctx.req.headers["x-cid-directory-key"], directoryKey)) throw new HttpError(401, "Unknown directory client");
-      const resolve = (token: string) => {
+      const resolve = async (token: string) => {
         if (!(OPAQUE.test(token) || JWT.test(token))) return null;
         try {
-          const hit = accountFromToken(token);
+          const hit = await accountFromToken(token);
           return { cid: hit.account.cid, sessionId: hit.sessionId };
         } catch {
           return null;

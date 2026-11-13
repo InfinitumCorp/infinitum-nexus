@@ -10,6 +10,9 @@ importers:
 
   apps/architect:
     dependencies:
+      '@infinitum/ai':
+        specifier: workspace:*
+        version: link:../../packages/ai
       '@infinitum/firmament':
         specifier: workspace:*
         version: link:../../packages/firmament
@@ -78,6 +81,9 @@ importers:
       '@infinitum/scalus':
         specifier: workspace:*
         version: link:../../packages/scalus
+      pg:
+        specifier: ^8.16.3
+        version: 8.16.3
       postal-mime:
         specifier: 4.2.0
         version: 4.2.0
@@ -85,6 +91,9 @@ importers:
       '@types/node':
         specifier: ^26.6.6
         version: 26.6.6
+      '@types/pg':
+        specifier: ^8.15.5
+        version: 8.15.6
       cf:
         specifier: 1.0.0-beta.28
         version: 1.0.0-beta.28(@types/node@26.6.6)
@@ -258,6 +267,9 @@ importers:
       '@infinitum/veil':
         specifier: workspace:*
         version: link:../veil
+      pg:
+        specifier: ^8.16.3
+        version: 8.16.3
     devDependencies:
       '@electric-sql/pglite':
         specifier: 0.3.14
@@ -265,6 +277,9 @@ importers:
       '@types/node':
         specifier: ^26.6.6
         version: 26.6.6
+      '@types/pg':
+        specifier: ^8.15.5
+        version: 8.15.6
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
@@ -388,6 +403,12 @@ importers:
       '@types/node':
         specifier: ^26.6.6
         version: 26.6.6
+      '@types/pg':
+        specifier: ^8.15.5
+        version: 8.15.6
+      pg:
+        specifier: ^8.16.3
+        version: 8.16.3
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
@@ -478,6 +499,15 @@ importers:
       '@infinitum/lbrnth-client':
         specifier: workspace:*
         version: link:../lbrnth-client
+    devDependencies:
+      '@types/node':
+        specifier: ^26.6.6
+        version: 26.6.6
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+
+  packages/data-platform:
     devDependencies:
       '@types/node':
         specifier: ^26.6.6

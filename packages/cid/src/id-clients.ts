@@ -26,7 +26,13 @@ export const ID_CLIENTS: Record<string, IdClient> = {
   infinitum: {
     name: "Infinitum Corporation",
     app: "cumulus",
-    origins: ["https://infinitumcorporation.ai", "https://www.infinitumcorporation.ai", "https://downloads.infinitumcorporation.ai"],
+    origins: [
+      "https://infinitumcorporation.ai",
+      "https://www.infinitumcorporation.ai",
+      "https://downloads.infinitumcorporation.ai",
+      // Russia copy on its own Yandex server; visitors in Russia are redirected there.
+      "https://ru.infinitumcorporation.ai",
+    ],
   },
   "cumulus-cloud": {
     name: "Cumulus://Cloud",
@@ -74,12 +80,22 @@ export const ID_CLIENTS: Record<string, IdClient> = {
   "veil-vpn": {
     name: "VEIL</> VPN",
     app: "veil",
-    origins: ["https://infinitumveilvpn.app", "https://www.infinitumveilvpn.app"],
+    origins: [
+      "https://infinitumveilvpn.app",
+      "https://www.infinitumveilvpn.app",
+      // Russia copy on its own Yandex server; visitors in Russia are redirected there.
+      "https://ru.infinitumveilvpn.app",
+    ],
   },
   fabric: {
     name: "FabriC++",
     app: "fabric",
-    origins: ["https://infinitumfabric.app", "https://www.infinitumfabric.app"],
+    origins: [
+      "https://infinitumfabric.app",
+      "https://www.infinitumfabric.app",
+      // Fabric Russia (Yandex Cloud, fabric-russia): Synapse signs in from here (InfinitumCorp/fabric-ru).
+      "https://ru.infinitumfabric.app",
+    ],
   },
   "firm-wallet": {
     name: "$FIRM Wallet",
@@ -112,7 +128,8 @@ export const ID_CLIENTS: Record<string, IdClient> = {
   conjure: {
     name: "Conjure",
     app: "conjure",
-    // Conjure Russia (Yandex Cloud). Staff only: the server still checks its staff list.
+    // Conjure Russia (Yandex Cloud). Public: any Cumulus ID signs in with its own account
+    // (InfinitumCorp/Conjure#15); CID_OWNERS and listed staff are admins.
     // Plus its global hostname: a Cloudflare Worker forwarding to the same server, for networks that block Yandex Cloud.
     origins: ["https://conjure-ru.infinitumcorporation.ai", "https://conjure.infinitumcorporation.ai"],
     loopback: true,
@@ -139,6 +156,13 @@ export const ID_CLIENTS: Record<string, IdClient> = {
     name: "Infinitum Developer",
     app: "cumulus",
     origins: ["https://developer.infinitumcorporation.ai"],
+  },
+  // Nøde: free community Wi-Fi (InfinitumCorp/node). A public product, so https only and no
+  // loopback. Its access tokens carry aud "node", which the Nøde API checks.
+  node: {
+    name: "Nøde",
+    app: "node",
+    origins: ["https://node.infinitumcorporation.ai", "https://node-ru.infinitumcorporation.ai", "https://node-ru.web.app"],
   },
 };
 

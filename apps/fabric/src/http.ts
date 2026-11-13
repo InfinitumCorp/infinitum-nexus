@@ -9,12 +9,16 @@ import { isPublicSigningKey, verifyFabricToken, FabricAuthError, type FabricIden
 import type { FabricConfig } from "./config.ts";
 import { FabricService, FabricServiceError, touchUser } from "./service.ts";
 import type { FabricStore } from "./store.ts";
+import { handleTeam, type TeamHub } from "./team-http.ts";
+import type { TeamService } from "./team.ts";
 
 interface Deps {
   config: FabricConfig;
   origin: () => string;
   store: FabricStore;
   service: FabricService;
+  team: TeamService;
+  hub: TeamHub;
   publicDir: string;
 }
 
@@ -77,7 +81,7 @@ async function dispatch(
     if (!limiter.allow(`login:${remote(req)}`, 30, 60_000)) throw new FabricServiceError(429, "too many requests");
     return startLogin(req, res, deps, url);
   }
-  if (method === "GET" && path === "/api/auth/callback") return finishLogin(url, res, deps, jwks);
+  if (method === "GET" && path === "/api/auth/callback") return finishLogin(req, url, res, deps, jwks);
   if (method === "POST" && path === "/api/auth/logout") {
     const actor = await authenticate(req, deps, jwks, false);
     assertCookieOrigin(req, deps);
@@ -119,6 +123,19 @@ async function dispatch(
     const body = await readJson(req);
     const text = field(body, "text");
     return sendJson(res, 201, deps.service.send(actor.identity, messages[1] ?? "", text));
+  }
+  if (path.startsWith("/api/team/")) {
+    await handleTeam(req, res, url, {
+      team: deps.team,
+      hub: deps.hub,
+      security: SECURITY,
+      authenticate: (r) => authenticate(r, deps, jwks, true),
+      assertMutation: (r, actor) => assertMutation(r, deps, actor as Actor),
+      readJson,
+      sendJson,
+      allow: (key, max, windowMs) => limiter.allow(key, max, windowMs),
+    });
+    return;
   }
   if (method === "GET" && assets.has(path)) {
     const asset = assets.get(path)!;
@@ -166,7 +183,11 @@ function startLogin(req: IncomingMessage, res: ServerResponse, deps: Deps, url: 
   const now = new Date();
   const expires = new Date(now.getTime() + 10 * 60 * 1000);
   deps.store.saveOauthState(state, verifier, nonce, expires.toISOString(), now.toISOString());
-  const auth = new URL(deps.config.authorizationEndpoint);
+  // "Create a Cumulus ID" goes to the registration page of the same OIDC flow; the person returns signed in.
+  const endpoint = url.searchParams.get("register") === "1"
+    ? deps.config.authorizationEndpoint.replace(/\/auth$/, "/registrations")
+    : deps.config.authorizationEndpoint;
+  const auth = new URL(endpoint);
   auth.searchParams.set("client_id", deps.config.audience);
   auth.searchParams.set("redirect_uri", `${origin}/api/auth/callback`);
   auth.searchParams.set("response_type", "code");
@@ -180,16 +201,18 @@ function startLogin(req: IncomingMessage, res: ServerResponse, deps: Deps, url: 
   // "Create a Cumulus://ID" in the account bar opens account creation at the issuer.
   const prompt = url.searchParams.get("prompt");
   if (prompt === "create" || prompt === "login") auth.searchParams.set("prompt", prompt);
-  res.writeHead(302, { ...SECURITY, location: auth.href });
+  const back = url.searchParams.get("return") === "/team" ? "/team" : "/";
+  res.writeHead(302, { ...SECURITY, location: auth.href, "set-cookie": returnCookie(origin, back, 600) });
   res.end();
   void req;
 }
 
-async function finishLogin(url: URL, res: ServerResponse, deps: Deps, jwks: JwksCache): Promise<void> {
+async function finishLogin(req: IncomingMessage, url: URL, res: ServerResponse, deps: Deps, jwks: JwksCache): Promise<void> {
   const origin = deps.origin();
+  const back = readCookie(req.headers.cookie, "fabric_return") === "/team" ? "/team" : "/";
   const failLogin = (reason: string): void => {
     console.warn(`sign-in failed: ${reason}`);
-    res.writeHead(302, { ...SECURITY, location: `${origin}/?error=sign-in-failed` });
+    res.writeHead(302, { ...SECURITY, location: `${origin}${back}?error=sign-in-failed`, "set-cookie": returnCookie(origin, "", 0) });
     res.end();
   };
   try {
@@ -229,7 +252,7 @@ async function finishLogin(url: URL, res: ServerResponse, deps: Deps, jwks: Jwks
     const maxAge = Math.min(identity.expiresAt - Math.floor(Date.now() / 1000), 12 * 60 * 60);
     if (maxAge < 1) return failLogin("expired");
     deps.store.createLogin({ tokenHash: hashToken(token), sub: identity.sub, expiresAt: new Date(identity.expiresAt * 1000).toISOString() });
-    res.writeHead(302, { ...SECURITY, location: `${origin}/`, "set-cookie": sessionCookie(origin, token, maxAge) });
+    res.writeHead(302, { ...SECURITY, location: `${origin}${back}`, "set-cookie": [sessionCookie(origin, token, maxAge), returnCookie(origin, "", 0)] });
     res.end();
   } catch (error) {
     const reason = error instanceof FabricAuthError ? error.code : "rejected";
@@ -313,10 +336,10 @@ function field(body: unknown, key: string): string {
   return value;
 }
 
-async function readJson(req: IncomingMessage): Promise<unknown> {
+async function readJson(req: IncomingMessage, limit = 16_384): Promise<unknown> {
   const type = req.headers["content-type"];
   if (typeof type !== "string" || !type.toLowerCase().startsWith("application/json")) throw new FabricServiceError(415, "unsupported content type");
-  const text = await readBody(req, 16_384);
+  const text = await readBody(req, limit);
   try {
     return JSON.parse(text) as unknown;
   } catch {
@@ -376,6 +399,11 @@ function sessionCookie(origin: string, token: string, maxAge: number): string {
   return `fabric_session=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${maxAge}${secure}`;
 }
 
+function returnCookie(origin: string, path: string, maxAge: number): string {
+  const secure = origin.startsWith("https:") ? "; Secure" : "";
+  return `fabric_return=${path}; HttpOnly; SameSite=Lax; Path=/api/auth; Max-Age=${maxAge}${secure}`;
+}
+
 function readCookie(header: string | undefined, name: string): string | null {
   if (!header) return null;
   for (const part of header.split(";")) {
@@ -410,6 +438,9 @@ function loadAssets(dir: string): Map<string, { type: string; body: Buffer }> {
     "/firm-suite.js": ["firm-suite.js", "text/javascript; charset=utf-8"],
     "/firm-suite.css": ["firm-suite.css", "text/css; charset=utf-8"],
     "/cumulus-bar.js": ["cumulus-bar.js", "text/javascript; charset=utf-8"],
+    "/team": ["team.html", "text/html; charset=utf-8"],
+    "/team.js": ["team.js", "text/javascript; charset=utf-8"],
+    "/team.css": ["team.css", "text/css; charset=utf-8"],
   };
   const assets = new Map<string, { type: string; body: Buffer }>();
   for (const [path, [file, type]] of Object.entries(spec)) {
@@ -456,7 +487,7 @@ class Metrics {
   private readonly hits = new Map<string, number>();
 
   observe(method: string, status: number, _ms: number): void {
-    const verb = /^(GET|POST|PUT|DELETE|HEAD|OPTIONS)$/.test(method) ? method : "OTHER";
+    const verb = /^(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)$/.test(method) ? method : "OTHER";
     const code = Number.isInteger(status) && status >= 100 && status <= 599 ? String(status) : "0";
     const key = `${verb} ${code}`;
     this.hits.set(key, (this.hits.get(key) ?? 0) + 1);

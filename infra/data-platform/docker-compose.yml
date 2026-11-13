@@ -1,0 +1,107 @@
+# Cumulus data platform: local development stack.
+#
+#   cp infra/data-platform/.env.example infra/data-platform/.env   # then fill in the values
+#   docker compose -f infra/data-platform/docker-compose.yml up -d                 # core
+#   docker compose -f infra/data-platform/docker-compose.yml --profile bi up -d    # + Superset
+#
+# DataHub runs from its own pinned quickstart (see README.md), not from this file.
+# Every port binds to 127.0.0.1 only. Nothing here is billable.
+name: cumulus-data
+
+services:
+  privacy-gateway:
+    build: ./privacy-gateway
+    environment:
+      PRIVACY_GATEWAY_TOKEN: ${PRIVACY_GATEWAY_TOKEN:?set PRIVACY_GATEWAY_TOKEN in .env}
+      PRIVACY_PSEUDONYM_KEY: ${PRIVACY_PSEUDONYM_KEY:?set PRIVACY_PSEUDONYM_KEY in .env}
+      PRIVACY_TOTAL_EPSILON: ${PRIVACY_TOTAL_EPSILON:-3.0}
+      PRESIDIO_SPACY_MODEL: en_core_web_sm
+      # Collection, catalog and search: one token per product ("spectre=<tok>;cumulus-mail=<tok>").
+      PLATFORM_PRODUCT_TOKENS: ${PLATFORM_PRODUCT_TOKENS:-}
+      PLATFORM_EMBED_DASHBOARDS: ${PLATFORM_EMBED_DASHBOARDS:-}
+      SUPERSET_GUEST_TOKEN_SECRET: ${SUPERSET_GUEST_TOKEN_SECRET:-}
+      PLATFORM_REGION: ${PLATFORM_REGION:-EU}
+      OPENSEARCH_URL: http://opensearch:9200
+      OPENSEARCH_REFRESH_ON_WRITE: "1" # dev only: new events are searchable at once
+      DATAHUB_GMS_URL: ${DATAHUB_GMS_URL:-}
+      DATAHUB_GMS_TOKEN: ${DATAHUB_GMS_TOKEN:-}
+    volumes:
+      - privacy-budget:/var/lib/privacy-gateway
+    ports:
+      - "127.0.0.1:8090:8090"
+    restart: unless-stopped
+
+  # Search over authorized events. OpenSearch (Apache-2.0) instead of Elasticsearch
+  # (AGPL / SSPL / Elastic License): see docs/data-platform/ARCHITECTURE.md.
+  opensearch:
+    image: opensearchproject/opensearch:3.9.0
+    environment:
+      discovery.type: single-node
+      bootstrap.memory_lock: "true"
+      OPENSEARCH_JAVA_OPTS: -Xms512m -Xmx512m
+      # Local only: the port below is bound to 127.0.0.1. Hosted search turns security on.
+      DISABLE_SECURITY_PLUGIN: "true"
+      DISABLE_INSTALL_DEMO_CONFIG: "true"
+    ulimits:
+      memlock: { soft: -1, hard: -1 }
+      nofile: { soft: 65536, hard: 65536 }
+    volumes:
+      - opensearch-data:/usr/share/opensearch/data
+    ports:
+      - "127.0.0.1:9200:9200"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs 'http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=5s' || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+
+  opensearch-init:
+    image: opensearchproject/opensearch:3.9.0
+    depends_on:
+      opensearch: { condition: service_healthy }
+    volumes:
+      - ./search:/search:ro
+    entrypoint: ["/bin/bash", "/search/bootstrap.sh", "http://opensearch:9200"]
+    restart: "no"
+
+  # --- profile "bi": Superset for dashboards, SQL exploration and embedded analytics ---
+  superset-db:
+    profiles: ["bi"]
+    image: postgres:17.11-alpine
+    environment:
+      POSTGRES_DB: superset
+      POSTGRES_USER: superset
+      POSTGRES_PASSWORD: ${SUPERSET_DB_PASSWORD:?set SUPERSET_DB_PASSWORD in .env}
+    volumes:
+      - superset-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U superset -d superset"]
+      interval: 5s
+      retries: 30
+
+  superset:
+    profiles: ["bi"]
+    build: ./superset
+    depends_on:
+      superset-db: { condition: service_healthy }
+    environment:
+      SUPERSET_SECRET_KEY: ${SUPERSET_SECRET_KEY:?set SUPERSET_SECRET_KEY in .env}
+      SUPERSET_DATABASE_URI: postgresql+psycopg2://superset:${SUPERSET_DB_PASSWORD}@superset-db:5432/superset
+      CUMULUS_ID_ISSUER: ${CUMULUS_ID_ISSUER:-https://id.cumuluscloud.app/realms/cumulus}
+      CUMULUS_ID_CLIENT_ID: ${CUMULUS_ID_CLIENT_ID:-}
+      CUMULUS_ID_CLIENT_SECRET: ${CUMULUS_ID_CLIENT_SECRET:-}
+      CUMULUS_ID_SIGNUP_URL: ${CUMULUS_ID_SIGNUP_URL:-https://id.cumuluscloud.app/signup}
+      CUMULUS_EMBED_ORIGINS: ${CUMULUS_EMBED_ORIGINS:-}
+      SUPERSET_GUEST_TOKEN_SECRET: ${SUPERSET_GUEST_TOKEN_SECRET:-}
+    command: ["/bin/sh", "-c", "superset db upgrade && superset init && exec /usr/bin/run-server.sh"]
+    ports:
+      - "127.0.0.1:8088:8088"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:8088/health || exit 1"]
+      interval: 10s
+      retries: 30
+
+volumes:
+  privacy-budget:
+  opensearch-data:
+  superset-db:

@@ -214,7 +214,7 @@ test("OIDC client mode: organizations follow the issuer's org_id, org_name and o
     assert.equal(gMe.body.workspace, orgId);
     assert.equal(gMe.body.orgName, "Acme Analytics"); // shown in the account bar
     assert.deepEqual(cid.store.orgs.get(orgId), { id: orgId, name: "Acme Analytics", admins: [], source: "issuer" });
-    assert.equal(cid.organizationMembership(grace.sub)?.admin, false);
+    assert.equal((await cid.organizationMembership(grace.sub))?.admin, false);
     assert.equal((await h.call("POST", "/api/companies", { name: "Shared Co" }, g.cookie)).status, 200);
 
     // An admin becomes a local admin and shares the same CRM workspace.
@@ -222,20 +222,20 @@ test("OIDC client mode: organizations follow the issuer's org_id, org_name and o
     const a = await signIn(alan);
     assert.equal((await h.call("GET", "/api/me", undefined, a.cookie)).body.workspace, orgId);
     assert.deepEqual(cid.store.orgs.get(orgId)!.admins, [alan.sub]);
-    assert.equal(cid.organizationMembership(alan.sub)?.admin, true);
+    assert.equal((await cid.organizationMembership(alan.sub))?.admin, true);
     const seen = (await h.call("GET", "/api/companies", undefined, a.cookie)).body.map((c: { name: string }) => c.name);
     assert.deepEqual(seen, ["Shared Co"]);
 
     // A demotion at the issuer is reflected on the next sign-in, and a rename follows the issuer.
     await signIn({ ...alan, org_name: "Acme Analytics Ltd", org_role: "member" });
     assert.deepEqual(cid.store.orgs.get(orgId)!.admins, []);
-    assert.equal(cid.organizationMembership(alan.sub)?.admin, false);
+    assert.equal((await cid.organizationMembership(alan.sub))?.admin, false);
     assert.equal(cid.store.orgs.get(orgId)!.name, "Acme Analytics Ltd");
 
     // Removed from the organization at the issuer: back to a personal workspace.
     const solo = await signIn({ ...grace, org_id: undefined, org_name: undefined, org_role: undefined });
     assert.equal((await h.call("GET", "/api/me", undefined, solo.cookie)).body.workspace, grace.sub);
-    assert.equal(cid.getAccount(grace.sub).orgId, undefined);
+    assert.equal((await cid.getAccount(grace.sub)).orgId, undefined);
   } finally {
     await h.close();
   }
@@ -249,7 +249,7 @@ test("OIDC client mode: an organization that exists only locally is not cleared 
     const local = await cid.createOrganization("Local Only Co", before.cid);
     const r = await signIn(person({ sub: before.cid, cid: before.cid, preferred_username: "lin" }));
     assert.equal((await h.call("GET", "/api/me", undefined, r.cookie)).body.workspace, local.id);
-    assert.equal(cid.getAccount(before.cid).orgId, local.id);
+    assert.equal((await cid.getAccount(before.cid)).orgId, local.id);
     assert.deepEqual(cid.store.orgs.get(local.id)!.admins, [before.cid]);
     assert.equal(cid.store.orgs.get(local.id)!.source, undefined);
 

@@ -36,11 +36,15 @@ import org.json.JSONObject;
  * (assets/tor/pt_config.json), carried by lyrebird (lib/<abi>/libLyrebird.so).
  * Once bridges connect, the next launch starts with them.
  *
- * Snowflake's speed depends on which volunteer proxy it draws: the same bridge connects in
- * 20 s or not at all in 3 minutes. So a Snowflake start runs a second tor beside the first
- * (its own data directory, warmed with a copy of the first one's directory cache, and its
- * own ports) and keeps whichever reaches 100% first. The browser then follows the winner's
- * SOCKS port (MainActivity sees socksPort change in onTorState).
+ * To connect fast, VEIL races a second tor beside the first (its own data directory, warmed
+ * with a copy of the first one's directory cache, and its own ports) and keeps whichever
+ * reaches 100% first. The browser then follows the winner's SOCKS port (MainActivity sees
+ * socksPort change in onTorState).
+ * - A direct start races Snowflake from the first second. Where Tor is blocked, the direct
+ *   tor stalls at 10% while Snowflake is already connecting; on the stall VEIL adopts the
+ *   Snowflake tor as it is (adopt()) instead of starting bridges from zero.
+ * - A Snowflake start races a second Snowflake: its speed depends on which volunteer proxy it
+ *   draws, and the same bridge connects in 20 s or not at all in 3 minutes.
  */
 final class Tor {
     interface Listener {
@@ -111,6 +115,10 @@ final class Tor {
     private volatile Process spare;
     private File spareDir;
     private int spareSocks, spareControl;
+    /** The spare's bridge type (always a bridge type), and how far it has got. */
+    private volatile String spareKind;
+    private volatile int spareProgress;
+    private volatile String spareSummary = "";
     /** The two data directories the racing tors take turns in; the winner's is kept. */
     static final String[] DIRS = {"tor", "tor-b"};
     /** Directory cache files copied to the spare so it starts warm (never the lock or cookie). */
@@ -209,7 +217,18 @@ final class Tor {
             fail("Tor couldn't start: " + e.getMessage());
             return;
         }
-        if ("snowflake".equals(kind)) startSpare(kind);
+        String race = raceWith(kind, available());
+        if (race != null) startSpare(race);
+    }
+
+    /**
+     * The bridge type to race beside a start of `kind`, or null: a direct start races Snowflake
+     * (so a network that blocks Tor costs no extra time), and a Snowflake start races a second
+     * Snowflake. Other bridge types run alone.
+     */
+    static String raceWith(String kind, java.util.List<String> available) {
+        if (!available.contains("snowflake")) return null;
+        return kind == null || "snowflake".equals(kind) ? "snowflake" : null;
     }
 
     /** The data directory the last winning tor used (DIRS[0] at first). */
@@ -258,7 +277,10 @@ final class Tor {
             spareDir = d;
             spareSocks = socks;
             spareControl = control;
-            android.util.Log.i("VEIL-Tor", "VEIL: racing a second Snowflake tor");
+            spareKind = kind;
+            spareProgress = 0;
+            spareSummary = "";
+            android.util.Log.i("VEIL-Tor", "VEIL: racing a " + kind + " tor beside the " + (bridges ? transport : "direct") + " one");
             Thread t = new Thread(() -> watch(sp), "tor-spare-log");
             t.setDaemon(true);
             t.start();
@@ -279,20 +301,73 @@ final class Tor {
             if (sp == spare) stopSpare();
             return;
         }
-        android.util.Log.i("VEIL-Tor", "VEIL: the second Snowflake tor won the race");
-        Process old = process;
-        process = sp; // set before destroying old, so its log thread doesn't report a failure
-        spare = null;
-        old.destroy();
-        dir = spareDir;
-        socksPort = spareSocks;
-        controlPort = spareControl;
+        android.util.Log.i("VEIL-Tor", "VEIL: the racing " + spareKind + " tor won");
+        takeSpare();
         gen++; // stale stall checks and traffic polls of the old tor stop
         progress = 100;
         summary = "Done";
         pathWorks = true;
         prefs().edit().putBoolean("bridges", bridges).putString("transport", transport).putString("dir", dir.getName()).apply();
         notifyListener();
+    }
+
+    /** The racing tor becomes the tor in use; the old one is stopped. Caller holds the lock. */
+    private Process takeSpare() {
+        Process old = process;
+        process = spare; // set before destroying old, so its log thread doesn't report a failure
+        spare = null;
+        if (old != null) old.destroy();
+        dir = spareDir;
+        socksPort = spareSocks;
+        controlPort = spareControl;
+        bridges = true;
+        transport = spareKind;
+        return old;
+    }
+
+    /**
+     * The tor in use stalled (direct on a network that blocks Tor, or a Snowflake broker that
+     * didn't answer) while the racing tor is already connecting: carry on with that one from
+     * where it is, instead of starting over, and start a fresh racer beside it.
+     */
+    private synchronized void adopt() {
+        android.util.Log.i("VEIL-Tor", "VEIL: direct stalled, carrying on with the racing " + spareKind + " tor at " + spareProgress + "%");
+        Process old = takeSpare();
+        int g = ++gen;
+        long now = SystemClock.elapsedRealtime();
+        progress = spareProgress;
+        summary = spareSummary.isEmpty() ? "Connecting over " + label(transport) + " bridges" : spareSummary;
+        lastProgressAt = now;
+        attemptStartedAt = now;
+        offerAt = 0;
+        trafficSeen = 0;
+        pathWorks = progress >= HANDSHAKE_DONE;
+        prefs().edit().putBoolean("bridges", true).putString("transport", transport).putString("dir", dir.getName()).apply();
+        notifyListener();
+        if (progress >= 100) return;
+        main.postDelayed(() -> checkStall(g), 2_000);
+        Thread poll = new Thread(() -> pollTraffic(g), "tor-traffic");
+        poll.setDaemon(true);
+        poll.start();
+        String race = raceWith(transport, available());
+        if (race == null) return;
+        // The new racer reuses the stopped tor's data directory: wait until that tor has exited.
+        Thread t = new Thread(() -> {
+            if (old != null) try { old.waitFor(); } catch (InterruptedException e) { return; }
+            main.post(() -> {
+                synchronized (Tor.this) {
+                    if (g == gen && spare == null && progress < 100) startSpare(race);
+                }
+            });
+        }, "tor-reracer");
+        t.setDaemon(true);
+        t.start();
+    }
+
+    /** True while a racing tor is running and hasn't failed. */
+    private boolean spareAlive() {
+        Process sp = spare;
+        return sp != null && sp.isAlive();
     }
 
     static void copyIfNewer(File from, File to) {
@@ -447,7 +522,8 @@ final class Tor {
         if (bridges && !pathWorks && offerAt > 0 && now - offerAt >= BROKER_WAIT_MS && brokerRetries < BROKER_RETRIES) {
             brokerRetries++;
             android.util.Log.i("VEIL-Tor", "VEIL: no broker answer in " + (BROKER_WAIT_MS / 1000) + " s, asking again (" + brokerRetries + "/" + BROKER_RETRIES + ")");
-            restart(transport);
+            // The racing tor asked its own broker: keep it instead of starting both over.
+            if (spareAlive()) adopt(); else restart(transport);
             return;
         }
         if (now - lastProgressAt < limit && !overdue) {
@@ -455,6 +531,13 @@ final class Tor {
             return;
         }
         android.util.Log.i("VEIL-Tor", (overdue ? "VEIL: no handshake in " + (BRIDGE_ATTEMPT_MAX_MS / 1000) + " s " : "VEIL: no progress for " + (limit / 1000) + " s ") + (bridges ? "over " + transport + " bridges" : "direct") + " at " + progress + "%, attempt " + (attempts + 1));
+        if (!bridges && !pathWorks && spareAlive()) {
+            // This network blocks Tor, and the racing Snowflake tor has been connecting all along.
+            directBlocked = true;
+            brokerRetries = 0;
+            adopt();
+            return;
+        }
         if (++attempts > MAX_ATTEMPTS) {
             stop();
             fail(bridges ? "Tor couldn't connect, even over bridges. This network may block Tor." : "Tor couldn't connect.");
@@ -564,9 +647,17 @@ final class Tor {
             while ((line = r.readLine()) != null) {
                 android.util.Log.i("VEIL-Tor", line); // notice level, SafeLogging on: no destinations
                 if (process != p) {
-                    // The racing spare tor only matters once it's done. Anything else here is a
-                    // replaced tor still flushing its log: don't touch the new one's state.
-                    if (p == spare && line.contains("Bootstrapped 100%")) promote(p);
+                    // The racing tor: note how far it got (adopt() carries on from there) and
+                    // take it once it's done. Anything else here is a replaced tor still
+                    // flushing its log: don't touch the new one's state.
+                    if (p == spare) {
+                        Matcher sm = BOOTSTRAP.matcher(line);
+                        if (sm.find()) {
+                            spareProgress = Math.max(spareProgress, Integer.parseInt(sm.group(1)));
+                            spareSummary = sm.group(2).trim();
+                        }
+                        if (line.contains("Bootstrapped 100%")) promote(p);
+                    }
                     continue;
                 }
                 Matcher m = BOOTSTRAP.matcher(line);

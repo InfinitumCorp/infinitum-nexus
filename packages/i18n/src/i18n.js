@@ -73,6 +73,39 @@ export function format(template, vars) {
   return template.replace(/\{(\w+)\}/g, (m, k) => (k in vars ? String(vars[k]) : m));
 }
 
+const PLURAL_FORM = /(=\d+|zero|one|two|few|many|other)\s*\{([^{}]*)\}/g;
+const PLURAL_BLOCK = /\{(\w+),\s*plural,((?:\s*(?:=\d+|zero|one|two|few|many|other)\s*\{[^{}]*\})+)\s*\}/g;
+const pluralRules = new Map();
+
+/**
+ * Resolve ICU-style plural blocks, a subset of ICU MessageFormat:
+ *   "{0, plural, one {# файл} few {# файла} many {# файлов} other {# файла}}"
+ * picks the form for the number in `values[0]` under the plural rules of
+ * `locale`, and `#` becomes that number as it was written ("1,204" stays "1,204").
+ * Exact matches like `=0 {No files}` win over categories. Blocks whose value is
+ * missing are left as they are.
+ */
+export function plural(template, values, locale) {
+  if (!values || !template.includes("plural")) return template;
+  if (!pluralRules.has(locale)) {
+    let rules = null;
+    try { rules = new Intl.PluralRules(locale); } catch { /* unknown locale: always "other" */ }
+    pluralRules.set(locale, rules);
+  }
+  const rules = pluralRules.get(locale);
+  return template.replace(PLURAL_BLOCK, (m, k, body) => {
+    if (!(k in values)) return m;
+    const raw = String(values[k]);
+    const num = /-?\d[\d,]*(?:\.\d+)?/.exec(raw);
+    const n = num ? Number(num[0].replace(/,/g, "")) : NaN;
+    const forms = {};
+    for (const [, sel, text] of body.matchAll(PLURAL_FORM)) forms[sel] = text;
+    const cat = Number.isFinite(n) && rules ? rules.select(n) : "other";
+    const text = forms[`=${n}`] ?? forms[cat] ?? forms.other;
+    return text == null ? m : text.replace(/#/g, raw);
+  });
+}
+
 /**
  * Create a translator.
  *   const i18n = createI18n({ catalogs });   // catalogs = { en: {...}, ru: {...} }
@@ -89,8 +122,9 @@ export function createI18n(options) {
     : detectLocale({ supported, fallback, storageKey });
 
   const t = (key, vars) => {
-    const hit = catalogs[locale]?.[key] ?? catalogs[fallback]?.[key];
-    return format(hit ?? key, vars);
+    const own = catalogs[locale]?.[key];
+    const hit = own ?? catalogs[fallback]?.[key];
+    return format(plural(hit ?? key, vars, own != null ? locale : fallback), vars);
   };
 
   // Keys with {0}-style placeholders also match rendered text ("3 / 5 active agents").
@@ -101,8 +135,10 @@ export function createI18n(options) {
       for (const [key, value] of Object.entries(catalogs[code] ?? {})) {
         if (!/\{\d+\}/.test(key)) continue;
         const src = key.replace(/[.*+?^$()|[\]\\]/g, "\\$&").replace(/\\?\{(\d+)\\?\}/g, "(?<p$1>.+?)").replace(/\{(\d+)\}/g, "(?<p$1>.+?)");
-        try { list.push([new RegExp(`^${src}$`, "s"), value]); } catch { /* skip odd keys */ }
+        try { list.push([new RegExp(`^${src}$`, "s"), value, key.replace(/\{\d+\}/g, "").length]); } catch { /* skip odd keys */ }
       }
+      // Most specific first: "{0} open deals expected to close later." before "{0} to {1}".
+      list.sort((a, b) => b[2] - a[2]);
       patternCache.set(code, list);
     }
     return patternCache.get(code);
@@ -114,7 +150,10 @@ export function createI18n(options) {
     if (exact != null) return exact;
     for (const [re, value] of patternsFor(locale)) {
       const m = re.exec(text);
-      if (m) return value.replace(/\{(\d+)\}/g, (s, n) => m.groups?.[`p${n}`] ?? s);
+      if (m) {
+        const vals = Object.fromEntries(Object.entries(m.groups ?? {}).map(([g, v]) => [g.slice(1), v]));
+        return plural(value, vals, locale).replace(/\{(\d+)\}/g, (s, n) => vals[n] ?? s);
+      }
     }
     return null;
   };

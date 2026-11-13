@@ -11,14 +11,15 @@
   <style>
     :root {
       --bg: #ffffff; --ink: #111820; --ink-quiet: #6b6b74; --slate: #49545e; --rule: #e8e8ec;
-      --hover: #f3f3f5; --focus: #1f5fd6; --accent: #5b3fd1; --link: #1a0dab;
+      --hover: #f3f3f5; --card: #fafafb; --focus: #1f5fd6; --accent: #5b3fd1; --link: #1a0dab;
       --font: "Helvetica Neue", Helvetica, Arial, sans-serif;
+      --mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
       color-scheme: light;
     }
     @media (prefers-contrast: more) { :root { --ink-quiet: var(--ink); --rule: #9a9aa3; } }
     * { box-sizing: border-box; }
     html, body { margin: 0; background: var(--bg); }
-    body { color: var(--ink); font: 15px/1.5 var(--font); min-height: 100vh; min-height: 100dvh; display: flex; flex-direction: column; -webkit-font-smoothing: antialiased; }
+    body { color: var(--ink); font: 15px/1.55 var(--font); min-height: 100vh; min-height: 100dvh; display: flex; flex-direction: column; -webkit-font-smoothing: antialiased; }
     :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
     button { font: inherit; color: inherit; cursor: pointer; }
     [hidden] { display: none !important; }
@@ -27,32 +28,84 @@
     .brand { display: inline-flex; align-items: center; font-size: 19px; letter-spacing: -0.04em; text-decoration: none; color: var(--ink); white-space: nowrap; }
     .brand sup { font-size: .5em; letter-spacing: 0; margin-left: 1px; align-self: flex-start; margin-top: 4px; }
     .search { flex: 1; max-width: 640px; margin: 0; }
-    .search input { width: 100%; font: inherit; font-size: 16px; padding: 10px 14px; border: 1px solid var(--rule); border-radius: 2px; background: #fff; color: var(--ink); -webkit-appearance: none; appearance: none; }
-    .search input:focus { outline: none; border-color: var(--ink); }
+    .search input, .followup input { width: 100%; font: inherit; font-size: 16px; padding: 10px 14px; border: 1px solid var(--rule); border-radius: 2px; background: #fff; color: var(--ink); -webkit-appearance: none; appearance: none; }
+    .search input:focus, .followup input:focus { outline: none; border-color: var(--ink); }
 
-    main { width: min(680px, 100% - 32px); margin: 0 0 0 max(16px, calc((100% - 1100px) / 2 + 16px)); padding: 12px 0 48px; flex: 1; }
-    .meta { font-size: 12px; color: var(--ink-quiet); margin: 4px 0 14px; display: flex; align-items: center; gap: 7px; }
-    .meta::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); flex: none; }
+    main { width: min(760px, 100% - 32px); margin: 0 auto; padding: 8px 0 120px; flex: 1; }
+
+    /* One question and its answer */
+    .turn { padding: 22px 0 26px; border-bottom: 1px solid var(--rule); }
+    .turn:last-child { border-bottom: 0; }
+    .question { margin: 0 0 18px; font-size: 26px; line-height: 1.25; font-weight: 500; letter-spacing: -0.02em; overflow-wrap: anywhere; }
+    .label { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--slate); }
+    .label .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); flex: none; }
+    .label .dot.busy { animation: pulse 1s ease-in-out infinite; }
+    @keyframes pulse { 50% { opacity: .25; } }
+
+    .sources { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(150px, 1fr); gap: 8px; overflow-x: auto; margin: 0 0 22px; padding-bottom: 4px; scrollbar-width: thin; }
+    .src { display: flex; flex-direction: column; justify-content: space-between; gap: 6px; min-height: 78px; padding: 9px 10px; background: var(--card); border: 1px solid var(--rule); border-radius: 2px; text-decoration: none; color: var(--ink); }
+    .src:hover, .src:focus-visible, .src.lit { background: var(--hover); border-color: #c9c9d0; }
+    .src-title { font-size: 13px; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+    .src-site { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--ink-quiet); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .src-n { flex: none; min-width: 17px; height: 17px; padding: 0 4px; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; border: 1px solid var(--ink); border-radius: 2px; color: var(--ink); }
+    .src.skel { background: linear-gradient(90deg, var(--hover) 25%, #fafafb 50%, var(--hover) 75%); background-size: 200% 100%; animation: shimmer 1.2s infinite; border-color: transparent; }
+
+    .answer { font-size: 16px; line-height: 1.65; overflow-wrap: anywhere; }
+    .answer p { margin: 0 0 12px; }
+    .answer ul, .answer ol { margin: 0 0 12px; padding-left: 22px; }
+    .answer li { margin: 0 0 5px; }
+    .answer strong { font-weight: 600; }
+    .answer code { font: 13.5px var(--mono); background: var(--hover); padding: 1px 4px; border-radius: 2px; }
+    .answer pre { margin: 0 0 12px; padding: 12px 14px; background: var(--hover); border-radius: 2px; overflow-x: auto; }
+    .answer pre code { background: none; padding: 0; font-size: 13px; }
+    .answer h3 { margin: 16px 0 8px; font-size: 16px; font-weight: 600; }
+    .cite { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 4px; margin: 0 1px; vertical-align: 2px; font-size: 10.5px; line-height: 1; color: var(--ink); background: var(--hover); border: 1px solid var(--rule); border-radius: 2px; text-decoration: none; }
+    .cite:hover, .cite:focus-visible { background: var(--ink); color: #fff; border-color: var(--ink); }
+    .caret { display: inline-block; width: 7px; height: 16px; margin-left: 2px; vertical-align: -2px; background: var(--ink); animation: pulse 1s steps(2) infinite; }
+    .skel-line { height: 14px; margin: 10px 0; border-radius: 2px; background: linear-gradient(90deg, var(--hover) 25%, #fafafb 50%, var(--hover) 75%); background-size: 200% 100%; animation: shimmer 1.2s infinite; }
+    @keyframes shimmer { to { background-position: -200% 0; } }
+
+    .tools { display: flex; gap: 6px; margin: 14px 0 0; }
+    .tool { padding: 6px 10px; font-size: 12px; background: #fff; border: 1px solid var(--rule); border-radius: 2px; color: var(--slate); }
+    .tool:hover { background: var(--hover); color: var(--ink); }
+
+    .related { margin: 22px 0 0; }
+    .rel { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; padding: 11px 0; background: none; border: 0; border-top: 1px solid var(--rule); text-align: left; font-size: 15px; }
+    .rel:last-child { border-bottom: 1px solid var(--rule); }
+    .rel:hover { color: var(--accent); }
+    .rel::after { content: "+"; font-size: 18px; color: var(--ink-quiet); }
+
+    .notice { padding: 14px 0; color: var(--ink-quiet); }
+    .notice button, .more { margin-top: 12px; padding: 10px 18px; border: 1px solid var(--rule); border-radius: 2px; background: #fff; }
+    .notice button:hover, .more:hover { background: var(--hover); }
+
+    /* VEIL's web results, under the answer */
+    .web { margin: 26px 0 0; padding: 22px 0 0; border-top: 1px solid var(--rule); }
+    .meta { font-size: 12px; color: var(--ink-quiet); margin: 0 0 6px; }
     .result { padding: 12px 0 14px; border-bottom: 1px solid var(--rule); }
     .result:last-child { border-bottom: 0; }
     .site { display: block; font-size: 12px; color: var(--slate); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .title { display: block; margin: 2px 0 4px; font-size: 18px; line-height: 1.3; color: var(--link); text-decoration: none; overflow-wrap: anywhere; }
+    .title { display: block; margin: 2px 0 4px; font-size: 17px; line-height: 1.3; color: var(--link); text-decoration: none; overflow-wrap: anywhere; }
     .title:hover, .title:focus-visible { text-decoration: underline; }
     .title:visited { color: #5e2d91; }
     .snippet { margin: 0; font-size: 14px; color: #3c4043; overflow-wrap: anywhere; }
-    .notice { padding: 24px 0; color: var(--ink-quiet); }
-    .notice button, .more { margin-top: 12px; padding: 10px 18px; border: 1px solid var(--rule); border-radius: 2px; background: #fff; }
-    .notice button:hover, .more:hover { background: var(--hover); }
     .more { display: block; width: 100%; margin-top: 20px; }
-    .skeleton { height: 76px; margin: 12px 0; background: linear-gradient(90deg, var(--hover) 25%, #fafafb 50%, var(--hover) 75%); background-size: 200% 100%; animation: shimmer 1.2s infinite; border-radius: 2px; }
-    @keyframes shimmer { to { background-position: -200% 0; } }
-    @media (prefers-reduced-motion: reduce) { .skeleton { animation: none; } }
-    footer { margin: 0 16px; padding: 14px 0 max(14px, env(safe-area-inset-bottom, 0px)); border-top: 1px solid var(--rule); font-size: 12px; color: var(--ink-quiet); }
+
+    /* Follow-up box, pinned to the bottom like a chat */
+    .followup { position: fixed; left: 0; right: 0; bottom: 0; z-index: 6; padding: 12px 16px max(12px, env(safe-area-inset-bottom, 0px)); background: linear-gradient(rgba(255,255,255,0), #fff 30%); }
+    .followup form { display: flex; gap: 8px; width: min(760px, 100%); margin: 0 auto; }
+    .followup input { box-shadow: 0 1px 0 var(--rule); }
+    .followup button { flex: none; padding: 0 16px; background: var(--ink); color: #fff; border: 1px solid var(--ink); border-radius: 2px; font-size: 14px; }
+    .followup button:disabled { opacity: .4; cursor: default; }
+
+    footer { margin: 0 16px; padding: 14px 0 90px; border-top: 1px solid var(--rule); font-size: 12px; color: var(--ink-quiet); }
+    @media (prefers-reduced-motion: reduce) { .src.skel, .skel-line, .caret, .label .dot.busy { animation: none; } }
     @media (max-width: 560px) {
       .topbar { gap: 10px; padding-left: 12px; padding-right: 12px; }
       .brand { font-size: 17px; }
-      main { margin: 0 auto; }
-      .title { font-size: 17px; }
+      .question { font-size: 22px; }
+      .sources { grid-auto-columns: 140px; }
+      .answer { font-size: 15.5px; }
     }
   </style>
 </head>
@@ -60,15 +113,25 @@
   <header class="topbar">
     <a class="brand" id="brand" href="./">VEIL&lt;/&gt;<sup>™</sup></a>
     <form class="search" role="search" id="search-form">
-      <input id="q" type="search" enterkeyhint="search" placeholder="Search privately or enter address" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Search privately or enter address" />
+      <input id="q" type="search" enterkeyhint="search" placeholder="Ask anything or enter address" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Ask anything or enter address" />
     </form>
   </header>
-  <main id="main" aria-live="polite">
-    <p class="meta" id="meta" hidden></p>
-    <div id="results"></div>
-    <button type="button" class="more" id="more" hidden>More results</button>
+  <main id="main">
+    <div id="thread" aria-live="polite"></div>
+    <section class="web" id="web" hidden aria-label="Web results">
+      <h2 class="label"><span class="dot"></span>Web results</h2>
+      <p class="meta" id="meta"></p>
+      <div id="results"></div>
+      <button type="button" class="more" id="more" hidden>More results</button>
+    </section>
   </main>
-  <footer>VEIL searches for you: the search engine never sees your address, and nothing is kept.</footer>
+  <div class="followup" id="followup" hidden>
+    <form id="followup-form">
+      <input id="fq" type="text" enterkeyhint="send" placeholder="Ask a follow-up" autocomplete="off" aria-label="Ask a follow-up" />
+      <button type="submit" id="fsend">Ask</button>
+    </form>
+  </div>
+  <footer>VEIL searches and answers for you, on this page: search engines never see your address, nothing comes from Wikipedia, and nothing is kept. Answers are written by AI from the pages shown and can be wrong; check the sources.</footer>
   <script src="lib/trackers.js"></script>
   <script src="search.js"></script>
 </body>

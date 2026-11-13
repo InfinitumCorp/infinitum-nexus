@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { apiUrl, decodeEntities, fromBrave, fromWikipedia, offsetFrom, text, wikiUrl } from "../src/search.js";
+import { apiUrl, decodeEntities, fromBrave, offsetFrom, text } from "../src/search.js";
 import worker from "../src/worker.js";
 
 // Shape of a Brave Search API web answer (trimmed).
@@ -74,59 +74,30 @@ test("the Worker asks Brave with the secret key and returns VEIL results", async
   }
 });
 
-// Shape of a Wikipedia search answer (trimmed).
-const wiki = {
-  continue: { sroffset: 10, continue: "-||" },
-  query: { search: [
-    { title: "Tor (network)", snippet: "free <span class=\"searchmatch\">overlay</span> network &amp; more" },
-    { title: "", snippet: "no title" },
-  ] },
-};
-
-test("turns a Wikipedia answer into VEIL results", () => {
-  assert.deepEqual(fromWikipedia(wiki, 0), {
-    results: [{ title: "Tor (network)", url: "https://en.wikipedia.org/wiki/Tor_(network)", snippet: "free overlay network & more" }],
-    next: { offset: 1 },
-  });
-  assert.equal(fromWikipedia({ query: wiki.query }, 0).next, null);
-  assert.deepEqual(fromWikipedia({}, 0), { results: [], next: null });
-  const u = new URL(wikiUrl("a b", 2));
-  assert.equal(u.searchParams.get("srsearch"), "a b");
-  assert.equal(u.searchParams.get("sroffset"), "20");
-});
-
-test("with no key, or when Brave fails, the Worker answers from Wikipedia", async () => {
+test("VEIL never asks Wikipedia, even when nothing else answers", async () => {
   const real = globalThis.fetch;
   const asked = [];
   try {
-    globalThis.fetch = async (url, init) => { asked.push(String(url)); return Response.json(wiki); };
-    let res = await worker.fetch(post({ q: "tor" }), {});
-    let data = await res.json();
+    globalThis.fetch = async (url) => { asked.push(String(url)); return new Response("", { status: 429 }); };
+    const res = await worker.fetch(post({ q: "tor" }), { BRAVE_SEARCH_KEY: "k" });
+    const data = await res.json();
     assert.equal(res.status, 200);
-    assert.deepEqual(data.sources, ["wikipedia"]);
-    assert.equal(data.results[0].title, "Tor (network)");
-    assert.ok(asked.some((u) => u.startsWith("https://en.wikipedia.org/w/api.php")));
-
-    asked.length = 0;
-    globalThis.fetch = async (url) => { asked.push(String(url)); return String(url).includes("brave") ? new Response("", { status: 429 }) : Response.json(wiki); };
-    res = await worker.fetch(post({ q: "tor" }), { BRAVE_SEARCH_KEY: "k" });
-    data = await res.json();
-    assert.deepEqual(data.sources, ["wikipedia"]);
-    assert.equal(asked.filter((u) => !/algolia|stackexchange/.test(u)).length, 2);
+    assert.deepEqual(data.results, []);
+    assert.deepEqual(data.sources, []);
+    assert.ok(asked.length > 0);
+    assert.ok(!asked.some((u) => /wiki/i.test(u)), "no Wikipedia request");
   } finally {
     globalThis.fetch = real;
   }
 });
 
-test("when every source fails, the person gets a friendly message", async () => {
+test("a source that is down doesn't break search", async () => {
   const real = globalThis.fetch;
   try {
-    globalThis.fetch = async () => new Response("", { status: 429 });
-    let res = await worker.fetch(post({ q: "x" }), { BRAVE_SEARCH_KEY: "k" });
-    assert.equal(res.status, 503);
     globalThis.fetch = async () => { throw new Error("down"); };
-    res = await worker.fetch(post({ q: "x" }), {});
-    assert.equal(res.status, 502);
+    const res = await worker.fetch(post({ q: "x" }), {});
+    assert.equal(res.status, 200);
+    assert.deepEqual((await res.json()).results, []);
   } finally {
     globalThis.fetch = real;
   }

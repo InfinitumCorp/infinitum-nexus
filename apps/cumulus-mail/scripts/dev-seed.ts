@@ -28,11 +28,11 @@ const rpId = new URL(origin).hostname;
 const suite = createCumulus({ ledger, signer, rpId, origins: [origin], stores, mailOrigin: origin, masterKey: loadOrCreateMasterKey(dataDir) });
 
 async function account(username: string) {
-  const existing = stores.cid.byUsername.get(username);
+  const existing = await suite.cid.cidForUsername(username);
   if (existing) return existing;
   const auth = new VirtualAuthenticator();
   const a = await suite.cid.createAccount({ username });
-  const opts = suite.cid.startAuthenticatorRegistration(a.cid, "passkey");
+  const opts = await suite.cid.startAuthenticatorRegistration(a.cid, "passkey");
   await suite.cid.finishAuthenticatorRegistration(a.cid, auth.create({ challenge: opts.challenge, origin, rpId }), { kind: "passkey", label: "Dev passkey" });
   await suite.cid.grant(a.cid, "cumulus-mail", ["mail:read", "mail:write"]);
   return a.cid;
@@ -44,7 +44,7 @@ if (suite.wallets.balances(alex).USDC === "0") {
   await suite.credit(alex, "USDC", "250", "Test settlement (dev seed)");
   await suite.mail.send(leah, { to: "devalex@cumuluscloud.app", subject: "ODIN briefing notes", body: "Alex,\n\nThe notes are in Cumulus://Cloud, shared only with you.\n\nLeah" });
   await suite.mail.send(alex, { to: "devleah@cumuluscloud.app", subject: "Dinner — my half", body: "Thanks for organizing.", payment: { asset: "USDC", amount: "38.40" } });
-  suite.cloud.put("odin-briefing.pdf", leah, 2_400_000);
+  await suite.cloud.put("odin-briefing.pdf", leah, 2_400_000);
   await suite.shareFile(leah, "odin-briefing.pdf", "devalex@cumuluscloud.app");
 }
 const { token } = await suite.cid["issueSession"](alex, "dev-seed", "passkey");

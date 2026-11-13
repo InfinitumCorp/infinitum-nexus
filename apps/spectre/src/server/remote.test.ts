@@ -1,4 +1,4 @@
-import { describe, it } from "node:test";
+import { describe, it, test } from "node:test";
 import assert from "node:assert/strict";
 import { Ledger, generateSigner } from "@infinitum/firmament";
 import { CidService, CidStore } from "@infinitum/cid";
@@ -39,7 +39,7 @@ describe("Hosted state (serverless instances sharing Supabase)", () => {
     await a.state.transaction(() => a.crm.addCompany(account.cid, account.cid, { name: "Northwind" }));
 
     await b.state.transaction(async () => {
-      assert.equal(b.cid.getAccount(account.cid).username, "alex");
+      assert.equal((await b.cid.getAccount(account.cid)).username, "alex");
       assert.equal(b.crm.list("companies", account.cid)[0].name, "Northwind");
     });
     assert.equal(db.entries.length, 2);
@@ -122,4 +122,31 @@ describe("Hosted state (serverless instances sharing Supabase)", () => {
     await a.state.transaction(async () => a.cid.socialProvidersEnabled());
     assert.equal(db.docs.get("cid")!.version, before);
   });
+});
+
+test("store metrics count transactions, conflicts and document bytes, with no content", async () => {
+  const { RemoteState, MemoryGateway } = await import("./remote.ts");
+  const gateway = new MemoryGateway();
+  const lines: string[] = [];
+  const a = new RemoteState(gateway, { cid: { accounts: new Map<string, string>() } });
+  const b = new RemoteState(gateway, { cid: { accounts: new Map<string, string>() } });
+  for (const s of [a, b]) { s.metricsLog = (l) => lines.push(l); s.metricsEvery = 2; }
+  const accountsOf = (s: InstanceType<typeof RemoteState>) => (s as unknown as { docs: { cid: { accounts: Map<string, string> } } }).docs.cid.accounts;
+  await a.transaction(async () => { accountsOf(a).set("cid_1", "secret-name-alex"); });
+  await a.transaction(async () => { accountsOf(a).set("cid_2", "sam"); });
+  // Another instance saves while b's request is running: b's commit conflicts once, then re-runs.
+  let raced = false;
+  await b.transaction(async () => {
+    accountsOf(b).set("cid_3", "kim");
+    if (!raced) { raced = true; const doc = gateway.docs.get("cid")!; gateway.docs.set("cid", { ...doc, version: doc.version + 1 }); }
+  });
+  assert.equal(a.stats.transactions, 2);
+  assert.equal(a.stats.commits, 2);
+  assert.equal(a.stats.docs.cid!.writes, 2);
+  assert.ok(a.stats.docs.cid!.maxBytes >= a.stats.docs.cid!.lastBytes && a.stats.docs.cid!.lastBytes > 0);
+  assert.equal(b.stats.conflicts, 1);
+  assert.equal(b.stats.exhausted, 0);
+  assert.ok(lines.some((l) => JSON.parse(l).reason === "conflict"));
+  assert.ok(lines.some((l) => JSON.parse(l).reason === "periodic"));
+  assert.ok(lines.every((l) => !l.includes("secret-name-alex")), "metrics never carry content");
 });

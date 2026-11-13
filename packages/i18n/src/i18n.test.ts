@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createI18n, detectLocale, directionOf, format } from "./i18n.js";
+import { createI18n, detectLocale, directionOf, format, plural } from "./i18n.js";
 
 const store = new Map<string, string>();
 (globalThis as any).localStorage = {
@@ -61,4 +61,34 @@ test("lookup matches exact text and {n} patterns", () => {
   assert.equal(i18n.lookup("Unknown"), null);
   i18n.setLocale("en");
   assert.equal(i18n.lookup("New task"), null);
+});
+
+test("plural blocks pick the form the language needs", () => {
+  const ru = "{0, plural, one {# слово} few {# слова} many {# слов} other {# слова}}";
+  assert.equal(plural(ru, { 0: 1 }, "ru"), "1 слово");
+  assert.equal(plural(ru, { 0: 3 }, "ru"), "3 слова");
+  assert.equal(plural(ru, { 0: 5 }, "ru"), "5 слов");
+  assert.equal(plural(ru, { 0: 21 }, "ru"), "21 слово");
+  assert.equal(plural(ru, { 0: "1,204" }, "ru"), "1,204 слова");
+  assert.equal(plural("{n, plural, =0 {No files} one {# file} other {# files}}", { n: 0 }, "en"), "No files");
+  assert.equal(plural("{0, plural, one {# file} other {# files}}", {}, "en"), "{0, plural, one {# file} other {# files}}");
+  assert.equal(plural("{0, plural, other {# 个文件}}", { 0: 2 }, "zh"), "2 个文件");
+});
+
+test("lookup and t resolve plural blocks", () => {
+  store.clear();
+  const ru = { "{0} words": "{0, plural, one {# слово} few {# слова} many {# слов} other {# слова}}", "{0} · {1} messages": "{0} · {1, plural, one {# письмо} few {# письма} many {# писем} other {# письма}}" };
+  const i18n = createI18n({ catalogs: { en: {}, ru }, locale: "ru", autoApply: false });
+  assert.equal(i18n.lookup("22 words"), "22 слова");
+  assert.equal(i18n.lookup("25 words"), "25 слов");
+  assert.equal(i18n.lookup("a@b.c · 11 messages"), "a@b.c · 11 писем");
+  assert.equal(i18n.t("{0} words", { 0: 101 }), "101 слово");
+});
+
+test("the most specific pattern wins over a generic one", () => {
+  store.clear();
+  const ru = { "{0} to {1}": "{0} до {1}", "{0} open deals expected to close later.": "Ещё {0, plural, one {# сделка} few {# сделки} many {# сделок} other {# сделки}} закроются позже." };
+  const i18n = createI18n({ catalogs: { en: {}, ru }, locale: "ru", autoApply: false });
+  assert.equal(i18n.lookup("7 open deals expected to close later."), "Ещё 7 сделок закроются позже.");
+  assert.equal(i18n.lookup("May to June"), "May до June");
 });

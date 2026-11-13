@@ -1,5 +1,5 @@
 /**
- * Minimal Architect Podium: a single HTML page that lets a user
+ * Minimal Architect web app: a single HTML page that lets a user
  * submit a Score intent and see the performance result.
  * In production this would be a real UI; this is a self-contained scaffold.
  * Uses the shared app shell (packages/ui/app-shell.css): Helvetica Neue,
@@ -8,12 +8,12 @@
 /** The shared app shell stylesheet, served at /app-shell.css. */
 export { appShellCss } from "./app-shell-css.ts";
 
-export const podiumHtml = `<!DOCTYPE html>
+export const webHtml = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>:\\ARCHITECT\\™ Podium</title>
+  <title>:\\ARCHITECT\\™</title>
   <link rel="stylesheet" href="/app-shell.css" />
   <style>
     #intent { min-height: 8rem; }
@@ -26,14 +26,14 @@ export const podiumHtml = `<!DOCTYPE html>
   <header class="app-bar">
     <a class="app-wordmark" href="/">:\\ARCHITECT\\<sup class="tm">™</sup></a>
     <nav class="app-nav" aria-label="Main">
-      <a href="/" aria-current="page">Podium</a>
+      <a href="/" aria-current="page">Home</a>
     </nav>
     <div class="app-actions"><div data-cumulus-bar></div></div>
   </header>
   <main id="main" class="app-main">
     <div class="app-head">
       <div>
-        <h1>Podium</h1>
+        <h1>:\\ARCHITECT\\</h1>
         <p>Write a Score intent in plain text. The executor will plan and simulate.</p>
       </div>
     </div>

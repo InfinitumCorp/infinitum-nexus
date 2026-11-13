@@ -110,12 +110,12 @@ test("directory key comparison is exact and rejects short or unset keys", () => 
 async function signedIn(cid: CidService, username: string) {
   const account = await cid.createAccount({ username });
   const authenticator = new VirtualAuthenticator();
-  const registration = cid.startAuthenticatorRegistration(account.cid, "passkey");
+  const registration = await cid.startAuthenticatorRegistration(account.cid, "passkey");
   const credential = await cid.finishAuthenticatorRegistration(account.cid, authenticator.create({ challenge: registration.challenge, rpId: "localhost", origin: "http://localhost" }), { kind: "passkey" });
-  const challenge = cid.startSignIn();
+  const challenge = await cid.startSignIn();
   const signIn = await cid.finishSignIn(authenticator.get({ credentialId: credential.credentialId, challenge: challenge.challenge, origin: "http://localhost" }), "test");
   if (signIn.status !== "ok") throw new Error("Unexpected MFA");
-  return { account, token: signIn.token, sessionId: cid.authenticate(signIn.token)!.session.id };
+  return { account, token: signIn.token, sessionId: (await cid.authenticate(signIn.token))!.session.id };
 }
 
 test("hosted Labyrinth: live CID onboarding, paid-plan gate, repository bearers across instances, revocation", async () => {
@@ -139,9 +139,9 @@ test("hosted Labyrinth: live CID onboarding, paid-plan gate, repository bearers 
   const created = await call(one, owner.token, { action: "organization", name: "Architect client" });
   assert.equal(created.status, 200);
   const orgId = (created.body as { id: string }).id;
-  assert.equal(cid.organizationMembership(owner.account.cid)?.id, orgId);
+  assert.equal((await cid.organizationMembership(owner.account.cid))?.id, orgId);
   assert.equal((await call(one, owner.token, { action: "consent", scopes: ["repo:read", "repo:write", "repo:admin"] })).status, 200);
-  assert.equal(cid.can(owner.account.cid, "LBRNTH", "repo:write"), true);
+  assert.equal(await cid.can(owner.account.cid, "LBRNTH", "repo:write"), true);
 
   // Consent is not a plan: without an entitlement every repository call is refused.
   assert.equal((await call(one, owner.token, { action: "provision" })).status, 403);
@@ -212,4 +212,14 @@ test("hosted Labyrinth: a second instance picks up the first one's commit before
   assert.equal(second.status, 200);
   const files = (await call(a, { action: "history", repo: repoId })).body as { tree: Record<string, string> }[];
   assert.deepEqual(Object.keys(files[0].tree).sort(), ["products/architect/a.txt", "products/architect/b.txt"]);
+});
+
+test("directory key check accepts one of several hashes (Russia and US hosts)", () => {
+  const hash = (v: string) => createHash("sha256").update(v).digest("hex");
+  const ru = "r".repeat(40), us = "u".repeat(40);
+  assert.equal(labyrinthDirectoryKeyMatches(us, `${hash(ru)},${hash(us)}`), true);
+  assert.equal(labyrinthDirectoryKeyMatches(ru, `${hash(ru)}, ${hash(us)}`), true);
+  assert.equal(labyrinthDirectoryKeyMatches("x".repeat(40), `${hash(ru)},${hash(us)}`), false);
+  assert.equal(labyrinthDirectoryKeyMatches(us, `${hash(ru)},not-a-hash`), false);
+  assert.equal(labyrinthDirectoryKeyMatches(us, ","), false);
 });

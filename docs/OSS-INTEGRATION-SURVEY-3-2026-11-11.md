@@ -15,7 +15,6 @@ The four product commits are on local branches. `git push` to those repositories
 | flower-pollen | `cursor/cheap-ruler-geo-68d6` | `27d0b4f` |
 | prpgnd | `cursor/growthbook-assign-68d6` | `0ddfd0b` |
 | eidetic | `cursor/face-distance-consent-68d6` | `b03fe7c` |
-| zerkalo | `cursor/hermes-validate-68d6` | `aac32c6` |
 
 ## What was integrated
 
@@ -24,7 +23,6 @@ The four product commits are on local branches. `git push` to those repositories
 | `flower-pollen` | [mapbox/cheap-ruler](https://github.com/mapbox/cheap-ruler) | ISC | `2ff154f9f09a14a985e25b4639551e55a0fdbfa7` (v4.1.1), vendored `index.js` | Sector bearing when assigning survey cells, and `separationM` on the track API | On. `FP_CHEAP_RULER=off` restores the old bearing and drops `separationM` |
 | `prpgnd` | [growthbook/growthbook](https://github.com/growthbook/growthbook) `packages/sdk-js` | MIT for the SDK. Enterprise License on three directories that were not installed | npm `@growthbook/growthbook@2.0.0`, gitHead `e43a8ef36ec71c71d4789cecbd4f0f0c93a8191a` | Local subject-line assignment. The readiness handler returns it. The desks only read `ready` | On. `PRPGND_EXPERIMENTS=off` assigns nothing. No call to GrowthBook's network |
 | `eidetic` | [justadudewhohacks/face-api.js](https://github.com/justadudewhohacks/face-api.js) `src/euclideanDistance.ts` | MIT | `a86f011d72124e5fb93e59d5c4ab98f699dd5c9c` | `POST /v1/face-distance`, 1:1 only, after the existing consent and purpose gate | On. `EIDETIC_FACE_DISTANCE=off` returns 404 and does not compare. Missing consent returns 403 and does not compare. Vectors are not stored |
-| `zerkalo` | [NousResearch/Hermes-Function-Calling](https://github.com/NousResearch/Hermes-Function-Calling) `schema.py`, `validator.py`, `utils.py` | MIT | `ea3c4723e4cefdac760d483ccac6c8a428c95ab8` | Open-weight agent actions are checked with `validate_function_call_schema` | On. `ZERKALO_HERMES_VALIDATE=off` skips it. `jsonschema==4.23.0` and `art==6.5` are pinned because those files import them |
 
 ## The 50 organizations
 
@@ -76,8 +74,6 @@ The four product commits are on local branches. `git push` to those repositories
 | 44 | langchain-ai | AI | [langchain](https://github.com/langchain-ai/langchain) | MIT | 149362 | Agent chains | No. Would replace the existing agent loop |
 | 45 | cohere-ai | AI | [cohere-python](https://github.com/cohere-ai/cohere-python) | MIT | 410 | Hosted models | No. Paid API. Not wired |
 | 46 | keycloak | Software / identity | [keycloak](https://github.com/keycloak/keycloak) | Apache-2.0 | 37821 | Optional IdP beside Cumulus ID | No. ei·det·ic already has an optional Keycloak verifier. The server was not copied |
-| 47 | stanfordnlp | AI | [dspy](https://github.com/stanfordnlp/dspy) | MIT | 39012 | Prompt programs | No. Would replace Zerkalo's own schemas |
-| 48 | NousResearch | AI | [Hermes-Function-Calling](https://github.com/NousResearch/Hermes-Function-Calling) | MIT | 1498 | Tool-call checks for Zerkalo | **Yes.** `zerkalo` |
 | 49 | google-deepmind | AI | [gemma](https://github.com/google-deepmind/gemma) | Apache-2.0 on this repository's code | 5841 | Model code | No. Weights ship under the Gemma terms, not Apache. Not copied |
 | 50 | tailscale | Software / VPN | [tailscale](https://github.com/tailscale/tailscale) | BSD-3-Clause | 38934 | VEIL coordination reference | No. The client is a whole mesh VPN |
 
@@ -102,6 +98,5 @@ Run on this machine with the new code left on (the off switches were covered by 
 |---|---|
 | `flower-pollen` | `npm test` 35 passed. `npm run typecheck` passed. Node is v22.23.4; the repo asks for Node ≥ 24, so npm printed `EBADENGINE`. SQLite here is the Node 22 experimental build. |
 | `eidetic` | `pnpm test` 51 passed, 1 skipped. `pnpm typecheck` passed. |
-| `zerkalo` | `python3 -m pytest` 16 passed. |
 | `prpgnd` | `tsc --noEmit` passed. The unit tests that do not need `.grok/skills` passed, including the two GrowthBook tests. `npm test` fails first: 4 script tests look for `.grok/skills/og/SKILL.md` and `.grok/skills/og/references`, which `.gitignore` excludes (`.grok/**`). Those 4 failures are on a fresh clone and are not caused by this change. |
 | `infinitum-nexus` | This change is the survey file only. The monorepo suite was not run. |

@@ -34,6 +34,8 @@ jobs:
       # Ephemeral database on the runner. Not a production credential.
       CUMULUS_CLOUD_DATABASE_URL: postgres://cumulus:cumulus@127.0.0.1:5432/cloud
       CUMULUS_CLOUD_REQUIRE_INTEGRATION: "1"
+      # Cumulus://ID's suites also run on PgCidRepository against the same database.
+      CID_TEST_PG_URL: postgres://cumulus:cumulus@127.0.0.1:5432/cloud
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -47,3 +49,7 @@ jobs:
       - run: pnpm --filter @infinitum/cloud typecheck
       - run: pnpm --filter @infinitum/cloud test
       - run: pnpm --filter @infinitum/cid test
+      # CUMULUS_STORE=postgres end to end: accounts become rows, the cid document is no longer saved.
+      - run: pnpm --filter @infinitum/spectre exec node --test --experimental-strip-types src/server/cid-store.test.ts src/server/cid-rows.test.ts src/server/local-cid.test.ts
+      # Mail end to end on Cumulus://ID rows (CUMULUS_STORE=gateway), before Mail switches.
+      - run: pnpm --filter @infinitum/cumulus-mail exec node --test --experimental-strip-types src/cid-gateway.http.test.ts

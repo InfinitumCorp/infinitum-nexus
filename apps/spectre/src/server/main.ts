@@ -11,6 +11,7 @@ import { veilFromEnv } from "@infinitum/veil/server";
 import { aiConfigFromEnv } from "./ai.ts";
 import { providersFromEnv } from "../core/messaging.ts";
 import { saveSnapshot, loadSnapshot } from "./persist.ts";
+import { localCidStorage } from "./local-cid.ts";
 
 /**
  * Starts +SPCTR.
@@ -83,6 +84,8 @@ if (!verified.ok) {
 // cid.json keeps its old name; mail, wallet, quota and suite sit next to it.
 const cumulusStores = loadCumulusStores(dataDir, emptyCumulusStores());
 const cidStore = cumulusStores.cid;
+// CUMULUS_STORE=postgres keeps Cumulus://ID in Postgres rows instead of cid.json (see local-cid.ts).
+const cidStorage = await localCidStorage(cidStore);
 const spectreStore = loadSnapshot(join(dataDir, "spectre.json"), emptyStore());
 // Social sign-in available to every Infinitum product that uses Cumulus://ID.
 const social = socialFromEnv();
@@ -90,11 +93,11 @@ const social = socialFromEnv();
 // Every CID that signs up through +SPCTR gets the full Cumulus account: Mail, Cloud and a FIRM Wallet.
 const suite = createCumulus({
   labyrinth: labyrinthFromEnvironment(process.env, process.env.LBRNTH_SNAPSHOT_FILE ?? join(dataDir, "labyrinth.json")),
-  ledger, signer, rpId, origins: [origin], stores: cumulusStores, social: { providers: social },
+  ledger, signer, rpId, origins: [origin], stores: cumulusStores, social: { providers: social }, repository: cidStorage.repository,
   mailOrigin: process.env.CUMULUS_MAIL_ORIGIN ?? cumulus.mailOrigin,
   masterKey: loadOrCreateMasterKey(dataDir),
 });
-suite.provisionAll();
+await suite.provisionAll();
 const cid = suite.cid;
 const crm = new SpectreCRM({ ledger, signer, store: spectreStore });
 
@@ -113,14 +116,14 @@ const app = createApp({
   twilioAuthToken: process.env.TWILIO_AUTH_TOKEN,
   veil: veilFromEnv(process.env),
   onChange: () => {
-    saveCumulusStores(dataDir, cumulusStores, { tunnel: suite.tunnel });
+    saveCumulusStores(dataDir, cumulusStores, { tunnel: suite.tunnel, skip: cidStorage.skipFiles });
     saveSnapshot(join(dataDir, "spectre.json"), spectreStore);
   },
 });
 
 const server = app.server();
 server.listen(port, () => {
-  console.log(`+SPCTR running at ${origin}  (ledger: ${verified.length} verified entries, AI: ${ai.router?.connected ? `open models via ${ai.router.providers.join(" → ")}` : "not connected"}, METATRON: ${process.env.USE_METATRON === "1" ? "on" : "off"}, sign-in: passkey${Object.keys(social).map((p) => ", " + p).join("")})`);
+  console.log(`+SPCTR running at ${origin}  (ledger: ${verified.length} verified entries, AI: ${ai.router?.connected ? `open models via ${ai.router.providers.join(" → ")}` : "not connected"}, METATRON: ${process.env.USE_METATRON === "1" ? "on" : "off"}, sign-in: passkey${Object.keys(social).map((p) => ", " + p).join("")}, Cumulus://ID: ${cidStorage.describe})`);
 });
 
 // Resume automation steps whose wait is over.

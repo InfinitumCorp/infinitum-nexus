@@ -62,6 +62,44 @@ Mail should treat the ID host as the issuer: send people to
 `https://id.cumuluscloud.app` and read `/api/id/userinfo` (or the ID token) from
 there. Do not copy NexusStore into Mail's Supabase store.
 
+## Upstream mode: one issuer for Mail (and Cloud)
+
+Set `CUMULUS_ID_ISSUER=https://id.cumuluscloud.app` on a product built on
+`@infinitum/cumulus` and it stops issuing IDs of its own:
+
+- `/api/auth/cid/start` sends the person to
+  `<issuer>/api/id/authorize` (code + PKCE, state bound to an HttpOnly cookie). The callback
+  `/api/auth/cid/callback` trades the code at `<issuer>/api/id/token` server to server, checks
+  the profile strictly, revokes the issuer token, and signs the person in to Mail with a local
+  session.
+- The local account is a mirror that keeps the issuer's **cid**, so the mailbox, Cloud quota and
+  FIRM Wallet line up with every other product. `CidService.adoptUpstreamAccount` does this, and
+  records `account.adopted` on Firmament.
+- `createAccount`, a first-time social sign-in and a first-time SSO member are refused with
+  `signup_at_issuer`. `/api/auth/cid/start?create=1` opens the issuer's sign-up (`prompt=create`).
+- Mail's `/api/id/*` alias answers `307` to the same path on the issuer, so buttons that still
+  point at `mail.cumuluscloud.app` get the issuer's cid. POST bodies are kept.
+- Accounts created on Mail before the switch keep signing in with their passkey. They are
+  **never** merged with an issuer account automatically: if `sam` exists on Mail under one cid and
+  on the issuer under another, issuer sign-in for `sam` is refused with `username_conflict`.
+  Those accounts need a deliberate migration (see below).
+
+### Cutover checklist for Mail
+
+1. Count Mail-only accounts and the usernames that also exist on the issuer (the conflicts).
+2. Decide the migration for the conflicts (move the mailbox to the issuer's cid, or reserve
+   the username on the issuer for the Mail owner) before announcing the switch.
+3. Set `CUMULUS_ID_ISSUER=https://id.cumuluscloud.app` on the Mail deployment and redeploy.
+4. Check: `GET https://mail.cumuluscloud.app/api/auth/issuer` returns the issuer, and
+   `POST /api/auth/signup` answers `400 signup_at_issuer`.
+
+Mail's sign-in page is not changed by this mode yet: it has no button for `/api/auth/cid/start`,
+and its local sign-up form answers `signup_at_issuer`. Update the page (separately approved)
+before setting `CUMULUS_ID_ISSUER` in production.
+
+Known limits: signing out everywhere at the issuer does not yet end Mail's local sessions, and
+MFA is enforced at the issuer only (a mirrored account has no local authenticator code).
+
 ## Deploy cumulus-id
 
 These steps are for the nexus Worker as it is today, before the cut-over. No DNS change is
@@ -252,7 +290,8 @@ In client mode (`apps/spectre/src/server/cid-oidc-client.ts` and `app.ts`):
 
 - `GET /api/auth/login` (`?prompt=create` opens account creation at the issuer) redirects to the
   issuer's `authorize` with PKCE S256, `state` and `nonce`. The verifier and nonce stay on the
-  server (CID store `issuerLogins`, keyed by the SHA-256 of `state`, 10 minutes, single use); the
+  server (a single-use `issuer` item in the CID repository, in memory or Postgres, keyed by the
+  SHA-256 of `state`, 10 minutes); the
   browser holds only `state` in an HttpOnly, SameSite=Lax cookie (`Secure` on https) scoped to
   `/api/auth`.
 - `GET /api/auth/callback` checks `state` against the cookie and the server copy, exchanges the

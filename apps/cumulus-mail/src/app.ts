@@ -1,5 +1,6 @@
 import { serveNodeLabyrinthUI } from "@infinitum/lbrnth";
 import { AiError, sharedRouter, type AiRouter } from "@infinitum/ai";
+import { searchFromEnv, type ChatMessage, type Search } from "@infinitum/ai/search";
 import { serveNodeLabyrinth, serveNodeLabyrinthProxy } from "@infinitum/lbrnth";
 /**
  * Cumulus://Mail HTTP app. Sign-in is Cumulus://ID; every request is scoped to the signed-in CID,
@@ -15,7 +16,7 @@ import { scalvsCleanAgent, type CleanAgent, type CleanSuggestion } from "./clean
 import { bulkSenders, classify, inboxMix, THREAD_ACTIONS, type ThreadAction, type ThreadSnapshot } from "@infinitum/mail";
 import { readFile } from "node:fs/promises";
 import { extname, join, normalize, sep } from "node:path";
-import { CidError, MAIL_DOMAIN, cumulusCorsHeaders, type Account } from "@infinitum/cid";
+import { CidError, MAIL_DOMAIN, UpstreamIdClient, UpstreamIdError, cumulusCorsHeaders, type Account } from "@infinitum/cid";
 import { QuotaError } from "@infinitum/cloud";
 import { WalletError } from "@infinitum/firm";
 import { MailError, isE2E, threadOf, transcript, type MailMessage } from "@infinitum/mail";
@@ -32,6 +33,12 @@ export const DRIVE_APP = "cumulus-cloud";
 export const DRIVE_SCOPES = ["drive:read", "drive:write"];
 const COOKIE = "cmail_session";
 const OAUTH_COOKIE = "cmail_oauth";
+const UPSTREAM_COOKIE = "cmail_cid";
+/** The legacy "Sign in with Cumulus://ID" alias. In upstream mode each one forwards to the issuer. */
+const ID_ALIAS_ROUTES: [method: string, path: string][] = [
+  ["GET", "/api/id/authorize"], ["GET", "/api/id/redeem"], ["GET", "/api/id/end"], ["GET", "/api/id/userinfo"], ["GET", "/api/id/me"],
+  ["POST", "/api/id/token"], ["POST", "/api/id/signout"],
+];
 const MAX_BODY = 25_000_000;
 const MUTATING = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
@@ -50,6 +57,8 @@ export interface MailAppDeps {
   onChange?: () => void;
   /** Open-model router for SCALVS; defaults to the shared router built from the environment. */
   ai?: AiRouter;
+  /** Infinitum Search (cited web answers). Defaults to SEARXNG_URL / YANDEX_* / BRAVE_* from the environment; null turns it off. */
+  search?: Search | null;
   /** Hosted mode: wraps each API request (sync, run, save). See src/vercel.ts. */
   transaction?: <T>(fn: () => Promise<T>) => Promise<T>;
   /** Serverless hosts can't keep a timer running; they call sendDue from a cron route instead. */
@@ -66,6 +75,8 @@ export interface MailAppDeps {
   billingStore?: BillingLinkStore;
   /** Infinitum revenue API (Stripe Checkout, portal, entitlements). Defaults to the production API. */
   revenue?: RevenueClient;
+  /** Upstream mode only: how Mail calls the Cumulus://ID token endpoint. Defaults to fetch (tests inject one). */
+  upstreamFetch?: typeof fetch;
 }
 
 class HttpError extends Error {
@@ -77,8 +88,11 @@ class HttpError extends Error {
 }
 class Redirect {
   readonly location: string;
-  constructor(location: string) {
+  /** 302 by default; 307 keeps the method and body (used to forward POSTs to the issuer). */
+  readonly status: 302 | 307;
+  constructor(location: string, status: 302 | 307 = 302) {
     this.location = location;
+    this.status = status;
   }
 }
 
@@ -167,12 +181,29 @@ function routerScalvs(router: AiRouter) {
   };
 }
 
+/** Infinitum Search from the environment, answering with SCALVS on the open-model router. */
+function mailSearchFromEnv(router: AiRouter): Search | null {
+  const chat = async (messages: ChatMessage[]) => {
+    const system = messages.filter((m) => m.role === "system").map((m) => m.content).join("\n\n");
+    const user = messages.filter((m) => m.role !== "system").map((m) => m.content).join("\n\n");
+    return router.complete(system, user, { maxTokens: 1200, tier: "fast", temperature: 0.2 });
+  };
+  try {
+    return searchFromEnv(process.env, router.connected ? { chat } : {});
+  } catch (err) {
+    console.warn(`Infinitum Search is off: ${(err as Error).message}`);
+    return null;
+  }
+}
+
 export function createMailApp(deps: MailAppDeps) {
   const { suite } = deps;
   const { cid, mail } = suite;
   const ai = deps.ai ?? sharedRouter();
   const scalvs = deps.scalvs ?? routerScalvs(ai);
   const cleanAgent = deps.cleanAgent ?? scalvsCleanAgent({ router: ai });
+  const search = deps.search !== undefined ? deps.search : mailSearchFromEnv(ai);
+  const searchTimes = new Map<string, number[]>();
   const suggestions = new Map<string, { list: CleanSuggestion[]; note: string }>(); // per CID, in memory until approved
   const routes: { method: string; pattern: RegExp; keys: string[]; auth: boolean; optionalAuth: boolean; csrf: boolean; drive: boolean; handler: Handler }[] = [];
   const route = (method: string, path: string, handler: Handler, auth = true, opts: { csrf?: boolean; optionalAuth?: boolean; drive?: boolean } = {}) => {
@@ -191,8 +222,10 @@ export function createMailApp(deps: MailAppDeps) {
   };
   /** Signing in to Mail grants Mail access to the mailbox; the grant is recorded on Firmament. */
   const ensureGrant = async (account: Account) => {
-    if (!MAIL_SCOPES.every((s) => cid.can(account.cid, "cumulus-mail", s))) await cid.grant(account.cid, "cumulus-mail", MAIL_SCOPES);
-    suite.summary(account.cid); // provisions older CIDs on first visit
+    let missing = false;
+    for (const s of MAIL_SCOPES) if (!(await cid.can(account.cid, "cumulus-mail", s))) missing = true;
+    if (missing) await cid.grant(account.cid, "cumulus-mail", MAIL_SCOPES);
+    await suite.summary(account.cid); // provisions older CIDs on first visit
   };
   const me = (ctx: Ctx) => ctx.user!.account.cid;
 
@@ -202,13 +235,13 @@ export function createMailApp(deps: MailAppDeps) {
     store: deps.workspaceStore ?? new WorkspaceStore(),
     quota: suite.quota,
     files: deps.files,
-    resolve: (who) => suite.stores.cid.byUsername.get(idName(who)),
-    label: (c) => suite.stores.cid.accounts.get(c)?.mailAddress ?? "a Cumulus user",
+    resolve: (who) => cid.cidForUsername(idName(who)),
+    label: async (c) => (await cid.findAccount(c))?.mailAddress ?? "a Cumulus user",
   });
   /** Drive turns on the first time someone opens it; after that the CID permissions dashboard decides. */
   const driveAccess = async (cidValue: string, write: boolean) => {
     if (workspace.firstVisit(cidValue)) await cid.grant(cidValue, DRIVE_APP, DRIVE_SCOPES);
-    if (!cid.can(cidValue, DRIVE_APP, write ? "drive:write" : "drive:read")) throw new HttpError(403, "Drive's access was revoked in your Cumulus://ID permissions");
+    if (!await cid.can(cidValue, DRIVE_APP, write ? "drive:write" : "drive:read")) throw new HttpError(403, "Drive's access was revoked in your Cumulus://ID permissions");
   };
   const KIND_LABEL: Record<string, string> = { folder: "a folder", file: "a file", dox: "a document", spreads: "a spreadsheet", podium: "a presentation" };
   const itemLink = (kind: string, id: string) => `${deps.origin}/drive/#/${kind}/${id}`;
@@ -223,7 +256,7 @@ export function createMailApp(deps: MailAppDeps) {
     const write = req.method !== "GET" && req.method !== "HEAD";
     const signedIn = async () => {
       const token = parseCookies(req.headers.cookie)[COOKIE];
-      const session = token ? cid.authenticate(token) : null;
+      const session = token ? await cid.authenticate(token) : null;
       if (!session) throw new HttpError(401, "Please sign in");
       await driveAccess(session.account.cid, write);
       return session.account.cid;
@@ -267,24 +300,24 @@ export function createMailApp(deps: MailAppDeps) {
   };
 
   const drive = { drive: true };
-  route("GET", "/api/drive", (ctx) => workspace.list(me(ctx), { folder: ctx.query.get("folder"), view: ctx.query.get("view") ?? undefined, q: ctx.query.get("q") ?? undefined }), true, drive);
-  route("GET", "/api/drive/items/:id", (ctx) => workspace.get(me(ctx), ctx.params.id), true, drive);
-  route("POST", "/api/drive/folders", (ctx) => workspace.createFolder(me(ctx), ctx.body.name, ctx.body.parent ?? null), true, drive);
-  route("POST", "/api/drive/docs", (ctx) => {
+  route("GET", "/api/drive", async (ctx) => workspace.list(me(ctx), { folder: ctx.query.get("folder"), view: ctx.query.get("view") ?? undefined, q: ctx.query.get("q") ?? undefined }), true, drive);
+  route("GET", "/api/drive/items/:id", async (ctx) => workspace.get(me(ctx), ctx.params.id), true, drive);
+  route("POST", "/api/drive/folders", async (ctx) => workspace.createFolder(me(ctx), ctx.body.name, ctx.body.parent ?? null), true, drive);
+  route("POST", "/api/drive/docs", async (ctx) => {
     need(ctx, "kind");
     return workspace.createDoc(me(ctx), str(ctx.body.kind, 10) as DocKind, ctx.body.name, ctx.body.parent ?? null, ctx.body.content);
   }, true, drive);
-  route("PATCH", "/api/drive/items/:id", (ctx) => workspace.update(me(ctx), ctx.params.id, { name: ctx.body.name, parent: ctx.body.parent, starred: ctx.body.starred, trashed: ctx.body.trashed }), true, drive);
-  route("DELETE", "/api/drive/items/:id", (ctx) => workspace.remove(me(ctx), ctx.params.id), true, drive);
-  route("POST", "/api/drive/trash/empty", (ctx) => workspace.emptyTrash(me(ctx)), true, drive);
-  route("GET", "/api/drive/items/:id/doc", (ctx) => workspace.readDoc(me(ctx), ctx.params.id), true, drive);
-  route("PUT", "/api/drive/items/:id/doc", (ctx) => {
+  route("PATCH", "/api/drive/items/:id", async (ctx) => workspace.update(me(ctx), ctx.params.id, { name: ctx.body.name, parent: ctx.body.parent, starred: ctx.body.starred, trashed: ctx.body.trashed }), true, drive);
+  route("DELETE", "/api/drive/items/:id", async (ctx) => workspace.remove(me(ctx), ctx.params.id), true, drive);
+  route("POST", "/api/drive/trash/empty", async (ctx) => workspace.emptyTrash(me(ctx)), true, drive);
+  route("GET", "/api/drive/items/:id/doc", async (ctx) => workspace.readDoc(me(ctx), ctx.params.id), true, drive);
+  route("PUT", "/api/drive/items/:id/doc", async (ctx) => {
     need(ctx, "doc", "version");
     return workspace.saveDoc(me(ctx), ctx.params.id, ctx.body.doc, Number(ctx.body.version));
   }, true, drive);
-  route("POST", "/api/drive/items/:id/share", (ctx) => {
+  route("POST", "/api/drive/items/:id/share", async (ctx) => {
     need(ctx, "with");
-    const { item, target } = workspace.share(me(ctx), ctx.params.id, idName(ctx.body.with));
+    const { item, target } = await workspace.share(me(ctx), ctx.params.id, idName(ctx.body.with));
     const from = ctx.user!.account;
     mail.notify(target, "cloud", {
       subject: `${from.username} shared “${item.name}” with you`,
@@ -292,19 +325,28 @@ export function createMailApp(deps: MailAppDeps) {
     });
     return item;
   }, true, drive);
-  route("DELETE", "/api/drive/items/:id/share/:who", (ctx) => workspace.unshare(me(ctx), ctx.params.id, idName(ctx.params.who)), true, drive);
-  route("POST", "/api/drive/items/:id/leave", (ctx) => workspace.leave(me(ctx), ctx.params.id), true, drive);
+  route("DELETE", "/api/drive/items/:id/share/:who", async (ctx) => workspace.unshare(me(ctx), ctx.params.id, idName(ctx.params.who)), true, drive);
+  route("POST", "/api/drive/items/:id/leave", async (ctx) => workspace.leave(me(ctx), ctx.params.id), true, drive);
 
   /* ---------------- "Sign in with Cumulus://ID" for every Infinitum product ---------------- */
 
-  registerIdProvider({ route, cid, origin: deps.origin, sessionCookie, device, need, str, Redirect, HttpError });
+  if (cid.upstreamIssuer) {
+    // Upstream mode: id.cumuluscloud.app is the only issuer. Buttons that still point at Mail are
+    // forwarded there unchanged (307 keeps POST bodies), so every product gets the issuer's cid.
+    for (const [method, path] of ID_ALIAS_ROUTES) {
+      route(method, path, (ctx) => new Redirect(`${cid.upstreamIssuer}${path}${ctx.query.size ? `?${ctx.query}` : ""}`, 307), false, { csrf: false });
+    }
+  } else {
+    registerIdProvider({ route, cid, origin: deps.origin, sessionCookie, device, need, str, Redirect, HttpError });
+  }
 
   /* ---------------- Buying Infinitum products with a Cumulus://ID (see billing.ts) ---------------- */
 
   registerBilling({
     route, cid, origin: deps.origin, str, Redirect, HttpError,
     store: deps.billingStore ?? new BillingLinkStore(),
-    revenue: deps.revenue ?? new RevenueClient(),
+    // REVENUE_CID_PARTNER_KEY: one billing org per Cumulus ID, shared with product apps (server-side secret).
+    revenue: deps.revenue ?? new RevenueClient({ cidPartnerKey: process.env.REVENUE_CID_PARTNER_KEY }),
   });
 
   /**
@@ -318,10 +360,10 @@ export function createMailApp(deps: MailAppDeps) {
     // Hosted: sessions live in the shared state, so check them inside a transaction (which loads it).
     const signedIn = async () => {
       const token = parseCookies(req.headers.cookie)[COOKIE];
-      const session = token ? cid.authenticate(token) : null;
+      const session = token ? await cid.authenticate(token) : null;
       if (!session) throw new HttpError(401, "Please sign in");
       const scope = req.method === "GET" ? "mail:read" : "mail:write";
-      if (!cid.can(session.account.cid, "cumulus-mail", scope)) throw new HttpError(403, "Mail's access was revoked in your Cumulus://ID permissions");
+      if (!await cid.can(session.account.cid, "cumulus-mail", scope)) throw new HttpError(403, "Mail's access was revoked in your Cumulus://ID permissions");
       return session.account.cid;
     };
     const owner = deps.transaction ? await deps.transaction(signedIn) : await signedIn();
@@ -381,12 +423,12 @@ export function createMailApp(deps: MailAppDeps) {
     return list;
   };
 
-  const state = (cidValue: string) => {
-    mail.autoClean(cidValue); // the Clean rules run on their own, at most once an hour
-    const view = mail.view(cidValue);
+  const state = async (cidValue: string) => {
+    await mail.autoClean(cidValue); // the Clean rules run on their own, at most once an hour
+    const view = { ...mail.view(cidValue), quota: await mail.quotaOf(cidValue) };
     const prefix = `${cidValue}|`;
     const own = Object.fromEntries([...briefs].filter(([k]) => k.startsWith(prefix)).map(([k, v]) => [k.slice(prefix.length), v]));
-    return { ...view, messages: view.messages.map((m) => ({ ...m, kind: classify(m) })), briefs: own, account: suite.summary(cidValue), tunnel: { fingerprint: mail.fingerprint(cidValue), atRest: suite.tunnel.persistent } };
+    return { ...view, messages: view.messages.map((m) => ({ ...m, kind: classify(m) })), briefs: own, account: await suite.summary(cidValue), tunnel: { fingerprint: mail.fingerprint(cidValue), atRest: suite.tunnel.persistent } };
   };
 
   /* ---------------- Cumulus://ID sign-in ---------------- */
@@ -394,24 +436,24 @@ export function createMailApp(deps: MailAppDeps) {
   route("POST", "/api/auth/signup", async (ctx) => {
     need(ctx, "username");
     const account = await cid.createAccount({ username: idName(ctx.body.username) });
-    return { cid: account.cid, options: cid.startAuthenticatorRegistration(account.cid, "passkey") };
+    return { cid: account.cid, options: await cid.startAuthenticatorRegistration(account.cid, "passkey") };
   }, false);
 
   route("POST", "/api/auth/signup/finish", async (ctx) => {
     need(ctx, "cid", "response");
     await cid.finishAuthenticatorRegistration(str(ctx.body.cid), ctx.body.response, { kind: "passkey", label: str(ctx.body.label ?? "Passkey", 60) });
-    const account = cid.getAccount(str(ctx.body.cid));
-    return { signedUp: true, options: cid.startSignIn(account.username) };
+    const account = await cid.getAccount(str(ctx.body.cid));
+    return { signedUp: true, options: await cid.startSignIn(account.username) };
   }, false);
 
-  route("POST", "/api/auth/signin", (ctx) => ({ options: cid.startSignIn(ctx.body.username ? idName(ctx.body.username) : undefined) }), false);
+  route("POST", "/api/auth/signin", async (ctx) => ({ options: await cid.startSignIn(ctx.body.username ? idName(ctx.body.username) : undefined) }), false);
 
   route("POST", "/api/auth/signin/finish", async (ctx) => {
     need(ctx, "response");
     const result = await cid.finishSignIn(ctx.body.response, device(ctx));
     if (result.status === "mfa_required") return result;
     ctx.res.setHeader("Set-Cookie", sessionCookie(result.token));
-    await ensureGrant(cid.getAccount(result.session.cid));
+    await ensureGrant(await cid.getAccount(result.session.cid));
     return { status: "ok" };
   }, false);
 
@@ -419,7 +461,7 @@ export function createMailApp(deps: MailAppDeps) {
     need(ctx, "mfaToken", "code");
     const { token, session } = await cid.completeMfa(str(ctx.body.mfaToken), str(ctx.body.code, 10));
     ctx.res.setHeader("Set-Cookie", sessionCookie(token));
-    await ensureGrant(cid.getAccount(session.cid));
+    await ensureGrant(await cid.getAccount(session.cid));
     return { status: "ok" };
   }, false);
 
@@ -443,11 +485,51 @@ export function createMailApp(deps: MailAppDeps) {
     need(ctx, "code", "verifier");
     const { token, session } = await cid.redeemDeviceHandoff(str(ctx.body.code, 64), str(ctx.body.verifier, 128), device(ctx));
     ctx.res.setHeader("Set-Cookie", sessionCookie(token));
-    await ensureGrant(cid.getAccount(session.cid));
+    await ensureGrant(await cid.getAccount(session.cid));
     return { status: "ok" };
   }, false);
 
   route("GET", "/api/auth/providers", () => cid.socialProvidersEnabled(), false);
+
+  /* ---------------- Upstream mode: sign in at id.cumuluscloud.app ---------------- */
+
+  /** Where the sign-in page should send people, or null when Mail still issues its own IDs. */
+  route("GET", "/api/auth/issuer", () => ({ issuer: cid.upstreamIssuer ?? null }), false);
+  if (cid.upstreamIssuer) {
+    const upstream = new UpstreamIdClient({
+      issuer: cid.upstreamIssuer,
+      clientId: "cumulus-mail",
+      redirectUri: `${deps.origin}/api/auth/cid/callback`,
+      mailDomain: cid.mailDomain,
+      fetchImpl: deps.upstreamFetch,
+    });
+    const upstreamCookie = (value: string, maxAge: number) =>
+      `${UPSTREAM_COOKIE}=${value}; HttpOnly; Path=/api/auth/cid; SameSite=Lax; Max-Age=${maxAge}${deps.secureCookies ? "; Secure" : ""}`;
+    route("GET", "/api/auth/cid/start", async (ctx) => {
+      const { url, cookie } = upstream.start({ create: ctx.query.get("create") === "1" });
+      ctx.res.setHeader("Set-Cookie", upstreamCookie(cookie, 600));
+      return new Redirect(url);
+    }, false);
+    route("GET", "/api/auth/cid/callback", async (ctx) => {
+      const q = ctx.query;
+      const clear = upstreamCookie("", 0);
+      if (q.get("error")) {
+        ctx.res.setHeader("Set-Cookie", clear);
+        return new Redirect(`/#/signin-error/${encodeURIComponent("Sign-in was cancelled.")}`);
+      }
+      try {
+        const profile = await upstream.finish({ code: q.get("code"), state: q.get("state"), cookie: parseCookies(ctx.req.headers.cookie)[UPSTREAM_COOKIE] });
+        const { token, session } = await cid.adoptUpstreamAccount(profile, device(ctx));
+        ctx.res.setHeader("Set-Cookie", [clear, sessionCookie(token)]);
+        await ensureGrant(await cid.getAccount(session.cid));
+        return new Redirect("/");
+      } catch (err) {
+        ctx.res.setHeader("Set-Cookie", clear);
+        const message = err instanceof CidError || err instanceof UpstreamIdError ? err.message : "Sign-in failed. Please try again.";
+        return new Redirect(`/#/signin-error/${encodeURIComponent(message)}`);
+      }
+    }, false);
+  }
 
   const oauthCookie = (provider: string, value: string, maxAge: number) => {
     const sameSite = provider === "apple" && deps.secureCookies ? "None" : "Lax";
@@ -466,7 +548,7 @@ export function createMailApp(deps: MailAppDeps) {
       if (result.status === "mfa_required") return new Redirect(`/#/mfa/${result.mfaToken}`);
       if (result.status === "linked") return new Redirect("/");
       ctx.res.setHeader("Set-Cookie", [oauthCookie(ctx.params.provider, "", 0), sessionCookie(result.token)]);
-      await ensureGrant(cid.getAccount(result.session.cid));
+      await ensureGrant(await cid.getAccount(result.session.cid));
       return new Redirect("/");
     } catch (err) {
       const message = err instanceof CidError ? err.message : "Sign-in failed. Please try again.";
@@ -478,11 +560,11 @@ export function createMailApp(deps: MailAppDeps) {
 
   /* ---------------- Account: one summary for every product ---------------- */
 
-  route("GET", "/api/me", (ctx) => suite.summary(me(ctx)));
+  route("GET", "/api/me", async (ctx) => suite.summary(me(ctx)));
 
   /* ---------------- Mail ---------------- */
 
-  route("GET", "/api/state", (ctx) => state(me(ctx)));
+  route("GET", "/api/state", async (ctx) => await state(me(ctx)));
 
   route("POST", "/api/send", async (ctx) => {
     const b = ctx.body;
@@ -492,10 +574,10 @@ export function createMailApp(deps: MailAppDeps) {
       threadId: b.threadId ? str(b.threadId, 80) : undefined, draftId: b.draftId ? str(b.draftId, 80) : undefined, payment,
       attachments: ownFiles(me(ctx), b.attachments),
     });
-    return { ...result, ok: true, state: state(me(ctx)) };
+    return { ...result, ok: true, state: await state(me(ctx)) };
   });
 
-  route("POST", "/api/schedule", (ctx) => {
+  route("POST", "/api/schedule", async (ctx) => {
     const b = ctx.body;
     const payment = b.payment && str(b.payment.amount) ? { asset: str(b.payment.asset, 10), amount: str(b.payment.amount, 30) } : undefined;
     const result = mail.schedule(me(ctx), {
@@ -503,31 +585,31 @@ export function createMailApp(deps: MailAppDeps) {
       threadId: b.threadId ? str(b.threadId, 80) : undefined, draftId: b.draftId ? str(b.draftId, 80) : undefined, payment,
       attachments: ownFiles(me(ctx), b.attachments),
     }, str(b.sendAt, 40));
-    return { ...result, state: state(me(ctx)) };
+    return { ...result, state: await state(me(ctx)) };
   });
-  route("POST", "/api/schedule/cancel", (ctx) => {
+  route("POST", "/api/schedule/cancel", async (ctx) => {
     if (!mail.unschedule(me(ctx), str(ctx.body.id, 80))) throw new HttpError(404, "That message isn't scheduled.");
-    return state(me(ctx));
+    return await state(me(ctx));
   });
 
-  route("POST", "/api/draft", (ctx) => {
+  route("POST", "/api/draft", async (ctx) => {
     const b = ctx.body;
     const saved = mail.saveDraft(me(ctx), { to: str(b.to, 4000), cc: str(b.cc ?? "", 4000), subject: str(b.subject, 300), body: str(b.body), threadId: b.threadId ? str(b.threadId, 80) : undefined, draftId: b.draftId ? str(b.draftId, 80) : undefined, attachments: ownFiles(me(ctx), b.attachments) });
-    return { ...saved, state: state(me(ctx)) };
+    return { ...saved, state: await state(me(ctx)) };
   });
 
-  route("POST", "/api/read", (ctx) => { if (ctx.body.threadId) mail.markThreadRead(me(ctx), str(ctx.body.threadId, 80)); return state(me(ctx)); });
-  route("POST", "/api/star", (ctx) => { if (ctx.body.id) mail.toggleStar(me(ctx), str(ctx.body.id, 80)); return state(me(ctx)); });
-  route("POST", "/api/move", (ctx) => { need(ctx, "id", "folder"); mail.move(me(ctx), str(ctx.body.id, 80), str(ctx.body.folder, 20) as never); return state(me(ctx)); });
-  route("POST", "/api/snooze", (ctx) => {
+  route("POST", "/api/read", async (ctx) => { if (ctx.body.threadId) mail.markThreadRead(me(ctx), str(ctx.body.threadId, 80)); return await state(me(ctx)); });
+  route("POST", "/api/star", async (ctx) => { if (ctx.body.id) mail.toggleStar(me(ctx), str(ctx.body.id, 80)); return await state(me(ctx)); });
+  route("POST", "/api/move", async (ctx) => { need(ctx, "id", "folder"); mail.move(me(ctx), str(ctx.body.id, 80), str(ctx.body.folder, 20) as never); return await state(me(ctx)); });
+  route("POST", "/api/snooze", async (ctx) => {
     need(ctx, "id", "until");
     if (!mail.snooze(me(ctx), str(ctx.body.id, 80), str(ctx.body.until, 40))) throw new HttpError(404, "That message is not in this mailbox.");
-    return state(me(ctx));
+    return await state(me(ctx));
   });
-  route("POST", "/api/remove", (ctx) => { if (ctx.body.id) mail.remove(me(ctx), str(ctx.body.id, 80)); return state(me(ctx)); });
+  route("POST", "/api/remove", async (ctx) => { if (ctx.body.id) await mail.remove(me(ctx), str(ctx.body.id, 80)); return await state(me(ctx)); });
   // Conversation actions. Each returns an undo id, kept in memory for 10 minutes.
   const undos = new Map<string, { cid: string; before: ThreadSnapshot[]; at: number }>();
-  route("POST", "/api/threads", (ctx) => {
+  route("POST", "/api/threads", async (ctx) => {
     const action = str(ctx.body.action, 20) as ThreadAction;
     if (!THREAD_ACTIONS.includes(action)) throw new HttpError(400, "Unknown action");
     const ids = (Array.isArray(ctx.body.threadIds) ? ctx.body.threadIds : []).map((x: unknown) => str(x, 80)).filter(Boolean);
@@ -540,24 +622,24 @@ export function createMailApp(deps: MailAppDeps) {
       undo = `u-${randomUUID()}`;
       undos.set(undo, { cid: me(ctx), before, at: now });
     }
-    return { count, undo, state: state(me(ctx)) };
+    return { count, undo, state: await state(me(ctx)) };
   });
-  route("POST", "/api/undo", (ctx) => {
+  route("POST", "/api/undo", async (ctx) => {
     const entry = undos.get(str(ctx.body.id, 80));
     if (!entry || entry.cid !== me(ctx)) throw new HttpError(404, "Nothing to undo.");
     undos.delete(str(ctx.body.id, 80));
-    return { restored: mail.restore(me(ctx), entry.before), state: state(me(ctx)) };
+    return { restored: mail.restore(me(ctx), entry.before), state: await state(me(ctx)) };
   });
-  route("POST", "/api/trash/empty", (ctx) => ({ removed: mail.emptyTrash(me(ctx)), state: state(me(ctx)) }));
-  route("POST", "/api/alias", (ctx) => ({ ok: mail.addAlias(me(ctx), str(ctx.body.alias, 120)), state: state(me(ctx)) }));
-  route("POST", "/api/task", (ctx) => ({
+  route("POST", "/api/trash/empty", async (ctx) => ({ removed: await mail.emptyTrash(me(ctx)), state: await state(me(ctx)) }));
+  route("POST", "/api/alias", async (ctx) => ({ ok: mail.addAlias(me(ctx), str(ctx.body.alias, 120)), state: await state(me(ctx)) }));
+  route("POST", "/api/task", async (ctx) => ({
     ok: mail.addTask(me(ctx), { title: str(ctx.body.title ?? "Task", 180), detail: str(ctx.body.detail ?? "Queued from mail", 240), messageId: ctx.body.messageId ? str(ctx.body.messageId, 80) : undefined }),
-    state: state(me(ctx)),
+    state: await state(me(ctx)),
   }));
-  route("POST", "/api/task/toggle", (ctx) => { if (ctx.body.id) mail.toggleTask(me(ctx), str(ctx.body.id, 80)); return state(me(ctx)); });
-  route("POST", "/api/contact", (ctx) => ({ ok: mail.addContact(me(ctx), { name: str(ctx.body.name, 120), email: str(ctx.body.email, 200) }), state: state(me(ctx)) }));
+  route("POST", "/api/task/toggle", async (ctx) => { if (ctx.body.id) mail.toggleTask(me(ctx), str(ctx.body.id, 80)); return await state(me(ctx)); });
+  route("POST", "/api/contact", async (ctx) => ({ ok: mail.addContact(me(ctx), { name: str(ctx.body.name, 120), email: str(ctx.body.email, 200) }), state: await state(me(ctx)) }));
 
-  route("GET", "/api/message", (ctx) => {
+  route("GET", "/api/message", async (ctx) => {
     const message = mail.message(me(ctx), ctx.query.get("id") ?? "");
     if (!message) throw new HttpError(404, "Not found");
     return { message, e2e: isE2E(message) };
@@ -572,6 +654,24 @@ export function createMailApp(deps: MailAppDeps) {
     if (!result.ok) throw new HttpError(400, result.error);
     if (mode === "summary") briefs.set(`${me(ctx)}|${thread.map((m) => m.id).join(":")}`, result.text);
     return result;
+  });
+
+  /* ---------------- Infinitum Search ---------------- */
+
+  /** Is web search on, and which engines answer. */
+  route("GET", "/api/web-search", () => ({ connected: Boolean(search), engines: search?.engines ?? [], answers: Boolean(search?.answers) }));
+  /** A Perplexity-style answer: the engine finds pages, SCALVS reads them and answers with [n] citations. */
+  route("POST", "/api/web-search", async (ctx) => {
+    if (!search) throw new HttpError(503, "Web search isn't connected. Set SEARXNG_URL, YANDEX_SEARCH_API_KEY + YANDEX_FOLDER_ID, or BRAVE_SEARCH_API_KEY.");
+    const query = str(ctx.body.query, 1000).trim();
+    if (!query) throw new HttpError(400, "Type something to search for");
+    const now = Date.now();
+    const times = (searchTimes.get(me(ctx)) ?? []).filter((t) => now - t < 60_000);
+    if (times.length >= 12) throw new HttpError(429, "Too many searches. Try again in a minute.");
+    times.push(now);
+    searchTimes.set(me(ctx), times);
+    const r = await search.ask(query);
+    return { query: r.query, answer: r.answer, cited: r.cited, sources: r.sources, engine: r.engine, read: r.read };
   });
 
   /* ---------------- SCALVS Clean ---------------- */
@@ -591,21 +691,21 @@ export function createMailApp(deps: MailAppDeps) {
       note: s?.note ?? "",
     };
   };
-  const withState = (cidValue: string, extra: object = {}) => {
-    const st = state(cidValue);
+  const withState = async (cidValue: string, extra: object = {}) => {
+    const st = await state(cidValue);
     return { ...extra, state: st, clean: cleanView(cidValue) };
   };
 
-  route("GET", "/api/clean", (ctx) => cleanView(me(ctx)));
-  route("POST", "/api/clean/rules", (ctx) => {
+  route("GET", "/api/clean", async (ctx) => cleanView(me(ctx)));
+  route("POST", "/api/clean/rules", async (ctx) => {
     const b = ctx.body as Record<string, unknown>;
     const patch: Record<string, unknown> = {};
     for (const k of ["auto", "newslettersAfterDays", "notificationsAfterDays", "bouncesAfterDays", "emptyTrashAfterDays"]) if (k in b) patch[k] = b[k];
     mail.setCleanRules(me(ctx), patch);
     return withState(me(ctx));
   });
-  route("POST", "/api/clean/run", (ctx) => {
-    const done = mail.runClean(me(ctx), "you");
+  route("POST", "/api/clean/run", async (ctx) => {
+    const done = await mail.runClean(me(ctx), "you");
     return withState(me(ctx), { moved: done.reduce((n, e) => n + e.ids.length, 0) });
   });
   route("POST", "/api/clean/scalvs", async (ctx) => {
@@ -619,31 +719,31 @@ export function createMailApp(deps: MailAppDeps) {
     }
     return withState(cidValue);
   });
-  route("POST", "/api/clean/approve", (ctx) => {
+  route("POST", "/api/clean/approve", async (ctx) => {
     const cidValue = me(ctx);
     const s = suggestions.get(cidValue);
     const pick = s?.list.find((x) => x.id === str(ctx.body.id, 80));
     if (!s || !pick) throw new HttpError(404, "That suggestion is gone. Ask SCALVS again.");
-    if (pick.kind === "mute" && pick.email) mail.muteSender(cidValue, pick.email);
-    else if (pick.kind !== "mute") mail.applyClean(cidValue, [{ kind: pick.kind, ids: pick.ids, reason: pick.reason }], pick.source === "scalvs" ? "scalvs" : "you");
+    if (pick.kind === "mute" && pick.email) await mail.muteSender(cidValue, pick.email);
+    else if (pick.kind !== "mute") await mail.applyClean(cidValue, [{ kind: pick.kind, ids: pick.ids, reason: pick.reason }], pick.source === "scalvs" ? "scalvs" : "you");
     s.list = s.list.filter((x) => x.id !== pick.id);
     return withState(cidValue);
   });
-  route("POST", "/api/clean/dismiss", (ctx) => {
+  route("POST", "/api/clean/dismiss", async (ctx) => {
     const s = suggestions.get(me(ctx));
     if (s) s.list = s.list.filter((x) => x.id !== str(ctx.body.id, 80));
     return withState(me(ctx));
   });
-  route("POST", "/api/clean/undo", (ctx) => {
+  route("POST", "/api/clean/undo", async (ctx) => {
     const restored = mail.undoClean(me(ctx), str(ctx.body.id, 80));
     return withState(me(ctx), { restored });
   });
-  route("POST", "/api/clean/mute", (ctx) => {
+  route("POST", "/api/clean/mute", async (ctx) => {
     need(ctx, "email");
-    mail.muteSender(me(ctx), str(ctx.body.email, 200));
+    await mail.muteSender(me(ctx), str(ctx.body.email, 200));
     return withState(me(ctx));
   });
-  route("POST", "/api/clean/unmute", (ctx) => {
+  route("POST", "/api/clean/unmute", async (ctx) => {
     need(ctx, "email");
     mail.unmuteSender(me(ctx), str(ctx.body.email, 200));
     return withState(me(ctx));
@@ -651,14 +751,14 @@ export function createMailApp(deps: MailAppDeps) {
 
   /* ---------------- FIRM Wallet, inside Mail ---------------- */
 
-  route("GET", "/api/wallet", (ctx) => {
+  route("GET", "/api/wallet", async (ctx) => {
     const w = suite.wallets.get(me(ctx))!;
     return { address: w.address, balances: suite.wallets.balances(me(ctx)), history: suite.wallets.history(me(ctx)).map((t) => ({ ...t, direction: t.to === me(ctx) ? "in" : "out", counterparty: t.from === null ? "Settlement" : mail.addressOf(t.to === me(ctx) ? t.from : t.to) })) };
   });
   route("POST", "/api/wallet/pay", async (ctx) => {
     need(ctx, "to", "asset", "amount");
     const tx = await suite.pay(me(ctx), str(ctx.body.to, 200), str(ctx.body.asset, 10), str(ctx.body.amount, 30), str(ctx.body.memo ?? "", 140));
-    return { tx, state: state(me(ctx)) };
+    return { tx, state: await state(me(ctx)) };
   });
 
   /* ---------------- HTTP plumbing ---------------- */
@@ -728,14 +828,14 @@ export function createMailApp(deps: MailAppDeps) {
       const run = async () => {
       if (r.auth || r.optionalAuth) {
         const token = parseCookies(req.headers.cookie)[COOKIE];
-        const session = token ? cid.authenticate(token) : null;
+        const session = token ? await cid.authenticate(token) : null;
         if (!session && r.auth) throw new HttpError(401, "Please sign in");
         if (session && r.drive) {
           await driveAccess(session.account.cid, MUTATING.has(req.method!));
           ctx.user = { account: session.account, sessionId: session.session.id };
         } else if (session) {
           const scope = MUTATING.has(req.method!) ? "mail:write" : "mail:read";
-          if (r.auth && !cid.can(session.account.cid, "cumulus-mail", scope)) throw new HttpError(403, "Mail's access was revoked in your Cumulus://ID permissions");
+          if (r.auth && !await cid.can(session.account.cid, "cumulus-mail", scope)) throw new HttpError(403, "Mail's access was revoked in your Cumulus://ID permissions");
           ctx.user = { account: session.account, sessionId: session.session.id };
         }
       }
@@ -745,7 +845,7 @@ export function createMailApp(deps: MailAppDeps) {
       const result = deps.transaction ? await deps.transaction(run) : await run();
       if (MUTATING.has(req.method!) || result instanceof Redirect) deps.onChange?.();
       if (result instanceof Redirect) {
-        res.writeHead(302, { Location: result.location, "Cache-Control": "no-store" });
+        res.writeHead(result.status, { Location: result.location, "Cache-Control": "no-store" });
         res.end();
         return;
       }

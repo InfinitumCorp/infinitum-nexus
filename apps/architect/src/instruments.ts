@@ -2,32 +2,68 @@
  * Architect instrument adapters.
  * Real adapters (browser, HTTP APIs, Spectre, etc.) register here.
  */
+import { searchFromEnv, type Search } from "@infinitum/ai/search";
 import { registerInstrument, type Instrument } from "./executor.ts";
 
 const SPECTRE_BASE = process.env.SPECTRE_URL ?? "http://localhost:3000";
 
-export const researchInstrument: Instrument = {
-  name: "research",
-  async execute(input) {
-    const query = String(input.query ?? "").trim();
-    if (!query) return { output: { error: "empty query" }, evidence: [] };
-    if (process.env.ARCHITECT_RESEARCH_FIXTURE === "1") {
-      return { output: { summary: "fixture", titles: ["fixture"], query }, evidence: [`research:${query}`] };
-    }
+/** Infinitum Search from this process's environment (SEARXNG_URL / YANDEX_* / BRAVE_*), or null. */
+let envSearch: Search | null | undefined;
+export function searchFromProcessEnv(): Search | null {
+  if (envSearch === undefined) {
     try {
-      const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
-      const res = await fetch(url, { headers: { "user-agent": "InfinitumArchitect/0.1" } });
-      const html = await res.text();
-      const titles = [...html.matchAll(/<a[^>]*class="result__a"[^>]*>([^<]+)<\/a>/gi)].map((m) => m[1].trim()).slice(0, 5);
-      return {
-        output: { summary: titles[0] ?? `No result for ${query}`, titles, query },
-        evidence: [`research:${query}`, ...titles.map((t) => `title:${t.slice(0, 40)}`)],
-      };
-    } catch (err) {
-      return { output: { error: String(err), query }, evidence: [`research-error:${query}`] };
+      envSearch = searchFromEnv(process.env);
+    } catch {
+      envSearch = null;
     }
-  },
-};
+  }
+  return envSearch;
+}
+
+/**
+ * research: a Perplexity-style cited answer from Infinitum Search (engine → read the top pages →
+ * answer with [n] citations checked against the sources). Without an engine it falls back to
+ * DuckDuckGo result titles. Output keeps { summary, titles, query } for existing scores.
+ */
+export function createResearchInstrument(getSearch: () => Search | null = searchFromProcessEnv): Instrument {
+  return {
+    name: "research",
+    async execute(input) {
+      const query = String(input.query ?? "").trim().slice(0, 1000);
+      if (!query) return { output: { error: "empty query" }, evidence: [] };
+      if (process.env.ARCHITECT_RESEARCH_FIXTURE === "1") {
+        return { output: { summary: "fixture", titles: ["fixture"], query }, evidence: [`research:${query}`] };
+      }
+      const search = getSearch();
+      if (search) {
+        try {
+          const r = await search.ask(query);
+          const sources = r.sources.map((s) => ({ n: s.n, title: s.title, url: s.url }));
+          return {
+            output: { summary: r.answer, answer: r.answer, cited: r.cited, sources, titles: sources.map((s) => s.title), engine: r.engine, query },
+            evidence: [`research:${query}`, `engine:${r.engine}`, ...sources.filter((s) => r.cited.includes(s.n)).map((s) => `source:${s.url}`)],
+          };
+        } catch (err) {
+          return { output: { error: err instanceof Error ? err.message : String(err), query }, evidence: [`research-error:${query}`] };
+        }
+      }
+      try {
+        const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+        const res = await fetch(url, { headers: { "user-agent": "InfinitumArchitect/0.1" } });
+        const html = await res.text();
+        const titles = [...html.matchAll(/<a[^>]*class="result__a"[^>]*>([^<]+)<\/a>/gi)].map((m) => m[1]!.trim()).slice(0, 5);
+        return {
+          output: { summary: titles[0] ?? `No result for ${query}`, titles, query, note: "Infinitum Search isn't connected; titles only." },
+          evidence: [`research:${query}`, ...titles.map((t) => `title:${t.slice(0, 40)}`)],
+        };
+      } catch (err) {
+        return { output: { error: String(err), query }, evidence: [`research-error:${query}`] };
+      }
+    },
+  };
+}
+
+export const researchInstrument: Instrument = createResearchInstrument();
 
 export const spectreInstrument: Instrument = {
   name: "spectre",

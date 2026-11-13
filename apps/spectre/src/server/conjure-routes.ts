@@ -1,12 +1,13 @@
 import { randomUUID } from "node:crypto";
 import {
-  createSimulation, conjureStep, conjureInject, conjureFork, conjureReport, conjureInterview, conjureEstimate, routerComplete, ConjureError,
-  type Complete, type Simulation,
+  createSimulation, conjureStep, conjureInject, conjureFork, conjureReport, conjureInterview, conjureEstimate, routerComplete, ConjureError, webSeed,
+  type Complete, type Simulation, type WebSeed,
 } from "@infinitum/conjure";
+import type { Search } from "@infinitum/ai/search";
 import type { SpectreCRM } from "../core/crm.ts";
 import { aiConnected, AI_SETUP_HINT, type AiConfig } from "./ai.ts";
 
-type StoredSim = Simulation & { workspace: string; dealId?: string; createdBy: string };
+type StoredSim = Simulation & { workspace: string; dealId?: string; createdBy: string; webSources?: WebSeed["sources"] };
 
 const MAX_PER_WORKSPACE = 20;
 
@@ -32,6 +33,8 @@ export function registerConjureRoutes(api: {
   httpError: (status: number, message: string) => Error;
   /** Tests inject a scripted model. */
   complete?: Complete;
+  /** Infinitum Search: seeds a forecast from the web when no material is given. */
+  search?: Search | null;
 }) {
   const { route, crm, ai, httpError } = api;
 
@@ -65,7 +68,7 @@ export function registerConjureRoutes(api: {
   const summary = (s: StoredSim) => ({
     id: s.id, question: s.question, poles: s.poles, round: s.round, rounds: s.rounds, status: s.status, agents: s.personas.length,
     calls: s.calls, maxCalls: s.maxCalls, dealId: s.dealId, createdAt: s.createdAt, forkedFrom: s.forkedFrom,
-    latest: s.stats.at(-1), outcome: s.report?.outcome, probability: s.report?.probability,
+    latest: s.stats.at(-1), outcome: s.report?.outcome, probability: s.report?.probability, webSources: s.webSources,
   });
 
   route("GET", "/api/conjure", (ctx) => ({
@@ -91,15 +94,25 @@ export function registerConjureRoutes(api: {
       question = question?.trim() || d.question;
       seed = [d.seed, seed?.trim()].filter(Boolean).join("\n\nAdditional context:\n");
     }
+    // No material (or "web": true): research the question on the web and seed from the cited brief.
+    let web: WebSeed | undefined;
+    if (!dealId && (ctx.body.web === true || String(seed ?? "").trim().length < 40) && String(question ?? "").trim()) {
+      if (!api.search) {
+        if (ctx.body.web === true) throw httpError(503, "Infinitum Search isn't connected. Set SEARXNG_URL, YANDEX_SEARCH_API_KEY + YANDEX_FOLDER_ID, or BRAVE_SEARCH_API_KEY.");
+      } else {
+        web = await webSeed(api.search, String(question));
+        seed = [seed?.trim(), web.seed].filter(Boolean).join("\n\n");
+      }
+    }
     const sim = await createSimulation(model(), {
       id: `sim_${randomUUID()}`, question: String(question ?? ""), seed: String(seed ?? ""),
       agents: Number(ctx.body.agents) || undefined, rounds: Number(ctx.body.rounds) || undefined, now: crm.now(),
     });
-    const stored: StoredSim = { ...sim, workspace: ws, dealId, createdBy: ctx.user.account.cid };
+    const stored: StoredSim = { ...sim, workspace: ws, dealId, createdBy: ctx.user.account.cid, ...(web ? { webSources: web.sources } : {}) };
     // Keep the most recent simulations per workspace.
     const mine = crm.list("simulations", ws).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     for (const old of mine.slice(MAX_PER_WORKSPACE - 1)) crm.store.simulations.delete(old.id);
-    await save(ctx, stored, "conjure.created", { agents: sim.personas.length, rounds: sim.rounds, deal: dealId ?? null });
+    await save(ctx, stored, "conjure.created", { agents: sim.personas.length, rounds: sim.rounds, deal: dealId ?? null, web: web ? web.sources.length : 0 });
     return summary(stored);
   }));
 

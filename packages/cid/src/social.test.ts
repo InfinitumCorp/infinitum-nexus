@@ -1,4 +1,5 @@
 import { describe, it } from "node:test";
+import { testRepository } from "./testing/copying-repository.ts";
 import assert from "node:assert/strict";
 import { generateKeyPairSync, sign, verify } from "node:crypto";
 import { Ledger, generateSigner } from "@infinitum/firmament";
@@ -130,7 +131,7 @@ function setup(only?: SocialProviderId[]) {
   let now = new Date();
   const signer = generateSigner();
   const ledger = new Ledger(undefined, { authorizedSigners: [signer.publicKey] });
-  const cid = new CidService({ ledger, signer, rpId: "infinitum.example", origins: ["https://infinitum.example"], clock: () => now, social: { providers, fetchImpl: fake.fetchImpl } });
+  const cid = new CidService({ ledger, signer, rpId: "infinitum.example", origins: ["https://infinitum.example"], clock: () => now, social: { providers, fetchImpl: fake.fetchImpl }, repository: testRepository() });
   return { cid, ledger, fake, applePublic: apple.publicKey, advance: (ms: number) => { now = new Date(now.getTime() + ms); }, now: () => now };
 }
 
@@ -208,7 +209,7 @@ describe("CID social sign-in", () => {
       assert.equal(first.session.method, `social:${provider}`);
       const again = await signInWith(cid, fake, provider);
       assert.ok(again.status === "ok" && !again.created && again.session.cid === first.session.cid);
-      assert.equal(cid.linkedIdentities(first.session.cid)[0].provider, provider);
+      assert.equal((await cid.linkedIdentities(first.session.cid))[0].provider, provider);
     });
   }
 
@@ -218,9 +219,9 @@ describe("CID social sign-in", () => {
     const g = await signInWith(cid, fake, "google");
     assert.ok(gh.status === "ok" && g.status === "ok");
     if (gh.status !== "ok" || g.status !== "ok") return;
-    assert.equal(cid.getAccount(gh.session.cid).username, "alexr");
-    assert.equal(cid.getAccount(g.session.cid).username, "alex");
-    assert.equal(cid.getAccount(g.session.cid).mailAddress, "alex@cumuluscloud.app");
+    assert.equal((await cid.getAccount(gh.session.cid)).username, "alexr");
+    assert.equal((await cid.getAccount(g.session.cid)).username, "alex");
+    assert.equal((await cid.getAccount(g.session.cid)).mailAddress, "alex@cumuluscloud.app");
   });
 
   it("sends Apple a valid ES256 client-secret JWT", async () => {
@@ -298,7 +299,7 @@ describe("CID social sign-in", () => {
     const { cid, fake, now } = setup(["google"]);
     const first = await signInWith(cid, fake, "google");
     if (first.status !== "ok") throw new Error();
-    const { secret } = cid.enrollTotp(first.session.cid);
+    const { secret } = await cid.enrollTotp(first.session.cid);
     const code = (d: Date) => hotp(base32Decode(secret), Math.floor(d.getTime() / 30_000));
     await cid.confirmTotp(first.session.cid, code(now()));
     const second = await signInWith(cid, fake, "google");
@@ -314,10 +315,10 @@ describe("CID social sign-in", () => {
     if (r.status !== "ok") throw new Error();
     await rejectsWith(cid.unlinkIdentity(r.session.cid, "google"), "last_key");
     const auth = new VirtualAuthenticator();
-    const opts = cid.startAuthenticatorRegistration(r.session.cid);
+    const opts = await cid.startAuthenticatorRegistration(r.session.cid);
     await cid.finishAuthenticatorRegistration(r.session.cid, auth.create({ challenge: opts.challenge, origin: "https://infinitum.example", rpId: "infinitum.example" }));
     await cid.unlinkIdentity(r.session.cid, "google");
-    assert.equal(cid.linkedIdentities(r.session.cid).length, 0);
+    assert.equal((await cid.linkedIdentities(r.session.cid)).length, 0);
   });
 
   it("keeps provider account IDs and emails off the ledger", async () => {

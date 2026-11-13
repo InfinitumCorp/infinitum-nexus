@@ -11,6 +11,8 @@ export declare function detectLocale(options?: {
   supported?: string[]; fallback?: string; storageKey?: string; languages?: readonly string[];
 }): string;
 export declare function format(template: string, vars?: Vars): string;
+/** Resolve `{0, plural, one {# file} other {# files}}` blocks for `locale`; `#` is the number. */
+export declare function plural(template: string, values: Vars | undefined, locale: string): string;
 
 export interface I18n {
   readonly locale: string;

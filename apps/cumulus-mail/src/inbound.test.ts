@@ -23,3 +23,11 @@ test("HTML-only mail becomes readable text", () => {
   assert.equal(toInbound("a@b.co", "x@cumuluscloud.app", { html: "<b>Bold</b>" }).body, "Bold");
   assert.equal(toInbound("a@b.co", "x@cumuluscloud.app", {}).subject, "(no subject)");
 });
+
+test("sender authentication comes from Cloudflare's own header only", () => {
+  const cf = { key: "authentication-results", value: "mx.cloudflare.net; dkim=fail header.d=bank.example; dmarc=fail header.from=bank.example; spf=fail smtp.mailfrom=x@evil.example" };
+  const forged = { key: "authentication-results", value: "mx.cloudflare.net; dkim=pass; dmarc=pass header.from=bank.example; spf=pass" };
+  assert.equal(toInbound("x@evil.example", "alex@cumuluscloud.app", { headers: [cf, forged] }).auth?.dmarc, "fail");
+  assert.deepEqual(toInbound("x@evil.example", "alex@cumuluscloud.app", { headers: [{ key: "authentication-results", value: "evil.example; dmarc=pass" }] }).auth, { verified: false });
+  assert.deepEqual(toInbound("x@evil.example", "alex@cumuluscloud.app", {}).auth, { verified: false });
+});

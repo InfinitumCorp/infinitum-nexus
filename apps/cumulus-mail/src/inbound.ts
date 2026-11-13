@@ -1,4 +1,4 @@
-import type { InboundMail } from "@infinitum/mail";
+import { inboundAuth, type InboundMail } from "@infinitum/mail";
 import { inboundKey, safeType, type FileStore } from "./files.ts";
 
 /** The parts of a postal-mime parse result that Cumulus uses. */
@@ -11,6 +11,8 @@ export interface ParsedEmail {
   text?: string;
   html?: string;
   attachments?: { filename?: string | null; mimeType?: string; content: ArrayBuffer | Uint8Array | string }[];
+  /** Every header in the order it appears, top first (postal-mime's `headers`). */
+  headers?: { key: string; value: string }[];
 }
 
 const people = (list: ParsedEmail["to"]) =>
@@ -30,6 +32,8 @@ export function htmlToText(html: string): string {
 /**
  * Turns an Email Routing delivery into Cumulus inbound mail. The envelope sender and recipient
  * (SMTP MAIL FROM / RCPT TO) are what Cloudflare checked; header addresses are only for display.
+ * Sender authentication comes only from the first Authentication-Results header, and only when
+ * Cloudflare wrote it (see @infinitum/mail auth-results.ts); a dmarc=fail there refuses the message.
  */
 export function toInbound(envelopeFrom: string, envelopeTo: string, parsed: ParsedEmail): InboundMail {
   const date = parsed.date ? new Date(parsed.date) : undefined;
@@ -45,6 +49,7 @@ export function toInbound(envelopeFrom: string, envelopeTo: string, parsed: Pars
       name: a.filename || "attachment",
       size: typeof a.content === "string" ? a.content.length : a.content.byteLength,
     })),
+    auth: inboundAuth(parsed.headers ?? []),
   };
 }
 

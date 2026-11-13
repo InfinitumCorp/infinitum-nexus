@@ -1,10 +1,13 @@
 import { createServer } from "node:http";
+import { useLabyrinthServiceBinding } from "@infinitum/lbrnth-client";
+import type { LabyrinthServiceBinding } from "@infinitum/lbrnth-client";
 import { httpServerHandler } from "cloudflare:node";
 import { DurableObject } from "cloudflare:workers";
 import type { Entry } from "@infinitum/firmament";
 import type { WorkersAiBinding } from "@infinitum/ai";
 import handler, { useGateway } from "./vercel.ts";
 import { useWorkersAi } from "./ai.ts";
+import { useCidDatabaseUrl } from "./cid-store.ts";
 import { ConflictError, type DocRow, type NexusGateway } from "./remote.ts";
 import { initSchema, loadState, commitState, type CommitResult } from "./do-store.ts";
 import { STATIC_ASSET_CSP } from "./static-policy.ts";
@@ -33,6 +36,10 @@ interface Env {
   NEXUS_STATE: { idFromName(name: string): unknown; get(id: unknown): NexusStoreStub };
   /** Free Workers AI binding (`ai.binding` = AI in wrangler.jsonc). Absent when the binding is not declared. */
   AI?: WorkersAiBinding;
+  /** Service binding to lbrnth-host-us (US Labyrinth). Relay calls to lbrnth-us.cumuluscloud.app go through it. */
+  LBRNTH_US?: LabyrinthServiceBinding;
+  /** Cloudflare Hyperdrive in front of Cumulus://ID's Postgres, used when CUMULUS_STORE=postgres. */
+  CID_DB?: { connectionString: string };
 }
 
 export class NexusStore extends DurableObject<Env> {
@@ -74,7 +81,9 @@ let configured = false;
 function configure(env: Env) {
   // Refresh the binding each request. The router calls through to whatever is current.
   if (env.AI) useWorkersAi(env.AI);
+  useLabyrinthServiceBinding("lbrnth-us.cumuluscloud.app", env.LBRNTH_US);
   if (configured) return;
+  if (env.CID_DB) useCidDatabaseUrl(env.CID_DB.connectionString);
   useGateway(new DurableGateway(env.NEXUS_STATE));
   configured = true;
 }

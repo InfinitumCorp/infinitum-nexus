@@ -1,0 +1,187 @@
+# Privacy gateway: redaction, export preparation, quality verification and DP releases.
+# Implemented by infra/data-platform/privacy-gateway (Python). Callers are product backends
+# and pipelines with a service token, never end users.
+types:
+  definitions:
+    default-package: app.infinitum.cumulus.data.privacy
+    objects:
+      Destination:
+        docs: Where a batch is going. Each destination has its own redaction policy.
+        values:
+          - value: ANALYTICS
+            docs: Internal warehouse and Superset. Identifiers become keyed pseudonyms.
+          - value: AI
+            docs: AI agents and model context. Personal data becomes type tags such as <PERSON>.
+          - value: EXCHANGE
+            docs: Leaves the tenant. Pseudonymized fields are dropped and the result is re-scanned; records with personal data left are rejected.
+      FieldRule:
+        values:
+          - value: KEEP
+            docs: Scanned; kept unless personal data is found.
+          - value: TEXT
+            docs: Scanned and redacted. The default for fields without a rule.
+          - value: PSEUDONYMIZE
+            docs: Whole value replaced by a keyed pseudonym (analytics), a tag (AI) or dropped (Exchange).
+          - value: DROP
+            docs: Removed before the record leaves.
+      Rejection:
+        fields:
+          index:
+            type: integer
+            docs: Position of the rejected record in the request. The record itself is never echoed.
+          reason: string
+      RedactRequest:
+        fields:
+          destination: Destination
+          records: list<map<string, any>>
+          fieldRules: map<string, FieldRule>
+      RedactResponse:
+        fields:
+          records: list<map<string, any>>
+          rejected: list<Rejection>
+          findings:
+            type: map<string, integer>
+            docs: Count of findings per Presidio entity type (EMAIL_ADDRESS, PERSON, ...).
+
+      QualityCheckKind:
+        values: [COMPLETENESS, UNIQUENESS, RANGE, ALLOWED_VALUES, FRESHNESS, SIZE, ANOMALY]
+      QualityCheck:
+        docs: One Deequ-style constraint. Which fields apply depends on kind.
+        fields:
+          kind: QualityCheckKind
+          column: optional<string>
+          columns: optional<list<string>>
+          values: optional<list<any>>
+          min: optional<double>
+          max: optional<double>
+          maxAgeHours: optional<double>
+          metric:
+            type: optional<string>
+            docs: For ANOMALY, the metric name to compare with the previous run (default size).
+          maxRelativeChange: optional<double>
+      QualitySuite:
+        fields:
+          dataset:
+            type: string
+            docs: DataHub dataset name, e.g. spectre.deals.
+          checks: list<QualityCheck>
+      CheckResult:
+        fields:
+          kind: string
+          target: string
+          ok: boolean
+          metric: double
+          message: string
+      QualityReport:
+        fields:
+          dataset: string
+          rows: integer
+          ok: boolean
+          checkedAt: string
+          results: list<CheckResult>
+          metrics: map<string, double>
+      VerifyRequest:
+        fields:
+          suite: QualitySuite
+          rows: list<map<string, any>>
+          history:
+            type: list<map<string, double>>
+            docs: Metrics of earlier runs of the same suite, oldest first.
+
+      PrepareExportRequest:
+        fields:
+          destination: Destination
+          records: list<map<string, any>>
+          fieldRules: map<string, FieldRule>
+          suite: optional<QualitySuite>
+          history: list<map<string, double>>
+      PrepareExportResponse:
+        fields:
+          destination: Destination
+          released:
+            type: boolean
+            docs: False when redaction rejected records bound for the Exchange or quality failed. Records are then empty.
+          records: list<map<string, any>>
+          rejected: list<Rejection>
+          findings: map<string, integer>
+          quality: optional<QualityReport>
+          reasons: list<string>
+
+      DpMetric:
+        values: [COUNT, SUM]
+      DpReleaseRequest:
+        fields:
+          dataset: string
+          metric: DpMetric
+          unitKey:
+            type: string
+            docs: Privacy unit, normally the CID field.
+          groupKey: string
+          publicGroups:
+            type: list<string>
+            docs: Group keys fixed in advance. Groups are never taken from the data.
+          epsilon: double
+          maxPartitions: optional<integer>
+          valueKey: optional<string>
+          lower: optional<double>
+          upper: optional<double>
+          suppressBelow: optional<double>
+          rows: list<map<string, any>>
+      DpReleaseResponse:
+        fields:
+          dataset: string
+          metric: string
+          epsilon: double
+          groups: map<string, double>
+          suppressed: list<string>
+
+    errors:
+      PrivacyBudgetExceeded:
+        namespace: Privacy
+        code: CONFLICT
+        docs: The release would spend more epsilon than the dataset has left. Nothing was spent.
+      DpLibraryUnavailable:
+        namespace: Privacy
+        code: INTERNAL
+      InvalidArgument:
+        namespace: Privacy
+        code: INVALID_ARGUMENT
+
+services:
+  PrivacyGatewayService:
+    name: Privacy Gateway Service
+    package: app.infinitum.cumulus.data.privacy
+    base-path: /api/v1
+    default-auth: header
+    docs: Everything that leaves a product for analytics, AI agents or the Exchange passes through here.
+    endpoints:
+      redact:
+        http: POST /redact
+        args:
+          request:
+            type: RedactRequest
+            param-type: body
+        returns: RedactResponse
+      prepareExport:
+        http: POST /exports/prepare
+        docs: Redact, then run the quality suite on the redacted rows. The batch is released only if both pass.
+        args:
+          request:
+            type: PrepareExportRequest
+            param-type: body
+        returns: PrepareExportResponse
+      verifyQuality:
+        http: POST /quality/verify
+        args:
+          request:
+            type: VerifyRequest
+            param-type: body
+        returns: QualityReport
+      releaseDp:
+        http: POST /releases/dp
+        docs: Differentially private count or sum per public group, charged to the dataset's privacy budget.
+        args:
+          request:
+            type: DpReleaseRequest
+            param-type: body
+        returns: DpReleaseResponse

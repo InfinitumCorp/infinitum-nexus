@@ -10,6 +10,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { Mailbox, type MailSnapshot, type SendInput } from "./mailbox.ts";
+import { refuseReason, type InboundAuth } from "./auth-results.ts";
 import type { Attachment, FolderId, MailMessage, MailPayment, Person } from "./model.ts";
 import { MAIL_DOMAIN } from "@infinitum/cid";
 import { isCumulus, parsePeople, tomorrowMorning, validEmail } from "./logic.ts";
@@ -105,10 +106,10 @@ export class PostOfficeStore {
 
 /** Shared storage (Cumulus://Cloud StorageQuota implements this). */
 export interface MailQuota {
-  charge(cid: string, product: "mail", bytes: number): void;
-  release(cid: string, product: "mail", bytes: number): void;
-  canFit(cid: string, bytes: number): boolean;
-  usage(cid: string): { label: string; pct: number; usedBytes: number; limitBytes: number };
+  charge(cid: string, product: "mail", bytes: number): Promise<void> | void;
+  release(cid: string, product: "mail", bytes: number): Promise<void> | void;
+  canFit(cid: string, bytes: number): Promise<boolean> | boolean;
+  usage(cid: string): Promise<{ label: string; pct: number; usedBytes: number; limitBytes: number }> | { label: string; pct: number; usedBytes: number; limitBytes: number };
 }
 
 /** FIRM Wallet (WalletAccounts implements this). */
@@ -139,6 +140,8 @@ export interface InboundMail {
   body: string;
   at?: string;
   attachments?: Attachment[];
+  /** Sender authentication from the receiving edge (see auth-results.ts). Absent = not checked. */
+  auth?: InboundAuth;
 }
 
 /** Longest inbound body kept (characters); the rest is cut. */
@@ -229,7 +232,6 @@ export class PostOffice {
 
   view(cid: string) {
     const box = this.box(cid);
-    const quota = this.quota?.usage(cid) ?? { label: "", pct: 0, usedBytes: 0, limitBytes: 0 };
     return {
       me: { ...box.owner, cid },
       messages: box.messages,
@@ -237,9 +239,14 @@ export class PostOffice {
       tasks: box.tasks,
       contacts: box.contacts,
       events: [],
-      quota: { label: quota.label, pct: quota.pct },
       unread: new Set(box.messages.filter((m) => m.unread && m.folder === "inbox").map((m) => m.threadId)).size,
     };
+  }
+
+  /** The storage meter for this mailbox's owner (shared with Cloud). */
+  async quotaOf(cid: string): Promise<{ label: string; pct: number }> {
+    const q = this.quota ? await this.quota.usage(cid) : { label: "", pct: 0 };
+    return { label: q.label, pct: q.pct };
   }
 
   unreadCount(cid: string): number {
@@ -257,7 +264,7 @@ export class PostOffice {
     if (!input.subject.trim() && !input.body.trim()) throw new MailError("empty", "Write a subject or a message.");
 
     const size = messageBytes({ subject: input.subject, body: input.body }) + attachmentBytes(input.attachments);
-    if (this.quota && !this.quota.canFit(cid, size)) {
+    if (this.quota && !(await this.quota.canFit(cid, size))) {
       throw new MailError("quota_exceeded", "Your Cumulus storage is full. Free up space in Mail or Cloud to send.");
     }
 
@@ -283,7 +290,7 @@ export class PostOffice {
       sent.payment = payment;
       sent.labels = [...new Set([...sent.labels, "Wallet"])];
     }
-    this.quota?.charge(cid, "mail", size);
+    await this.quota?.charge(cid, "mail", size);
 
     let delivered = 0;
     const bounced: string[] = [];
@@ -296,7 +303,7 @@ export class PostOffice {
       seen.add(address);
       if (isSelf(address)) {
         // Mailbox.send already put the sender's own copy in their inbox.
-        this.quota?.charge(cid, "mail", size);
+        await this.quota?.charge(cid, "mail", size);
         delivered++;
         continue;
       }
@@ -309,12 +316,12 @@ export class PostOffice {
         bounced.push(address);
         continue;
       }
-      if (this.quota && !this.quota.canFit(rcpt, size)) {
+      if (this.quota && !(await this.quota.canFit(rcpt, size))) {
         bounced.push(address);
         continue;
       }
       this.deliver(rcpt, { ...sent, ...this.throughTunnel(cid, rcpt, sent), id: `m-${randomUUID()}`, folder: "inbox", unread: rcpt !== cid, starred: false, payment });
-      this.quota?.charge(rcpt, "mail", size);
+      await this.quota?.charge(rcpt, "mail", size);
       delivered++;
     }
 
@@ -409,10 +416,12 @@ export class PostOffice {
    * returns who got it and which recipients don't exist (the caller rejects the message if nobody did).
    * Mail claiming a Cumulus sender is refused: Cumulus mail never arrives from outside.
    */
-  receive(input: InboundMail): { delivered: string[]; unknown: string[] } {
+  async receive(input: InboundMail): Promise<{ delivered: string[]; unknown: string[] }> {
     const sender = input.from.email.trim().toLowerCase();
     if (!validEmail(sender)) throw new MailError("bad_sender", "The sender address isn't valid.");
     if (isCumulus(sender)) throw new MailError("spoofed_sender", "Mail from a Cumulus address can't arrive from outside Cumulus.");
+    const refused = refuseReason(input.auth);
+    if (refused) throw new MailError("dmarc_fail", refused);
     const subject = input.subject.slice(0, 998);
     const body = input.body.slice(0, MAX_INBOUND_BODY);
     const size = messageBytes({ subject, body }) + attachmentBytes(input.attachments);
@@ -424,7 +433,7 @@ export class PostOffice {
       if (seen.has(address)) continue;
       seen.add(address);
       const cid = isCumulus(address) ? this.resolve(address) : undefined;
-      if (!cid || (this.quota && !this.quota.canFit(cid, size))) {
+      if (!cid || (this.quota && !(await this.quota.canFit(cid, size)))) {
         unknown.push(address);
         continue;
       }
@@ -444,8 +453,9 @@ export class PostOffice {
         starred: false,
         labels: [],
         attachments: input.attachments?.length ? input.attachments : undefined,
+        auth: input.auth ? { ...input.auth } : undefined,
       });
-      this.quota?.charge(cid, "mail", size);
+      await this.quota?.charge(cid, "mail", size);
       delivered.push(address);
     }
     return { delivered, unknown };
@@ -644,16 +654,16 @@ ${reason}`,
   }
 
   /** Delete forever (from trash). Frees the storage it used. */
-  remove(cid: string, id: string) {
+  async remove(cid: string, id: string): Promise<void> {
     const message = this.box(cid).messages.find((m) => m.id === id);
     if (!message) return;
     this.edit(cid, (mail) => mail.remove(id));
-    if (!message.system && message.folder !== "drafts") this.quota?.release(cid, "mail", messageBytes(message));
+    if (!message.system && message.folder !== "drafts") await this.quota?.release(cid, "mail", messageBytes(message));
   }
 
-  emptyTrash(cid: string): number {
+  async emptyTrash(cid: string): Promise<number> {
     const trash = this.box(cid).messages.filter((m) => m.folder === "trash");
-    for (const m of trash) this.remove(cid, m.id);
+    for (const m of trash) await this.remove(cid, m.id);
     return trash.length;
   }
 
@@ -787,7 +797,7 @@ ${reason}`,
    * Carry out cleaning actions. Only this mailbox's own messages move, protected mail is skipped,
    * and "delete" only removes mail that is already in Trash.
    */
-  applyClean(cid: string, actions: CleanAction[], by: CleanLogEntry["by"]): CleanLogEntry[] {
+  async applyClean(cid: string, actions: CleanAction[], by: CleanLogEntry["by"]): Promise<CleanLogEntry[]> {
     const state = this.cleanState(cid);
     const box = this.box(cid);
     const entries: CleanLogEntry[] = [];
@@ -800,7 +810,7 @@ ${reason}`,
       });
       if (!ids.length) continue;
       for (const id of ids) {
-        if (action.kind === "delete") this.remove(cid, id);
+        if (action.kind === "delete") await this.remove(cid, id);
         else this.move(cid, id, action.kind === "archive" ? "archive" : "trash");
       }
       const entry: CleanLogEntry = { id: `cl-${randomUUID()}`, at: this.now(), kind: action.kind, ids, reason: action.reason.slice(0, 200), by };
@@ -812,14 +822,14 @@ ${reason}`,
   }
 
   /** Run the rules now ("Clean now"), or on their own when `by` is "rules". */
-  runClean(cid: string, by: "rules" | "you" = "you"): CleanLogEntry[] {
+  runClean(cid: string, by: "rules" | "you" = "you"): Promise<CleanLogEntry[]> {
     const state = this.cleanState(cid);
     state.lastRun = this.now();
     return this.applyClean(cid, this.previewClean(cid), by);
   }
 
   /** Automatic cleaning: runs when the mailbox is opened, at most once an hour, if the owner left it on. */
-  autoClean(cid: string): CleanLogEntry[] {
+  async autoClean(cid: string): Promise<CleanLogEntry[]> {
     if (!this.has(cid)) return [];
     const state = this.cleanState(cid);
     if (!state.rules.auto) return [];
@@ -845,7 +855,7 @@ ${reason}`,
   }
 
   /** Send a sender's future mail to Archive, and archive what's already in the inbox from them. */
-  muteSender(cid: string, email: string): CleanLogEntry[] {
+  async muteSender(cid: string, email: string): Promise<CleanLogEntry[]> {
     const address = email.trim().toLowerCase();
     if (!validEmail(address)) throw new MailError("bad_address", "That isn't an email address.");
     if (Object.values(SYSTEM_SENDERS).some((s) => s.email === address)) throw new MailError("protected_sender", "Cumulus account mail can't be muted.");

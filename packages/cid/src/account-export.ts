@@ -1,5 +1,5 @@
 import { coseToKey } from "./webauthn.ts";
-import type { CidService } from "./service.ts";
+import type { Authenticator, CidService, Grant } from "./service.ts";
 
 /**
  * Account export for moving Cumulus://ID to its own Worker (InfinitumCorp/cumulus-id).
@@ -93,36 +93,28 @@ function algOf(publicKeyCose: string): number | null {
   }
 }
 
-/** Snapshot of every account in the CID store, in the shape InfinitumCorp/cumulus-id imports. */
-export function exportCidAccounts(cid: CidService, now: Date = new Date()): CidExport {
-  const store = cid.store;
-  const authenticators = new Map<string, CidExportAuthenticator[]>();
-  for (const a of store.authenticators.values()) {
-    const list = authenticators.get(a.cid) ?? [];
-    list.push({
-      id: a.id,
-      kind: a.kind,
-      label: a.label,
-      credentialId: a.credentialId,
-      publicKeyCose: a.publicKeyCose,
-      alg: algOf(a.publicKeyCose),
-      signCount: a.signCount,
-      backedUp: a.backedUp,
-      addedAt: a.addedAt,
-      lastUsedAt: a.lastUsedAt ?? null,
-    });
-    authenticators.set(a.cid, list);
-  }
-  const grants = new Map<string, CidExportGrant[]>();
-  for (const g of store.grants.values()) {
-    const list = grants.get(g.cid) ?? [];
-    list.push({ app: g.app, scopes: [...g.scopes], grantedAt: g.grantedAt, ledgerHash: g.ledgerHash });
-    grants.set(g.cid, list);
-  }
+/**
+ * Snapshot of every account, in the shape InfinitumCorp/cumulus-id imports. Reads through the
+ * service's repository, so it works on the in-memory store and on Postgres alike.
+ */
+export async function exportCidAccounts(cid: CidService, now: Date = new Date()): Promise<CidExport> {
+  const exportKey = (a: Authenticator): CidExportAuthenticator => ({
+    id: a.id,
+    kind: a.kind,
+    label: a.label,
+    credentialId: a.credentialId,
+    publicKeyCose: a.publicKeyCose,
+    alg: algOf(a.publicKeyCose),
+    signCount: a.signCount,
+    backedUp: a.backedUp,
+    addedAt: a.addedAt,
+    lastUsedAt: a.lastUsedAt ?? null,
+  });
+  const exportGrant = (g: Grant): CidExportGrant => ({ app: g.app, scopes: [...g.scopes], grantedAt: g.grantedAt, ledgerHash: g.ledgerHash });
 
   const counts = { accounts: 0, authenticators: 0, identities: 0, grants: 0, organizations: 0 };
   const accounts: CidExportAccount[] = [];
-  for (const a of [...store.accounts.values()].sort((x, y) => x.createdAt.localeCompare(y.createdAt) || x.cid.localeCompare(y.cid))) {
+  for (const a of (await cid.allAccounts()).sort((x, y) => x.createdAt.localeCompare(y.createdAt) || x.cid.localeCompare(y.cid))) {
     const account: CidExportAccount = {
       cid: a.cid,
       username: a.username,
@@ -131,10 +123,10 @@ export function exportCidAccounts(cid: CidService, now: Date = new Date()): CidE
       createdAt: a.createdAt,
       orgId: a.orgId ?? null,
       federated: a.federated ? { issuer: a.federated.issuer, subject: a.federated.subject } : null,
-      totp: a.totp?.confirmed ? { secret: a.totp.secret, lastStep: a.totp.lastStep } : null,
-      authenticators: authenticators.get(a.cid) ?? [],
+      totp: a.totp?.confirmed ? { secret: cid.totpSecret(a), lastStep: a.totp.lastStep } : null,
+      authenticators: (await cid.repo.authenticatorsOf(a.cid)).map(exportKey),
       identities: (a.identities ?? []).map((i) => ({ provider: i.provider, subject: i.subject, email: i.email ?? null, linkedAt: i.linkedAt })),
-      grants: grants.get(a.cid) ?? [],
+      grants: (await cid.repo.grantsOf(a.cid)).map(exportGrant),
     };
     counts.accounts += 1;
     counts.authenticators += account.authenticators.length;
@@ -142,15 +134,21 @@ export function exportCidAccounts(cid: CidService, now: Date = new Date()): CidE
     counts.grants += account.grants.length;
     accounts.push(account);
   }
-  const organizations: CidExportOrganization[] = [...store.orgs.values()]
-    .sort((x, y) => (x.id < y.id ? -1 : x.id > y.id ? 1 : 0))
-    .map((o) => ({
+  // Every organization has members (its admin at least), so loading each member's org finds them all,
+  // through the repository: the in-memory store and Postgres alike.
+  const orgIds = [...new Set(accounts.map((a) => a.orgId).filter((id): id is string => Boolean(id)))].sort();
+  const organizations: CidExportOrganization[] = [];
+  for (const id of orgIds) {
+    const o = await cid.repo.org(id);
+    if (!o) continue;
+    organizations.push({
       id: o.id,
       name: o.name,
       admins: [...o.admins],
       // Only these three fields: never the provider's jwks.
       sso: o.sso ? { issuer: o.sso.issuer, audience: o.sso.audience, emailDomain: o.sso.emailDomain ?? null } : null,
-    }));
+    });
+  }
   counts.organizations = organizations.length;
   return { format: CID_EXPORT_FORMAT, version: CID_EXPORT_VERSION, issuer: cid.issuer, exportedAt: now.toISOString(), counts, accounts, organizations };
 }

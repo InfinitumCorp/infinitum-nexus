@@ -60,6 +60,8 @@ async function translateBatch(lang: string, batch: Catalog, config: { context?: 
     "Keep these unchanged: {placeholders}, HTML tags and attributes, URLs, e-mail addresses, numbers, keyboard keys,",
     `and these names: ${keep.join(", ")}.`,
     "Use short, natural UI wording a native speaker expects (buttons as verbs, no quotes around values).",
+    "When a {n} placeholder is a count that a noun must agree with, write an ICU plural block in its place,",
+    "with every form your language needs and # for the number, e.g. {0, plural, one {# файл} few {# файла} many {# файлов} other {# файла}}.",
   ].filter(Boolean).join("\n");
   const raw = await ai.complete(system, JSON.stringify(batch, null, 1), { tier: "smart", temperature: 0, maxTokens: 8000 });
   const out = parseJsonObject(raw);

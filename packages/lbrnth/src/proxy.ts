@@ -1,1 +1,1 @@
-export { proxyLabyrinthRequest } from "@infinitum/lbrnth-client";
+export { proxyLabyrinthRequest, useLabyrinthServiceBinding } from "@infinitum/lbrnth-client";

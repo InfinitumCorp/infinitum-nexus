@@ -6,7 +6,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./testing": "./src/testing.ts",
-    "./openclaw": "./src/openclaw/openclaw.mjs"
+    "./openclaw": "./src/openclaw/openclaw.mjs",
+    "./search": "./src/search/search.mjs"
   },
   "private": true,
   "engines": {

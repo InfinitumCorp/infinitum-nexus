@@ -14,14 +14,14 @@ export async function authenticatedSetup() {
   const account = await cid.createAccount({ username: "labyrinth-owner" });
   const org = await cid.createOrganization("Client", account.cid);
   const authenticator = new VirtualAuthenticator();
-  const registration = cid.startAuthenticatorRegistration(account.cid, "passkey");
+  const registration = await cid.startAuthenticatorRegistration(account.cid, "passkey");
   const credential = await cid.finishAuthenticatorRegistration(account.cid, authenticator.create({ challenge: registration.challenge, rpId: "localhost", origin: "http://localhost" }), { kind: "passkey" });
-  const challenge = cid.startSignIn();
+  const challenge = await cid.startSignIn();
   const signIn = await cid.finishSignIn(authenticator.get({ credentialId: credential.credentialId, challenge: challenge.challenge, origin: "http://localhost" }), "test");
   assert.equal(signIn.status, "ok"); if (signIn.status !== "ok") throw new Error("Unexpected MFA");
   await cid.grant(account.cid, "LBRNTH", ["repo:read", "repo:write", "repo:admin"]);
   let paid = true;
-  const auth = new CidLabyrinth(cid, { entitled: id => paid && id === org.id, storage: new MemoryStorage(), clock: () => now });
+  const auth = new CidLabyrinth(cid.syncView(), { entitled: id => paid && id === org.id, storage: new MemoryStorage(), clock: () => now });
   auth.provision(signIn.token);
   return { cid, account, org, auth, token: signIn.token, session: signIn.session, setPaid: (value: boolean) => { paid = value; }, advance: (ms: number) => { now = new Date(now.getTime() + ms); }, expire: () => { now = new Date(now.getTime() + 31 * 86400000); } };
 }
@@ -57,7 +57,7 @@ test("CID directory mapping prevents cross-org members and stale organization bi
   const member = await s.cid.createAccount({ username: "org-member", orgId: s.org.id });
   retained.setMember(member.cid, "reader");
   assert.ok(retained.members().some(m => m.cid === member.cid && m.role === "reader"));
-  s.cid.getAccount(s.account.cid).orgId = undefined;
+  (await s.cid.getAccount(s.account.cid)).orgId = undefined;
   forbidden(() => retained.repositories());
 });
 
@@ -106,7 +106,7 @@ test("browser CID login exchanges for a repository-only token linked to parent r
   const s = await authenticatedSetup();
   const issued = s.auth.issueToken(s.token);
   assert.match(issued.token, /^lbrnth_/);
-  assert.equal(s.cid.authenticate(issued.token), null, "repository token cannot log in to other CID apps");
+  assert.equal(await s.cid.authenticate(issued.token), null, "repository token cannot log in to other CID apps");
   const remote = s.auth.forProduct(issued.token, "odin");
   const repo = remote.createRepository("odin-client-artifacts");
   const commit = remote.save(repo.id, "selected.json", "selected by client", null);
@@ -126,7 +126,7 @@ test("repository-only credentials expire independently and cannot forge an org o
   forbidden(() => remote.createRepository("denied"));
   assert.deepEqual(remote.repositories(), []);
   s.advance(16 * 60000); forbidden(() => remote.repositories());
-  assert.ok(s.cid.authenticate(s.token), "the parent CID session is still active");
+  assert.ok(await s.cid.authenticate(s.token), "the parent CID session is still active");
 });
 
 test("explicit CID consent cannot purchase entitlement, add org roles or be changed by repository-only tokens", async () => {
@@ -134,7 +134,7 @@ test("explicit CID consent cannot purchase entitlement, add org roles or be chan
   await assert.rejects(s.auth.consent(issued.token, ["repo:admin"]), /Direct Cumulus ID/);
   await s.cid.revoke(s.account.cid, "LBRNTH");
   s.setPaid(false); await s.auth.consent(s.token, ["repo:read"]);
-  assert.equal(s.cid.can(s.account.cid, "LBRNTH", "repo:read"), true);
+  assert.equal(await s.cid.can(s.account.cid, "LBRNTH", "repo:read"), true);
   forbidden(() => s.auth.forSession(s.token).repositories());
   await assert.rejects(s.auth.consent(s.token, ["unknown:scope"] as never));
 });

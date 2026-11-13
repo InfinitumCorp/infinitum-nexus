@@ -21,10 +21,19 @@ local socket with peer authentication.
 | Row-write metrics | #201 |
 | FIRM Wallet repository, Postgres wallet (no double spend under concurrency) | #198, #199 |
 | Storage quota repository | #204 |
-| Mail (PostOffice), Tunnel | Not started |
+| Storage quota on Postgres (no overspend under concurrency) | #207 |
+| Mail (PostOffice), Tunnel | Not started; needs a design pass (below) |
 
 US Supabase project: the `cumulus_id` tables and `refresh_from_document()` exist (created 2026-11-12;
 9 accounts, 8 passkeys, 7 sessions, 7 grants copied and compared equal to the document).
+
+Why Mail and Tunnel aren't a mechanical repeat of the others: a mailbox is stored as one object
+holding all its messages, and with a master key it is sealed at rest by `sealMailStore`, which runs
+synchronously while the store is snapshotted; the Tunnel keys it needs are read synchronously there and
+in delivery. The plan's `mail_messages` table (ciphertext columns, index by owner, folder and time)
+replaces the whole-mailbox object, sealing moves from snapshot time to write time, and Tunnel keys are
+read once per request into a cache so sealing can stay synchronous inside it. Do Mail as its own
+series: repository with the mailbox as today's unit first, then per-message rows.
 
 What still needs a person (or a connector this session didn't have):
 

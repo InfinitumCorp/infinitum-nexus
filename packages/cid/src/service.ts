@@ -558,6 +558,8 @@ export class CidService {
 
   private async issueChallenge(purpose: Challenge["purpose"], cid?: string): Promise<string> {
     const value = randomBytes(32).toString("base64url");
+    // Anyone can start a sign-in, so unfinished challenges are cleared as new ones are made.
+    await this.repo.sweepOneTime("challenge", this.now().getTime());
     await this.repo.putOneTime("challenge", value, { value, cid, purpose, expiresAt: this.now().getTime() + CHALLENGE_TTL_MS });
     return value;
   }
@@ -693,6 +695,7 @@ export class CidService {
     // A security key tap without verification needs the authenticator-app code too.
     if (account.totp?.confirmed && !result.userVerified) {
       const mfaToken = randomBytes(24).toString("base64url");
+      await this.repo.sweepOneTime("mfa", this.now().getTime());
       await this.repo.putOneTime("mfa", mfaToken, { cid: account.cid, method: "passkey+totp", device, expiresAt: this.now().getTime() + CHALLENGE_TTL_MS });
       return { status: "mfa_required", mfaToken };
     }
@@ -1000,6 +1003,7 @@ export class CidService {
       expiresAt: this.now().getTime() + 10 * 60_000,
       linkToCid,
     };
+    await this.repo.sweepOneTime("oauth", this.now().getTime());
     await this.repo.putOneTime("oauth", pending.state, pending);
     const url = await this.socialClient.authorizeUrl(spec, creds, pending, challenge);
     return { url, state: pending.state };
@@ -1051,6 +1055,7 @@ export class CidService {
     const method = `social:${spec.id}` as const;
     if (account.totp?.confirmed) {
       const mfaToken = randomBytes(24).toString("base64url");
+      await this.repo.sweepOneTime("mfa", this.now().getTime());
       await this.repo.putOneTime("mfa", mfaToken, { cid, method: `${method}+totp`, device, expiresAt: this.now().getTime() + CHALLENGE_TTL_MS });
       return { status: "mfa_required", mfaToken };
     }

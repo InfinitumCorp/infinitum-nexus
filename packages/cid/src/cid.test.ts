@@ -464,3 +464,17 @@ describe("CID OpenID Connect client mode (sign-in at the standalone issuer)", ()
     assert.notEqual((await cid.getAccount(SUB)).username, "grace");
   });
 });
+
+describe("unfinished sign-ins", () => {
+  it("expired sign-in challenges are cleared as new ones are made, so anyone starting sign-ins can't grow storage forever", async () => {
+    const { cid, advance } = setup();
+    const repo = (cid as unknown as { repo: { peekOneTime(kind: string, key: string): Promise<unknown> } }).repo;
+    const old = await Promise.all([cid.startSignIn(), cid.startSignIn(), cid.startSignIn()]);
+    for (const o of old) assert.ok(await repo.peekOneTime("challenge", o.challenge));
+    advance(6 * 60_000);
+    const fresh = await cid.startSignIn();
+    for (const o of old) assert.equal(await repo.peekOneTime("challenge", o.challenge), undefined, "expired and cleared");
+    assert.ok(await repo.peekOneTime("challenge", fresh.challenge), "the new one stays");
+  });
+});
+

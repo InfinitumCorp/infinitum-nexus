@@ -135,6 +135,45 @@ describe("Hosted state (serverless instances sharing Supabase)", () => {
     assert.equal(other, 1);
   });
 
+  it("a document this host doesn't keep is sent once, not with every request", async () => {
+    const db = new MemoryGateway();
+    db.docs.set("cid", { id: "cid", version: 3, data: { accounts: { __map: [] } } });
+    const crmStore = emptyStore();
+    const state = new RemoteState(db, { spectre: crmStore });
+    const sent: string[][] = [];
+    const load = db.load.bind(db);
+    db.load = async (since, versions) => {
+      const r = await load(since, versions);
+      sent.push(r.docs.map((d) => d.id));
+      return r;
+    };
+    for (let i = 0; i < 3; i++) await state.transaction(async () => undefined);
+    assert.deepEqual(sent, [["cid"], [], []]);
+  });
+
+  it("a store failure part way through a request saves nothing of it; a refusal still saves what it recorded", async () => {
+    const db = new MemoryGateway();
+    const a = instance(db);
+    const acct = await a.state.transaction(() => a.cid.createAccount({ username: "alex" }));
+    const { StoreError } = await import("./remote.ts");
+    for (const failure of [new StoreError("Data store error 502"), Object.assign(new Error("duplicate key"), { code: "23505" })]) {
+      await assert.rejects(a.state.transaction(async () => {
+        a.crm.addCompany(acct.cid, acct.cid, { name: "Half done" });
+        throw failure;
+      }));
+      assert.equal(a.crm.list("companies", acct.cid).length, 0, "rolled back in memory");
+      const fresh = instance(db, a.signer);
+      assert.equal(await fresh.state.transaction(async () => fresh.crm.list("companies", acct.cid).length), 0, "and not saved");
+    }
+    // A refusal (the request's own error, no store involved) keeps today's behavior: what it recorded is saved.
+    await assert.rejects(a.state.transaction(async () => {
+      a.crm.addCompany(acct.cid, acct.cid, { name: "Recorded" });
+      throw new Error("refused");
+    }), /refused/);
+    const fresh = instance(db, a.signer);
+    assert.equal(await fresh.state.transaction(async () => fresh.crm.list("companies", acct.cid).length), 1);
+  });
+
   it("doesn't write anything for read-only requests", async () => {
     const db = new MemoryGateway();
     const a = instance(db);

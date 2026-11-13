@@ -22,6 +22,7 @@
     "@infinitum/firmament": "workspace:*",
     "@infinitum/lbrnth": "workspace:*",
     "@infinitum/lbrnth-client": "workspace:*",
+    "@infinitum/mail": "workspace:*",
     "@infinitum/metatron": "workspace:*",
     "@infinitum/scalus": "workspace:*",
     "@infinitum/veil": "workspace:*",

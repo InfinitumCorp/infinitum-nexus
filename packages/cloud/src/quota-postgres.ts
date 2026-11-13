@@ -1,8 +1,9 @@
 /**
  * Storage quota on PostgreSQL (relational storage plan, phase 5): one row per person in quota_usage.
  *
- * Usage reads take a row lock (SELECT … FOR UPDATE), so inside a request's transaction two uploads by
- * the same person are charged one after the other, and both can't squeeze into the last free bytes.
+ * Usage reads take a lock on the person (an advisory lock, which also covers someone with no row yet,
+ * and a row lock), so inside a request's transaction two uploads by the same person are charged one
+ * after the other, and both can't squeeze into the last free bytes.
  * The connection is passed in (a `pg` Pool, Hyperdrive or a request scope); off unless StorageQuota is
  * given one.
  */
@@ -43,6 +44,9 @@ export class PgQuotaRepository implements QuotaRepository {
   }
 
   async usage(cid: string): Promise<Record<QuotaProduct, number> | undefined> {
+    // The row lock can't cover a person with no row yet (their first upload); this lock on the CID can,
+    // so two first uploads at once are charged one after the other too.
+    await this.#db.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`cumulus-quota|${this.#t}|${cid}`]);
     const { rows } = await this.#db.query(`SELECT mail_bytes, cloud_bytes FROM ${this.#t} WHERE cid = $1 FOR UPDATE`, [cid]);
     return rows[0] ? { mail: Number(rows[0].mail_bytes), cloud: Number(rows[0].cloud_bytes) } : undefined;
   }

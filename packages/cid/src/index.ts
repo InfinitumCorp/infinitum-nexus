@@ -63,7 +63,7 @@ export type { LabyrinthDirectoryIdentity, LabyrinthDirectoryOrg, LabyrinthDirect
 export { PgCidRepository, PgRequestScope, migrateCid, cidSchemaSql } from "./postgres.ts";
 export type { Queryable, PgPoolClient, PgCidRepositoryOptions } from "./postgres.ts";
 /** Phase 3: copy the `cid` document into a repository and verify it (see backfill-cli.ts). */
-export { backfillCid, checkCidStore, cidStoreFromSnapshot } from "./backfill.ts";
+export { backfillCid, checkCidStore, cidStoreFromSnapshot, cidStoreFromRepository } from "./backfill.ts";
 export type { BackfillReport, CidCheck, CidCounts } from "./backfill.ts";
 /** Sealing account secrets (authenticator-app seeds) at rest. */
 export { secretBox, deriveCidSecretKey, cidSecretKeyFromEnv, cidSecretKeyForHost } from "./secret-box.ts";

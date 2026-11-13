@@ -112,8 +112,9 @@ export class WalletAccounts {
     return account;
   }
 
+  /** For display. Payments read the wallet again under its lock. */
   get(cid: string): Promise<WalletAccount | undefined> {
-    return this.repo.account(cid);
+    return this.repo.peekAccount ? this.repo.peekAccount(cid) : this.repo.account(cid);
   }
 
   cidForAddress(address: string): Promise<string | undefined> {
@@ -121,7 +122,7 @@ export class WalletAccounts {
   }
 
   async balances(cid: string): Promise<Record<WalletAsset, string>> {
-    const account = await this.require(cid);
+    const account = (await this.get(cid)) ?? (await this.require(cid)); // require throws the usual "no wallet"
     return { FIRM: formatAmount(BigInt(account.balances.FIRM)), USDC: formatAmount(BigInt(account.balances.USDC)) };
   }
 

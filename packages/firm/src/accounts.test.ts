@@ -167,4 +167,24 @@ describe("FIRM Wallet on PostgreSQL, two payments at once", { skip: pgPool ? fal
     const stored = await new WalletAccounts({ repository: new PgWalletRepository({ db: pgPool!, schema }) }).get("cid:new");
     assert.equal(stored?.address, x);
   });
+
+  test("showing balances doesn't wait for a payment in progress", async () => {
+    const schema = `wallet_peek_${process.pid}`;
+    pgSchemas.push(schema);
+    await migrateWallet(pgPool!, schema);
+    const wallets = new WalletAccounts({ repository: new PgWalletRepository({ db: pgPool!, schema }) });
+    await wallets.open("cid:p");
+    await wallets.credit("cid:p", "USDC", "4", "seed");
+    const client = await pgPool!.connect();
+    try {
+      await client.query("BEGIN");
+      await new PgWalletRepository({ db: client, schema }).account("cid:p"); // a payment holds the wallet's lock
+      const shown = await Promise.race([wallets.balances("cid:p"), new Promise((r) => setTimeout(() => r("waited"), 1500))]);
+      assert.deepEqual(shown, { FIRM: "0", USDC: "4" });
+    } finally {
+      await client.query("ROLLBACK");
+      client.release();
+    }
+  });
 });
+

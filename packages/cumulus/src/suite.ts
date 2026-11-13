@@ -117,10 +117,10 @@ export class CumulusSuite {
   /* ---------------- Provisioning: every CID gets the whole free tier ---------------- */
 
   /** Give an account its mailbox and wallet. Runs on account creation; safe to call again (backfills older CIDs). */
-  provision(account: Account) {
+  async provision(account: Account) {
     const fresh = !this.mail.has(account.cid);
     this.mail.provision({ cid: account.cid, address: account.mailAddress, name: account.username });
-    const wallet = this.wallets.open(account.cid);
+    const wallet = await this.wallets.open(account.cid);
     if (fresh) {
       this.mail.notify(account.cid, "welcome", {
         subject: "Welcome to your Cumulus://ID",
@@ -149,8 +149,8 @@ export class CumulusSuite {
   async provisionAll(): Promise<number> {
     let n = 0;
     for (const account of await this.cid.allAccounts()) {
-      if (!this.mail.has(account.cid) || !this.wallets.get(account.cid)) {
-        this.provision(account);
+      if (!this.mail.has(account.cid) || !(await this.wallets.get(account.cid))) {
+        await this.provision(account);
         n++;
       }
     }
@@ -161,7 +161,7 @@ export class CumulusSuite {
 
   private async onCidEvent(e: CidEvent) {
     if (e.event === "account.created") {
-      this.provision(await this.cid.getAccount(e.cid));
+      await this.provision(await this.cid.getAccount(e.cid));
       return;
     }
     if (!this.mail.has(e.cid)) return;
@@ -226,7 +226,7 @@ export class CumulusSuite {
   /* ---------------- FIRM Wallet ---------------- */
 
   /** Resolve a Cumulus address, alias or 0x wallet address to a CID. */
-  resolvePayee(to: string): string | undefined {
+  async resolvePayee(to: string): Promise<string | undefined> {
     const value = to.trim().toLowerCase();
     if (/^0x[0-9a-f]{40}$/.test(value)) return this.wallets.cidForAddress(value);
     return this.mail.resolve(value);
@@ -234,7 +234,7 @@ export class CumulusSuite {
 
   /** Send from the wallet directly; both people get a receipt in Cumulus://Mail. */
   async pay(fromCid: string, to: string, asset: string, amount: string, memo = ""): Promise<WalletTransfer> {
-    const payee = this.resolvePayee(to);
+    const payee = await this.resolvePayee(to);
     if (!payee) throw new WalletError("unknown_payee", "Send to a Cumulus://Mail address or a FIRM Wallet address");
     const tx = await this.wallets.transfer(fromCid, payee, asset, amount, memo);
     const fromAddr = this.mail.addressOf(fromCid);
@@ -258,7 +258,11 @@ export class CumulusSuite {
   /** What any product shows in its account menu: address, unread mail, storage, wallet. */
   async summary(cid: string) {
     const account = await this.cid.getAccount(cid);
-    if (!this.mail.has(cid) || !this.wallets.get(cid)) this.provision(account);
+    let wallet = await this.wallets.get(cid);
+    if (!this.mail.has(cid) || !wallet) {
+      await this.provision(account);
+      wallet = await this.wallets.get(cid);
+    }
     const usage = await this.quota.usage(cid);
     return {
       cid,
@@ -268,7 +272,7 @@ export class CumulusSuite {
       entitlements: account.entitlements,
       mail: { unread: this.mail.unreadCount(cid), url: this.mailOrigin },
       storage: { label: usage.label, pct: usage.pct, mail: formatBytes(usage.byProduct.mail), cloud: formatBytes(usage.byProduct.cloud) },
-      wallet: { address: this.wallets.get(cid)!.address, balances: this.wallets.balances(cid) },
+      wallet: { address: wallet!.address, balances: await this.wallets.balances(cid) },
     };
   }
 }

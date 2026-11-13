@@ -27,7 +27,8 @@ local socket with peer authentication.
 | Mail step 2 on Postgres: one row per message (only changed messages written, each sealed at write time), outbound subject and body sealed to the sender | #213 |
 | Tunnel keys as rows (`mail_tunnel_keys`, wrapped with the master key; servers adopt the first stored keys) | #214 |
 | `CUMULUS_ROWS=mail,wallet,quota` (with `CUMULUS_STORE=postgres`): those products on rows in the same request transaction, their documents no longer loaded; `packages/cumulus/src/rows-cli.ts` copies and verifies the documents first | #220 |
-| `CUMULUS_ROWS=wallet,quota` with `CUMULUS_STORE=gateway` (Supabase through nexus-store, migration `20261115_cumulus_rows_wallet_quota.sql`; no edge function change). Also fixes a race in the row writes: two servers creating the same key at once both passed the "doesn't exist yet" check | This PR |
+| `CUMULUS_ROWS=wallet,quota` with `CUMULUS_STORE=gateway` (Supabase through nexus-store, migration `20261115_cumulus_rows_wallet_quota.sql`; no edge function change). Also fixes a race in the row writes: two servers creating the same key at once both passed the "doesn't exist yet" check | #221 |
+| `CUMULUS_ROWS=mail` with `CUMULUS_STORE=gateway` (migration `20261116_cumulus_rows_mail.sql`): mailboxes, messages, addresses and outbound mail through nexus-store; a mailbox version makes concurrent changes re-run; unsealed (hosts with a mail master key use `CUMULUS_STORE=postgres`) | This PR |
 | Message paging (reads still load a whole mailbox) | Not started |
 
 US Supabase project: the `cumulus_id` tables and `refresh_from_document()` exist (created 2026-11-12;
@@ -210,7 +211,9 @@ On a host already running `CUMULUS_STORE=postgres`:
 
 On a host running `CUMULUS_STORE=gateway` (Supabase): apply `20261115_cumulus_rows_wallet_quota.sql`, run
 `select cumulus_rows.refresh_from_documents()` just before the deploy that sets
-`CUMULUS_ROWS=wallet,quota` goes live, and check the counts it returns against the documents.
+`CUMULUS_ROWS=wallet,quota` goes live, and check the counts it returns against the documents. For mail,
+apply `20261116_cumulus_rows_mail.sql` too and run `select cumulus_rows.refresh_mail_from_document()` in
+the same moment, then `CUMULUS_ROWS=mail,wallet,quota`.
 
 ### Cutover runbook (Cumulus://ID, phase 4)
 

@@ -38,3 +38,9 @@ Rollback: point the CNAME back at `ghs.googlehosted.com` (the old `spctr-mirror`
 Rollback: point the `ru.id` CNAME back at `ghs.googlehosted.com`.
 
 `npm test` runs the cookie-jar and pass-through tests.
+
+## Status (2026-11-14)
+
+Live. `ru.id.cumuluscloud.app` is a DNS-only CNAME to `cumulus-id-ru.web.app` (Firebase Hosting, site `cumulus-id-ru` on project `scalvs-mirror`), which rewrites to Cloud Run `cumulus-id-ru` (europe-north1) with `COOKIE_JAR=1`. The certificate was pre-issued with an `_acme-challenge` TXT record before the switch. Checked: home, `/__mirror/health` and OIDC discovery return 200; authorize for client `node` with the `node-ru` redirect returns 302 to the sign-in page on ru.id.
+
+Rollback: point the CNAME back at `ghs.googlehosted.com` (the old `spctr-mirror` service is still up).

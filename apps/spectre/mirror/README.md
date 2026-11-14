@@ -13,6 +13,12 @@ the Worker. `spctr-mirror` passes cookies through unchanged and stays up for rol
 
 The host name doesn't change, so passkeys and `SPECTRE_EXTRA_ORIGINS` need nothing new.
 
+## Status (2026-11-14)
+
+Live. `ru.id.cumuluscloud.app` is a DNS-only CNAME to `cumulus-id-ru.web.app` (Firebase Hosting, site `cumulus-id-ru`), which rewrites to Cloud Run `cumulus-id-ru` (europe-north1, `COOKIE_JAR=1`). The certificate was pre-issued with an `_acme-challenge` TXT record, so the switch had no TLS gap. Checked through Firebase: home, `/__mirror/health` and the OpenID configuration return 200, and the authorize endpoint for client `node` sends people to sign in on ru.id.
+
+Rollback: point the CNAME back at `ghs.googlehosted.com` (the old `spctr-mirror` domain mapping is still in place).
+
 ## Set up (Google Cloud project `scalvs-mirror`, Firebase already enabled)
 
 1. Deploy the pass-through:

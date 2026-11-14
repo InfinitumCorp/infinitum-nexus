@@ -141,6 +141,7 @@ export function teamRoutes(): Route[] {
     r("PUT", `/channels/${ID}/canvas`, ({ team, me, params, body }) => team.setCanvas(me, params[0]!, body.text)),
     r("POST", `/channels/${ID}/bookmarks`, ({ team, me, params, body }) => team.addBookmark(me, params[0]!, body), { status: 201 }),
     r("POST", `/channels/${ID}/files`, ({ team, me, params, body }) => team.upload(me, params[0]!, body), { status: 201, limit: FILE_BODY_LIMIT }),
+    r("POST", `/channels/${ID}/polls`, ({ team, me, params, body }) => team.createPoll(me, params[0]!, body), { status: 201 }),
     r("POST", `/channels/${ID}/schedule`, ({ team, me, params, body }) => team.schedule(me, params[0]!, body), { status: 201 }),
     r("POST", `/channels/${ID}/typing`, ({ team, me, params, body }) => team.typing(me, params[0]!, typeof body.parentId === "string" ? body.parentId : null)),
 
@@ -151,6 +152,8 @@ export function teamRoutes(): Route[] {
     r("POST", `/messages/${ID}/reactions`, ({ team, me, params, body }) => ({ reactions: team.react(me, params[0]!, body.emoji, typeof body.on === "boolean" ? body.on : undefined) })),
     r("PUT", `/messages/${ID}/pin`, ({ team, me, params, body }) => team.pin(me, params[0]!, body.pinned !== false)),
     r("PUT", `/messages/${ID}/save`, ({ team, me, params, body }) => team.save(me, params[0]!, body)),
+    r("POST", `/messages/${ID}/vote`, ({ team, me, params, body }) => team.vote(me, params[0]!, body.choice, typeof body.on === "boolean" ? body.on : undefined)),
+    r("POST", `/messages/${ID}/close`, ({ team, me, params }) => team.closePoll(me, params[0]!)),
 
     r("DELETE", `/bookmarks/${ID}`, ({ team, me, params }) => team.removeBookmark(me, params[0]!)),
     r("GET", `/files/${ID}`, ({ team, me, params, query, res, security }) => {

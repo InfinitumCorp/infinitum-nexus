@@ -305,11 +305,12 @@ function renderMessages(focusId, stick = true) {
 function messageItem(m, { compact = false, focus = false, inThread = false } = {}) {
   if (m.kind === "system") return h("li", { class: "t-msg system" }, h("span", { class: "meta" }, `${m.sender.displayName} ${m.text} · ${time(m.createdAt)}`));
   const li = h("li", { class: `t-msg${compact ? " compact" : ""}${focus ? " focus" : ""}${m.mentions.includes(state.me.sub) ? " mentioned" : ""}${m.pinned ? " pinned" : ""}`, "data-id": m.id });
-  if (!compact) li.append(h("div", { class: "t-who" }, dot(m.sender), h("button", { type: "button", class: "link strong", onclick: tryRun(() => showProfile(m.sender)) }, personName(m.sender)), h("span", { class: "meta" }, time(m.createdAt)), m.pinned ? h("span", { class: "meta" }, "📌 pinned") : null));
+  if (!compact) li.append(h("div", { class: "t-who" }, m.app ? h("span", { class: "t-app", title: `Posted by an app for ${m.sender.displayName}` }, "APP") : dot(m.sender), h("button", { type: "button", class: "link strong", onclick: tryRun(() => showProfile(m.sender)) }, m.app ? m.app.name : personName(m.sender)), h("span", { class: "meta" }, time(m.createdAt)), m.pinned ? h("span", { class: "meta" }, "📌 pinned") : null));
   const body = h("div", { class: "t-body" });
   if (m.deleted) body.append(h("p", { class: "meta" }, "This message was deleted."));
   else if (m.unreadable) body.append(h("p", { class: "meta" }, "This message could not be read."));
   else if (state.editing === m.id) body.append(editBox(m));
+  else if (m.poll) body.append(h("p", { class: "strong" }, "📊 ", ...inline(m.text)), pollBlock(m));
   else body.append(format(m.text));
   if (m.editedAt && !m.deleted) body.append(h("span", { class: "meta" }, " (edited)"));
   if (m.alsoInChannel && !inThread) body.prepend(h("p", { class: "meta" }, "replied to a thread"));
@@ -326,6 +327,39 @@ function messageItem(m, { compact = false, focus = false, inThread = false } = {
   if (m.replyCount && !inThread) li.append(h("button", { type: "button", class: "t-replies link", onclick: tryRun(() => openThread(m.id)) }, `${m.replyCount} ${m.replyCount === 1 ? "reply" : "replies"}`, h("span", { class: "meta" }, ` · last ${when(m.lastReplyAt)}`)));
   if (!m.deleted && !m.unreadable) li.append(actions(m, inThread));
   return li;
+}
+
+function pollBlock(m) {
+  const p = m.poll;
+  const most = Math.max(1, ...p.options.map((o) => o.count));
+  const mine = m.sender.sub === state.me.sub || ["owner", "admin"].includes(state.bar.workspace.role);
+  return h("div", { class: "t-poll" },
+    h("ol", { class: "t-poll-options" }, ...p.options.map((o, i) => {
+      const bar = h("span", { class: "t-poll-bar" });
+      bar.style.width = `${Math.round((o.count / most) * 100)}%`;
+      return h("li", {},
+        h("button", {
+          type: "button", class: `t-poll-option${o.mine ? " mine" : ""}`, disabled: p.closed, "aria-pressed": String(o.mine),
+          onclick: tryRun(async () => { await api(T(`/messages/${m.id}/vote`), { method: "POST", body: { choice: i } }); await afterChange(m); }),
+        }, bar, h("span", { class: "t-poll-text" }, o.mine ? `✓ ${o.text}` : o.text), h("span", { class: "meta" }, String(o.count))),
+        o.voters.length ? h("span", { class: "meta t-poll-voters" }, o.voters.join(", ")) : null);
+    })),
+    h("p", { class: "meta t-row" },
+      `${p.voters} ${p.voters === 1 ? "person" : "people"} voted · ${p.multiple ? "pick any" : "pick one"}${p.anonymous ? " · anonymous" : ""}${p.closed ? " · closed" : ""}`,
+      mine && !p.closed ? h("button", { type: "button", class: "link", onclick: tryRun(async () => { if (confirm("Close this poll? No one can vote after that.")) { await api(T(`/messages/${m.id}/close`), { method: "POST", body: {} }); await afterChange(m); } }) }, "Close poll") : null),
+  );
+}
+
+async function newPoll() {
+  const r = await dialog("Create a poll", [
+    { name: "question", label: "Question", max: 300, required: true },
+    { name: "options", label: "Options, one per line (2 to 10)", type: "textarea", rows: 5, max: 1300 },
+    { name: "multiple", label: "People can pick more than one", type: "checkbox" },
+    { name: "anonymous", label: "Anonymous: hide who voted", type: "checkbox" },
+  ], "Post poll");
+  if (!r) return;
+  await api(T(`/channels/${state.channel.id}/polls`), { method: "POST", body: { question: r.question, options: r.options.split(/\r?\n/).map((o) => o.trim()).filter(Boolean), multiple: r.multiple, anonymous: r.anonymous } });
+  await refreshChannel();
 }
 
 function actions(m, inThread) {
@@ -458,7 +492,7 @@ function bindComposer(ta, submit, parentId) {
   });
 }
 
-const COMMANDS = ["/me", "/shrug", "/topic", "/purpose", "/rename", "/invite", "/kick", "/join", "/leave", "/archive", "/dm", "/remind me to ", "/status", "/away", "/active", "/dnd", "/mute", "/unmute", "/who", "/help"];
+const COMMANDS = ["/me", "/shrug", "/topic", "/purpose", "/rename", "/invite", "/kick", "/join", "/leave", "/archive", "/dm", "/remind me to ", "/status", "/away", "/active", "/dnd", "/mute", "/unmute", "/who", "/poll ", "/help"];
 let peopleCache = { at: 0, list: [] };
 async function suggest(ta) {
   const box = $("#suggest");
@@ -507,6 +541,7 @@ $("#file").addEventListener("change", tryRun(async (e) => {
   renderAttachments();
 }));
 
+$("#poll").addEventListener("click", tryRun(newPoll));
 $("#schedule").addEventListener("click", tryRun(async () => {
   const text = $("#text").value;
   if (!text.trim()) throw new Error("Write the message first");
@@ -853,7 +888,14 @@ $("#new-dm").addEventListener("click", tryRun(async () => {
 
 $("#create-ws").addEventListener("submit", tryRun(async (e) => { e.preventDefault(); state.wsId = (await api(T("/workspaces"), { method: "POST", body: { name: $("#ws-name").value } })).id; await start(); }));
 $("#join-ws").addEventListener("submit", tryRun(async (e) => { e.preventDefault(); state.wsId = (await api(T("/join"), { method: "POST", body: { code: $("#ws-code").value } })).id; await start(); }));
-$("#logout").addEventListener("click", tryRun(async () => { await api("/api/auth/logout", { method: "POST" }); location.href = "/team"; }));
+// The Cumulus://ID account bar's "Sign out" navigates to #signout (data-signout).
+const signOutFromHash = async () => {
+  if (location.hash !== "#signout") return;
+  await api("/api/auth/logout", { method: "POST" }).catch(() => {});
+  location.href = "/team";
+};
+window.addEventListener("hashchange", signOutFromHash);
+signOutFromHash();
 
 document.addEventListener("keydown", (e) => {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { e.preventDefault(); $("#search").focus(); }
@@ -873,10 +915,11 @@ async function start() {
 if (new URLSearchParams(location.search).get("error") === "sign-in-failed") showError("Sign-in failed. Try again.");
 try {
   state.me = await api("/api/me");
-  $("#logout").hidden = false;
+  const person = state.me;
+  window.CumulusBar?.setProfile({ name: person.name || person.username, username: person.username, email: person.email || undefined });
   await start();
   $("#me-button").hidden = !state.bar;
 } catch (e) {
-  if (/unauthorized/.test(e.message)) $("#signed-out").hidden = false;
+  if (/unauthorized/.test(e.message)) { $("#signed-out").hidden = false; window.CumulusBar?.setProfile(null); }
   else showError(e.message);
 }

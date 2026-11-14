@@ -124,3 +124,14 @@
   .t-panel { width: auto; border-left: 0; border-top: 1px solid var(--line); }
   .t-search { display: none; }
 }
+
+/* Polls */
+.t-poll { margin-top: 6px; max-width: 460px; }
+.t-poll-options { list-style: none; margin: 0 0 4px; padding: 0; display: grid; gap: 4px; }
+.t-poll-option { position: relative; display: flex; justify-content: space-between; gap: 8px; width: 100%; padding: 6px 10px; border: 1px solid var(--line); background: var(--paper); cursor: pointer; text-align: left; overflow: hidden; }
+.t-poll-option:disabled { cursor: default; }
+.t-poll-option.mine { border-color: var(--accent); }
+.t-poll-option > span { position: relative; }
+.t-poll-bar { position: absolute !important; inset: 0 auto 0 0; background: #eef3ff; }
+.t-poll-voters { display: block; padding: 0 10px; }
+.t-app { font-size: 10px; font-weight: 700; padding: 0 4px; border: 1px solid var(--line); color: var(--muted); }

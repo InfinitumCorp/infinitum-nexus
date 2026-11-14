@@ -24,6 +24,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable
 
 from .dp import BudgetExceeded, PrivacyBudget, release
+from .event_release import StoredReleases
 from .embed import GuestTokens, parse_embed_dashboards
 from .pipeline import prepare_export
 from .platform import Catalog, Collector, DataHubSink, Eraser, IngestLimits, OpenSearchIndex, PlatformError, Searcher
@@ -101,6 +102,7 @@ class Gateway:
         product_tokens: dict[str, str] | None = None,
         eraser: Eraser | None = None,
         guest_tokens: GuestTokens | None = None,
+        releases: StoredReleases | None = None,
     ) -> None:
         if len(token) < 32:
             raise ValueError("PRIVACY_GATEWAY_TOKEN must be at least 32 characters")
@@ -108,6 +110,7 @@ class Gateway:
         self.catalog, self.collector, self.searcher = catalog, collector, searcher
         self.product_tokens = product_tokens or {}
         self.eraser = eraser
+        self.releases = releases
         self.guest_tokens = guest_tokens
         self.routes = [
             Route("POST", "/api/v1/redact", self.redact, "gateway"),
@@ -120,6 +123,7 @@ class Gateway:
             Route("POST", "/api/v1/search/events", self.search, "product"),
             Route("POST", "/api/v1/erasure/subjects", self.erase, "product"),
             Route("POST", "/api/v1/erasure/subjects/all-products", self.erase_everywhere, "gateway"),
+            Route("POST", "/api/v1/releases/datasets/{name}", self.release_dataset, "product"),
             Route("POST", "/api/v1/embed/dashboards/{dashboardId}/guest-token", self.guest_token, "product"),
         ]
 
@@ -158,6 +162,8 @@ class Gateway:
     def get_dataset(self, b: dict[str, Any], caller: str = "", name: str = "") -> Any:
         return self._platform(self.catalog).read(caller, name)
 
+    def release_dataset(self, b: dict[str, Any], caller: str = "", name: str = "") -> Any:
+        return self._platform(self.releases).release(caller, name, b)
     def guest_token(self, b: dict[str, Any], caller: str = "", dashboardId: str = "") -> Any:  # noqa: N803
         return self._platform(self.guest_tokens).mint(caller, dashboardId, b)
 
@@ -313,7 +319,7 @@ def main() -> None:
             refresh=os.environ.get("OPENSEARCH_REFRESH_ON_WRITE") == "1",
         )
     redactor = Redactor()
-    collector = searcher = None
+    collector = searcher = releases = None
     products = parse_product_tokens(os.environ.get("PLATFORM_PRODUCT_TOKENS", ""))
     # Free tier: Supabase allows 500 MB per database, so stop taking events at 450 MB by default.
     limit_mb = int(os.environ.get("PLATFORM_STORAGE_LIMIT_MB", "450" if dsn else "0"))
@@ -327,6 +333,7 @@ def main() -> None:
     if products:
         collector = Collector(catalog, redactor, index, os.environ.get("PLATFORM_REGION", "EU"), limits)
         searcher = Searcher(index)
+        releases = StoredReleases(catalog, index, budget)
     else:
         catalog = None
     if dsn:
@@ -337,7 +344,7 @@ def main() -> None:
     if products and guest_secret and dashboards:
         guest_tokens = GuestTokens(guest_secret, dashboards, redactor,
                                    audience=os.environ.get("SUPERSET_GUEST_TOKEN_AUDIENCE", "superset"))
-    gw = Gateway(redactor, budget, token, catalog, collector, searcher, products, eraser, guest_tokens)
+    gw = Gateway(redactor, budget, token, catalog, collector, searcher, products, eraser, guest_tokens, releases)
     host = os.environ.get("HOST", "127.0.0.1")
     port = int(os.environ.get("PORT", "8090"))
     httpd = ThreadingHTTPServer((host, port), make_handler(gw))

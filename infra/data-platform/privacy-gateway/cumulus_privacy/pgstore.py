@@ -182,6 +182,21 @@ class PostgresEventIndex:
         with _connect(self.dsn) as c:
             return c.execute(sql, args).rowcount
 
+    def release_rows(self, product: str, event_type: str, start: datetime, end: datetime, limit: int) -> list[dict[str, Any]]:
+        """Events for a differentially private release (event_release.StoredReleases)."""
+        with _connect(self.dsn) as c:
+            rows = c.execute(
+                """select cid, consent, payload from data_platform.events
+                   where product = %s and event_type = %s and occurred_at >= %s and occurred_at < %s
+                     and cid is not null
+                   limit %s""",
+                (product, event_type, start, end, int(limit)),
+            ).fetchall()
+        return [
+            {"cid": cid, "consent": list(consent or []), "payload": p if isinstance(p, dict) else json.loads(p)}
+            for cid, consent, p in rows
+        ]
+
     def storage_bytes(self) -> int:
         """Size of the whole database: the Supabase free-plan limit applies to all of it."""
         with _connect(self.dsn) as c:

@@ -71,3 +71,6 @@ export type { SecretBox } from "./secret-box.ts";
 /** Cumulus://ID rows behind the nexus-store gateway (CUMULUS_STORE=gateway). */
 export { RemoteCidRepository } from "./remote-repository.ts";
 export type { CidReadOp, CidWriteOp, CidReader } from "./remote-repository.ts";
+
+export { cidGraphFromEnv, neo4jGraph, neo4jHttpOrigin } from "./graph.ts";
+export type { CidGraph } from "./graph.ts";

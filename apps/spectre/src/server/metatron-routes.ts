@@ -7,6 +7,11 @@
  *   POST /api/metatron/forecast         forecast any series with ranges
  *   GET  /api/metatron/outlook          what the open pipeline will book
  *   GET  /api/metatron/signals          the workspace's weekly series, what changed, and a bookings forecast
+ *   GET  /api/metatron/scenarios        the workspace's saved scenarios (newest change first)
+ *   POST /api/metatron/scenarios        save one (a model, or a templateId to start from)
+ *   GET|PATCH|DELETE /api/metatron/scenarios/:id
+ *
+ * simulate and compare also take a scenarioId to run a saved scenario.
  *
  * Simulations run inside the request, so each one gets a work budget: the
  * number of runs is lowered to fit and the response says how many were used.
@@ -20,10 +25,12 @@ import {
   simulate,
   TEMPLATES,
   templateById,
+  validateModel,
   type Intervention,
   type ScenarioModel,
 } from "@infinitum/metatron";
-import type { SpectreCRM } from "../core/crm.ts";
+import type { ScenarioInput, SpectreCRM } from "../core/crm.ts";
+import type { SavedScenario } from "../core/model.ts";
 import type { Score } from "../core/intelligence.ts";
 import { OPEN_STAGES, type Stage } from "../core/model.ts";
 import { pipelineOutlook, weeklySeries } from "../core/metatron-outlook.ts";
@@ -74,13 +81,17 @@ export function registerMetatronRoutes(api: MetatronApi): void {
     return { runs: Math.min(want, fit), capped: want > fit };
   };
 
-  const readModel = (body: Record<string, unknown>): { model: ScenarioModel; interventions?: Intervention[]; events?: Record<string, string>; focus?: string } => {
+  const readModel = (body: Record<string, unknown>, ws: string): { model: ScenarioModel; interventions?: Intervention[]; events?: Record<string, string>; focus?: string } => {
+    if (typeof body.scenarioId === "string") {
+      const s = crm.scenario(ws, body.scenarioId);
+      return { model: s.model as unknown as ScenarioModel, interventions: s.interventions as unknown as Intervention[], events: s.events, focus: s.focus };
+    }
     if (typeof body.templateId === "string") {
       const t = templateById(body.templateId);
       if (!t) throw httpError(404, `No template "${body.templateId}"`);
       return { model: t.model, interventions: t.interventions, events: t.events, focus: t.focus };
     }
-    if (!isObj(body.model)) throw httpError(400, "Send a model (or a templateId)");
+    if (!isObj(body.model)) throw httpError(400, "Send a model (or a templateId or scenarioId)");
     return { model: body.model as unknown as ScenarioModel };
   };
 
@@ -96,7 +107,7 @@ export function registerMetatronRoutes(api: MetatronApi): void {
 
   route("POST", "/api/metatron/simulate", (ctx) => {
     const body = isObj(ctx.body) ? ctx.body : {};
-    const { model, events: tplEvents } = readModel(body);
+    const { model, events: tplEvents } = readModel(body, ctx.user!.workspace);
     const intervention = body.intervention === undefined ? undefined : (body.intervention as Intervention);
     if (intervention !== undefined && !isObj(intervention)) throw httpError(400, "intervention must be an object");
     const { runs, capped } = budget(model, num(body.runs, "runs"), 1);
@@ -106,7 +117,7 @@ export function registerMetatronRoutes(api: MetatronApi): void {
 
   route("POST", "/api/metatron/compare", (ctx) => {
     const body = isObj(ctx.body) ? ctx.body : {};
-    const r = readModel(body);
+    const r = readModel(body, ctx.user!.workspace);
     const interventions = (body.interventions ?? r.interventions ?? []) as Intervention[];
     if (!Array.isArray(interventions) || interventions.length === 0) throw httpError(400, "Send at least one intervention to compare");
     if (interventions.length > 8) throw httpError(400, "Compare at most 8 interventions at once");
@@ -156,5 +167,81 @@ export function registerMetatronRoutes(api: MetatronApi): void {
     const won = complete.wonValue!;
     const bookings = won.some((v) => v !== 0) ? guard(() => forecast(won, 8)) : null;
     return { ...w, notable, bookings };
+  });
+
+  /* ---------------- saved scenarios ---------------- */
+
+  const readInterventions = (v: unknown): Record<string, unknown>[] | undefined => {
+    if (v === undefined) return undefined;
+    if (!Array.isArray(v) || v.length > 8 || v.some((x) => !isObj(x) || typeof x.name !== "string" || !x.name.trim())) {
+      throw httpError(400, "interventions must be a list of up to 8 objects, each with a name");
+    }
+    return v as Record<string, unknown>[];
+  };
+
+  /** What a save or change sends, checked by the METATRON engine before it is kept. */
+  const readScenario = (body: Record<string, unknown>, partial: boolean): Partial<ScenarioInput> => {
+    const out: Partial<ScenarioInput> = {};
+    if (body.name !== undefined) out.name = String(body.name);
+    if (typeof body.templateId === "string" && !partial) {
+      const t = templateById(body.templateId);
+      if (!t) throw httpError(404, `No template "${body.templateId}"`);
+      Object.assign(out, { templateId: t.id, model: t.model, interventions: t.interventions, events: t.events ?? {}, focus: t.focus });
+      out.name ??= t.title;
+    }
+    if (body.model !== undefined) {
+      if (!isObj(body.model)) throw httpError(400, "model must be an object");
+      out.model = body.model;
+    }
+    if (out.model) guard(() => validateModel(out.model as unknown as ScenarioModel));
+    const interventions = readInterventions(body.interventions);
+    if (interventions) out.interventions = interventions;
+    const events = readEvents(body.events);
+    if (events) out.events = events;
+    if (body.focus !== undefined) {
+      if (typeof body.focus !== "string") throw httpError(400, "focus must be a name");
+      out.focus = body.focus;
+    }
+    if (!partial && !out.model) throw httpError(400, "Send a model (or a templateId) to save");
+    if (!partial && out.name === undefined) throw httpError(400, "Give the scenario a name");
+    return out;
+  };
+
+  const summary = (s: SavedScenario) => ({
+    id: s.id,
+    name: s.name,
+    templateId: s.templateId ?? null,
+    steps: (s.model as { steps?: number }).steps ?? null,
+    interventions: s.interventions.length,
+    createdBy: s.createdBy,
+    createdAt: s.createdAt,
+    updatedAt: s.updatedAt,
+  });
+
+  route("GET", "/api/metatron/scenarios", (ctx) => ({
+    scenarios: crm.list("scenarios", ctx.user!.workspace).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).map(summary),
+  }));
+
+  route("POST", "/api/metatron/scenarios", (ctx) => {
+    const body = isObj(ctx.body) ? ctx.body : {};
+    return crm.saveScenario(ctx.user!.workspace, ctx.user!.account.cid, readScenario(body, false) as ScenarioInput);
+  });
+
+  route("GET", "/api/metatron/scenarios/:id", (ctx) => crm.scenario(ctx.user!.workspace, ctx.params.id));
+
+  route("PATCH", "/api/metatron/scenarios/:id", (ctx) => {
+    const body = isObj(ctx.body) ? ctx.body : {};
+    const patch = readScenario(body, true);
+    // A new model must still fit the saved interventions, and the other way round.
+    const current = crm.scenario(ctx.user!.workspace, ctx.params.id);
+    const model = (patch.model ?? current.model) as unknown as ScenarioModel;
+    const ivs = (patch.interventions ?? current.interventions) as unknown as Intervention[];
+    if (patch.model || patch.interventions) guard(() => { if (ivs.length) compare(model, ivs, { runs: 1, seed: 1 }); });
+    return crm.updateScenario(ctx.user!.workspace, ctx.user!.account.cid, ctx.params.id, patch);
+  });
+
+  route("DELETE", "/api/metatron/scenarios/:id", async (ctx) => {
+    await crm.deleteScenario(ctx.user!.workspace, ctx.user!.account.cid, ctx.params.id);
+    return { ok: true };
   });
 }

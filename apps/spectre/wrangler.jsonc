@@ -1,4 +1,7 @@
-// Cumulus://ID (+SPCTR) on Cloudflare Workers, free plan. See src/server/worker.ts.
+// +SPCTR on Cloudflare Workers, free plan. See src/server/worker.ts.
+// After the cut-over the Cumulus://ID issuer is InfinitumCorp/cumulus-id (Worker cumulus-id-v2) on id.cumuluscloud.app,
+// and +SPCTR signs in as its OIDC client `spectre` (SPECTRE_AUTH=oidc). This Worker keeps the name `cumulus-id` so it
+// keeps its NexusStore state, but must never claim id.cumuluscloud.app again (a test checks).
 // Build first: node scripts/build-cloudflare.mjs (writes dist/entry.mjs with public/ embedded). Secrets (wrangler secret put NAME):
 //   FIRMAMENT_SIGNER_KEY   base64 PKCS#8 Ed25519 ledger signing key (keep a safe copy)
 //   NEXUS_STORE_KEY        gateway key for the Supabase nexus-store (Vercel path). The Worker
@@ -17,14 +20,13 @@
   // Global users run on US servers (Ashburn, Virginia); Russia is served by the ru.* copies on Yandex Cloud.
   "placement": { "region": "gcp:us-east4" },
   "compatibility_flags": ["nodejs_compat"],
-  "routes": [{ "pattern": "id.cumuluscloud.app", "custom_domain": true }],
+  "routes": [{ "pattern": "spectre.infinitumcorporation.ai", "custom_domain": true }],
   "workers_dev": false,
   "observability": { "enabled": true },
   "vars": {
-    "SPECTRE_ORIGIN": "https://id.cumuluscloud.app",
+    "SPECTRE_ORIGIN": "https://spectre.infinitumcorporation.ai",
+    "SPECTRE_AUTH": "oidc",
     "NEXUS_STORE_URL": "https://ivqiskeziohbbtkcvlun.supabase.co/functions/v1/nexus-store",
-    // Google Cloud Run mirror for networks that throttle Cloudflare (Russian ISPs); passkeys work there too.
-    "SPECTRE_EXTRA_ORIGINS": "https://ru.id.cumuluscloud.app",
     "CUMULUS_MAIL_ORIGIN": "https://mail.cumuluscloud.app",
     // Infinitum Search (@search, /api/web-search, Conjure web seeding) on VEIL's own engine; needs no key.
     "VEIL_SEARCH_URL": "https://infinitumveil.app/api/search",

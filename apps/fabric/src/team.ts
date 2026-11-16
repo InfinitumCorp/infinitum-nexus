@@ -9,7 +9,7 @@
  * channel key; reminders are sealed with the master key. Plaintext exists only
  * in this process, for a signed-in member who may read it.
  */
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { open, randomKey, seal } from "@infinitum/fabric";
 import type { FabricIdentity } from "./auth.ts";
 import { FabricServiceError } from "./service.ts";
@@ -28,6 +28,7 @@ import {
   type Role,
   type ScheduledRow,
   type TeamMessageRow,
+  type WebhookRow,
   type WorkspaceRow,
 } from "./team-store.ts";
 
@@ -40,6 +41,7 @@ export const TEAM_LIMITS = {
   searchScan: 5000,
   activeWindowMs: 5 * 60_000,
   pollOptions: 10,
+  webhooks: 100,
   pollOption: 120,
 };
 
@@ -1233,6 +1235,74 @@ export class TeamService {
     return this.view(me, row);
   }
 
+  // ---------- incoming webhooks ----------
+
+  /**
+   * Make an incoming webhook for a channel. The returned path holds a secret token that is shown
+   * only once; the server keeps its SHA-256 hash. Messages it posts appear as the app, on behalf
+   * of the person who made it, and stop working if that person leaves the channel.
+   */
+  createWebhook(me: FabricIdentity, channelId: string, input: { name?: unknown }): WebhookView & { path: string } {
+    const { channel, ws } = this.writable(me, channelId);
+    if (ws.role === "guest") throw fail(403, "guests cannot add apps");
+    if (this.store.count("SELECT COUNT(*) FROM team_webhooks WHERE workspace_id = ?", channel.workspaceId) >= TEAM_LIMITS.webhooks) throw fail(400, "this workspace has too many webhooks");
+    const name = label(input.name, "name", 60);
+    const id = randomUUID();
+    const token = randomBytes(32).toString("base64url");
+    const row: WebhookRow = { id, workspaceId: channel.workspaceId, channelId, name, tokenHash: hashToken(token), createdBy: me.sub, createdAt: this.stamp(), lastUsedAt: null };
+    this.store.insert("team_webhooks", row);
+    this.system(channel, me.sub, `added the incoming webhook “${name}”`);
+    return { ...this.webhookView(me, row), path: `/api/team/hooks/${id}/${token}` };
+  }
+
+  /** Webhooks in a workspace: all of them for admins, your own for everyone else. */
+  webhooks(me: FabricIdentity, workspaceId: string): WebhookView[] {
+    const m = this.member(me, workspaceId);
+    const rows = isAdmin(m.role)
+      ? this.store.all<WebhookRow>("SELECT * FROM team_webhooks WHERE workspace_id = ? ORDER BY created_at", workspaceId)
+      : this.store.all<WebhookRow>("SELECT * FROM team_webhooks WHERE workspace_id = ? AND created_by = ? ORDER BY created_at", workspaceId, me.sub);
+    return rows.map((r) => this.webhookView(me, r));
+  }
+
+  deleteWebhook(me: FabricIdentity, id: string): void {
+    const row = this.store.one<WebhookRow>("SELECT * FROM team_webhooks WHERE id = ?", uuid(id));
+    if (!row) throw fail(404, "webhook not found");
+    const m = this.member(me, row.workspaceId);
+    if (row.createdBy !== me.sub && !isAdmin(m.role)) throw fail(403, "only the person who added it or an admin can remove a webhook");
+    this.store.run("DELETE FROM team_webhooks WHERE id = ?", row.id);
+  }
+
+  /** Post through a webhook. No session: the token in the path is the credential. */
+  postWebhook(id: string, token: string, input: { text?: unknown; threadId?: unknown }): { ok: true; messageId: string } {
+    const row = UUID.test(id) ? this.store.one<WebhookRow>("SELECT * FROM team_webhooks WHERE id = ?", id.toLowerCase()) : null;
+    const expected = row ? Buffer.from(row.tokenHash) : Buffer.alloc(43);
+    const given = Buffer.from(hashToken(token));
+    if (!row || given.length !== expected.length || !timingSafeEqual(given, expected)) throw fail(404, "webhook not found");
+    const text = typeof input.text === "string" ? input.text.replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, "") : "";
+    if (!text.trim()) throw fail(400, "text is required");
+    if (text.length > TEAM_LIMITS.text) throw fail(400, "text is too long");
+    const channel = this.channel(row.channelId);
+    if (channel.archivedAt) throw fail(410, "the channel is archived");
+    const owner = this.store.one<MemberRow>("SELECT * FROM team_members WHERE workspace_id = ? AND sub = ? AND deactivated_at IS NULL", row.workspaceId, row.createdBy);
+    if (!owner || !this.channelMember(channel.id, row.createdBy)) throw fail(410, "the person who added this webhook is no longer in the channel");
+    let parent: TeamMessageRow | null = null;
+    if (typeof input.threadId === "string" && UUID.test(input.threadId)) {
+      parent = this.store.one<TeamMessageRow>("SELECT * FROM team_messages WHERE id = ? AND channel_id = ? AND deleted_at IS NULL", input.threadId.toLowerCase(), channel.id);
+      if (parent?.parentId) parent = this.message(parent.parentId);
+    }
+    const messageId = randomUUID();
+    this.insertMessage(channel, row.createdBy, text, { id: messageId, parent, alsoInChannel: false, fileIds: [], app: { id: row.id, name: row.name } });
+    this.store.run("UPDATE team_webhooks SET last_used_at = ? WHERE id = ?", this.clock().toISOString(), row.id);
+    return { ok: true, messageId };
+  }
+
+  private webhookView(me: FabricIdentity, row: WebhookRow): WebhookView {
+    return {
+      id: row.id, name: row.name, channel: this.channelView(me, this.channel(row.channelId)),
+      createdBy: this.person(row.workspaceId, row.createdBy), createdAt: row.createdAt, lastUsedAt: row.lastUsedAt,
+    };
+  }
+
   // ---------- internals ----------
 
   private insertMessage(
@@ -1615,6 +1685,7 @@ export class TeamService {
   }
 }
 
+export interface WebhookView { id: string; name: string; channel: ChannelView; createdBy: PersonView; createdAt: string; lastUsedAt: string | null }
 export interface ScheduledView { id: string; channel: ChannelView; parentId: string | null; sendAt: string; createdAt: string; text: string }
 export interface ReminderView { id: string; text: string; remindAt: string; done: boolean; fired: boolean; messageId: string | null; createdAt: string }
 
@@ -1716,6 +1787,7 @@ function messageAad(channelId: string, id: string): string { return `fabric-team
 function fileAad(channelId: string, id: string): string { return `fabric-team-file:${channelId}:${id}`; }
 function canvasAad(channelId: string): string { return `fabric-team-canvas:${channelId}`; }
 function reminderAad(id: string): string { return `fabric-team-reminder:${id}`; }
+function hashToken(token: string): string { return createHash("sha256").update(token).digest("base64url"); }
 function pollAad(channelId: string, id: string): string { return `fabric-team-poll:${channelId}:${id}`; }
 
 /** "10m", "2 hours", "1d" → milliseconds. */

@@ -171,6 +171,15 @@ test("team chat over HTTP: workspace, channel, thread, reaction, file, search an
     assert.match(download.headers.get("content-disposition") ?? "", /attachment/);
     assert.equal(await download.text(), "file body");
 
+    // An incoming webhook works with no session and no Origin; a wrong token is a plain 404.
+    const hook = await alice.api("POST", `/api/team/channels/${general.id}/webhooks`, { name: "CI" });
+    const hooked = await fetch(`${origin}${hook.path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "build passed" }) });
+    assert.equal(hooked.status, 200);
+    const hookMessage = await bob.api("GET", `/api/team/messages/${(await hooked.json()).messageId}`);
+    assert.equal(hookMessage.app.name, "CI");
+    const wrongToken = await fetch(`${origin}${hook.path.slice(0, -4)}AAAA`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "x" }) });
+    assert.equal(wrongToken.status, 404);
+
     const found = await bob.api("GET", `/api/team/workspaces/${ws.id}/search?q=${encodeURIComponent(phrase)}`);
     assert.equal(found.messages.length, 1);
     const help = await bob.api("POST", `/api/team/channels/${general.id}/messages`, { text: "/help" });

@@ -256,6 +256,7 @@ function channelMenu(anchor) {
     named && ["Edit description", async () => { const r = await dialog("Description", [{ name: "purpose", label: "Description", value: c.purpose, max: 250 }]); if (r) { await api(T(`/channels/${c.id}`), { method: "PATCH", body: r }); await refreshChannel(); } }],
     named && ["Rename", async () => { const r = await dialog("Rename channel", [{ name: "name", label: "Name", value: c.name, max: 80 }]); if (r) { await api(T(`/channels/${c.id}`), { method: "PATCH", body: r }); await refreshChannel(); await loadSidebar(); } }],
     c.kind !== "dm" && c.member && ["Add people", async () => { const r = await dialog("Add people", [{ name: "people", label: "Usernames, separated by spaces", required: true }]); if (r) { await api(T(`/channels/${c.id}/invite`), { method: "POST", body: { people: r.people.split(/[\s,]+/) } }); await refreshChannel(); } }],
+    c.kind !== "dm" && ["Incoming webhooks", () => showWebhooks()],
     c.member && [c.muted ? "Unmute" : "Mute", async () => { await api(T(`/channels/${c.id}/prefs`), { method: "PUT", body: { muted: !c.muted } }); await refreshChannel(); await loadSidebar(); }],
     c.member && ["Mark as read", async () => { await api(T(`/channels/${c.id}/read`), { method: "POST", body: {} }); await loadSidebar(); }],
     named && !c.archived && ["Archive channel", async () => { if (confirm(`Archive #${c.name}? People can still read it.`)) { await api(T(`/channels/${c.id}/archive`), { method: "POST", body: { archived: true } }); await refreshChannel(); await loadSidebar(); } }],
@@ -571,7 +572,7 @@ $("#older").addEventListener("click", tryRun(async () => {
 function panel(title, ...content) {
   $("#panel").hidden = false;
   $("#panel-title").textContent = title;
-  $("#panel-body").replaceChildren(...content);
+  $("#panel-body").replaceChildren(...content.filter((c) => c !== null && c !== undefined && c !== false));
 }
 $("#panel-close").addEventListener("click", () => { $("#panel").hidden = true; state.thread = null; });
 
@@ -643,6 +644,29 @@ async function editProfile() {
   const me = state.bar.me;
   const r = await dialog("Edit profile", [{ name: "displayName", label: "Display name", value: me.displayName, max: 80 }, { name: "title", label: "Title", value: me.title || "", max: 100 }], "Save");
   if (r) { await api(T(`/workspaces/${state.wsId}/me`), { method: "PATCH", body: r }); peopleCache.at = 0; await loadSidebar(); }
+}
+
+async function showWebhooks(created) {
+  const c = state.channel;
+  const { webhooks } = await api(T(`/workspaces/${state.wsId}/webhooks`));
+  const here = webhooks.filter((w) => w.channel.id === c.id);
+  state.thread = null;
+  panel("Incoming webhooks",
+    h("p", { class: "meta" }, `Other services can post to ${chanLabel(c)} by sending JSON like {"text": "Build passed"} to a webhook URL. Messages show the webhook's name and are posted on behalf of the person who added it.`),
+    created ? h("div", { class: "t-secret" },
+      h("p", { class: "strong" }, `Copy the URL for “${created.name}” now. It is shown only once.`),
+      h("input", { class: "input", readonly: true, value: `${location.origin}${created.path}`, onfocus: (e) => e.target.select() }),
+      h("button", { type: "button", class: "btn small", onclick: tryRun(async () => { await navigator.clipboard.writeText(`${location.origin}${created.path}`); showNote("Copied."); }) }, "Copy URL")) : null,
+    here.length ? h("ul", { class: "t-files" }, ...here.map((w) => h("li", {},
+      h("span", { class: "strong" }, w.name), " ",
+      h("span", { class: "meta" }, `added by ${w.createdBy.displayName} · ${w.lastUsedAt ? `last used ${when(w.lastUsedAt)}` : "never used"}`), " ",
+      h("button", { type: "button", class: "link", onclick: tryRun(async () => { if (confirm(`Remove the webhook “${w.name}”? Anything still sending to it will get an error.`)) { await api(T(`/webhooks/${w.id}`), { method: "DELETE" }); await showWebhooks(); } }) }, "Remove"))))
+      : h("p", { class: "meta" }, "No webhooks post here yet."),
+    c.member && !c.archived && state.bar.workspace.role !== "guest" ? h("button", { type: "button", class: "btn small", onclick: tryRun(async () => {
+      const r = await dialog("Add an incoming webhook", [{ name: "name", label: "Name shown on its messages", max: 60, required: true, placeholder: "CI, Deploys, Alerts…" }], "Add");
+      if (r) await showWebhooks(await api(T(`/channels/${c.id}/webhooks`), { method: "POST", body: { name: r.name } }));
+    }) }, "Add incoming webhook") : null,
+  );
 }
 
 async function showPins() {

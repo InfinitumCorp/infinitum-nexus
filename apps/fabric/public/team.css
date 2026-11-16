@@ -135,3 +135,6 @@
 .t-poll-bar { position: absolute !important; inset: 0 auto 0 0; background: #eef3ff; }
 .t-poll-voters { display: block; padding: 0 10px; }
 .t-app { font-size: 10px; font-weight: 700; padding: 0 4px; border: 1px solid var(--line); color: var(--muted); }
+
+/* Incoming webhooks */
+.t-secret { display: grid; gap: 6px; margin: 8px 16px; padding: 10px; border: 1px solid #c99a00; background: #fffaeb; }

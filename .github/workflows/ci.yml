@@ -45,13 +45,13 @@ jobs:
       - name: Pack Labyrinth packages
         run: bash scripts/pack-labyrinth.sh "$RUNNER_TEMP/labyrinth-packages"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: labyrinth-packages
           path: ${{ runner.temp }}/labyrinth-packages
           if-no-files-found: error
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: labyrinth-security
           path: ${{ runner.temp }}/labyrinth-security

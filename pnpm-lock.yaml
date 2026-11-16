@@ -82,18 +82,18 @@ importers:
         specifier: workspace:*
         version: link:../../packages/scalus
       pg:
-        specifier: ^8.16.3
-        version: 8.16.3
+        specifier: ^8.23.1
+        version: 8.23.1
       postal-mime:
-        specifier: 4.2.0
-        version: 4.2.0
+        specifier: 4.2.1
+        version: 4.2.1
     devDependencies:
       '@types/node':
         specifier: ^26.6.6
         version: 26.6.6
       '@types/pg':
-        specifier: ^8.15.5
-        version: 8.15.6
+        specifier: ^8.23.1
+        version: 8.23.1
       cf:
         specifier: 1.0.0-beta.31
         version: 1.0.0-beta.31(@types/node@26.6.6)
@@ -169,8 +169,8 @@ importers:
         specifier: ^2.0.4
         version: 2.0.4
       viem:
-        specifier: ^2.57.16
-        version: 2.57.17(typescript@7.0.2)(zod@4.6.6)
+        specifier: ^2.57.19
+        version: 2.57.19(typescript@7.0.2)(zod@4.6.6)
     devDependencies:
       '@preact/preset-vite':
         specifier: ^2.10.6
@@ -216,15 +216,15 @@ importers:
         specifier: workspace:*
         version: link:../../packages/lbrnth
       pg:
-        specifier: 8.16.3
-        version: 8.16.3
+        specifier: 8.23.1
+        version: 8.23.1
     devDependencies:
       '@types/node':
         specifier: ^26.6.6
         version: 26.6.6
       '@types/pg':
-        specifier: 8.15.6
-        version: 8.15.6
+        specifier: 8.23.1
+        version: 8.23.1
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
@@ -271,8 +271,8 @@ importers:
         specifier: workspace:*
         version: link:../veil
       pg:
-        specifier: ^8.16.3
-        version: 8.16.3
+        specifier: ^8.23.1
+        version: 8.23.1
     devDependencies:
       '@electric-sql/pglite':
         specifier: 0.3.14
@@ -281,8 +281,8 @@ importers:
         specifier: ^26.6.6
         version: 26.6.6
       '@types/pg':
-        specifier: ^8.15.5
-        version: 8.15.6
+        specifier: ^8.23.1
+        version: 8.23.1
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
@@ -407,11 +407,11 @@ importers:
         specifier: ^26.6.6
         version: 26.6.6
       '@types/pg':
-        specifier: ^8.15.5
-        version: 8.15.6
+        specifier: ^8.23.1
+        version: 8.23.1
       pg:
-        specifier: ^8.16.3
-        version: 8.16.3
+        specifier: ^8.23.1
+        version: 8.23.1
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
@@ -428,14 +428,14 @@ importers:
         specifier: workspace:*
         version: link:../lbrnth-client
       pg:
-        specifier: ^8.16.3
+        specifier: ^8.23.1
         version: 8.23.1
     devDependencies:
       '@types/node':
         specifier: ^26.6.6
         version: 26.6.6
       '@types/pg':
-        specifier: ^8.15.5
+        specifier: ^8.23.1
         version: 8.23.1
       typescript:
         specifier: ^7.0.2
@@ -488,11 +488,11 @@ importers:
         specifier: ^26.6.6
         version: 26.6.6
       '@types/pg':
-        specifier: ^8.15.5
-        version: 8.15.6
+        specifier: ^8.23.1
+        version: 8.23.1
       pg:
-        specifier: ^8.16.3
-        version: 8.16.3
+        specifier: ^8.23.1
+        version: 8.23.1
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
@@ -593,11 +593,11 @@ importers:
         specifier: ^26.6.6
         version: 26.6.6
       '@types/pg':
-        specifier: ^8.15.5
-        version: 8.15.6
+        specifier: ^8.23.1
+        version: 8.23.1
       pg:
-        specifier: ^8.16.3
-        version: 8.16.3
+        specifier: ^8.23.1
+        version: 8.23.1
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
@@ -690,8 +690,8 @@ importers:
   packages/lbrnth-openclaw:
     dependencies:
       typebox:
-        specifier: 1.3.35
-        version: 1.3.35
+        specifier: 1.4.7
+        version: 1.4.7
     devDependencies:
       '@types/node':
         specifier: ^26.6.6
@@ -713,11 +713,11 @@ importers:
         specifier: ^26.6.6
         version: 26.6.6
       '@types/pg':
-        specifier: ^8.15.5
-        version: 8.15.6
+        specifier: ^8.23.1
+        version: 8.23.1
       pg:
-        specifier: ^8.16.3
-        version: 8.16.3
+        specifier: ^8.23.1
+        version: 8.23.1
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
@@ -1495,9 +1495,6 @@ packages:
   '@types/node@26.6.6':
     resolution: {integrity: sha512-MzQj+8Kx3XI40OmUAE6Qoh58ZMNstNNMwn2nfd3qWsfe7nDNSqJNzes4njhz6AHwrSHOffSLwXU6yb474Q4aog==}
 
-  '@types/pg@8.15.6':
-    resolution: {integrity: sha512-NoaMtzhxOrubeL/7UZuNTrejB4MPAJ0RpxZqXQf2qXuVlTPuG6Y8p4u9dKRaue4yjmC7ZhzVO2/Yyyn25znrPQ==}
-
   '@types/pg@8.23.1':
     resolution: {integrity: sha512-fKVHpikPdg4GKks3JuLEhvwSyvwzF23hnabPy6DD8ljVbC7+6J5dQzdv4arV6jqq57djnMgs1HKBxX4P8aBI3A==}
 
@@ -1936,8 +1933,8 @@ packages:
     resolution: {integrity: sha512-5vvB5+W7ePv+p3uqxi+RcW1XAzLW0/hxt3/4X4Lc4qHudzOhmBiBwOY6DRob4WnanAEGvNcLjF+KNOufrUoEQw==}
     engines: {node: '>=12.20.0'}
 
-  ox@0.14.63:
-    resolution: {integrity: sha512-TSKYN151boL1Aq/vsFrd8Buvd7v+oTQr8V7z4f4QQTSMB+ohD8cbNbHCtKRLI0Gs8LuYKirf5qvElTKVIFe2jw==}
+  ox@0.14.65:
+    resolution: {integrity: sha512-K7oj+jvEP4Gf78ZOYuWAWzKEX/g5z7p6ukj84gdbFnezmFSt6SpprEp9tH5tymXsywSqRdeqk+8JL4+9o0Schw==}
     peerDependencies:
       typescript: '>=5.4.0'
     peerDependenciesMeta:
@@ -1972,15 +1969,6 @@ packages:
     resolution: {integrity: sha512-qTAAlrEsl8s4OiEQY69wDvcMIdQN6wdz5ojQiOy6YRMuynxenON0O5oCpJI6lshc6scgAY8qvJ2On/p+CXY0GA==}
     engines: {node: '>=4'}
 
-  pg@8.16.3:
-    resolution: {integrity: sha512-enxc1h0jA/aq5oSDMvqyW3q89ra6XIIDZgCX9vkMrnz5DFTw/Ny3Li2lFQ+pt3L6MCgm/5o2o8HW9hiJji+xvw==}
-    engines: {node: '>= 16.0.0'}
-    peerDependencies:
-      pg-native: '>=3.0.1'
-    peerDependenciesMeta:
-      pg-native:
-        optional: true
-
   pg@8.23.1:
     resolution: {integrity: sha512-aL96AHANtWjPLDOLqnhx+ngp9+UK7ETEU8VJrDCGvsSSi/mGLcWYsS6Herg7lmaBJe4uwrfqsa7gTEFaSizDoQ==}
     engines: {node: '>= 16.0.0'}
@@ -2004,8 +1992,8 @@ packages:
     resolution: {integrity: sha512-qcJu88Q2IWqJsDD529JKMdwGm/dvInW4HvQnRwiH9JtihJvzGOscDtHE3x1pBKeUOTysQ8kVmLnJ2kJu7yhcGA==}
     engines: {node: '>=12'}
 
-  postal-mime@4.2.0:
-    resolution: {integrity: sha512-QG5Rh8wY/zjwFF1lKWcBbwWcAWR5jWodmMPL4gMik43XDLebtWoAAPyG0lrE2kYYZ5IHTASrepGuGO0YIwNKAg==}
+  postal-mime@4.2.1:
+    resolution: {integrity: sha512-uFQnu6TPJe5IGzj3ZIjzAYCk7qnVYM3KFvo0JpRFftJKtxJcUSMgTaWsIXDakTKfN71fUULhjNNVbNonim5f0Q==}
     engines: {node: '>=20'}
 
   postcss@8.5.32:
@@ -2103,8 +2091,8 @@ packages:
   tslib@2.9.1:
     resolution: {integrity: sha512-a4Ux9VKuIMHsOS7ENbEq6hK2ZGYIT27Rtl0E4eD9KqwxhKiQeMZE/9xb3IdYwWaSOyIBQLExhQgXDTYoiCxnWA==}
 
-  typebox@1.3.35:
-    resolution: {integrity: sha512-gNcaAKuh/4JpDHHyo9AfXOtwlpVUMIHhhdJBEY+1x6rnRFB9usGGo6QfnwAadVbO7J6AptAZwGsi1ZMEObIS3g==}
+  typebox@1.4.7:
+    resolution: {integrity: sha512-KonYdBj3gOgG/rH96TlUs/f+eaEDqiKRW7KU4/LE/tEjEnRCcfpYLofBfHfNMBAiBosmY55e4YeCPuE+NXmJtg==}
 
   typescript@5.9.3:
     resolution: {integrity: sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw==}
@@ -2132,8 +2120,8 @@ packages:
     peerDependencies:
       browserslist: '>= 4.21.0'
 
-  viem@2.57.17:
-    resolution: {integrity: sha512-yIMqNoKoVAMwX+zVbqkxfqq7qbGHmKXZidh/xfVpiPTJlAbbDDdDIMH5dDQWxhZcj56L8tPOwsIIxF618P+TOg==}
+  viem@2.57.19:
+    resolution: {integrity: sha512-ULAHSwef42oL1reV41Os40iR34PF9BFNIX/RBapHLAJL1X6VmrgQikS4q4ulZ7/8GqlFLqrRI5GoNms3hcxsHw==}
     peerDependencies:
       mppx: '>=0.17.0'
       typescript: '>=5.0.4'
@@ -2881,12 +2869,6 @@ snapshots:
     dependencies:
       undici-types: 8.9.0
 
-  '@types/pg@8.15.6':
-    dependencies:
-      '@types/node': 26.6.6
-      pg-protocol: 1.16.1
-      pg-types: 2.2.0
-
   '@types/pg@8.23.1':
     dependencies:
       '@types/node': 26.6.6
@@ -3237,7 +3219,7 @@ snapshots:
 
   obug@3.0.0: {}
 
-  ox@0.14.63(typescript@7.0.2)(zod@4.6.6):
+  ox@0.14.65(typescript@7.0.2)(zod@4.6.6):
     dependencies:
       '@adraffy/ens-normalize': 1.11.1
       '@noble/ciphers': 1.3.0
@@ -3263,10 +3245,6 @@ snapshots:
 
   pg-int8@1.0.1: {}
 
-  pg-pool@3.14.0(pg@8.16.3):
-    dependencies:
-      pg: 8.16.3
-
   pg-pool@3.14.0(pg@8.23.1):
     dependencies:
       pg: 8.23.1
@@ -3280,16 +3258,6 @@ snapshots:
       postgres-bytea: 1.0.1
       postgres-date: 1.0.7
       postgres-interval: 1.2.0
-
-  pg@8.16.3:
-    dependencies:
-      pg-connection-string: 2.14.1
-      pg-pool: 3.14.0(pg@8.16.3)
-      pg-protocol: 1.16.1
-      pg-types: 2.2.0
-      pgpass: 1.0.5
-    optionalDependencies:
-      pg-cloudflare: 1.4.1
 
   pg@8.23.1:
     dependencies:
@@ -3311,7 +3279,7 @@ snapshots:
 
   picomatch@4.0.7: {}
 
-  postal-mime@4.2.0: {}
+  postal-mime@4.2.1: {}
 
   postcss@8.5.32:
     dependencies:
@@ -3419,7 +3387,7 @@ snapshots:
   tslib@2.9.1:
     optional: true
 
-  typebox@1.3.35: {}
+  typebox@1.4.7: {}
 
   typescript@5.9.3: {}
 
@@ -3460,7 +3428,7 @@ snapshots:
       escalade: 3.2.0
       picocolors: 1.1.1
 
-  viem@2.57.17(typescript@7.0.2)(zod@4.6.6):
+  viem@2.57.19(typescript@7.0.2)(zod@4.6.6):
     dependencies:
       '@noble/curves': 1.9.1
       '@noble/hashes': 1.8.0
@@ -3468,7 +3436,7 @@ snapshots:
       '@scure/bip39': 1.6.0
       abitype: 1.2.3(typescript@7.0.2)(zod@4.6.6)
       isows: 1.0.7(ws@8.21.0)
-      ox: 0.14.63(typescript@7.0.2)(zod@4.6.6)
+      ox: 0.14.65(typescript@7.0.2)(zod@4.6.6)
       ws: 8.21.0
     optionalDependencies:
       typescript: 7.0.2

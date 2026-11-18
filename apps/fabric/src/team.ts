@@ -1177,6 +1177,81 @@ export class TeamService {
     }
   }
 
+  // ---------- export ----------
+
+  /**
+   * Everything an admin needs to take a workspace's history elsewhere, as plain JSON: people,
+   * channels, members and messages (text decrypted, with threads, reactions, pins, polls and file
+   * names). Admins export public channels; owners may add private channels. Direct and group
+   * messages are never exported. File contents are not included. The export is announced in the
+   * workspace's default channel so members know it happened.
+   */
+  exportWorkspace(me: FabricIdentity, workspaceId: string, opts: { includePrivate?: boolean } = {}): WorkspaceExport {
+    const mine = this.admin(me, workspaceId);
+    if (opts.includePrivate && mine.role !== "owner") throw fail(403, "only an owner can export private channels");
+    const ws = this.workspace(workspaceId);
+    const kinds = opts.includePrivate ? ["public", "private"] : ["public"];
+    const name = (sub: string) => this.username(sub);
+    const channels = this.store.all<ChannelRow>(
+      `SELECT * FROM team_channels WHERE workspace_id = ? AND kind IN (${kinds.map(() => "?").join(", ")}) ORDER BY created_at`, workspaceId, ...kinds,
+    ).map((c) => {
+      const key = this.key(c);
+      const messages = this.store.all<TeamMessageRow>("SELECT * FROM team_messages WHERE channel_id = ? AND deleted_at IS NULL ORDER BY created_at", c.id).map((m) => {
+        let text: string | null;
+        try {
+          text = open(m.ciphertext, key, messageAad(c.id, m.id));
+        } catch {
+          text = null;
+        }
+        const poll = this.store.one<PollRow>("SELECT * FROM team_polls WHERE message_id = ?", m.id);
+        let pollOut: ExportedMessage["poll"] = null;
+        if (poll) {
+          try {
+            const votes = this.store.all<{ sub: string; choice: number }>("SELECT sub, choice FROM team_poll_votes WHERE message_id = ?", m.id);
+            pollOut = {
+              anonymous: !!poll.anonymous, multiple: !!poll.multiple, closed: !!poll.closedAt,
+              options: this.pollOptions(c, poll).map((o, i) => {
+                const subs = votes.filter((v) => v.choice === i).map((v) => v.sub);
+                return { text: o, votes: subs.length, ...(poll.anonymous ? {} : { voters: subs.map(name) }) };
+              }),
+            };
+          } catch {
+            pollOut = null;
+          }
+        }
+        const reactions = new Map<string, string[]>();
+        for (const r of this.store.all<{ emoji: string; sub: string }>("SELECT emoji, sub FROM team_reactions WHERE message_id = ? ORDER BY created_at", m.id)) {
+          reactions.set(r.emoji, [...(reactions.get(r.emoji) ?? []), name(r.sub)]);
+        }
+        return {
+          id: m.id, user: name(m.sender), app: m.appName ?? null, kind: m.kind, text, ts: m.createdAt, edited: m.editedAt,
+          threadParent: m.parentId, replyCount: m.replyCount, alsoInChannel: !!m.alsoInChannel,
+          reactions: [...reactions].map(([emoji, users]) => ({ emoji, users })),
+          files: this.store.all<FileRow>("SELECT * FROM team_files WHERE message_id = ? ORDER BY created_at", m.id).map((f) => ({ id: f.id, name: f.name, mime: f.mime, size: f.size })),
+          pinned: !!this.store.one("SELECT message_id FROM team_pins WHERE message_id = ?", m.id),
+          poll: pollOut,
+        } satisfies ExportedMessage;
+      });
+      return {
+        id: c.id, name: c.name ?? "", kind: c.kind as "public" | "private", topic: c.topic, purpose: c.purpose,
+        createdBy: name(c.createdBy), createdAt: c.createdAt, archived: !!c.archivedAt, isDefault: !!c.isDefault,
+        members: this.channelSubs(c.id).map(name), messages,
+      };
+    });
+    const people = this.store.all<MemberRow>("SELECT * FROM team_members WHERE workspace_id = ? ORDER BY joined_at", workspaceId).map((m) => ({
+      username: name(m.sub), displayName: this.person(workspaceId, m.sub).displayName, title: m.title, role: m.role,
+      joinedAt: m.joinedAt, deactivated: !!m.deactivatedAt,
+    }));
+    const general = this.store.one<ChannelRow>("SELECT * FROM team_channels WHERE workspace_id = ? AND is_default = 1 AND archived_at IS NULL ORDER BY created_at LIMIT 1", workspaceId);
+    if (general) this.system(general, me.sub, `exported the workspace's ${opts.includePrivate ? "public and private" : "public"} channel history`);
+    return {
+      format: "fabric-teams-export/1", exportedAt: this.clock().toISOString(), exportedBy: me.username,
+      workspace: { id: ws.id, name: ws.name, slug: ws.slug, createdAt: ws.createdAt },
+      includes: { publicChannels: true, privateChannels: !!opts.includePrivate, directMessages: false, fileContents: false },
+      people, channels,
+    };
+  }
+
   // ---------- polls ----------
 
   /** Post a poll. The question is the message text, so it is searchable and notifies like any message. */
@@ -1685,6 +1760,24 @@ export class TeamService {
   }
 }
 
+export interface ExportedMessage {
+  id: string; user: string; app: string | null; kind: "user" | "system"; text: string | null; ts: string; edited: string | null;
+  threadParent: string | null; replyCount: number; alsoInChannel: boolean;
+  reactions: { emoji: string; users: string[] }[];
+  files: { id: string; name: string; mime: string; size: number }[];
+  pinned: boolean;
+  poll: { anonymous: boolean; multiple: boolean; closed: boolean; options: { text: string; votes: number; voters?: string[] }[] } | null;
+}
+export interface WorkspaceExport {
+  format: "fabric-teams-export/1"; exportedAt: string; exportedBy: string;
+  workspace: { id: string; name: string; slug: string; createdAt: string };
+  includes: { publicChannels: boolean; privateChannels: boolean; directMessages: boolean; fileContents: boolean };
+  people: { username: string; displayName: string; title: string | null; role: Role; joinedAt: string; deactivated: boolean }[];
+  channels: {
+    id: string; name: string; kind: "public" | "private"; topic: string; purpose: string; createdBy: string; createdAt: string;
+    archived: boolean; isDefault: boolean; members: string[]; messages: ExportedMessage[];
+  }[];
+}
 export interface WebhookView { id: string; name: string; channel: ChannelView; createdBy: PersonView; createdAt: string; lastUsedAt: string | null }
 export interface ScheduledView { id: string; channel: ChannelView; parentId: string | null; sendAt: string; createdAt: string; text: string }
 export interface ReminderView { id: string; text: string; remindAt: string; done: boolean; fired: boolean; messageId: string | null; createdAt: string }

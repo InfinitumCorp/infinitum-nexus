@@ -868,6 +868,13 @@ $("#ws-menu").addEventListener("click", (e) => {
     w.inviteCode && ["Invite people", async () => { await dialog(`Invite people to ${w.name}`, [{ note: "Share this invite code. People sign in with Cumulus ID, then choose Join." }, { name: "code", label: "Invite code", value: w.inviteCode }], "Done"); }],
     admin && ["Rename workspace", async () => { const r = await dialog("Rename workspace", [{ name: "name", label: "Name", value: w.name, max: 60 }]); if (r) { await api(T(`/workspaces/${w.id}`), { method: "PATCH", body: r }); await loadWorkspaces(); } }],
     admin && ["Reset invite code", async () => { if (confirm("Old invite codes will stop working.")) { await api(T(`/workspaces/${w.id}`), { method: "PATCH", body: { rotateInvite: true } }); await loadSidebar(); } }],
+    admin && ["Export data", async () => {
+      const r = await dialog(`Export ${w.name}`, [
+        { note: "Downloads people, channels and messages as a JSON file. Direct messages and file contents are not included. A note in the default channel tells everyone an export was made." },
+        w.role === "owner" ? { name: "private", label: "Include private channels", type: "checkbox" } : null,
+      ].filter(Boolean), "Download");
+      if (r) location.href = T(`/workspaces/${w.id}/export${r.private ? "?private=1" : ""}`);
+    }],
     ["Turn on desktop notifications", async () => { if ("Notification" in window) await Notification.requestPermission(); }],
   ]);
 });

@@ -180,6 +180,13 @@ test("team chat over HTTP: workspace, channel, thread, reaction, file, search an
     const wrongToken = await fetch(`${origin}${hook.path.slice(0, -4)}AAAA`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "x" }) });
     assert.equal(wrongToken.status, 404);
 
+    // Workspace export: a JSON download for admins only.
+    const exported = await alice.raw(`/api/team/workspaces/${ws.id}/export`);
+    assert.equal(exported.status, 200);
+    assert.match(exported.headers.get("content-disposition") ?? "", /^attachment; filename="acme-export-\d{4}-\d{2}-\d{2}\.json"$/);
+    assert.equal((await exported.json()).format, "fabric-teams-export/1");
+    assert.equal((await bob.raw(`/api/team/workspaces/${ws.id}/export`)).status, 403);
+
     const found = await bob.api("GET", `/api/team/workspaces/${ws.id}/search?q=${encodeURIComponent(phrase)}`);
     assert.equal(found.messages.length, 1);
     const help = await bob.api("POST", `/api/team/channels/${general.id}/messages`, { text: "/help" });

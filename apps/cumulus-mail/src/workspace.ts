@@ -160,6 +160,11 @@ export interface WorkspaceDeps {
   repository?: WorkspaceRepository;
   quota: StorageQuota;
   files?: FileStore;
+  /**
+   * Runs a step once the request's changes are saved (RemoteState.afterCommit), never if they are rolled
+   * back or re-run. Stored files are deleted this way. Without it, steps run at once.
+   */
+  afterCommit?: (fn: () => Promise<void>) => void;
   /** Turns a username or address into a CID, for sharing. */
   resolve: (who: string) => Promise<string | undefined> | string | undefined;
   /** Display name (address) of a CID, for "Shared with" lists. */
@@ -222,6 +227,15 @@ export class Workspace {
     if (f.kind !== "folder") throw new DriveError(400, "not_folder", "That isn't a folder.");
     if (f.trashedAt) throw new DriveError(400, "trashed", "That folder is in the trash.");
     return f.id;
+  }
+
+  /** Delete a stored file once this request is saved: a deletion that is rolled back must keep its contents. */
+  private deleteFile(key: string): void {
+    const files = this.d.files;
+    if (!files?.delete) return;
+    const run = () => files.delete!(key).catch(() => undefined);
+    if (this.d.afterCommit) this.d.afterCommit(run);
+    else void run();
   }
 
   /** An item and everything inside it, at any depth. */
@@ -426,7 +440,7 @@ export class Workspace {
     item.updatedAt = this.now();
     item.updatedBy = cid;
     await this.repo.putItem(item);
-    if (stale) await this.d.files?.delete?.(stale).catch(() => undefined);
+    if (stale) this.deleteFile(stale);
     return await this.view(cid, item);
   }
 
@@ -472,8 +486,8 @@ export class Workspace {
       removed++;
       if (d.size) await this.d.quota.release(d.owner, "cloud", d.size);
       if (d.kind !== "folder") {
-        await this.d.files?.delete?.(blobKey(d)).catch(() => undefined);
-        if (d.previousBlob) await this.d.files?.delete?.(d.previousBlob).catch(() => undefined);
+        this.deleteFile(blobKey(d));
+        if (d.previousBlob) this.deleteFile(d.previousBlob);
       }
     }
     // Something was added to one of these folders meanwhile (an upload that finished first): it would be

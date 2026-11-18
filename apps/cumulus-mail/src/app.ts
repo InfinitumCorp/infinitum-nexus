@@ -73,6 +73,8 @@ export interface MailAppDeps {
   workspaceStore?: WorkspaceStore;
   /** Where Drive items live instead of `workspaceStore` (CUMULUS_ROWS=drive). */
   workspaceRepository?: WorkspaceRepository;
+  /** Runs a step once the request is saved (RemoteState.afterCommit): stored Drive files are deleted this way. */
+  afterCommit?: (fn: () => Promise<void>) => void;
   /** CID -> billing org links, saved with the rest of the shared state. Defaults to an in-memory store. */
   billingStore?: BillingLinkStore;
   /** Infinitum revenue API (Stripe Checkout, portal, entitlements). Defaults to the production API. */
@@ -238,6 +240,7 @@ export function createMailApp(deps: MailAppDeps) {
     repository: deps.workspaceRepository,
     quota: suite.quota,
     files: deps.files,
+    afterCommit: deps.afterCommit,
     resolve: (who) => cid.cidForUsername(idName(who)),
     label: async (c) => (await cid.findAccount(c))?.mailAddress ?? "a Cumulus user",
   });

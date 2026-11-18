@@ -38,7 +38,8 @@ local socket with peer authentication.
 | Cumulus://Drive metadata behind a repository: every change an explicit put, tested on a copying repository | #260 |
 | `CUMULUS_ROWS=drive` (with `CUMULUS_STORE=postgres`, the Mail app): items in `drive_items` (owner, folder, who it's shared with as columns), saves of one document take its row lock so neither is lost; the first start copies the `cumulus-workspace` document in once, under a lock | #261 |
 | `CUMULUS_ROWS=drive` with `CUMULUS_STORE=gateway` (migration `20261122_cumulus_rows_drive.sql`): Drive rows through nexus-store, claimed with the host's first request; each item write carries the item as read, so two saves of one document at once re-run and the second is told it changed | #263 |
-| Drive with overlapping requests (an independent review's findings): the items a request only read are checked at commit (migration `20261123_cumulus_rows_drive_checks.sql`), a deletion re-runs if its folder got new contents, sizes are read again before they are released, and each document save writes its contents under a new key | this PR |
+| Drive with overlapping requests (an independent review's findings): the items a request only read are checked at commit (migration `20261123_cumulus_rows_drive_checks.sql`), a deletion re-runs if its folder got new contents, sizes are read again before they are released, and each document save writes its contents under a new key | #266 |
+| Stored Drive files are deleted only once the request is saved (`RemoteState.afterCommit`): a deletion that is rolled back or re-run keeps its contents | this PR |
 | Message paging (reads still load a whole mailbox) | Not started |
 
 US Supabase project: the `cumulus_id` tables and `refresh_from_document()` exist (created 2026-11-12;

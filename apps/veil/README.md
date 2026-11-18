@@ -80,7 +80,7 @@ Production packages pin `veil`, `architect`, `scalvs` and `metatron`. A stored v
 
 | Key in `origins` | Default | Product |
 | --- | --- | --- |
-| `cid` | `http://localhost:3000` | Cumulus://ID sign-in and `/api/me` |
+| `cid` | `http://localhost:3000` | The +SPCTR server: sign-in, `/api/me`, Labyrinth. In production `https://spectre.infinitumcorporation.ai` (since the Cumulus://ID cut-over; `id.cumuluscloud.app` is now the issuer alone and keeps no +SPCTR session) |
 | `veil` | `https://infinitumveil.app` | VEIL browser control plane. Hosted on Cloudflare. |
 | `mail` | `http://localhost:3010` | Cumulus://Mail |
 | `architect` | `https://rchtch.app` | :\ARCHITECT\ (CNDCTR) endpoint for Ask. Hosted on Cloudflare. |

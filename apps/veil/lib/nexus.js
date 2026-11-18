@@ -26,7 +26,9 @@ export const DEFAULT_ORIGINS = Object.freeze({
 
 /** Production hosts. cumuluscloud.app is served by Cloudflare; local defaults stay on localhost. */
 export const PRODUCTION_ORIGINS = Object.freeze({
-  cid: "https://id.cumuluscloud.app",
+  // The +SPCTR server the extension signs in with (/api/auth/*, /api/me, /api/labyrinth, its cookie session). Since the
+  // Cumulus://ID cut-over the issuer at id.cumuluscloud.app is a separate Worker that never forwards cookies to +SPCTR.
+  cid: "https://spectre.infinitumcorporation.ai",
   cloud: "https://cloud.cumuluscloud.app",
   mail: "https://mail.cumuluscloud.app",
 });

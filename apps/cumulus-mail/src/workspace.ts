@@ -39,6 +39,13 @@ export interface DriveItem {
   starred?: boolean;
   trashedAt?: string;
   sharedWith: string[];
+  /**
+   * Where a document's contents are (a new key on every save, so a save that loses a race can't
+   * overwrite the one that won). Absent: the original key, from before keys changed per save.
+   */
+  blob?: string;
+  /** The contents before the last save: still read by a request that started before it, deleted on the next save. */
+  previousBlob?: string;
 }
 
 /** Kept in the shared state. Map fields are saved generically by RemoteState. */
@@ -89,7 +96,10 @@ export function validDoc(kind: DocKind, doc: any): boolean {
 export const cleanName = (v: unknown, fallback = "Untitled") =>
   String(v ?? "").replace(/[\u0000-\u001f\u007f/\\]/g, " ").replace(/\s+/g, " ").trim().slice(0, MAX_NAME) || fallback;
 
-const blobKey = (item: DriveItem) => `d/${item.owner}/${item.id}${item.kind === "file" ? "" : ".json"}`;
+const blobKey = (item: DriveItem) => item.blob ?? `d/${item.owner}/${item.id}${item.kind === "file" ? "" : ".json"}`;
+
+/** Postgres re-runs a request that fails with this code (as after a deadlock); so does RemoteState. */
+const rerun = (why: string) => Object.assign(new Error(why), { code: "40001" });
 
 /**
  * Drive's storage boundary (relational storage plan): Workspace reads and writes items only through
@@ -398,18 +408,25 @@ export class Workspace {
     const delta = bytes.byteLength - item.size;
     if (delta > 0) await this.d.quota.charge(item.owner, "cloud", delta);
     else if (delta < 0) await this.d.quota.release(item.owner, "cloud", -delta);
+    const key = `d/${item.owner}/${item.id}/${randomUUID()}.json`;
     try {
-      await this.bucket().put(blobKey(item), bytes, "application/json");
+      await this.bucket().put(key, bytes, "application/json");
     } catch (err) {
       if (delta > 0) await this.d.quota.release(item.owner, "cloud", delta);
       else if (delta < 0) await this.d.quota.charge(item.owner, "cloud", -delta);
       throw err;
     }
+    // What the saved item points to is the only thing a later reader sees: the contents before this save
+    // stay for requests already reading them; the ones before that no saved item points to any more.
+    const stale = item.previousBlob;
+    item.previousBlob = blobKey(item);
+    item.blob = key;
     item.size = bytes.byteLength;
     item.version += 1;
     item.updatedAt = this.now();
     item.updatedBy = cid;
     await this.repo.putItem(item);
+    if (stale) await this.d.files?.delete?.(stale).catch(() => undefined);
     return await this.view(cid, item);
   }
 
@@ -446,12 +463,25 @@ export class Workspace {
     const item = await this.find(cid, id, "own");
     if (!item.trashedAt) throw new DriveError(400, "not_trashed", "Move it to the trash first.");
     const doomed = await this.withDescendants([item]);
-    for (const d of doomed) {
+    let removed = 0;
+    for (const listed of doomed) {
+      // Read each one again (on Postgres this takes its row lock): a save that just finished changed its size.
+      const d = await this.repo.item(listed.id);
+      if (!d) continue;
       await this.repo.deleteItem(d.id);
+      removed++;
       if (d.size) await this.d.quota.release(d.owner, "cloud", d.size);
-      if (d.kind !== "folder") await this.d.files?.delete?.(blobKey(d)).catch(() => undefined);
+      if (d.kind !== "folder") {
+        await this.d.files?.delete?.(blobKey(d)).catch(() => undefined);
+        if (d.previousBlob) await this.d.files?.delete?.(d.previousBlob).catch(() => undefined);
+      }
     }
-    return { removed: doomed.length };
+    // Something was added to one of these folders meanwhile (an upload that finished first): it would be
+    // left inside a folder that's gone. Run the deletion again, so it goes too.
+    for (const f of doomed) {
+      if (f.kind === "folder" && (await this.repo.children(f.id)).length) throw rerun("A folder being deleted got new contents meanwhile");
+    }
+    return { removed };
   }
 
   async emptyTrash(cid: string) {

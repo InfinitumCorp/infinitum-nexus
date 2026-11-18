@@ -37,7 +37,8 @@ local socket with peer authentication.
 | Independent reviews of the gateway, direct-Postgres and ID-gateway paths, and their fixes: tunnel keys after a rollback, an all-or-nothing first-start copy, scheduled send without locking every mailbox, documents a host doesn't keep no longer re-sent on every request, nothing saved after a store failure part way through a request, expired sign-ins swept, +SPCTR sign-out through the repository | #232, #233, #234, #235 |
 | Cumulus://Drive metadata behind a repository: every change an explicit put, tested on a copying repository | #260 |
 | `CUMULUS_ROWS=drive` (with `CUMULUS_STORE=postgres`, the Mail app): items in `drive_items` (owner, folder, who it's shared with as columns), saves of one document take its row lock so neither is lost; the first start copies the `cumulus-workspace` document in once, under a lock | #261 |
-| `CUMULUS_ROWS=drive` with `CUMULUS_STORE=gateway` (migration `20261122_cumulus_rows_drive.sql`): Drive rows through nexus-store, claimed with the host's first request; each item write carries the item as read, so two saves of one document at once re-run and the second is told it changed | this PR |
+| `CUMULUS_ROWS=drive` with `CUMULUS_STORE=gateway` (migration `20261122_cumulus_rows_drive.sql`): Drive rows through nexus-store, claimed with the host's first request; each item write carries the item as read, so two saves of one document at once re-run and the second is told it changed | #263 |
+| Drive with overlapping requests (an independent review's findings): the items a request only read are checked at commit (migration `20261123_cumulus_rows_drive_checks.sql`), a deletion re-runs if its folder got new contents, sizes are read again before they are released, and each document save writes its contents under a new key | this PR |
 | Message paging (reads still load a whole mailbox) | Not started |
 
 US Supabase project: the `cumulus_id` tables and `refresh_from_document()` exist (created 2026-11-12;
@@ -53,7 +54,7 @@ series: repository with the mailbox as today's unit first, then per-message rows
 
 What still needs a person (or a connector this session didn't have):
 
-1. **Supabase**: apply the migrations `20261115` through `20261122`, in order, and redeploy the
+1. **Supabase**: apply the migrations `20261115` through `20261123`, in order, and redeploy the
    `nexus-store` edge function (#231). No refresh has to be run by hand any more: a gateway host's
    first request claims the rows (`20261121_cumulus_rows_claim.sql`), which copies the `cid` document
    (and, with `CUMULUS_ROWS`, the mail, wallet, quota and Drive documents) into them once, under a lock, and
@@ -240,6 +241,9 @@ to `CUMULUS_ROWS`. The host's first request claims the `cumulus-workspace` docum
 `select cumulus_rows.compare_drive_with_document()` right after should say `"same": true`.
 Rollback through the gateway: `select cumulus_rows.restore_drive_document()` writes the rows back into
 the document (changes since the switch included), then remove `drive` from `CUMULUS_ROWS` and deploy.
+Run it only once no server with `CUMULUS_ROWS=drive` is taking requests (or in a quiet moment right
+before the deploy): a Drive change written to the rows after the restore isn't in the document, and a
+server that starts on rows after it copies the document in again over the rows.
 
 ### Cutover runbook (Cumulus://ID, phase 4)
 

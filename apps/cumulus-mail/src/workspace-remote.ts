@@ -6,7 +6,10 @@
  * request; writes stay here until the host commits, then pending() hands them to public.nexus_commit_cid,
  * in the same transaction as the ledger and documents. Each item write carries the item as this request
  * read it, so if another server changed it in the meantime the commit is refused and the request re-runs:
- * two saves of the same document can't both be kept.
+ * two saves of the same document can't both be kept. Items the request only read one at a time (a
+ * folder it moved something into, the folders above an item it was allowed to change) are sent as checks:
+ * if one of them changed meanwhile, the commit is refused too, so a decision made on them (no cycle, still
+ * shared, still there) holds when it is saved.
  *
  * Requests on one instance must not overlap (RemoteState serializes them); begin() starts a fresh one.
  */
@@ -21,6 +24,8 @@ export type DriveReadOp =
 
 export type DriveWriteOp =
   | { kind: "driveItem"; id: string; data: DriveItem | null; expect: DriveItem | null }
+  /** Not a write: the item must still be as this request read it (null: still absent). */
+  | { kind: "driveItem"; id: string; check: true; expect: DriveItem | null }
   | { kind: "driveEnabled"; id: string; data: string };
 
 export type DriveRowsReader = (ops: DriveReadOp[]) => Promise<unknown[]>;
@@ -30,6 +35,8 @@ interface Known {
   /** As read from the server this request (null: didn't exist). */
   base: DriveItem | null;
   dirty: boolean;
+  /** Read on its own (item()), so the request may have decided something on it. */
+  relied?: boolean;
 }
 
 const copy = <T>(v: T): T => (v === undefined || v === null ? v : structuredClone(v));
@@ -52,7 +59,10 @@ export class RemoteWorkspaceRepository implements WorkspaceRepository {
   /** The writes for nexus_commit_cid, in the order they can be applied. */
   pending(): DriveWriteOp[] {
     const out: DriveWriteOp[] = [];
-    for (const [id, k] of this.#items) if (k.dirty) out.push({ kind: "driveItem", id, data: copy(k.value), expect: copy(k.base) });
+    for (const [id, k] of this.#items) {
+      if (k.dirty) out.push({ kind: "driveItem", id, data: copy(k.value), expect: copy(k.base) });
+      else if (k.relied) out.push({ kind: "driveItem", id, check: true, expect: copy(k.base) });
+    }
     for (const [cid, e] of this.#enabled) if (e.dirty && e.at) out.push({ kind: "driveEnabled", id: cid, data: e.at });
     return out;
   }
@@ -63,6 +73,7 @@ export class RemoteWorkspaceRepository implements WorkspaceRepository {
       const [row] = (await this.#read([{ op: "driveItem", id }])) as (DriveItem | null)[];
       k = this.#remember(id, row ?? null);
     }
+    k.relied = true;
     return copy(k.value) ?? undefined;
   }
 

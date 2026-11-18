@@ -16,7 +16,7 @@
  * CUMULUS_ROWS moves more products into the same database and the same per-request transaction: a
  * comma-separated list of "mail", "wallet", "quota", with CUMULUS_STORE=postgres or gateway (through
  * nexus-store: migrations 20261115_cumulus_rows_wallet_quota.sql and 20261116_cumulus_rows_mail.sql;
- * copy the documents in with `select cumulus_rows.refresh_from_documents()`). Their documents
+ * the first request claims the rows, which copies the documents in once). Their documents
  * ("cumulus-mail", "firm-wallet", "cumulus-quota") are then no longer loaded or saved. Copy them in
  * first with packages/cumulus/src/rows-cli.ts; the documents stay as they were, so removing a product
  * from CUMULUS_ROWS is the rollback (anything written to its rows since is not carried back).
@@ -86,6 +86,19 @@ export function cidStorageFromEnv(env: Record<string, string | undefined> = proc
       repo.begin();
       more?.begin();
     };
+    // Before this host's first request reads any rows, it claims them: the database copies each
+    // document it keeps as rows (ID, and the CUMULUS_ROWS products) into the rows, once ever, under a
+    // lock (supabase/migrations/20261121_cumulus_rows_claim.sql). So the switch needs no manual
+    // refresh, and rows written since an earlier claim are never replaced.
+    let claimed: Promise<void> | undefined;
+    const claim = () =>
+      (claimed ??= gateway!
+        .commit([], [], ["cid", ...products].map((product) => ({ kind: "claim", id: product })))
+        .then(() => undefined)
+        .catch((err) => {
+          claimed = undefined;
+          throw new Error(`Cumulus rows couldn't be claimed (apply supabase/migrations up to 20261121_cumulus_rows_claim.sql): ${(err as Error).message}`);
+        }));
     return {
       inDocuments: false,
       products,
@@ -105,7 +118,14 @@ export function cidStorageFromEnv(env: Record<string, string | undefined> = proc
         : undefined,
       rows: more ? { pending: () => [...repo.pending(), ...more.pending()] } : repo,
       // A new request, and every re-run, starts from the rows as saved.
-      participant: { begin: async () => reset(), commit: async () => reset(), rollback: async () => reset() },
+      participant: {
+        begin: async () => {
+          await claim();
+          reset();
+        },
+        commit: async () => reset(),
+        rollback: async () => reset(),
+      },
     };
   }
   if (mode !== "postgres") throw new Error(`CUMULUS_STORE must be "document", "gateway" or "postgres", not "${env.CUMULUS_STORE}"`);

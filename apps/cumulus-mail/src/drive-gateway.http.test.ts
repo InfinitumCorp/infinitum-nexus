@@ -119,6 +119,8 @@ describe("Drive rows through the gateway", { skip: url ? false : "set CID_TEST_P
     assert.deepEqual((await run(() => ws.list("cid:bob", { q: "road" }))).items.map((i) => i.id), [roadmap]);
     const claim = (await pool.query("SELECT copied FROM cumulus_rows.claims WHERE product = 'drive'")).rows[0];
     assert.deepEqual(claim.copied, { items: 2, enabled: 1 });
+    const compared = (await pool.query("SELECT cumulus_rows.compare_drive_with_document() AS c")).rows[0].c;
+    assert.deepEqual(compared, { same: true, counts: { items: { document: 2, rows: 2 }, enabled: { document: 1, rows: 1 } } });
   });
 
   it("changes are rows, and a list sees this request's own changes", async () => {
@@ -131,6 +133,9 @@ describe("Drive rows through the gateway", { skip: url ? false : "set CID_TEST_P
     assert.deepEqual(listed, ["Roadmap 2027", "Notes", "Notes"], "the rename and the new document, before the commit");
     const { rows } = await pool.query("SELECT data->>'name' AS name FROM cumulus_rows.drive_items ORDER BY 1");
     assert.deepEqual(rows.map((r) => r.name), ["Notes", "Plans", "Roadmap 2027"]);
+    const compared = (await pool.query("SELECT cumulus_rows.compare_drive_with_document() AS c")).rows[0].c;
+    const notesId = (await pool.query("SELECT id FROM cumulus_rows.drive_items WHERE data->>'name' = 'Notes'")).rows[0].id;
+    assert.deepEqual(compared.differences, { items: { onlyInDocument: [], onlyInRows: [notesId], changed: [roadmap] } }, "the rows moved on from the document");
     // Another server, fresh: sees the same.
     const two = host();
     assert.equal((await two.run(() => two.ws.get("cid:ada", roadmap))).name, "Roadmap 2027");

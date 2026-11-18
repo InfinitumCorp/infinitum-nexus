@@ -104,6 +104,41 @@ begin
     'enabled', (select count(*) from cumulus_rows.drive_enabled));
 end $$;
 
+-- How far the Drive rows are from the cumulus-workspace document (read-only; before new writes, after a
+-- claim, it should say {"same": true}): select cumulus_rows.compare_drive_with_document();
+create or replace function cumulus_rows.compare_drive_with_document() returns jsonb
+language plpgsql stable set search_path = '' as $$
+declare
+  w jsonb;
+  docs jsonb;
+  rows jsonb;
+  diff jsonb := '{}'::jsonb;
+  counts jsonb := '{}'::jsonb;
+  k text;
+begin
+  select data into w from public.nexus_docs where id = 'cumulus-workspace';
+  if w is null then return jsonb_build_object('same', true, 'document', false); end if;
+  for k in select unnest(array['items', 'enabled']) loop
+    if k = 'items' then
+      docs := coalesce((select jsonb_object_agg(e->>0, e->1) from jsonb_array_elements(coalesce(w->'items'->'__map', '[]')) e), '{}');
+      rows := coalesce((select jsonb_object_agg(id, data) from cumulus_rows.drive_items), '{}');
+    else
+      docs := coalesce((select jsonb_object_agg(e->>0, e->1) from jsonb_array_elements(coalesce(w->'enabled'->'__map', '[]')) e), '{}');
+      rows := coalesce((select jsonb_object_agg(cid, to_jsonb(at)) from cumulus_rows.drive_enabled), '{}');
+    end if;
+    counts := counts || jsonb_build_object(k, jsonb_build_object('document', (select count(*) from jsonb_object_keys(docs)), 'rows', (select count(*) from jsonb_object_keys(rows))));
+    if exists (select 1 from jsonb_object_keys(docs) key where not rows ? key or rows->key <> docs->key)
+       or exists (select 1 from jsonb_object_keys(rows) key where not docs ? key) then
+      diff := diff || jsonb_build_object(k, jsonb_build_object(
+        'onlyInDocument', coalesce((select jsonb_agg(key) from (select key from jsonb_object_keys(docs) key where not rows ? key limit 20) t), '[]'),
+        'onlyInRows', coalesce((select jsonb_agg(key) from (select key from jsonb_object_keys(rows) key where not docs ? key limit 20) t), '[]'),
+        'changed', coalesce((select jsonb_agg(key) from (select key from jsonb_object_keys(docs) key where rows ? key and rows->key <> docs->key limit 20) t), '[]')));
+    end if;
+  end loop;
+  return jsonb_build_object('same', diff = '{}'::jsonb, 'counts', counts)
+    || case when diff = '{}'::jsonb then '{}'::jsonb else jsonb_build_object('differences', diff) end;
+end $$;
+
 -- 20261121's claim, with Drive.
 create or replace function cumulus_rows.claim(p_product text) returns jsonb
 language plpgsql set search_path = '' as $$
@@ -169,4 +204,5 @@ revoke execute on function cumulus_rows.read_one(jsonb) from public;
 revoke execute on function cumulus_rows.drive_read(jsonb) from public;
 revoke execute on function cumulus_rows.drive_apply(jsonb) from public;
 revoke execute on function cumulus_rows.refresh_drive_from_document() from public;
+revoke execute on function cumulus_rows.compare_drive_with_document() from public;
 revoke execute on function cumulus_rows.claim(text) from public;

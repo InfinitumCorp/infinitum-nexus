@@ -236,7 +236,8 @@ the document is then no longer loaded or saved. Removing `drive` is the rollback
 stay in the rows only). File contents stay in R2 either way.
 
 Through the gateway (Supabase): apply `20261122_cumulus_rows_drive.sql` after `20261121`, then add `drive`
-to `CUMULUS_ROWS`. The host's first request claims the `cumulus-workspace` document (no manual refresh).
+to `CUMULUS_ROWS`. The host's first request claims the `cumulus-workspace` document (no manual refresh);
+`select cumulus_rows.compare_drive_with_document()` right after should say `"same": true`.
 
 ### Cutover runbook (Cumulus://ID, phase 4)
 

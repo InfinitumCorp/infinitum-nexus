@@ -3,7 +3,7 @@
  *
  * The private key is the Worker secret CID_OIDC_SIGNING_KEY: a JWK JSON document, either
  * ES256 (P-256) or EdDSA (Ed25519). When the secret is missing or unusable, callers get
- * null and leave OpenID Connect off. Passkey, Google and Cognito sign-in do not need it.
+ * null and leave OpenID Connect off. Passkey and Google sign-in do not need it.
  */
 import { createHash, createPrivateKey, createPublicKey, sign, verify, type KeyObject, type webcrypto } from "node:crypto";
 

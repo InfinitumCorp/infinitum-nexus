@@ -36,9 +36,6 @@ import { localCidStorage } from "./local-cid.ts";
  *     MICROSOFT_CLIENT_ID, MICROSOFT_CLIENT_SECRET
  *     APPLE_CLIENT_ID, APPLE_TEAM_ID, APPLE_KEY_ID, APPLE_PRIVATE_KEY
  *     CHATGPT_CLIENT_ID, CHATGPT_CLIENT_SECRET, CHATGPT_ISSUER   (OpenAI partner program)
- *     COGNITO_DOMAIN, COGNITO_CLIENT_ID, COGNITO_CLIENT_SECRET, COGNITO_REGION, COGNITO_USER_POOL_ID
- *       Amazon Cognito user pool (Lite or Essentials). Off unless all five are set.
- *       Plus has no free MAU. Leave SMS MFA and SES email disabled; use TOTP if MFA is wanted.
  *   Callback URL to register with each provider: {SPECTRE_ORIGIN}/api/auth/oauth/{provider}/callback
  *   CID_OIDC_SIGNING_KEY private JWK (ES256 or Ed25519). Unset: OpenID Connect stays off.
  *                        node apps/spectre/scripts/generate-oidc-key.mjs writes the file and does not print the key.

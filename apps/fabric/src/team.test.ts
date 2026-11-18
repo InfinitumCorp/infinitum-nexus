@@ -321,3 +321,41 @@ test("polls: create, vote, move a single vote, multiple choice, anonymous, close
     t.close();
   }
 });
+
+test("incoming webhooks post as an app, check the token, and stop when the owner leaves", () => {
+  const t = setup();
+  try {
+    const ws = t.team.createWorkspace(t.alice, "Acme");
+    t.team.joinWorkspace(t.bob, ws.inviteCode);
+    const ops = t.team.createChannel(t.alice, ws.id, { name: "ops", members: ["bob"] });
+    assert.throws(() => t.team.createWebhook(t.cara, ops.id, { name: "CI" }), status(404));
+    const hook = t.team.createWebhook(t.bob, ops.id, { name: "Deploys" });
+    const [, , , , id, token] = hook.path.split("/");
+    assert.match(hook.path, /^\/api\/team\/hooks\/[0-9a-f-]{36}\/[A-Za-z0-9_-]{43}$/);
+    const stored = t.store.database.prepare("SELECT token_hash FROM team_webhooks").get() as { token_hash: string };
+    assert.notEqual(stored.token_hash, token, "only a hash of the token is stored");
+
+    const posted = t.team.postWebhook(id!, token!, { text: "Deployed v2 to production" });
+    const msg = t.team.getMessage(t.alice, posted.messageId);
+    assert.deepEqual(msg.app, { id, name: "Deploys" });
+    assert.equal(msg.sender.username, "bob");
+    assert.equal(msg.text, "Deployed v2 to production");
+    const reply = t.team.postWebhook(id!, token!, { text: "Rolled back", threadId: posted.messageId });
+    assert.equal(t.team.getMessage(t.alice, reply.messageId).parentId, posted.messageId);
+
+    assert.throws(() => t.team.postWebhook(id!, `${token!.slice(0, -1)}A`.replace(/AA$/, "AB"), { text: "x" }), status(404));
+    assert.throws(() => t.team.postWebhook(id!, token!, { text: "  " }), status(400));
+    assert.equal(t.team.webhooks(t.alice, ws.id).length, 1, "admins see every webhook");
+    assert.equal(t.team.webhooks(t.bob, ws.id)[0]!.lastUsedAt !== null, true);
+    t.team.joinWorkspace(t.cara, ws.inviteCode);
+    assert.equal(t.team.webhooks(t.cara, ws.id).length, 0);
+    assert.throws(() => t.team.deleteWebhook(t.cara, id!), status(403));
+
+    t.team.leaveChannel(t.bob, ops.id);
+    assert.throws(() => t.team.postWebhook(id!, token!, { text: "still here?" }), status(410));
+    t.team.deleteWebhook(t.alice, id!);
+    assert.throws(() => t.team.postWebhook(id!, token!, { text: "gone" }), status(404));
+  } finally {
+    t.close();
+  }
+});

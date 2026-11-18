@@ -13,6 +13,10 @@ describe("cidStorageFromEnv", () => {
     assert.deepEqual(cidStorageFromEnv({ CUMULUS_STORE: "document" }), { inDocuments: true, products: [] });
     assert.throws(() => cidStorageFromEnv({ CUMULUS_ROWS: "mail" }), /CUMULUS_ROWS needs CUMULUS_STORE=postgres or gateway/);
     assert.throws(() => cidStorageFromEnv({ CUMULUS_STORE: "postgres", CID_DATABASE_URL: "postgres://x", CUMULUS_ROWS: "mail,ledger" }), /unknown product "ledger"/);
+    assert.throws(() => cidStorageFromEnv({ CUMULUS_STORE: "gateway", CUMULUS_ROWS: "drive" }, {} as never), /CUMULUS_ROWS=drive needs CUMULUS_STORE=postgres/);
+    const pg = cidStorageFromEnv({ CUMULUS_STORE: "postgres", CID_DATABASE_URL: "postgres://x", CUMULUS_ROWS: "drive" });
+    assert.ok(pg.db && pg.products.includes("drive"), "postgres mode hands the Mail app its connection for Drive");
+    assert.equal(pg.repositories?.mail, undefined);
   });
 
   it("refuses an unknown mode, and Postgres without a database", () => {

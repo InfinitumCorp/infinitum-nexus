@@ -62,6 +62,18 @@ describe("every Cumulus://ID comes with Mail, Cloud and a FIRM Wallet", () => {
     assert.equal(await suite.mail.addAlias(account.cid, "alex.press@cumuluscloud.app"), true);
   });
 
+  it("an alias can't hold a future username: that sign-up is refused, and the name's mail stays with no one else", async () => {
+    const { suite } = setup();
+    const { account: alice } = await signUp(suite, "alice");
+    assert.equal(await suite.mail.addAlias(alice.cid, "bobby@cumuluscloud.app"), true);
+    await assert.rejects(suite.cid.createAccount({ username: "bobby" }), (e: unknown) => e instanceof CidError && e.code === "taken");
+    await assert.rejects(suite.cid.createAccount({ username: "Bobby " }), (e: unknown) => e instanceof CidError && e.code === "taken");
+    // A name that's free in both places still signs up, with its mailbox and wallet.
+    const { account: bob } = await signUp(suite, "bob");
+    assert.equal(await suite.mail.resolve("bob@cumuluscloud.app"), bob.cid);
+    assert.ok((await suite.summary(bob.cid)).mail);
+  });
+
   it("backfills CIDs created before the suite was wired in", async () => {
     const { suite } = setup();
     const { account } = await signUp(suite, "old");

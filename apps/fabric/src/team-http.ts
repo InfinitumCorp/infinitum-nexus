@@ -111,6 +111,19 @@ export function teamRoutes(): Route[] {
     r("GET", `/workspaces/${ID}/groups`, ({ team, me, params }) => ({ groups: team.groups(me, params[0]!) })),
     r("POST", `/workspaces/${ID}/groups`, ({ team, me, params, body }) => team.saveGroup(me, params[0]!, body)),
     r("DELETE", `/workspaces/${ID}/groups/${NAME}`, ({ team, me, params }) => team.deleteGroup(me, params[0]!, params[1]!)),
+    r("GET", `/workspaces/${ID}/export`, ({ team, me, params, query, res, security }) => {
+      const data = team.exportWorkspace(me, params[0]!, { includePrivate: query.get("private") === "1" });
+      const body = Buffer.from(JSON.stringify(data, null, 2));
+      const day = data.exportedAt.slice(0, 10);
+      res.writeHead(200, {
+        ...security,
+        "content-type": "application/json; charset=utf-8",
+        "content-length": body.length,
+        "content-disposition": `attachment; filename="${data.workspace.slug}-export-${day}.json"`,
+        "cache-control": "no-store",
+      });
+      res.end(body);
+    }, { raw: true }),
     r("GET", `/workspaces/${ID}/webhooks`, ({ team, me, params }) => ({ webhooks: team.webhooks(me, params[0]!) })),
     r("GET", `/workspaces/${ID}/scheduled`, ({ team, me, params }) => ({ scheduled: team.scheduledList(me, params[0]!) })),
     r("GET", `/workspaces/${ID}/reminders`, ({ team, me, params }) => ({ reminders: team.reminders(me, params[0]!) })),

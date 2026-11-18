@@ -359,3 +359,53 @@ test("incoming webhooks post as an app, check the token, and stop when the owner
     t.close();
   }
 });
+
+test("workspace export: admins get public channels, owners can add private ones, never direct messages", () => {
+  const t = setup();
+  try {
+    const ws = t.team.createWorkspace(t.alice, "Acme");
+    t.team.joinWorkspace(t.bob, ws.inviteCode);
+    t.team.joinWorkspace(t.cara, ws.inviteCode);
+    const general = t.team.sidebar(t.alice, ws.id).channels.find((c) => c.name === "general")!;
+    const root = t.team.send(t.bob, general.id, { text: "Ship it on Friday" }).message!;
+    t.team.send(t.alice, general.id, { text: "Agreed", parentId: root.id });
+    t.team.react(t.cara, root.id, "🚀");
+    t.team.pin(t.alice, root.id, true);
+    t.team.createPoll(t.alice, general.id, { question: "Lunch?", options: ["Pizza", "Soup"] });
+    const gone = t.team.send(t.bob, general.id, { text: "oops" }).message!;
+    t.team.remove(t.bob, gone.id);
+    const secret = t.team.createChannel(t.alice, ws.id, { name: "secret", private: true, members: ["bob"] });
+    t.team.send(t.alice, secret.id, { text: "private plans" });
+    const dm = t.team.openConversation(t.alice, ws.id, ["bob"]);
+    t.team.send(t.alice, dm.id, { text: "just between us" });
+
+    assert.throws(() => t.team.exportWorkspace(t.bob, ws.id), status(403));
+    t.team.setRole(t.alice, ws.id, "bob", "admin");
+    assert.throws(() => t.team.exportWorkspace(t.bob, ws.id, { includePrivate: true }), status(403));
+
+    const pub = t.team.exportWorkspace(t.bob, ws.id);
+    assert.equal(pub.format, "fabric-teams-export/1");
+    assert.deepEqual(pub.channels.map((c) => c.name).sort(), ["general", "random"]);
+    const g = pub.channels.find((c) => c.name === "general")!;
+    const exported = g.messages.find((m) => m.id === root.id)!;
+    assert.equal(exported.text, "Ship it on Friday");
+    assert.equal(exported.user, "bob");
+    assert.equal(exported.replyCount, 1);
+    assert.equal(exported.pinned, true);
+    assert.deepEqual(exported.reactions, [{ emoji: "🚀", users: ["cara"] }]);
+    assert.equal(g.messages.find((m) => m.threadParent === root.id)!.text, "Agreed");
+    assert.deepEqual(g.messages.find((m) => m.poll)!.poll!.options.map((o) => o.text), ["Pizza", "Soup"]);
+    assert.ok(!g.messages.some((m) => m.id === gone.id), "deleted messages are left out");
+    assert.deepEqual(pub.people.map((p) => p.username), ["alice", "bob", "cara"]);
+    const all = JSON.stringify(pub);
+    assert.doesNotMatch(all, /private plans|just between us/);
+    assert.equal(pub.includes.directMessages, false);
+    assert.match(t.team.list(t.alice, general.id).messages.at(-1)!.text, /exported the workspace's public channel history/);
+
+    const full = t.team.exportWorkspace(t.alice, ws.id, { includePrivate: true });
+    assert.deepEqual(full.channels.map((c) => c.name).sort(), ["general", "random", "secret"]);
+    assert.doesNotMatch(JSON.stringify(full), /just between us/);
+  } finally {
+    t.close();
+  }
+});

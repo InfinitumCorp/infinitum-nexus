@@ -35,7 +35,7 @@ describe("Cumulus://ID rows through the nexus-store SQL", { skip: url ? false : 
     pool = new pg.Pool({ connectionString: u.toString(), max: 6 });
     // Dropping the test database at the end terminates any connection still open; that is expected.
     pool.on("error", () => {});
-    for (const f of ["20261104_nexus_store.sql", "20261113_cumulus_id_rows.sql", "20261114_cumulus_id_reverse.sql", "20261115_cumulus_rows_wallet_quota.sql", "20261116_cumulus_rows_mail.sql", "20261117_cumulus_rows_mail_counts.sql", "20261118_cumulus_rows_lock_order.sql"]) {
+    for (const f of ["20261104_nexus_store.sql", "20261113_cumulus_id_rows.sql", "20261114_cumulus_id_reverse.sql", "20261115_cumulus_rows_wallet_quota.sql", "20261116_cumulus_rows_mail.sql", "20261117_cumulus_rows_mail_counts.sql", "20261118_cumulus_rows_lock_order.sql", "20261119_cumulus_rows_mail_due.sql", "20261120_cumulus_rows_compare.sql", "20261121_cumulus_rows_claim.sql"]) {
       await pool.query(readFileSync(join(root, "supabase/migrations", f), "utf8"));
     }
   });

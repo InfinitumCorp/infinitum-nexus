@@ -50,26 +50,20 @@ series: repository with the mailbox as today's unit first, then per-message rows
 
 What still needs a person (or a connector this session didn't have):
 
-1. **Supabase**: done 2026-11-13. Both migrations are applied, `nexus-store` v2 is deployed, and
-   `compare_with_document()` reports the rows equal to the document (9 accounts, 7 sessions). Left:
-   merge #196 (`CUMULUS_STORE=gateway` for Mail) once Cloudflare deploys run (item 2), and run
-   `select cumulus_id.refresh_from_document()` just before that deploy goes live.
+1. **Supabase**: apply the migrations `20261115` through `20261121`, in order, and redeploy the
+   `nexus-store` edge function (#231). No refresh has to be run by hand any more: a gateway host's
+   first request claims the rows (`20261121_cumulus_rows_claim.sql`), which copies the `cid` document
+   (and, with `CUMULUS_ROWS`, the mail, wallet and quota documents) into them once, under a lock, and
+   records it in `cumulus_rows.claims`. Later starts never replace rows written since. A host refuses
+   to serve until the claim migration is applied. Check afterwards with
+   `select cumulus_id.compare_with_document()` (only before new writes) and
+   `select * from cumulus_rows.claims`.
 2. **Cloudflare**: the GitHub organization secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`, so
-   the auto-deploy workflows can ship any of this.
-3. **Yandex**: mark InfinitumCorp/cumulus-id-ru#1 ready and merge it (it pins a current main commit), then
-   run `ssh cumulus-id-russia 'bash -s' < scripts/setup.sh`.
-4. **Supabase, Mail/Wallet/Quota rows**: apply `20261115_cumulus_rows_wallet_quota.sql` (it also adds a
-   per-key lock to the live `cumulus_id.apply`) and `20261116_cumulus_rows_mail.sql`; then, with the
-   Cloudflare secrets in place, run `cumulus_rows.refresh_from_documents()` and
-   `cumulus_rows.refresh_mail_from_document()` right before deploying `CUMULUS_ROWS=mail,wallet,quota`.
-   Apply `20261117_cumulus_rows_mail_counts.sql`, `20261118_cumulus_rows_lock_order.sql` and
-   `20261119_cumulus_rows_mail_due.sql` with them (the unread count and due drafts without fetching
-   mailboxes; one lock order so two people mailing each other at once can't deadlock). Apply all five
-   migrations, and redeploy `nexus-store` (#231), before deploying code that uses them: older SQL
-   doesn't know the newer lookups. With `20261120_cumulus_rows_compare.sql` too,
-   `select cumulus_rows.compare_with_documents(array['mail', 'wallet', 'quota'])` reports
-   `"same": true` (or the keys that differ) after the refresh and before the switch.
-5. **id.cumuluscloud.app** keeps its state in a Cloudflare Durable Object, not Supabase; moving it means
+   the auto-deploy workflows can ship any of this. #196 (Mail on `CUMULUS_STORE=gateway`) is merged and
+   goes live with the first deploy: apply item 1 first.
+3. **Yandex**: run `ssh cumulus-id-russia 'bash -s' < scripts/setup.sh` from InfinitumCorp/cumulus-id-ru
+   (it pins a current main commit).
+4. **id.cumuluscloud.app** keeps its state in a Cloudflare Durable Object, not Supabase; moving it means
    reading that object, which needs Cloudflare access.
 
 ## Problem

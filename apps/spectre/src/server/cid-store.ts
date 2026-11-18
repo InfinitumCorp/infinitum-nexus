@@ -29,7 +29,20 @@
  */
 import { PgCidRepository, PgRequestScope, RemoteCidRepository, type CidReadOp, type CidRepository, type PgPoolClient, type Queryable } from "@infinitum/cid";
 import { RemoteRows, parseRowProducts, productRepositories, type CumulusConfig, type RowProduct } from "@infinitum/cumulus";
-import type { NexusGateway, TransactionParticipant } from "./remote.ts";
+import { ConflictError, type NexusGateway, type TransactionParticipant } from "./remote.ts";
+
+/** The rows already hold something other than the document: overwriting them could lose data. */
+export class ClaimRefused extends Error {
+  readonly products: string[];
+  constructor(products: string[]) {
+    super(
+      `Cumulus rows for ${products.join(", ")} already hold data that differs from their documents, so they weren't replaced and this host won't serve. ` +
+        "If the rows are right, record the claim (insert into cumulus_rows.claims (product, copied) values ('<product>', '{}')); " +
+        "if the documents are right, select cumulus_rows.release('<product>') and the next request copies them. See supabase/migrations/20261124_cumulus_rows_claim_safety.sql.",
+    );
+    this.products = products;
+  }
+}
 
 let databaseUrlOverride: string | undefined;
 /** The Worker passes its Hyperdrive connection string here before the first request. */
@@ -93,17 +106,29 @@ export function cidStorageFromEnv(env: Record<string, string | undefined> = proc
     };
     // Before this host's first request reads any rows, it claims them: the database copies each
     // document it keeps as rows (ID, and the CUMULUS_ROWS products) into the rows, once ever, under a
-    // lock (supabase/migrations/20261121_cumulus_rows_claim.sql). So the switch needs no manual
-    // refresh, and rows written since an earlier claim are never replaced.
+    // lock (supabase/migrations/20261121_cumulus_rows_claim.sql, made safe in 20261124). So the switch
+    // needs no manual refresh, rows written since an earlier claim are never replaced, and rows that hold
+    // something other than the document are never overwritten: the host refuses to serve instead.
     let claimed: Promise<void> | undefined;
     const claim = () =>
       (claimed ??= gateway!
         .commit([], [], ["cid", ...products].map((product) => ({ kind: "claim", id: product })))
-        .then(() => undefined)
+        .then(
+          (result) => {
+            const refused = Object.entries(result as Record<string, unknown>)
+              .filter(([k, v]) => k.startsWith("claim:") && (v as { refused?: string } | null)?.refused)
+              .map(([k]) => k.slice("claim:".length));
+            if (refused.length) throw new ClaimRefused(refused);
+          },
+          (err) => {
+            // A conflict (another commit held a document the claim needed): the request re-runs.
+            if (err instanceof ConflictError) throw err;
+            throw new Error(`Cumulus rows couldn't be claimed (are supabase/migrations up to 20261124_cumulus_rows_claim_safety.sql applied?): ${(err as Error).message}`);
+          },
+        )
         .catch((err) => {
           claimed = undefined;
-          const needs = products.includes("drive") ? "20261122_cumulus_rows_drive.sql" : "20261121_cumulus_rows_claim.sql";
-          throw new Error(`Cumulus rows couldn't be claimed (apply supabase/migrations up to ${needs}): ${(err as Error).message}`);
+          throw err;
         }));
     return {
       inDocuments: false,

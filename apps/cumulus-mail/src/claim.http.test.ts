@@ -20,8 +20,10 @@ const root = join(import.meta.dirname, "../../..");
 const MIGRATIONS = [
   "20261104_nexus_store.sql", "20261113_cumulus_id_rows.sql", "20261114_cumulus_id_reverse.sql", "20261115_cumulus_rows_wallet_quota.sql",
   "20261116_cumulus_rows_mail.sql", "20261117_cumulus_rows_mail_counts.sql", "20261118_cumulus_rows_lock_order.sql", "20261119_cumulus_rows_mail_due.sql",
-  "20261120_cumulus_rows_compare.sql", "20261121_cumulus_rows_claim.sql",
+  "20261120_cumulus_rows_compare.sql", "20261121_cumulus_rows_claim.sql", "20261122_cumulus_rows_drive.sql", "20261123_cumulus_rows_drive_checks.sql",
+  "20261124_cumulus_rows_claim_safety.sql",
 ];
+const CLAIM = MIGRATIONS.indexOf("20261121_cumulus_rows_claim.sql");
 
 describe("rows claim their documents on a host's first request", { skip: url ? false : "set CID_TEST_PG_URL to run" }, async () => {
   const { default: pg } = await import("pg");
@@ -87,10 +89,10 @@ describe("rows claim their documents on a host's first request", { skip: url ? f
   });
 
   it("refuses to serve until the claim migration is applied", async () => {
-    for (const f of MIGRATIONS.slice(0, -1)) await pool.query(readFileSync(join(root, "supabase/migrations", f), "utf8"));
+    for (const f of MIGRATIONS.slice(0, CLAIM)) await pool.query(readFileSync(join(root, "supabase/migrations", f), "utf8"));
     const h = host();
-    await assert.rejects(h.state.transaction(async () => "served"), /couldn't be claimed .*20261121_cumulus_rows_claim/);
-    await pool.query(readFileSync(join(root, "supabase/migrations", MIGRATIONS.at(-1)!), "utf8"));
+    await assert.rejects(h.state.transaction(async () => "served"), /couldn't be claimed .*20261124_cumulus_rows_claim_safety/);
+    for (const f of MIGRATIONS.slice(CLAIM)) await pool.query(readFileSync(join(root, "supabase/migrations", f), "utf8"));
   });
 
   it("the first request sees what the documents held; later starts keep what the rows got since", async () => {

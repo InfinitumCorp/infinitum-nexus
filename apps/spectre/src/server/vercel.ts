@@ -80,6 +80,11 @@ function build() {
   // so an account made here has the same mailbox and wallet in Cumulus://Mail.
   const gateway = gatewayOverride ?? new HttpGateway(required("NEXUS_STORE_URL"), required("NEXUS_STORE_KEY"));
   const cidStorage = cidStorageFromEnv(process.env, gateway);
+  // +SPCTR keeps Mail, Wallet and the quota in their documents. With CUMULUS_ROWS it would claim them
+  // (copy them into rows and mark them handed over) and then keep writing the documents nobody reads.
+  if (cidStorage.products.length) {
+    throw new Error(`CUMULUS_ROWS=${cidStorage.products.join(",")} isn't supported on +SPCTR (it keeps Mail, Wallet and the quota in their documents): unset it here`);
+  }
   const state = new RemoteState(gateway, {
     ...(cidStorage.inDocuments ? { cid: cumulusStores.cid } : {}),
     spectre: spectreStore,

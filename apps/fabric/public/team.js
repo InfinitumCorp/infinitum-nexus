@@ -157,7 +157,7 @@ async function loadSidebar() {
   const row = (c) => h("li", {}, h("button", {
     type: "button", class: `${c.unread && !c.muted ? "unread" : ""}${c.muted ? " muted" : ""}`, "aria-current": state.channel?.id === c.id ? "true" : null,
     onclick: tryRun(() => openChannel(c.id)),
-  }, c.kind === "dm" && c.people?.[0] ? dot(c.people[0]) : null, h("span", { class: "name" }, chanLabel(c)), c.mentions ? h("span", { class: "badge" }, String(c.mentions)) : null));
+  }, c.kind === "dm" && c.people?.[0] ? dot(c.people[0]) : null, h("span", { class: "name" }, chanLabel(c)), c.huddle ? h("span", { class: "t-huddle-mark", title: `Huddle · ${c.huddle.people}` }, "🎧") : null, c.mentions ? h("span", { class: "badge" }, String(c.mentions)) : null));
   const all = [...bar.channels, ...bar.direct];
   $("#starred").replaceChildren(...all.filter((c) => c.starred).map(row));
   $("#starred").parentElement.hidden = !all.some((c) => c.starred);
@@ -235,6 +235,7 @@ function renderHead() {
       h("button", { type: "button", class: "btn small", onclick: tryRun(showPins) }, `Pins${c.pins ? ` ${c.pins}` : ""}`),
       h("button", { type: "button", class: "btn small", onclick: tryRun(showCanvas) }, c.canvas ? "Canvas •" : "Canvas"),
       h("button", { type: "button", class: "btn small", onclick: tryRun(() => showFiles(c.id)) }, "Files"),
+      huddleButton(c),
       !c.member && !c.archived ? h("button", { type: "button", class: "btn primary small", onclick: tryRun(async () => { await api(T(`/channels/${c.id}/join`), { method: "POST", body: {} }); await openChannel(c.id); }) }, "Join channel") : null,
       h("button", { type: "button", class: "btn small", "aria-label": "Channel settings", onclick: (e) => channelMenu(e.currentTarget) }, "…"),
     ),
@@ -805,6 +806,8 @@ function connect() {
   state.events = es;
   es.addEventListener("team", (e) => {
     const ev = JSON.parse(e.data);
+    if (ev.type === "huddle-signal") { onHuddleSignal(ev); return; }
+    if (ev.type === "huddle" && ev.channelId === huddle.channelId) refreshHuddle().catch((err) => showError(err.message));
     if (ev.workspaceId !== state.wsId) return;
     if (ev.type === "typing") {
       if (ev.channelId === state.channel?.id || ev.parentId === state.thread?.parent.id) { state.typing.set(ev.username, Date.now()); renderTyping(); }
@@ -845,6 +848,240 @@ async function notify(ev) {
 }
 
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && state.channel) soon(refreshChannel); });
+
+// ---------- huddles ----------
+// Live audio/video calls in a channel. The server relays WebRTC signalling over the event stream;
+// audio and video go directly between browsers (a full mesh). Each pair uses "perfect negotiation",
+// so either side can renegotiate (camera on, screen share) without offers colliding.
+
+const huddle = { channelId: null, view: null, local: null, video: null, screen: false, muted: false, peers: new Map(), tiles: new Map(), built: false };
+
+function huddleButton(c) {
+  if (huddle.channelId === c.id) return h("button", { type: "button", class: "btn small t-huddle-live", onclick: tryRun(leaveHuddle) }, "Leave huddle");
+  if (!c.member || c.archived) return c.huddle ? h("span", { class: "meta" }, `🎧 Huddle · ${c.huddle.people}`) : null;
+  return h("button", { type: "button", class: `btn small${c.huddle ? " t-huddle-live" : ""}`, onclick: tryRun(() => joinHuddle(c.id)) }, c.huddle ? `🎧 Join huddle · ${c.huddle.people}` : "🎧 Huddle");
+}
+
+async function joinHuddle(channelId) {
+  if (!navigator.mediaDevices?.getUserMedia || !window.RTCPeerConnection) throw new Error("This browser cannot make calls.");
+  if (huddle.channelId) await leaveHuddle();
+  try {
+    huddle.local = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true }, video: false });
+  } catch (e) {
+    throw new Error(e?.name === "NotAllowedError" ? "Allow microphone access to join the huddle." : "No microphone was found.");
+  }
+  Object.assign(huddle, { channelId, muted: false, video: null, screen: false });
+  try {
+    huddle.view = await api(T(`/channels/${channelId}/huddle/join`), { method: "POST", body: {} });
+  } catch (e) {
+    huddle.local.getTracks().forEach((t) => t.stop());
+    Object.assign(huddle, { channelId: null, local: null });
+    throw e;
+  }
+  // Whoever joins calls everyone already there.
+  for (const p of huddle.view.people) if (p.sub !== state.me.sub) peer(p.sub);
+  renderHuddle();
+  if (state.channel) renderHead();
+  await loadSidebar();
+}
+
+async function leaveHuddle() {
+  const id = huddle.channelId;
+  if (!id) return;
+  for (const p of huddle.peers.values()) p.pc.close();
+  huddle.peers.clear();
+  huddle.local?.getTracks().forEach((t) => t.stop());
+  huddle.video?.stop();
+  Object.assign(huddle, { channelId: null, view: null, local: null, video: null, screen: false, muted: false });
+  renderHuddle();
+  await api(T(`/channels/${id}/huddle/leave`), { method: "POST", body: {} }).catch(() => {});
+  if (state.channel) renderHead();
+  await loadSidebar().catch(() => {});
+}
+
+// Closing the tab: tell the server right away (it also notices a dropped connection after 15 s).
+window.addEventListener("pagehide", () => {
+  if (huddle.channelId) fetch(T(`/channels/${huddle.channelId}/huddle/leave`), { method: "POST", keepalive: true, headers: { "content-type": "application/json" }, body: "{}" }).catch(() => {});
+});
+
+const signal = (to, data) => api(T(`/channels/${huddle.channelId}/huddle/signal`), { method: "POST", body: { to, data } });
+
+function peer(sub) {
+  let p = huddle.peers.get(sub);
+  if (p) return p;
+  const pc = new RTCPeerConnection({ iceServers: huddle.view?.iceServers || [] });
+  p = { pc, polite: state.me.sub > sub, makingOffer: false, ignoreOffer: false, stream: null, videoSender: null };
+  huddle.peers.set(sub, p);
+  pc.onnegotiationneeded = async () => {
+    try {
+      p.makingOffer = true;
+      await pc.setLocalDescription();
+      await signal(sub, { description: pc.localDescription });
+    } catch (e) {
+      console.warn("huddle offer", e);
+    } finally {
+      p.makingOffer = false;
+    }
+  };
+  pc.onicecandidate = ({ candidate }) => { if (huddle.channelId) signal(sub, { candidate: candidate ? candidate.toJSON() : null }).catch(() => {}); };
+  pc.ontrack = ({ track, streams }) => {
+    if (streams[0]) p.stream = streams[0];
+    else { p.stream = p.stream || new MediaStream(); p.stream.addTrack(track); }
+    renderHuddle();
+  };
+  pc.onconnectionstatechange = () => {
+    if (pc.connectionState === "failed") pc.restartIce();
+    renderHuddle();
+  };
+  for (const t of huddle.local.getAudioTracks()) pc.addTrack(t, huddle.local);
+  if (huddle.video) p.videoSender = pc.addTrack(huddle.video, huddle.local);
+  return p;
+}
+
+async function onHuddleSignal(ev) {
+  if (!huddle.channelId || ev.channelId !== huddle.channelId) return;
+  const p = peer(ev.from);
+  const { description, candidate } = ev.data || {};
+  try {
+    if (description) {
+      const collision = description.type === "offer" && (p.makingOffer || p.pc.signalingState !== "stable");
+      p.ignoreOffer = !p.polite && collision;
+      if (p.ignoreOffer) return;
+      await p.pc.setRemoteDescription(description);
+      if (description.type === "offer") {
+        await p.pc.setLocalDescription();
+        await signal(ev.from, { description: p.pc.localDescription });
+      }
+    } else if (candidate !== undefined) {
+      try {
+        await p.pc.addIceCandidate(candidate || undefined);
+      } catch (e) {
+        if (!p.ignoreOffer) throw e;
+      }
+    }
+  } catch (e) {
+    console.warn("huddle signal", e);
+  }
+}
+
+async function refreshHuddle() {
+  if (!huddle.channelId) return;
+  const { huddle: view } = await api(T(`/channels/${huddle.channelId}/huddle`));
+  if (!view || !view.people.some((p) => p.sub === state.me.sub)) { await leaveHuddle(); return; }
+  huddle.view = view;
+  const present = new Set(view.people.map((p) => p.sub));
+  for (const [sub, p] of huddle.peers) if (!present.has(sub)) { p.pc.close(); huddle.peers.delete(sub); }
+  renderHuddle();
+}
+
+async function setVideoTrack(track) {
+  const old = huddle.video;
+  if (old) { huddle.local.removeTrack(old); old.stop(); }
+  huddle.video = track;
+  if (track) huddle.local.addTrack(track);
+  for (const p of huddle.peers.values()) {
+    if (p.videoSender) await p.videoSender.replaceTrack(track);
+    else if (track) p.videoSender = p.pc.addTrack(track, huddle.local);
+  }
+}
+
+const tellHuddle = (body) => api(T(`/channels/${huddle.channelId}/huddle`), { method: "PUT", body }).then((v) => { huddle.view = v; renderHuddle(); });
+
+async function toggleMute() {
+  huddle.muted = !huddle.muted;
+  for (const t of huddle.local.getAudioTracks()) t.enabled = !huddle.muted;
+  await tellHuddle({ muted: huddle.muted });
+}
+
+async function toggleCamera() {
+  if (huddle.video && !huddle.screen) {
+    await setVideoTrack(null);
+    await tellHuddle({ video: false, screen: false });
+    return;
+  }
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 640 }, height: { ideal: 360 } } });
+  } catch (e) {
+    throw new Error(e?.name === "NotAllowedError" ? "Allow camera access to turn on video." : "No camera was found.");
+  }
+  huddle.screen = false;
+  await setVideoTrack(stream.getVideoTracks()[0]);
+  await tellHuddle({ video: true, screen: false });
+}
+
+async function toggleScreen() {
+  if (huddle.screen) {
+    huddle.screen = false;
+    await setVideoTrack(null);
+    await tellHuddle({ video: false, screen: false });
+    return;
+  }
+  if (!navigator.mediaDevices.getDisplayMedia) throw new Error("This browser cannot share the screen.");
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+  } catch {
+    return; // The person closed the picker.
+  }
+  const track = stream.getVideoTracks()[0];
+  track.addEventListener("ended", () => { if (huddle.screen && huddle.video === track) tryRun(toggleScreen)(); });
+  huddle.screen = true;
+  await setVideoTrack(track);
+  await tellHuddle({ video: true, screen: true });
+}
+
+function tileFor(person) {
+  const me = person.sub === state.me.sub;
+  let t = huddle.tiles.get(person.sub);
+  if (!t) {
+    const video = h("video", { autoplay: true, playsinline: true });
+    video.muted = me; // never play your own microphone back to yourself
+    t = { el: h("div", { class: "t-tile" }, h("span", { class: "t-tile-initial", "aria-hidden": "true" }, (person.displayName || "?")[0].toUpperCase()), video, h("span", { class: "t-tile-name" })), video };
+    huddle.tiles.set(person.sub, t);
+  }
+  const stream = me ? huddle.local : huddle.peers.get(person.sub)?.stream;
+  if (stream && t.video.srcObject !== stream) { t.video.srcObject = stream; t.video.play().catch(() => {}); }
+  const muted = me ? huddle.muted : person.muted;
+  const video = me ? !!huddle.video : person.video;
+  const screen = me ? huddle.screen : person.screen;
+  t.el.classList.toggle("on-camera", video);
+  t.el.classList.toggle("muted", muted);
+  const link = me ? "" : huddle.peers.get(person.sub)?.pc.connectionState;
+  t.el.querySelector(".t-tile-name").textContent = `${muted ? "🔇 " : ""}${person.displayName}${me ? " (you)" : ""}${screen ? " · sharing screen" : ""}${link && link !== "connected" ? ` · ${link}` : ""}`;
+  return t;
+}
+
+function renderHuddle() {
+  const box = $("#huddle");
+  if (!huddle.channelId || !huddle.view) {
+    box.hidden = true;
+    for (const t of huddle.tiles.values()) { t.video.srcObject = null; t.el.remove(); }
+    huddle.tiles.clear();
+    return;
+  }
+  if (!huddle.built) {
+    box.replaceChildren(h("div", { class: "t-huddle-head" }), h("div", { class: "t-huddle-tiles" }), h("div", { class: "t-row t-huddle-controls" }));
+    huddle.built = true;
+  }
+  box.hidden = false;
+  const [head, tiles, controls] = box.children;
+  const c = state.bar && [...state.bar.channels, ...state.bar.direct].find((x) => x.id === huddle.channelId);
+  head.replaceChildren(h("strong", {}, `🎧 ${c ? chanLabel(c) : "Huddle"}`), h("span", { class: "meta" }, ` · ${huddle.view.people.length} in the huddle`));
+  const present = new Set();
+  for (const person of huddle.view.people) {
+    present.add(person.sub);
+    const t = tileFor(person);
+    if (t.el.parentNode !== tiles) tiles.append(t.el);
+  }
+  for (const [sub, t] of huddle.tiles) if (!present.has(sub)) { t.video.srcObject = null; t.el.remove(); huddle.tiles.delete(sub); }
+  controls.replaceChildren(
+    h("button", { type: "button", class: `btn small${huddle.muted ? " primary" : ""}`, "aria-pressed": String(huddle.muted), onclick: tryRun(toggleMute) }, huddle.muted ? "Unmute" : "Mute"),
+    h("button", { type: "button", class: "btn small", "aria-pressed": String(!!huddle.video && !huddle.screen), onclick: tryRun(toggleCamera) }, huddle.video && !huddle.screen ? "Camera off" : "Camera on"),
+    navigator.mediaDevices?.getDisplayMedia ? h("button", { type: "button", class: "btn small", "aria-pressed": String(huddle.screen), onclick: tryRun(toggleScreen) }, huddle.screen ? "Stop sharing" : "Share screen") : null,
+    h("button", { type: "button", class: "btn small t-huddle-leave", onclick: tryRun(leaveHuddle) }, "Leave"),
+  );
+}
 
 // ---------- top-level wiring ----------
 

@@ -25,6 +25,7 @@ const MIGRATIONS = [
   "20261104_nexus_store.sql", "20261113_cumulus_id_rows.sql", "20261114_cumulus_id_reverse.sql", "20261115_cumulus_rows_wallet_quota.sql",
   "20261116_cumulus_rows_mail.sql", "20261117_cumulus_rows_mail_counts.sql", "20261118_cumulus_rows_lock_order.sql", "20261119_cumulus_rows_mail_due.sql",
   "20261120_cumulus_rows_compare.sql", "20261121_cumulus_rows_claim.sql", "20261122_cumulus_rows_drive.sql",
+  "20261123_cumulus_rows_drive_checks.sql",
 ];
 
 const files = (): FileStore => {
@@ -109,7 +110,7 @@ describe("Drive rows through the gateway", { skip: url ? false : "set CID_TEST_P
     await pool.query("ALTER TABLE cumulus_rows.claims ADD CONSTRAINT claims_product_check CHECK (product IN ('cid', 'mail', 'wallet', 'quota'))");
     const { run } = host();
     await assert.rejects(run(async () => "served"), /couldn't be claimed .*20261122_cumulus_rows_drive/);
-    await pool.query(readFileSync(join(root, "supabase/migrations", MIGRATIONS.at(-1)!), "utf8")); // applying it again is fine
+    for (const f of MIGRATIONS.slice(-2)) await pool.query(readFileSync(join(root, "supabase/migrations", f), "utf8")); // applying them again is fine
   });
 
   it("the first request sees what the cumulus-workspace document held", async () => {

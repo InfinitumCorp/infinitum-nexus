@@ -150,4 +150,46 @@ describe("Drive on PostgreSQL", { skip: url ? false : "set CID_TEST_PG_URL to ru
     assert.deepEqual(await server(), { already: true });
     assert.equal((await today.get("cid:ada", roadmap.id)).name, "Roadmap 2027");
   });
+  test("deleting a folder for good while a save and an upload finish inside it: nothing left behind, nothing left charged", async () => {
+    const schema = await fresh("delete_race");
+    const blobs = files();
+    const quota = new StorageQuota({ store: new QuotaStore() });
+    const on = (db: DriveQueryable) => workspace(db, schema, blobs, quota);
+    const tx = async () => {
+      const c = await pool!.connect();
+      await c.query("BEGIN");
+      return c;
+    };
+    const setup = on(pool!);
+    const f = await setup.createFolder("cid:a", "F");
+    const sub = await setup.createFolder("cid:a", "S", f.id);
+    const d = await setup.createDoc("cid:a", "dox", "D", f.id);
+    await setup.update("cid:a", f.id, { trashed: true });
+
+    // A save that grows D, and an upload into S, both still open while F is deleted for good.
+    const saving = await tx();
+    await on(saving).saveDoc("cid:a", d.id, { html: "x".repeat(100_000) }, 1);
+    const uploading = await tx();
+    await on(uploading).upload("cid:a", "late.bin", sub.id, new Uint8Array(5000), "application/octet-stream");
+    const deleting = await tx();
+    const removing = on(deleting).remove("cid:a", f.id).then((v) => v, (e: unknown) => e);
+    await new Promise((r) => setTimeout(r, 300));
+    for (const c of [saving, uploading]) {
+      await c.query("COMMIT");
+      c.release();
+    }
+    // The upload landed in a folder the deletion had already listed: it asks to be run again (as
+    // RemoteState does for a deadlock), and the second run takes everything.
+    const first = await removing;
+    assert.equal((first as { code?: string }).code, "40001");
+    await deleting.query("ROLLBACK");
+    deleting.release();
+    const again = await tx();
+    assert.deepEqual(await on(again).remove("cid:a", f.id), { removed: 4 });
+    await again.query("COMMIT");
+    again.release();
+
+    assert.equal((await pool!.query(`SELECT count(*)::int AS n FROM "${schema}".drive_items`)).rows[0].n, 0);
+    assert.equal((await quota.usage("cid:a")).byProduct.cloud, 0, "the grown size was released, not the old one");
+  });
 });

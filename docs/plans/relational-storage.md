@@ -59,8 +59,9 @@ What still needs a person (or a connector this session didn't have):
    `select cumulus_id.compare_with_document()` (only before new writes) and
    `select * from cumulus_rows.claims`.
 2. **Cloudflare**: the GitHub organization secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`, so
-   the auto-deploy workflows can ship any of this. #196 (Mail on `CUMULUS_STORE=gateway`) is merged and
-   goes live with the first deploy: apply item 1 first.
+   the auto-deploy workflows can ship any of this. Mail itself is deployed with `cf deploy`
+   (apps/cumulus-mail/cloudflare.config.ts), which keeps `CUMULUS_STORE=document` until item 1 is done;
+   then set it to "gateway" there and deploy.
 3. **Yandex**: run `ssh cumulus-id-russia 'bash -s' < scripts/setup.sh` from InfinitumCorp/cumulus-id-ru
    (it pins a current main commit).
 4. **id.cumuluscloud.app** keeps its state in a Cloudflare Durable Object, not Supabase; moving it means

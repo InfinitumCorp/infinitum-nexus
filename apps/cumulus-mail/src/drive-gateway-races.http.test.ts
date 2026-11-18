@@ -23,7 +23,7 @@ const root = join(import.meta.dirname, "../../..");
 const MIGRATIONS = [
   "20261104_nexus_store.sql", "20261113_cumulus_id_rows.sql", "20261114_cumulus_id_reverse.sql", "20261115_cumulus_rows_wallet_quota.sql",
   "20261116_cumulus_rows_mail.sql", "20261117_cumulus_rows_mail_counts.sql", "20261118_cumulus_rows_lock_order.sql", "20261119_cumulus_rows_mail_due.sql",
-  "20261120_cumulus_rows_compare.sql", "20261121_cumulus_rows_claim.sql", "20261122_cumulus_rows_drive.sql", "20261123_cumulus_rows_drive_checks.sql",
+  "20261120_cumulus_rows_compare.sql", "20261121_cumulus_rows_claim.sql", "20261122_cumulus_rows_drive.sql", "20261123_cumulus_rows_drive_checks.sql", "20261124_cumulus_rows_claim_safety.sql",
 ];
 
 const files = (): FileStore => {

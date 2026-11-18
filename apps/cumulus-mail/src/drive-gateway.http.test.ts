@@ -25,7 +25,7 @@ const MIGRATIONS = [
   "20261104_nexus_store.sql", "20261113_cumulus_id_rows.sql", "20261114_cumulus_id_reverse.sql", "20261115_cumulus_rows_wallet_quota.sql",
   "20261116_cumulus_rows_mail.sql", "20261117_cumulus_rows_mail_counts.sql", "20261118_cumulus_rows_lock_order.sql", "20261119_cumulus_rows_mail_due.sql",
   "20261120_cumulus_rows_compare.sql", "20261121_cumulus_rows_claim.sql", "20261122_cumulus_rows_drive.sql",
-  "20261123_cumulus_rows_drive_checks.sql",
+  "20261123_cumulus_rows_drive_checks.sql", "20261124_cumulus_rows_claim_safety.sql",
 ];
 
 const files = (): FileStore => {
@@ -108,9 +108,12 @@ describe("Drive rows through the gateway", { skip: url ? false : "set CID_TEST_P
   it("refuses to serve Drive on rows until the Drive migration is applied", async () => {
     await pool.query("ALTER TABLE cumulus_rows.claims DROP CONSTRAINT claims_product_check");
     await pool.query("ALTER TABLE cumulus_rows.claims ADD CONSTRAINT claims_product_check CHECK (product IN ('cid', 'mail', 'wallet', 'quota'))");
+    // A Drive document to hand over (with none, nothing is recorded and the host serves).
+    await pool.query(`INSERT INTO public.nexus_docs (id, version, data) VALUES ('cumulus-workspace', 1, '{"items":{"__map":[]},"enabled":{"__map":[]}}')`);
     const { run } = host();
-    await assert.rejects(run(async () => "served"), /couldn't be claimed .*20261122_cumulus_rows_drive/);
-    for (const f of MIGRATIONS.slice(-2)) await pool.query(readFileSync(join(root, "supabase/migrations", f), "utf8")); // applying them again is fine
+    await assert.rejects(run(async () => "served"), /couldn't be claimed .*20261124_cumulus_rows_claim_safety/);
+    await pool.query("DELETE FROM public.nexus_docs WHERE id = 'cumulus-workspace'");
+    for (const f of MIGRATIONS.slice(MIGRATIONS.indexOf("20261122_cumulus_rows_drive.sql"))) await pool.query(readFileSync(join(root, "supabase/migrations", f), "utf8")); // applying them again is fine
   });
 
   it("the first request sees what the cumulus-workspace document held", async () => {
@@ -191,7 +194,7 @@ describe("Drive rows through the gateway", { skip: url ? false : "set CID_TEST_P
     const r = (await pool.query("SELECT cumulus_rows.restore_drive_document() AS r")).rows[0].r;
     assert.equal(r.version, Number(before) + 1);
     assert.equal((await pool.query("SELECT cumulus_rows.compare_drive_with_document() AS c")).rows[0].c.same, true);
-    assert.equal((await pool.query("SELECT count(*)::int AS n FROM cumulus_rows.claims WHERE product = 'drive'")).rows[0].n, 0, "a later switch copies again");
+    assert.notEqual((await pool.query("SELECT released_at FROM cumulus_rows.claims WHERE product = 'drive'")).rows[0].released_at, null, "released: a later switch copies again");
 
     // A host back on the document sees the rows' state: Shared (version 2) and Notes; Plans was deleted.
     const { data } = (await pool.query("SELECT data FROM public.nexus_docs WHERE id = 'cumulus-workspace'")).rows[0];

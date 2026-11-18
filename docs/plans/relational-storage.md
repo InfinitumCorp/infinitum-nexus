@@ -39,7 +39,8 @@ local socket with peer authentication.
 | `CUMULUS_ROWS=drive` (with `CUMULUS_STORE=postgres`, the Mail app): items in `drive_items` (owner, folder, who it's shared with as columns), saves of one document take its row lock so neither is lost; the first start copies the `cumulus-workspace` document in once, under a lock | #261 |
 | `CUMULUS_ROWS=drive` with `CUMULUS_STORE=gateway` (migration `20261122_cumulus_rows_drive.sql`): Drive rows through nexus-store, claimed with the host's first request; each item write carries the item as read, so two saves of one document at once re-run and the second is told it changed | #263 |
 | Drive with overlapping requests (an independent review's findings): the items a request only read are checked at commit (migration `20261123_cumulus_rows_drive_checks.sql`), a deletion re-runs if its folder got new contents, sizes are read again before they are released, and each document save writes its contents under a new key | #266 |
-| Stored Drive files are deleted only once the request is saved (`RemoteState.afterCommit`): a deletion that is rolled back or re-run keeps its contents | this PR |
+| Stored Drive files are deleted only once the request is saved (`RemoteState.afterCommit`): a deletion that is rolled back or re-run keeps its contents | #267 |
+| Claims made safe (an independent review's findings, `20261124_cumulus_rows_claim_safety.sql`): rows holding something else are never overwritten (the host refuses instead), a rollback releases the claim so switching back copies the document, no claim without a document, documents locked in one order; +SPCTR refuses `CUMULUS_ROWS` | this PR |
 | Message paging (reads still load a whole mailbox) | Not started |
 
 US Supabase project: the `cumulus_id` tables and `refresh_from_document()` exist (created 2026-11-12;
@@ -55,14 +56,26 @@ series: repository with the mailbox as today's unit first, then per-message rows
 
 What still needs a person (or a connector this session didn't have):
 
-1. **Supabase**: apply the migrations `20261115` through `20261123`, in order, and redeploy the
+1. **Supabase**: apply the migrations `20261115` through `20261124`, in order, and redeploy the
    `nexus-store` edge function (#231). No refresh has to be run by hand any more: a gateway host's
-   first request claims the rows (`20261121_cumulus_rows_claim.sql`), which copies the `cid` document
-   (and, with `CUMULUS_ROWS`, the mail, wallet, quota and Drive documents) into them once, under a lock, and
-   records it in `cumulus_rows.claims`. Later starts never replace rows written since. A host refuses
-   to serve until the claim migration is applied. Check afterwards with
-   `select cumulus_id.compare_with_document()` (only before new writes) and
-   `select * from cumulus_rows.claims`.
+   first request claims the rows (`20261121_cumulus_rows_claim.sql`, made safe in `20261124`), which
+   copies the `cid` document (and, with `CUMULUS_ROWS`, the mail, wallet, quota and Drive documents) into
+   them once, under a lock, and records it in `cumulus_rows.claims`. Later starts never replace rows
+   written since, and rows that already hold something other than the document are never overwritten:
+   the host refuses to serve and says so (record the claim to keep the rows, or
+   `select cumulus_rows.release('<product>')` to copy the document). A host refuses to serve until the
+   claim migration is applied. Check afterwards with `select cumulus_id.compare_with_document()` (only
+   before new writes) and `select * from cumulus_rows.claims`. Before switching, check what the hosts
+   run on, because the claim only makes sense if everyone switches together:
+   - **Every host on one database switches in the same deploy.** A host still writing the documents
+     after the claim (Mail on `CUMULUS_STORE=document`, an older deployment still serving during a
+     rollout) writes what the rows never see. Afterwards, `cumulus_rows.claims.document_version` next
+     to `nexus_docs.version` shows whether a document moved on after its claim.
+   - **+SPCTR can't keep Mail, Wallet or the quota as rows** (it refuses to start with `CUMULUS_ROWS`),
+     so `CUMULUS_ROWS` on Mail only once +SPCTR no longer writes those documents.
+   - **Release a product only once no host serves it from rows** (after the rollback deploy): a host
+     that already claimed keeps writing rows, and the next claim copies the document over them.
+   - The first claim locks the row tables and the documents while it copies: requests wait for it.
 2. **Cloudflare**: the GitHub organization secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`, so
    the auto-deploy workflows can ship any of this. Mail itself is deployed with `cf deploy`
    (apps/cumulus-mail/cloudflare.config.ts), which keeps `CUMULUS_STORE=document` until item 1 is done;
@@ -260,7 +273,9 @@ server that starts on rows after it copies the document in again over the rows.
 4. Watch the `nexus-store` metrics line: `participantFailures` must stay 0.
 5. Rollback: write the rows back out first, so nothing created since the cutover is lost:
    `pnpm --filter @infinitum/cid backfill --to-snapshot cid.json` (single server) or
-   `select cumulus_id.restore_document()` (Supabase), then set `CUMULUS_STORE=document` again.
+   `select cumulus_id.restore_document()` (Supabase; it also releases the `cid` claim, so a later switch
+   copies the document again), then set `CUMULUS_STORE=document` again. For mail, wallet and quota, remove the
+   product from `CUMULUS_ROWS`, deploy, then `select cumulus_rows.release('mail')` (etc.).
 
 ### 4. Risks
 

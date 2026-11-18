@@ -194,6 +194,9 @@ export class RemoteState {
         serialized[id] = json;
       }
     }
+    // In id order, as every host sends them: the database locks them in this order, so two commits (or a
+    // commit and a rows claim) can't each hold one document the other waits for.
+    changed.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
     const entries = this.ledgerStore.pending;
     const rows = this.rows?.pending() ?? [];
     if (!changed.length && !entries.length && !rows.length) return;

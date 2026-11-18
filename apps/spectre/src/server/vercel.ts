@@ -7,7 +7,7 @@ import { createApp } from "./app.ts";
 import { aiConfigFromEnv } from "./ai.ts";
 import { providersFromEnv } from "../core/messaging.ts";
 import { RemoteState, HttpGateway, type NexusGateway } from "./remote.ts";
-import { cidStorageFromEnv } from "./cid-store.ts";
+import { cidStorageFromEnv, suiteDocuments } from "./cid-store.ts";
 
 /**
  * +SPCTR on Vercel (serverless). All data lives in Supabase behind the private
@@ -76,28 +76,19 @@ function build() {
   const signer = signerFromPrivateKey(required("FIRMAMENT_SIGNER_KEY"));
   const cumulusStores = emptyCumulusStores();
   const spectreStore = emptyStore();
-  // The CID, Mail, Wallet and quota docs are shared by every hosted Infinitum product,
-  // so an account made here has the same mailbox and wallet in Cumulus://Mail.
+  // The CID, Mail, Wallet and quota data are shared by every hosted Infinitum product (as documents, or
+  // as rows), so an account made here has the same mailbox and wallet in Cumulus://Mail.
   const gateway = gatewayOverride ?? new HttpGateway(required("NEXUS_STORE_URL"), required("NEXUS_STORE_KEY"));
   const cidStorage = cidStorageFromEnv(process.env, gateway);
-  // +SPCTR keeps Mail, Wallet and the quota in their documents. With CUMULUS_ROWS it would claim them
-  // (copy them into rows and mark them handed over) and then keep writing the documents nobody reads.
-  if (cidStorage.products.length) {
-    throw new Error(`CUMULUS_ROWS=${cidStorage.products.join(",")} isn't supported on +SPCTR (it keeps Mail, Wallet and the quota in their documents): unset it here`);
-  }
-  const state = new RemoteState(gateway, {
-    ...(cidStorage.inDocuments ? { cid: cumulusStores.cid } : {}),
-    spectre: spectreStore,
-    "cumulus-mail": cumulusStores.mail,
-    "firm-wallet": cumulusStores.wallet,
-    "cumulus-quota": cumulusStores.quota,
-    "cumulus-suite": cumulusStores.suite,
-  });
+  // CUMULUS_ROWS=mail,wallet,quota keeps those as rows here too (the same rows Mail uses), so their
+  // documents aren't loaded or saved. Drive isn't served here.
+  if (cidStorage.products.includes("drive")) throw new Error("CUMULUS_ROWS=drive is for the Mail app (Cumulus://Drive isn't served by +SPCTR)");
+  const state = new RemoteState(gateway, { ...suiteDocuments(cidStorage, cumulusStores), spectre: spectreStore });
   if (cidStorage.participant) state.participants.push(cidStorage.participant);
   if (cidStorage.rows) state.rows = cidStorage.rows;
   const ledger = new Ledger(state.ledgerStore, { authorizedSigners: [signer.publicKey] });
   const suite = createCumulus({
-    ledger, signer, rpId, origins, stores: cumulusStores, repository: cidStorage.repository, secretKey: cidSecretKeyForHost(),
+    ledger, signer, rpId, origins, stores: cumulusStores, repository: cidStorage.repository, repositories: cidStorage.repositories, secretKey: cidSecretKeyForHost(),
     social: { providers: socialFromEnv() }, mailOrigin: process.env.CUMULUS_MAIL_ORIGIN,
   });
   const cid = suite.cid;

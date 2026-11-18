@@ -139,6 +139,39 @@ begin
     || case when diff = '{}'::jsonb then '{}'::jsonb else jsonb_build_object('differences', diff) end;
 end $$;
 
+-- Rollback: rebuild the cumulus-workspace document from the rows, so Drive changes made since the switch
+-- aren't lost. Write it back (version + 1, so running servers reload it), then remove drive from
+-- CUMULUS_ROWS and deploy:
+--   select cumulus_rows.drive_document_from_rows();   -- read-only, the document as JSON
+--   select cumulus_rows.restore_drive_document();
+-- The Drive claim is forgotten too, so a later switch to rows copies the document again.
+create or replace function cumulus_rows.drive_document_from_rows() returns jsonb
+language sql stable set search_path = '' as $$
+  select jsonb_build_object(
+    'items', jsonb_build_object('__map', coalesce((select jsonb_agg(jsonb_build_array(id, data) order by id) from cumulus_rows.drive_items), '[]')),
+    'enabled', jsonb_build_object('__map', coalesce((select jsonb_agg(jsonb_build_array(cid, to_jsonb(at)) order by cid) from cumulus_rows.drive_enabled), '[]')))
+$$;
+
+create or replace function cumulus_rows.restore_drive_document() returns jsonb
+language plpgsql set search_path = '' as $$
+declare
+  d jsonb;
+  v bigint;
+begin
+  -- Not while a claim runs, and no Drive write commits while the document is rebuilt (the share lock
+  -- waits for writes in progress and holds new ones until this transaction ends).
+  perform pg_advisory_xact_lock(hashtext('cumulus_rows.claim|drive'));
+  lock table cumulus_rows.drive_items, cumulus_rows.drive_enabled in share mode;
+  d := cumulus_rows.drive_document_from_rows();
+  update public.nexus_docs set data = d, version = version + 1, updated_at = now() where id = 'cumulus-workspace' returning version into v;
+  if v is null then
+    insert into public.nexus_docs (id, version, data) values ('cumulus-workspace', 1, d);
+    v := 1;
+  end if;
+  delete from cumulus_rows.claims where product = 'drive';
+  return jsonb_build_object('version', v, 'items', jsonb_array_length(d->'items'->'__map'), 'enabled', jsonb_array_length(d->'enabled'->'__map'));
+end $$;
+
 -- 20261121's claim, with Drive.
 create or replace function cumulus_rows.claim(p_product text) returns jsonb
 language plpgsql set search_path = '' as $$
@@ -205,4 +238,6 @@ revoke execute on function cumulus_rows.drive_read(jsonb) from public;
 revoke execute on function cumulus_rows.drive_apply(jsonb) from public;
 revoke execute on function cumulus_rows.refresh_drive_from_document() from public;
 revoke execute on function cumulus_rows.compare_drive_with_document() from public;
+revoke execute on function cumulus_rows.drive_document_from_rows() from public;
+revoke execute on function cumulus_rows.restore_drive_document() from public;
 revoke execute on function cumulus_rows.claim(text) from public;

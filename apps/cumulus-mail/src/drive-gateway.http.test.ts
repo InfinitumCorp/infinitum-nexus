@@ -10,7 +10,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Entry } from "@infinitum/firmament";
-import { toSnapshot } from "@infinitum/cumulus";
+import { applySnapshot, toSnapshot } from "@infinitum/cumulus";
 import { QuotaStore, StorageQuota } from "@infinitum/cloud";
 import { ConflictError, RemoteState, type DocRow, type NexusGateway } from "../../spectre/src/server/remote.ts";
 import { cidStorageFromEnv, suiteDocuments } from "../../spectre/src/server/cid-store.ts";
@@ -176,5 +176,20 @@ describe("Drive rows through the gateway", { skip: url ? false : "set CID_TEST_P
     assert.equal((await run(() => ws.emptyTrash("cid:ada"))).removed, 2);
     const { rows } = await pool.query("SELECT count(*)::int AS n FROM cumulus_rows.drive_items WHERE id = $1", [roadmap]);
     assert.equal(rows[0].n, 0);
+  });
+  it("rollback: the rows go back into the document, with what changed since", async () => {
+    const before = (await pool.query("SELECT version FROM public.nexus_docs WHERE id = 'cumulus-workspace'")).rows[0].version;
+    const r = (await pool.query("SELECT cumulus_rows.restore_drive_document() AS r")).rows[0].r;
+    assert.equal(r.version, Number(before) + 1);
+    assert.equal((await pool.query("SELECT cumulus_rows.compare_drive_with_document() AS c")).rows[0].c.same, true);
+    assert.equal((await pool.query("SELECT count(*)::int AS n FROM cumulus_rows.claims WHERE product = 'drive'")).rows[0].n, 0, "a later switch copies again");
+
+    // A host back on the document sees the rows' state: Shared (version 2) and Notes; Plans was deleted.
+    const { data } = (await pool.query("SELECT data FROM public.nexus_docs WHERE id = 'cumulus-workspace'")).rows[0];
+    const store = applySnapshot(new WorkspaceStore(), data);
+    const back = new Workspace({ store, quota: new StorageQuota({ store: new QuotaStore() }), files: blobs, resolve, label: (c) => c });
+    assert.deepEqual((await back.list("cid:ada")).items.map((i) => i.name), ["Shared"]);
+    assert.deepEqual((await back.list("cid:bob")).items.map((i) => i.name), ["Notes"]);
+    assert.equal(await back.firstVisit("cid:ada"), false);
   });
 });

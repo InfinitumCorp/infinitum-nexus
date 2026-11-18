@@ -238,6 +238,8 @@ stay in the rows only). File contents stay in R2 either way.
 Through the gateway (Supabase): apply `20261122_cumulus_rows_drive.sql` after `20261121`, then add `drive`
 to `CUMULUS_ROWS`. The host's first request claims the `cumulus-workspace` document (no manual refresh);
 `select cumulus_rows.compare_drive_with_document()` right after should say `"same": true`.
+Rollback through the gateway: `select cumulus_rows.restore_drive_document()` writes the rows back into
+the document (changes since the switch included), then remove `drive` from `CUMULUS_ROWS` and deploy.
 
 ### Cutover runbook (Cumulus://ID, phase 4)
 

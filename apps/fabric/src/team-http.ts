@@ -142,6 +142,8 @@ export function teamRoutes(): Route[] {
     r("PUT", `/channels/${ID}/canvas`, ({ team, me, params, body }) => team.setCanvas(me, params[0]!, body.text)),
     r("POST", `/channels/${ID}/bookmarks`, ({ team, me, params, body }) => team.addBookmark(me, params[0]!, body), { status: 201 }),
     r("POST", `/channels/${ID}/files`, ({ team, me, params, body }) => team.upload(me, params[0]!, body), { status: 201, limit: FILE_BODY_LIMIT }),
+    r("GET", `/channels/${ID}/workflows`, ({ team, me, params }) => ({ workflows: team.workflows(me, params[0]!) })),
+    r("POST", `/channels/${ID}/workflows`, ({ team, me, params, body }) => team.createWorkflow(me, params[0]!, body), { status: 201 }),
     r("POST", `/channels/${ID}/webhooks`, ({ team, me, params, body }) => team.createWebhook(me, params[0]!, body), { status: 201 }),
     r("POST", `/channels/${ID}/polls`, ({ team, me, params, body }) => team.createPoll(me, params[0]!, body), { status: 201 }),
     r("POST", `/channels/${ID}/schedule`, ({ team, me, params, body }) => team.schedule(me, params[0]!, body), { status: 201 }),
@@ -170,6 +172,8 @@ export function teamRoutes(): Route[] {
       });
       res.end(file.data);
     }, { raw: true }),
+    r("PATCH", `/workflows/${ID}`, ({ team, me, params, body }) => team.updateWorkflow(me, params[0]!, body)),
+    r("DELETE", `/workflows/${ID}`, ({ team, me, params }) => team.deleteWorkflow(me, params[0]!)),
     r("DELETE", `/webhooks/${ID}`, ({ team, me, params }) => team.deleteWebhook(me, params[0]!)),
     r("DELETE", `/scheduled/${ID}`, ({ team, me, params }) => team.cancelScheduled(me, params[0]!)),
     r("PATCH", `/reminders/${ID}`, ({ team, me, params, body }) => team.updateReminder(me, params[0]!, body)),

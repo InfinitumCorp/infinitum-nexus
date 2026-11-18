@@ -170,6 +170,25 @@ describe("shared 15 GB free tier", () => {
     await assert.rejects(suite.mail.send(a.cid, { to: "alex@cumuluscloud.app", subject: "Big", body: "x".repeat(20_000_000) }), (e: unknown) => e instanceof MailError && e.code === "quota_exceeded");
   });
 
+  it("mailing yourself and someone else with room for one copy only: refused before anyone is charged", async () => {
+    const { suite } = setup();
+    const a = (await signUp(suite, "nearfull")).account;
+    const b = (await signUp(suite, "friend")).account;
+    const body = "x".repeat(1_000_000);
+    const free = (await suite.quota.usage(a.cid)).limitBytes - (await suite.quota.usage(a.cid)).usedBytes;
+    await suite.cloud.put("filler.bin", a.cid, free - 1_500_000); // room for one copy of the message, not two
+    const before = { a: (await suite.quota.usage(a.cid)).usedBytes, b: (await suite.quota.usage(b.cid)).usedBytes };
+    await assert.rejects(
+      suite.mail.send(a.cid, { to: "nearfull@cumuluscloud.app, friend@cumuluscloud.app", subject: "Both", body }),
+      (e: unknown) => e instanceof MailError && e.code === "quota_exceeded",
+    );
+    assert.deepEqual({ a: (await suite.quota.usage(a.cid)).usedBytes, b: (await suite.quota.usage(b.cid)).usedBytes }, before, "nothing charged");
+    assert.equal((await inbox(suite, b.cid)).filter((m) => m.subject === "Both").length, 0);
+    // To the friend alone it fits.
+    await suite.mail.send(a.cid, { to: "friend@cumuluscloud.app", subject: "Just you", body });
+    assert.equal((await inbox(suite, b.cid)).filter((m) => m.subject === "Just you").length, 1);
+  });
+
   it("sharing a Cloud file mails the recipient", async () => {
     const { suite } = setup();
     const a = (await signUp(suite, "alex")).account;

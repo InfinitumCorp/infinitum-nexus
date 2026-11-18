@@ -48,6 +48,8 @@ export interface CidStorage {
   rows?: { pending(): unknown[] };
   /** Products kept as rows in the same database (CUMULUS_ROWS); their documents aren't loaded. */
   products: RowProduct[];
+  /** The gateway's row lookups (gateway mode), for products a host keeps itself (Drive in the Mail app). */
+  readRows?: (ops: unknown[]) => Promise<unknown[]>;
   /** Their repositories, for createCumulus({ repositories }). */
   repositories?: CumulusConfig["repositories"];
   /** Postgres mode: the request-scoped connection and schema, for rows a host keeps itself (Drive). */
@@ -78,7 +80,6 @@ export function cidStorageFromEnv(env: Record<string, string | undefined> = proc
   const mode = (env.CUMULUS_STORE ?? "document").trim().toLowerCase();
   const products = parseRowProducts(env.CUMULUS_ROWS);
   if (products.length && mode !== "postgres" && mode !== "gateway") throw new Error("CUMULUS_ROWS needs CUMULUS_STORE=postgres or gateway");
-  if (mode === "gateway" && products.includes("drive")) throw new Error("CUMULUS_ROWS=drive needs CUMULUS_STORE=postgres (it isn't carried through the gateway yet)");
   if (mode === "document" || mode === "") return { inDocuments: true, products };
   if (mode === "gateway") {
     const read = gateway?.readRows?.bind(gateway);
@@ -106,6 +107,7 @@ export function cidStorageFromEnv(env: Record<string, string | undefined> = proc
     return {
       inDocuments: false,
       products,
+      readRows: (ops) => read(ops as never),
       repository: repo,
       repositories: more
         ? {

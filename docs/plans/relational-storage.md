@@ -1,10 +1,12 @@
 # Plan: relational storage for Cumulus://ID, Mail, Wallet and Quota
 
-Status: built (2026-11-13). Every store has a repository with Postgres and gateway implementations; the
-switches are settings (`CUMULUS_STORE`, `CUMULUS_ROWS`) that are off until set. What is live and what
+Status: built (2026-11-13; Drive and the safe first-request claim added 2026-11-18). Every store,
+Cumulus://Drive included, has a repository with Postgres and gateway implementations; the switches are
+settings (`CUMULUS_STORE`, `CUMULUS_ROWS`) that are off until set. Nothing is switched on in production:
+the Supabase migrations `20261115`–`20261124` aren't applied yet, Mail runs `CUMULUS_STORE=document`. What is live and what
 still needs a person is in the Status section below. The original proposal follows it.
 
-## Status (2026-11-13)
+## Status (2026-11-18)
 
 Decided: **Supabase for the US, Yandex for Russia.** Postgres hosts don't need a database password
 anywhere: US products reach Supabase through the `nexus-store` edge function they already use
@@ -41,8 +43,9 @@ local socket with peer authentication.
 | Drive with overlapping requests (an independent review's findings): the items a request only read are checked at commit (migration `20261123_cumulus_rows_drive_checks.sql`), a deletion re-runs if its folder got new contents, sizes are read again before they are released, and each document save writes its contents under a new key | #266 |
 | Stored Drive files are deleted only once the request is saved (`RemoteState.afterCommit`): a deletion that is rolled back or re-run keeps its contents | #267 |
 | Claims made safe (an independent review's findings, `20261124_cumulus_rows_claim_safety.sql`): rows holding something else are never overwritten (the host refuses instead), a rollback releases the claim so switching back copies the document, no claim without a document, documents locked in one order | #268 |
-| +SPCTR on `CUMULUS_ROWS=mail,wallet,quota` (gateway): its sign-ups, mail, wallet and storage meter in the same rows as Mail, the documents no longer loaded or saved | this PR |
-| Message paging (reads still load a whole mailbox) | Not started |
+| +SPCTR on `CUMULUS_ROWS=mail,wallet,quota` (gateway): its sign-ups, mail, wallet and storage meter in the same rows as Mail, the documents no longer loaded or saved | #269 |
+| All migrations apply in order to an empty database, and applying them all a second time succeeds (checked 2026-11-18) | — |
+| Message paging (reads still load a whole mailbox) | Not started: the Mail page loads whole mailboxes, so paging changes the UI (needs approval) |
 
 US Supabase project: the `cumulus_id` tables and `refresh_from_document()` exist (created 2026-11-12;
 9 accounts, 8 passkeys, 7 sessions, 7 grants copied and compared equal to the document).

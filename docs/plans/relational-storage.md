@@ -85,8 +85,8 @@ What still needs a person (or a connector this session didn't have):
    the auto-deploy workflows can ship any of this. Mail itself is deployed with `cf deploy`
    (apps/cumulus-mail/cloudflare.config.ts), which keeps `CUMULUS_STORE=document` until item 1 is done;
    then set it to "gateway" there and deploy.
-3. **Yandex**: run `ssh cumulus-id-russia 'bash -s' < scripts/setup.sh` from InfinitumCorp/cumulus-id-ru
-   (it pins a current main commit).
+3. **Yandex**: merge InfinitumCorp/cumulus-id-ru#3 (pins main `555ae4f`, with the account fixes of
+   2026-11-18: #272, #273, #274), then run `ssh cumulus-id-russia 'bash -s' < scripts/setup.sh` from it.
 4. **id.cumuluscloud.app** keeps its state in a Cloudflare Durable Object, not Supabase; moving it means
    reading that object, which needs Cloudflare access.
 

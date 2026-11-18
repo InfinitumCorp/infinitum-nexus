@@ -40,7 +40,8 @@ local socket with peer authentication.
 | `CUMULUS_ROWS=drive` with `CUMULUS_STORE=gateway` (migration `20261122_cumulus_rows_drive.sql`): Drive rows through nexus-store, claimed with the host's first request; each item write carries the item as read, so two saves of one document at once re-run and the second is told it changed | #263 |
 | Drive with overlapping requests (an independent review's findings): the items a request only read are checked at commit (migration `20261123_cumulus_rows_drive_checks.sql`), a deletion re-runs if its folder got new contents, sizes are read again before they are released, and each document save writes its contents under a new key | #266 |
 | Stored Drive files are deleted only once the request is saved (`RemoteState.afterCommit`): a deletion that is rolled back or re-run keeps its contents | #267 |
-| Claims made safe (an independent review's findings, `20261124_cumulus_rows_claim_safety.sql`): rows holding something else are never overwritten (the host refuses instead), a rollback releases the claim so switching back copies the document, no claim without a document, documents locked in one order; +SPCTR refuses `CUMULUS_ROWS` | this PR |
+| Claims made safe (an independent review's findings, `20261124_cumulus_rows_claim_safety.sql`): rows holding something else are never overwritten (the host refuses instead), a rollback releases the claim so switching back copies the document, no claim without a document, documents locked in one order | #268 |
+| +SPCTR on `CUMULUS_ROWS=mail,wallet,quota` (gateway): its sign-ups, mail, wallet and storage meter in the same rows as Mail, the documents no longer loaded or saved | this PR |
 | Message paging (reads still load a whole mailbox) | Not started |
 
 US Supabase project: the `cumulus_id` tables and `refresh_from_document()` exist (created 2026-11-12;
@@ -71,8 +72,9 @@ What still needs a person (or a connector this session didn't have):
      after the claim (Mail on `CUMULUS_STORE=document`, an older deployment still serving during a
      rollout) writes what the rows never see. Afterwards, `cumulus_rows.claims.document_version` next
      to `nexus_docs.version` shows whether a document moved on after its claim.
-   - **+SPCTR can't keep Mail, Wallet or the quota as rows** (it refuses to start with `CUMULUS_ROWS`),
-     so `CUMULUS_ROWS` on Mail only once +SPCTR no longer writes those documents.
+   - **+SPCTR and Mail share Mail, Wallet and the quota**: give both the same `CUMULUS_ROWS` (without
+     `drive`, which only Mail serves) in the same deploy, or one keeps writing documents the other no
+     longer reads.
    - **Release a product only once no host serves it from rows** (after the rollback deploy): a host
      that already claimed keeps writing rows, and the next claim copies the document over them.
    - The first claim locks the row tables and the documents while it copies: requests wait for it.

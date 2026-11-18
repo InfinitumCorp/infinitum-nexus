@@ -70,7 +70,16 @@ CREATE INDEX IF NOT EXISTS mail_outbound_open ON ${s}.mail_outbound (seq) WHERE 
 }
 
 export async function migrateMail(db: MailQueryable, schema = "public"): Promise<void> {
-  await db.query(`BEGIN; SELECT pg_advisory_xact_lock(hashtext('cumulus-mail-migrate')); ${mailSchemaSql(schema)} COMMIT;`);
+  // One message, no BEGIN/COMMIT: one implicit transaction, rolled back on an error. Two servers starting
+  // at once can still both try to create a table (the advisory lock doesn't refresh what the rest of the
+  // message sees), so a "already exists" error is retried once.
+  const sql = `SELECT pg_advisory_xact_lock(hashtext('cumulus-mail-migrate')); ${mailSchemaSql(schema)}`;
+  try {
+    await db.query(sql);
+  } catch (err) {
+    if (!["23505", "42P06", "42P07", "42710"].includes((err as { code?: string } | null)?.code ?? "")) throw err;
+    await db.query(sql);
+  }
 }
 
 export class PgMailRepository implements MailRepository {

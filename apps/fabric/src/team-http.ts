@@ -42,7 +42,7 @@ interface Call {
   req: IncomingMessage;
   res: ServerResponse;
 }
-interface Route { method: string; pattern: RegExp; handler: Handler; status?: number; limit?: number; raw?: boolean }
+interface Route { method: string; pattern: RegExp; handler: Handler; status?: number; limit?: number; raw?: boolean; bucket?: { name: string; max: number } }
 
 /** Fan-out of live events to connected browsers. */
 export class TeamHub {
@@ -143,6 +143,11 @@ export function teamRoutes(): Route[] {
     r("POST", `/channels/${ID}/bookmarks`, ({ team, me, params, body }) => team.addBookmark(me, params[0]!, body), { status: 201 }),
     r("POST", `/channels/${ID}/files`, ({ team, me, params, body }) => team.upload(me, params[0]!, body), { status: 201, limit: FILE_BODY_LIMIT }),
     r("POST", `/channels/${ID}/webhooks`, ({ team, me, params, body }) => team.createWebhook(me, params[0]!, body), { status: 201 }),
+    r("GET", `/channels/${ID}/huddle`, ({ team, me, params }) => ({ huddle: team.huddle(me, params[0]!) })),
+    r("POST", `/channels/${ID}/huddle/join`, ({ team, me, params }) => team.joinHuddle(me, params[0]!)),
+    r("POST", `/channels/${ID}/huddle/leave`, ({ team, me, params }) => team.leaveHuddle(me, params[0]!)),
+    r("PUT", `/channels/${ID}/huddle`, ({ team, me, params, body }) => team.updateHuddle(me, params[0]!, body)),
+    r("POST", `/channels/${ID}/huddle/signal`, ({ team, me, params, body }) => team.signalHuddle(me, params[0]!, body), { bucket: { name: "signal", max: 1200 } }),
     r("POST", `/channels/${ID}/polls`, ({ team, me, params, body }) => team.createPoll(me, params[0]!, body), { status: 201 }),
     r("POST", `/channels/${ID}/schedule`, ({ team, me, params, body }) => team.schedule(me, params[0]!, body), { status: 201 }),
     r("POST", `/channels/${ID}/typing`, ({ team, me, params, body }) => team.typing(me, params[0]!, typeof body.parentId === "string" ? body.parentId : null)),
@@ -216,7 +221,8 @@ export async function handleTeam(req: IncomingMessage, res: ServerResponse, url:
     if (method !== "GET") {
       context.assertMutation(req, actor);
       const isFile = route.limit !== undefined;
-      if (!context.allow(`${isFile ? "file" : "team"}:${me.sub}`, isFile ? 30 : 300, 60_000)) throw new FabricServiceError(429, "too many requests");
+      const bucket = route.bucket ?? (isFile ? { name: "file", max: 30 } : { name: "team", max: 300 });
+      if (!context.allow(`${bucket.name}:${me.sub}`, bucket.max, 60_000)) throw new FabricServiceError(429, "too many requests");
       if (method !== "DELETE" || req.headers["content-type"]) {
         const parsed = req.headers["content-length"] === "0" && method === "DELETE" ? {} : await context.readJson(req, route.limit ?? BODY_LIMIT);
         if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new FabricServiceError(400, "bad request");

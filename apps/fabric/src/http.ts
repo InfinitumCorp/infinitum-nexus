@@ -139,7 +139,9 @@ async function dispatch(
   }
   if (method === "GET" && assets.has(path)) {
     const asset = assets.get(path)!;
-    res.writeHead(200, { ...SECURITY, "content-type": asset.type, "content-length": asset.body.length });
+    // Huddles need the camera, microphone and screen sharing, on the Teams page only.
+    const policy = path === "/team" ? { "permissions-policy": "camera=(self), microphone=(self), display-capture=(self), geolocation=()" } : {};
+    res.writeHead(200, { ...SECURITY, ...policy, "content-type": asset.type, "content-length": asset.body.length });
     res.end(asset.body);
     return;
   }

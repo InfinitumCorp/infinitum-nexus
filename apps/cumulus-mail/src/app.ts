@@ -22,7 +22,7 @@ import { WalletError } from "@infinitum/firm";
 import { MailError, isE2E, threadOf, transcript, type MailMessage } from "@infinitum/mail";
 import type { CumulusSuite } from "@infinitum/cumulus";
 import { MAX_FILE_BYTES, isFileKey, safeType, uploadKey, type FileStore } from "./files.ts";
-import { DriveError, MAX_UPLOAD_BYTES, Workspace, WorkspaceStore, type DocKind } from "./workspace.ts";
+import { DriveError, MAX_UPLOAD_BYTES, Workspace, WorkspaceStore, type DocKind, type WorkspaceRepository } from "./workspace.ts";
 import { registerIdProvider } from "./id-provider.ts";
 import { registerBilling } from "./billing.ts";
 import { BillingLinkStore, RevenueClient } from "@infinitum/billing";
@@ -71,6 +71,8 @@ export interface MailAppDeps {
   files?: FileStore;
   /** Drive metadata, saved with the rest of the shared state. Defaults to an in-memory store. */
   workspaceStore?: WorkspaceStore;
+  /** Where Drive items live instead of `workspaceStore` (CUMULUS_ROWS=drive). */
+  workspaceRepository?: WorkspaceRepository;
   /** CID -> billing org links, saved with the rest of the shared state. Defaults to an in-memory store. */
   billingStore?: BillingLinkStore;
   /** Infinitum revenue API (Stripe Checkout, portal, entitlements). Defaults to the production API. */
@@ -233,6 +235,7 @@ export function createMailApp(deps: MailAppDeps) {
 
   const workspace = new Workspace({
     store: deps.workspaceStore ?? new WorkspaceStore(),
+    repository: deps.workspaceRepository,
     quota: suite.quota,
     files: deps.files,
     resolve: (who) => cid.cidForUsername(idName(who)),
@@ -240,7 +243,7 @@ export function createMailApp(deps: MailAppDeps) {
   });
   /** Drive turns on the first time someone opens it; after that the CID permissions dashboard decides. */
   const driveAccess = async (cidValue: string, write: boolean) => {
-    if (workspace.firstVisit(cidValue)) await cid.grant(cidValue, DRIVE_APP, DRIVE_SCOPES);
+    if (await workspace.firstVisit(cidValue)) await cid.grant(cidValue, DRIVE_APP, DRIVE_SCOPES);
     if (!await cid.can(cidValue, DRIVE_APP, write ? "drive:write" : "drive:read")) throw new HttpError(403, "Drive's access was revoked in your Cumulus://ID permissions");
   };
   const KIND_LABEL: Record<string, string> = { folder: "a folder", file: "a file", dox: "a document", spreads: "a spreadsheet", podium: "a presentation" };

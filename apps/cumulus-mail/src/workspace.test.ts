@@ -9,7 +9,7 @@ import { createCumulus } from "@infinitum/cumulus";
 import { VirtualAuthenticator } from "../../../packages/cid/src/testing/virtual-authenticator.ts";
 import { createMailApp } from "./app.ts";
 import { MemoryFileStore } from "./files.ts";
-import { WorkspaceStore, validDoc } from "./workspace.ts";
+import { CopyingWorkspaceRepository, WorkspaceStore, validDoc } from "./workspace.ts";
 import { idClientFor } from "./id-provider.ts";
 
 let base = "";
@@ -26,7 +26,9 @@ before(async () => {
   base = `http://localhost:${port}`;
   const signer = generateSigner();
   suite = createCumulus({ ledger: new Ledger(undefined, { authorizedSigners: [signer.publicKey] }), signer, rpId: "localhost", origins: [base], mailOrigin: base });
-  server = createMailApp({ suite, files, workspaceStore: store, publicDir: join(import.meta.dirname, "..", "public"), origin: base, secureCookies: false }).server();
+  // DRIVE_TEST_COPYING=1: the same tests on a repository that copies values in and out, as a database does.
+  const repo = process.env.DRIVE_TEST_COPYING ? { workspaceRepository: new CopyingWorkspaceRepository(store) } : {};
+  server = createMailApp({ suite, files, workspaceStore: store, ...repo, publicDir: join(import.meta.dirname, "..", "public"), origin: base, secureCookies: false }).server();
   await new Promise<void>((r) => server.listen(port, "127.0.0.1", r));
 });
 after(() => new Promise<void>((r) => server.close(() => r())));

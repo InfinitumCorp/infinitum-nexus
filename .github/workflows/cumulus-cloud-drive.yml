@@ -67,3 +67,5 @@ jobs:
       - run: pnpm --filter @infinitum/cumulus-mail exec node --test --experimental-strip-types src/mail-gateway.http.test.ts
       # A gateway host's first request claims the rows from the documents, once (no manual refresh).
       - run: pnpm --filter @infinitum/cumulus-mail exec node --test --experimental-strip-types src/claim.http.test.ts
+      # Drive on a repository that copies values in and out (as a database does): every change is an explicit put.
+      - run: DRIVE_TEST_COPYING=1 pnpm --filter @infinitum/cumulus-mail exec node --test --experimental-strip-types src/workspace.test.ts

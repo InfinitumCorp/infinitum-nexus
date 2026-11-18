@@ -243,6 +243,19 @@ describe("FIRM Wallet with Mail", () => {
     assert.equal((await inbox(suite, b.cid)).filter((m) => m.system === "wallet").length, 2);
     assert.ok((await inbox(suite, a.cid)).some((m) => m.subject.startsWith("You sent 3 FIRM")));
   });
+
+  it("a payment from a wallet with no mailbox goes through once and says so, instead of failing after the money moved", async () => {
+    const { suite } = setup();
+    const b = (await signUp(suite, "payee")).account;
+    const payer = "cid_00000000-0000-4000-8000-000000000001"; // a wallet whose account has no mailbox
+    const wallet = await suite.wallets.open(payer);
+    await suite.wallets.credit(payer, "FIRM", "10", "Settlement");
+    const tx = await suite.pay(payer, "payee@cumuluscloud.app", "FIRM", "4");
+    assert.equal(tx.amount, "4");
+    assert.equal((await suite.wallets.balances(payer)).FIRM, "6", "paid once");
+    const receipt = (await inbox(suite, b.cid)).find((m) => m.system === "wallet");
+    assert.match(receipt!.subject, new RegExp(`^${wallet.address} sent you 4 FIRM`));
+  });
 });
 
 describe("Cumulus Tunnel across the suite", () => {

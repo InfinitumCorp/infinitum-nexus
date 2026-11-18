@@ -252,13 +252,19 @@ export class CumulusSuite {
   async pay(fromCid: string, to: string, asset: string, amount: string, memo = ""): Promise<WalletTransfer> {
     const payee = await this.resolvePayee(to);
     if (!payee) throw new WalletError("unknown_payee", "Send to a Cumulus://Mail address or a FIRM Wallet address");
+    // Everything the receipts need is looked up before the money moves, so nothing after the transfer
+    // can fail the payment: a payment reported as failed would be sent again.
+    const label = async (cid: string) => ((await this.mail.has(cid)) ? await this.mail.addressOf(cid) : ((await this.wallets.get(cid))?.address ?? "a FIRM Wallet"));
+    const fromAddr = await label(fromCid);
+    const toAddr = await label(payee);
     const tx = await this.wallets.transfer(fromCid, payee, asset, amount, memo);
-    const fromAddr = await this.mail.addressOf(fromCid);
-    const toAddr = await this.mail.addressOf(payee);
     const payment = { asset: tx.asset, amount: tx.amount, txId: tx.id, ledgerHash: tx.ledgerHash };
     const note = memo ? `\nNote: ${memo}` : "";
-    await this.mail.notify(fromCid, "wallet", { subject: `You sent ${tx.amount} ${tx.asset} to ${toAddr}`, body: `Sent: ${tx.amount} ${tx.asset}\nTo: ${toAddr}${note}\nTransaction: ${tx.id}\nRecorded on Firmament Network.\n\nFIRM Wallet`, payment });
-    await this.mail.notify(payee, "wallet", { subject: `${fromAddr} sent you ${tx.amount} ${tx.asset}`, body: `Received: ${tx.amount} ${tx.asset}\nFrom: ${fromAddr}${note}\nTransaction: ${tx.id}\nRecorded on Firmament Network.\n\nFIRM Wallet`, payment });
+    // Receipts are a convenience: the transfer is on the ledger whether or not they arrive.
+    const receipt = (cid: string, subject: string, body: string) =>
+      this.mail.has(cid).then((has) => (has ? this.mail.notify(cid, "wallet", { subject, body, payment }) : undefined)).catch(() => undefined);
+    await receipt(fromCid, `You sent ${tx.amount} ${tx.asset} to ${toAddr}`, `Sent: ${tx.amount} ${tx.asset}\nTo: ${toAddr}${note}\nTransaction: ${tx.id}\nRecorded on Firmament Network.\n\nFIRM Wallet`);
+    await receipt(payee, `${fromAddr} sent you ${tx.amount} ${tx.asset}`, `Received: ${tx.amount} ${tx.asset}\nFrom: ${fromAddr}${note}\nTransaction: ${tx.id}\nRecorded on Firmament Network.\n\nFIRM Wallet`);
     return tx;
   }
 

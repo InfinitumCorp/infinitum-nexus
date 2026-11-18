@@ -369,3 +369,22 @@ test("SPECTRE_AUTH=oidc turns client mode on; CID_ISSUER and CID_CLIENT_ID have 
     clientId: "spectre-staging",
   });
 });
+
+test("OIDC client mode: +SPCTR is not an issuer any more, even with CID_OIDC_SIGNING_KEY still set (kept for a rollback)", async () => {
+  const { generateKeyPairSync } = await import("node:crypto");
+  const { signerFromJwk } = await import("@infinitum/cid");
+  const { privateKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
+  const signer = signerFromJwk({ ...privateKey.export({ format: "jwk" }), kid: "old-key" } as never);
+  const issuer = await fakeIssuer();
+  const client = await harness({ oidcClient: { issuer: ISSUER, clientId: CLIENT_ID, fetch: issuer.fetch }, oidcSigner: signer, repository: new CopyingCidRepository() });
+  const local = await harness({ oidcClient: null, oidcSigner: signer });
+  try {
+    for (const path of ["/realms/cumulus/.well-known/openid-configuration", "/realms/cumulus/protocol/openid-connect/certs", "/realms/cumulus/protocol/openid-connect/auth?client_id=scalvs"]) {
+      assert.equal((await fetch(client.base + path, { redirect: "manual" })).status, 404, path);
+    }
+    assert.equal((await fetch(local.base + "/realms/cumulus/protocol/openid-connect/certs")).status, 200, "without client mode it still serves its keys, as before");
+  } finally {
+    await client.close();
+    await local.close();
+  }
+});

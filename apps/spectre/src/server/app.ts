@@ -203,7 +203,11 @@ async function readBody(req: IncomingMessage): Promise<Record<string, any>> {
 
 export function createApp(deps: AppDeps) {
   const { cid, crm } = deps;
-  const oidc = deps.oidcSigner === undefined ? loadOidcSigner(process.env.CID_OIDC_SIGNING_KEY) : deps.oidcSigner;
+  // In OIDC client mode (SPECTRE_AUTH=oidc) the standalone issuer is the only one: +SPCTR serves no /realms/* routes
+  // and signs no tokens, even while CID_OIDC_SIGNING_KEY is still set for a rollback. Otherwise, with a reused key,
+  // tokens it signed from its old account store would pass every product's check.
+  const clientMode = (deps.oidcClient === undefined ? oidcClientFromEnv(process.env) : deps.oidcClient) != null;
+  const oidc = clientMode ? null : deps.oidcSigner === undefined ? loadOidcSigner(process.env.CID_OIDC_SIGNING_KEY) : deps.oidcSigner;
   const providers: Providers = deps.providers ?? {};
   /** Events start matching automations, then reach any outside listener. */
   const raise = async (ws: string, event: GrowthEvent) => {

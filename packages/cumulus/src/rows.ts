@@ -10,8 +10,9 @@ import { MapQuotaRepository, PgQuotaRepository, migrateQuota, type QuotaReposito
 import { PgWalletRepository, migrateWallet, type WalletRepository, type WalletStore } from "@infinitum/firm";
 import { PgMailRepository, migrateMail, type CumulusTunnel, type MailRepository, type PostOfficeStore } from "@infinitum/mail";
 
-export type RowProduct = "mail" | "wallet" | "quota";
-export const ROW_PRODUCTS: RowProduct[] = ["mail", "wallet", "quota"];
+/** "drive" (Cumulus://Drive metadata) is kept by the Mail app itself (apps/cumulus-mail workspace-postgres.ts). */
+export type RowProduct = "mail" | "wallet" | "quota" | "drive";
+export const ROW_PRODUCTS: RowProduct[] = ["mail", "wallet", "quota", "drive"];
 
 export interface RowsQueryable {
   query(text: string, params?: unknown[]): Promise<{ rows: any[] }>;

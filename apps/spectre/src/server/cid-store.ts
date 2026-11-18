@@ -50,10 +50,13 @@ export interface CidStorage {
   products: RowProduct[];
   /** Their repositories, for createCumulus({ repositories }). */
   repositories?: CumulusConfig["repositories"];
+  /** Postgres mode: the request-scoped connection and schema, for rows a host keeps itself (Drive). */
+  db?: Queryable;
+  schema?: string;
 }
 
 /** The RemoteState document each row product replaces. */
-export const PRODUCT_DOCUMENTS: Record<RowProduct, string> = { mail: "cumulus-mail", wallet: "firm-wallet", quota: "cumulus-quota" };
+export const PRODUCT_DOCUMENTS: Record<RowProduct, string> = { mail: "cumulus-mail", wallet: "firm-wallet", quota: "cumulus-quota", drive: "cumulus-workspace" };
 
 /**
  * The suite's documents a host keeps in RemoteState: `cid` unless ID is in rows, and Mail, Wallet and
@@ -75,6 +78,7 @@ export function cidStorageFromEnv(env: Record<string, string | undefined> = proc
   const mode = (env.CUMULUS_STORE ?? "document").trim().toLowerCase();
   const products = parseRowProducts(env.CUMULUS_ROWS);
   if (products.length && mode !== "postgres" && mode !== "gateway") throw new Error("CUMULUS_ROWS needs CUMULUS_STORE=postgres or gateway");
+  if (mode === "gateway" && products.includes("drive")) throw new Error("CUMULUS_ROWS=drive needs CUMULUS_STORE=postgres (it isn't carried through the gateway yet)");
   if (mode === "document" || mode === "") return { inDocuments: true, products };
   if (mode === "gateway") {
     const read = gateway?.readRows?.bind(gateway);
@@ -138,6 +142,8 @@ export function cidStorageFromEnv(env: Record<string, string | undefined> = proc
     products,
     repository: new PgCidRepository({ db: scope, schema }),
     repositories: products.length ? productRepositories(products, scope, schema) : undefined,
+    db: scope,
+    schema,
     participant: scope,
   };
 }

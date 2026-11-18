@@ -35,6 +35,8 @@ local socket with peer authentication.
 | Showing a balance, the storage meter, the unread count, or whether there is a mailbox takes no lock and loads no mailbox (Postgres and gateway) | #226, #227, #228 |
 | A request Postgres ended to break a deadlock re-runs (`RemoteState`); gateway writes in one lock order; nexus-store reports deadlocks as conflicts | #229, #230, #231 (edge function needs a redeploy) |
 | Independent reviews of the gateway, direct-Postgres and ID-gateway paths, and their fixes: tunnel keys after a rollback, an all-or-nothing first-start copy, scheduled send without locking every mailbox, documents a host doesn't keep no longer re-sent on every request, nothing saved after a store failure part way through a request, expired sign-ins swept, +SPCTR sign-out through the repository | #232, #233, #234, #235 |
+| Cumulus://Drive metadata behind a repository: every change an explicit put, tested on a copying repository | #260 |
+| `CUMULUS_ROWS=drive` (with `CUMULUS_STORE=postgres`, the Mail app): items in `drive_items` (owner, folder, who it's shared with as columns), saves of one document take its row lock so neither is lost; the first start copies the `cumulus-workspace` document in once, under a lock. Not through the gateway yet | this PR |
 | Message paging (reads still load a whole mailbox) | Not started |
 
 US Supabase project: the `cumulus_id` tables and `refresh_from_document()` exist (created 2026-11-12;
@@ -226,6 +228,11 @@ On a host running `CUMULUS_STORE=gateway` (Supabase): apply `20261115_cumulus_ro
 `CUMULUS_ROWS=wallet,quota` goes live, and check the counts it returns against the documents. For mail,
 apply `20261116_cumulus_rows_mail.sql` too and run `select cumulus_rows.refresh_mail_from_document()` in
 the same moment, then `CUMULUS_ROWS=mail,wallet,quota`.
+
+Drive (Mail app, `CUMULUS_STORE=postgres`): add `drive` to `CUMULUS_ROWS`. The first start creates the
+`drive_*` tables and copies the `cumulus-workspace` document into them once (recorded in `drive_claims`);
+the document is then no longer loaded or saved. Removing `drive` is the rollback (changes made since
+stay in the rows only). File contents stay in R2 either way.
 
 ### Cutover runbook (Cumulus://ID, phase 4)
 

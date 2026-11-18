@@ -270,6 +270,11 @@ export interface CidConfig {
    */
   repository?: CidRepository;
   /**
+   * Whether a mail address already belongs to someone (Cumulus://Mail aliases): a username whose
+   * address is taken can't be signed up, or its mail would go to the alias's owner.
+   */
+  addressTaken?: (address: string) => Promise<boolean>;
+  /**
    * 32-byte key that seals authenticator-app seeds at rest (AES-256-GCM, bound to the account).
    * Without it they are stored as they are, as before. See secret-box.ts.
    */
@@ -340,7 +345,7 @@ export class CidService {
   readonly mailDomain: string;
   /** Exact CORS origins for ID, Cloud and Mail. Never a wildcard. */
   readonly corsOrigins: readonly string[];
-  private readonly cfg: Required<Omit<CidConfig, "store" | "repository" | "secretKey" | "social" | "onEvent" | "upstreamIssuer">>;
+  private readonly cfg: Required<Omit<CidConfig, "store" | "repository" | "secretKey" | "social" | "onEvent" | "upstreamIssuer" | "addressTaken">>;
   /** Every read and write of CID data goes through here. */
   readonly repo: CidRepository;
   readonly #secrets: SecretBox;
@@ -349,9 +354,11 @@ export class CidService {
   private readonly socialProviders: Partial<Record<SocialProviderId, SocialCredentials>>;
   private readonly socialClient: SocialClient;
   private readonly onEvent?: CidConfig["onEvent"];
+  private readonly addressTaken?: CidConfig["addressTaken"];
 
   constructor(config: CidConfig) {
     this.onEvent = config.onEvent;
+    this.addressTaken = config.addressTaken;
     this.upstreamIssuer = config.upstreamIssuer ? config.upstreamIssuer.replace(/\/$/, "") : undefined;
     this.store = config.store ?? new CidStore();
     this.repo = config.repository ?? new MapCidRepository(this.store);
@@ -460,6 +467,7 @@ export class CidService {
     }
     if (RESERVED.has(username)) throw new CidError("reserved", "That username is reserved");
     if (await this.repo.cidForUsername(username)) throw new CidError("taken", "That username is taken");
+    if (await this.addressTaken?.(`${username}@${this.mailDomain}`)) throw new CidError("taken", "That username is taken");
 
     const account: Account = {
       cid: `cid_${randomUUID()}`,
@@ -644,6 +652,10 @@ export class CidService {
     const auth = await this.repo.authenticator(authenticatorId);
     if (!auth || auth.cid !== cid) throw new CidError("not_found", "No such key on this account");
     const acct = await this.account(cid);
+    // This "last key" check reads every key but writes only the one removed. Two servers removing an
+    // account's last two keys at once don't both get through only because each request also appends a
+    // ledger entry (the record() below): the second commit's entry number is taken, so it re-runs and
+    // sees one key left. Keep a ledger entry here (and in unlinkIdentity), or that account is locked out.
     if ((await this.listAuthenticators(cid)).length === 1 && !acct.federated && !acct.identities?.length) {
       throw new CidError("last_key", "Add another passkey or security key before removing your last one");
     }
@@ -867,7 +879,7 @@ export class CidService {
     if (!(await this.repo.account(cid))) {
       const str = (v: unknown) => (typeof v === "string" ? v : "");
       const wanted = str(claims.preferred_username || claims.username).trim().toLowerCase();
-      const username = USERNAME.test(wanted) && !RESERVED.has(wanted) && !(await this.repo.cidForUsername(wanted))
+      const username = USERNAME.test(wanted) && !RESERVED.has(wanted) && !(await this.repo.cidForUsername(wanted)) && !(await this.addressTaken?.(`${wanted}@${this.mailDomain}`))
         ? wanted
         : await this.freeUsername(wanted || "member");
       const email = str(claims.email).toLowerCase();
@@ -1031,7 +1043,16 @@ export class CidService {
       throw new CidError("social_failed", (err as Error).message);
     }
     const key = `${profile.provider}|${profile.subject}`;
-    const existing = await this.repo.cidForIdentity(key);
+    let existing = await this.repo.cidForIdentity(key);
+    // A link the account no longer lists (left behind when another account at the same provider was
+    // linked in its place, before that removed it): it no longer signs in. Drop it.
+    if (existing) {
+      const holder = await this.repo.account(existing);
+      if (!holder?.identities?.some((i) => i.provider === profile.provider && i.subject === profile.subject)) {
+        await this.repo.deleteIdentity(key);
+        existing = undefined;
+      }
+    }
 
     if (pending.linkToCid) {
       if (existing && existing !== pending.linkToCid) {
@@ -1067,12 +1088,17 @@ export class CidService {
     let base = hint.toLowerCase().replace(/[^a-z0-9._-]/g, "").replace(/^[._-]+/, "").slice(0, 24);
     if (base.length < 3) base = `${base}user`.slice(0, 24);
     let name = base;
-    for (let i = 2; (await this.repo.cidForUsername(name)) || RESERVED.has(name); i++) name = `${base}${i}`;
+    const free = async (n: string) => !RESERVED.has(n) && !(await this.repo.cidForUsername(n)) && !(await this.addressTaken?.(`${n}@${this.mailDomain}`));
+    for (let i = 2; !(await free(name)); i++) name = `${base}${i}`;
     return name;
   }
 
   private async attachIdentity(cid: string, profile: SocialProfile) {
     const account = await this.account(cid);
+    // One account per provider: the one linked before at this provider stops signing in to this CID.
+    for (const old of (account.identities ?? []).filter((i) => i.provider === profile.provider && i.subject !== profile.subject)) {
+      await this.repo.deleteIdentity(`${old.provider}|${old.subject}`);
+    }
     const identity: LinkedIdentity = {
       provider: profile.provider,
       subject: profile.subject,

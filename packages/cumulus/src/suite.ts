@@ -114,7 +114,11 @@ export class CumulusSuite {
     const { stores: _s, mailOrigin: _m, masterKey: _k, labyrinth: _l, repositories: _r, ...cidConfig } = config;
     // Authenticator-app seeds are sealed at rest: with the given key, else one derived from the master key.
     const secretKey = config.secretKey ?? (config.masterKey ? deriveCidSecretKey(config.masterKey) : undefined);
-    this.cid = new CidService({ ...cidConfig, secretKey, store: this.stores.cid, onEvent: (e) => this.onCidEvent(e) });
+    this.cid = new CidService({
+      ...cidConfig, secretKey, store: this.stores.cid, onEvent: (e) => this.onCidEvent(e),
+      // An alias someone added can't be taken over by a later sign-up with that name.
+      addressTaken: async (address) => Boolean(await this.mail.resolve(address)),
+    });
     if (config.labyrinth) this.labyrinth = new CidLabyrinth(this.cid.syncView(), { ...config.labyrinth, clock });
   }
 

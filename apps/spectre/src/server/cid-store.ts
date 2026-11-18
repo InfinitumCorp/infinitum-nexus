@@ -102,7 +102,8 @@ export function cidStorageFromEnv(env: Record<string, string | undefined> = proc
         .then(() => undefined)
         .catch((err) => {
           claimed = undefined;
-          throw new Error(`Cumulus rows couldn't be claimed (apply supabase/migrations up to 20261121_cumulus_rows_claim.sql): ${(err as Error).message}`);
+          const needs = products.includes("drive") ? "20261122_cumulus_rows_drive.sql" : "20261121_cumulus_rows_claim.sql";
+          throw new Error(`Cumulus rows couldn't be claimed (apply supabase/migrations up to ${needs}): ${(err as Error).message}`);
         }));
     return {
       inDocuments: false,

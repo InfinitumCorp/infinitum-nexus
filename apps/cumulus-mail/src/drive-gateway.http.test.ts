@@ -104,6 +104,14 @@ describe("Drive rows through the gateway", { skip: url ? false : "set CID_TEST_P
 
   let roadmap: string;
 
+  it("refuses to serve Drive on rows until the Drive migration is applied", async () => {
+    await pool.query("ALTER TABLE cumulus_rows.claims DROP CONSTRAINT claims_product_check");
+    await pool.query("ALTER TABLE cumulus_rows.claims ADD CONSTRAINT claims_product_check CHECK (product IN ('cid', 'mail', 'wallet', 'quota'))");
+    const { run } = host();
+    await assert.rejects(run(async () => "served"), /couldn't be claimed .*20261122_cumulus_rows_drive/);
+    await pool.query(readFileSync(join(root, "supabase/migrations", MIGRATIONS.at(-1)!), "utf8")); // applying it again is fine
+  });
+
   it("the first request sees what the cumulus-workspace document held", async () => {
     // Yesterday, on the document: Ada made a folder and a doc in it, and shared the folder with Bob.
     const doc = new WorkspaceStore();

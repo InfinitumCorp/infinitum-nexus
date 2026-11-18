@@ -90,6 +90,19 @@ describe("Attachments", () => {
     assert.equal(res.status, 403);
   });
 
+  it("forwarding: files on your mail and your own uploads, together; one file that is neither refuses it all", async () => {
+    const ann = await signUp("annfwd");
+    const ben = await signUp("benfwd");
+    const eve = await signUp("evefwd");
+    const received = (await (await upload(ann.cookie, "brief.pdf", "%PDF brief")).json()) as any;
+    assert.equal((await send(ann.cookie, { to: ben.address, subject: "Brief", body: ".", attachments: [received] })).status, 200);
+    const mine = (await (await upload(ben.cookie, "notes.txt", "notes", "text/plain")).json()) as any;
+    const evesFile = (await (await upload(eve.cookie, "e.txt", "e", "text/plain")).json()) as any;
+
+    assert.equal((await send(ben.cookie, { to: ben.address, subject: "Fwd", body: ".", attachments: [received, mine] })).status, 200);
+    assert.equal((await send(ben.cookie, { to: ben.address, subject: "Fwd", body: ".", attachments: [received, mine, evesFile] })).status, 403);
+  });
+
   it("uploads need the app's header and stay under 25 MB", async () => {
     const u = await signUp("limitfiles");
     assert.equal((await upload(u.cookie, "x.bin", "x", "application/octet-stream", {})).status, 403);

@@ -417,12 +417,17 @@ export function createMailApp(deps: MailAppDeps) {
     }
     throw new HttpError(405, "Method not allowed");
   };
-  /** Stored files this person may use: their own uploads, or files on mail in their mailbox (forwarding). */
-  const canUseFile = async (cidValue: string, key: string) =>
-    key.startsWith(`u/${cidValue}/`) || (await mail.view(cidValue)).messages.some((m) => (m.attachments ?? []).some((a) => a.id === key));
+  /**
+   * Stored files this person may use: their own uploads, or files on mail in their mailbox (forwarding).
+   * The mailbox is read once, and only when a file isn't one of their own uploads.
+   */
   const ownFiles = async (cidValue: string, v: unknown) => {
     const list = files(v);
-    for (const f of list) if (f.id && !(await canUseFile(cidValue, f.id))) throw new HttpError(403, "One of the attached files isn't yours to send.");
+    const others = list.filter((f) => f.id && !f.id.startsWith(`u/${cidValue}/`));
+    if (others.length) {
+      const onMail = new Set((await mail.view(cidValue)).messages.flatMap((m) => (m.attachments ?? []).map((a) => a.id)));
+      if (others.some((f) => !onMail.has(f.id!))) throw new HttpError(403, "One of the attached files isn't yours to send.");
+    }
     return list;
   };
 

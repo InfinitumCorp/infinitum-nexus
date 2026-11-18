@@ -1,13 +1,19 @@
 import Foundation
 
-/// RSA key from a JWKS document. Cognito publishes these at the user-pool JWKS URL.
+/// A signing key from a JWKS document: RSA (RS256) or an EC P-256 key (ES256).
+/// Cumulus://ID publishes ES256 keys at `<issuer>/protocol/openid-connect/certs`.
 public struct JSONWebKey: Equatable, Sendable {
     public var kid: String?
     public var kty: String
     public var alg: String?
     public var use: String?
+    /// RSA only. Empty for EC keys.
     public var modulus: Data
     public var exponent: Data
+    /// EC only (`crv` P-256, 32-byte `x` and `y`). Empty for RSA keys.
+    public var crv: String?
+    public var x: Data
+    public var y: Data
 
     public init(kid: String?, kty: String, alg: String?, use: String?, modulus: Data, exponent: Data) {
         self.kid = kid
@@ -16,6 +22,21 @@ public struct JSONWebKey: Equatable, Sendable {
         self.use = use
         self.modulus = modulus
         self.exponent = exponent
+        self.crv = nil
+        self.x = Data()
+        self.y = Data()
+    }
+
+    public init(kid: String?, alg: String?, use: String?, crv: String, x: Data, y: Data) {
+        self.kid = kid
+        self.kty = "EC"
+        self.alg = alg
+        self.use = use
+        self.modulus = Data()
+        self.exponent = Data()
+        self.crv = crv
+        self.x = x
+        self.y = y
     }
 }
 
@@ -34,27 +55,32 @@ public struct JWKS: Equatable, Sendable {
         var keys: [JSONWebKey] = []
         for item in list {
             let kty = item["kty"] as? String ?? ""
-            guard kty == "RSA",
-                  let n = item["n"] as? String, let modulus = Base64URL.decode(n),
-                  let e = item["e"] as? String, let exponent = Base64URL.decode(e) else {
-                continue
+            let kid = item["kid"] as? String
+            let alg = item["alg"] as? String
+            let use = item["use"] as? String
+            if kty == "RSA",
+               let n = item["n"] as? String, let modulus = Base64URL.decode(n),
+               let e = item["e"] as? String, let exponent = Base64URL.decode(e) {
+                keys.append(JSONWebKey(kid: kid, kty: kty, alg: alg, use: use, modulus: modulus, exponent: exponent))
+            } else if kty == "EC", (item["crv"] as? String) == "P-256",
+                      let xs = item["x"] as? String, let x = Base64URL.decode(xs), x.count == 32,
+                      let ys = item["y"] as? String, let y = Base64URL.decode(ys), y.count == 32 {
+                keys.append(JSONWebKey(kid: kid, alg: alg, use: use, crv: "P-256", x: x, y: y))
             }
-            keys.append(JSONWebKey(
-                kid: item["kid"] as? String,
-                kty: kty,
-                alg: item["alg"] as? String,
-                use: item["use"] as? String,
-                modulus: modulus,
-                exponent: exponent
-            ))
         }
-        if keys.isEmpty { throw CumulusError.oidc("The JWKS document has no RSA keys.") }
+        if keys.isEmpty { throw CumulusError.oidc("The JWKS document has no usable signing keys.") }
         return JWKS(keys: keys)
     }
 
-    func rsaSigningKey(kid: String?) throws -> JSONWebKey {
+    /// The key for `alg` and `kid`. A key whose type or declared alg does not match is never used.
+    func signingKey(alg: String, kid: String?) throws -> JSONWebKey {
         let usable = keys.filter { key in
-            key.kty == "RSA" && key.use != "enc" && (key.alg == nil || key.alg == "RS256")
+            guard key.use != "enc", key.alg == nil || key.alg == alg else { return false }
+            switch alg {
+            case "RS256": return key.kty == "RSA"
+            case "ES256": return key.kty == "EC" && key.crv == "P-256"
+            default: return false
+            }
         }
         if let kid {
             guard let key = usable.first(where: { $0.kid == kid }) else {
@@ -66,6 +92,10 @@ public struct JWKS: Equatable, Sendable {
             throw CumulusError.oidc("The ID token signing key was not found.")
         }
         return key
+    }
+
+    func rsaSigningKey(kid: String?) throws -> JSONWebKey {
+        try signingKey(alg: "RS256", kid: kid)
     }
 }
 

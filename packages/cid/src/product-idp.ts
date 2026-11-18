@@ -22,7 +22,7 @@ import { exportCidAccounts } from "./account-export.ts";
 
 export const profileOf = (a: Account) => ({ cid: a.cid, username: a.username, email: a.mailAddress, name: a.username, handle: a.handle });
 
-/** A same-origin path back into this sign-in, or null. Used after Google or Cognito. */
+/** A same-origin path back into this sign-in, or null. Used after a social sign-in. */
 export function safeProductReturn(value: string | null | undefined): string | null {
   if (!value || value.length > 3500) return null;
   if (!value.startsWith("/api/id/") && !value.startsWith("/realms/cumulus/")) return null;

@@ -4,8 +4,8 @@ import FoundationNetworking
 #endif
 
 /// Authorization-code + PKCE request for Cumulus://ID.
-/// The live issuer is Amazon Cognito. A Keycloak realm is used only when the
-/// Cognito fields are absent. This client never sends a client secret.
+/// The issuer is Cumulus://ID (`https://id.cumuluscloud.app/realms/cumulus`).
+/// This client never sends a client secret.
 public struct OIDCAuthorization: Equatable, Sendable {
     public let url: URL
     public let verifier: String
@@ -165,7 +165,7 @@ public enum OIDC {
         )
     }
 
-    /// Verifies the RS256 signature against `jwks`, then checks the claims.
+    /// Verifies the ES256 or RS256 signature against `jwks`, then checks the claims.
     public static func validateIDToken(
         idToken: String,
         configuration: CumulusConfiguration,
@@ -178,8 +178,8 @@ public enum OIDC {
         return try checkClaims(idToken: idToken, configuration: configuration, nonce: nonce, now: now, clockSkew: seconds)
     }
 
-    /// RS256 only. `alg: none` and any other algorithm are rejected. The key id
-    /// must match a key in the JWKS.
+    /// ES256 (Cumulus://ID) or RS256. `alg: none` and any other algorithm are rejected.
+    /// The key id must match a key of that type in the JWKS.
     public static func verifySignature(idToken: String, jwks: JWKS) throws {
         let parts = idToken.split(separator: ".", omittingEmptySubsequences: false)
         guard parts.count == 3 else { throw CumulusError.oidc("The ID token is malformed.") }
@@ -187,15 +187,22 @@ public enum OIDC {
               let header = try JSONSerialization.jsonObject(with: headerData) as? [String: Any] else {
             throw CumulusError.oidc("The ID token could not be read.")
         }
-        guard (header["alg"] as? String) == "RS256" else {
+        let algorithm = header["alg"] as? String ?? ""
+        guard algorithm == "ES256" || algorithm == "RS256" else {
             throw CumulusError.oidc("The ID token algorithm is not allowed.")
         }
-        let key = try jwks.rsaSigningKey(kid: header["kid"] as? String)
+        let key = try jwks.signingKey(alg: algorithm, kid: header["kid"] as? String)
         guard let signature = Base64URL.decode(String(parts[2])), !signature.isEmpty else {
             throw CumulusError.oidc("The ID token signature could not be read.")
         }
         let message = Data((String(parts[0]) + "." + String(parts[1])).utf8)
-        guard RS256.verify(message: message, signature: signature, modulus: key.modulus, exponent: key.exponent) else {
+        let valid: Bool
+        if algorithm == "ES256" {
+            valid = ES256.verify(message: message, signature: signature, x: key.x, y: key.y)
+        } else {
+            valid = RS256.verify(message: message, signature: signature, modulus: key.modulus, exponent: key.exponent)
+        }
+        guard valid else {
             throw CumulusError.oidc("The ID token signature was not valid.")
         }
     }
@@ -256,9 +263,6 @@ public enum OIDC {
             guard let tokenNonce, ConstantTime.equal(tokenNonce, nonce) else {
                 throw CumulusError.oidc("The ID token nonce did not match.")
             }
-        }
-        if configuration.usesCognito, (payload["token_use"] as? String) != "id" {
-            throw CumulusError.oidc("Cognito did not return an ID token.")
         }
         return IDTokenClaims(
             issuer: issuer,

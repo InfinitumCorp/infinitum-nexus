@@ -135,6 +135,41 @@ describe("Hosted state (serverless instances sharing Supabase)", () => {
     assert.equal(other, 1);
   });
 
+  it("after-commit steps run once the request is saved, never for a run that is re-run or rolled back", async () => {
+    const db = new MemoryGateway();
+    const a = instance(db);
+    const acct = await a.state.transaction(() => a.cid.createAccount({ username: "hooks" }));
+    const ran: string[] = [];
+    let runs = 0;
+    await a.state.transaction(async () => {
+      runs++;
+      a.state.afterCommit(async () => void ran.push(`run ${runs}`));
+      a.crm.addCompany(acct.cid, acct.cid, { name: `Run ${runs}` });
+      if (runs === 1) throw Object.assign(new Error("deadlock detected"), { code: "40P01" });
+    });
+    assert.deepEqual(ran, ["run 2"], "only the run that was saved");
+
+    // The store fails: nothing is saved, so nothing runs.
+    const down = instance(db);
+    down.state.participants.push({ begin: async () => {}, commit: async () => {}, rollback: async () => {} });
+    const commit = db.commit.bind(db);
+    db.commit = async () => { throw new Error("store unreachable"); };
+    await assert.rejects(down.state.transaction(async () => {
+      down.state.afterCommit(async () => void ran.push("never"));
+      down.crm.addCompany(acct.cid, acct.cid, { name: "Lost" });
+    }), /unreachable/);
+    db.commit = commit;
+    assert.deepEqual(ran, ["run 2"]);
+
+    // A refusal is still saved, so its steps run; a failing step doesn't fail the request.
+    await assert.rejects(a.state.transaction(async () => {
+      a.state.afterCommit(async () => { throw new Error("bucket down"); });
+      a.state.afterCommit(async () => void ran.push("after refusal"));
+      throw new Error("refused");
+    }), /refused/);
+    assert.deepEqual(ran, ["run 2", "after refusal"]);
+  });
+
   it("a document this host doesn't keep is sent once, not with every request", async () => {
     const db = new MemoryGateway();
     db.docs.set("cid", { id: "cid", version: 3, data: { accounts: { __map: [] } } });

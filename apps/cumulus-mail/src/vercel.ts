@@ -122,6 +122,7 @@ function build() {
     workspaceStore,
     workspaceRepository: remoteDrive ?? (driveRows ? new PgWorkspaceRepository({ db: cidStorage.db!, schema: cidStorage.schema }) : undefined),
     billingStore,
+    afterCommit: (fn) => state.afterCommit(fn),
     publicDir: publicDir(), // static files come from the CDN (Vercel) or static assets (Workers)
     origin,
     secureCookies: origin.startsWith("https://"),

@@ -8,7 +8,11 @@ import android.content.ServiceConnection;
 import android.net.VpnService;
 import android.os.Bundle;
 import android.os.IBinder;
+import android.view.View;
+import android.view.ViewGroup;
 import android.widget.Button;
+import android.widget.FrameLayout;
+import android.widget.LinearLayout;
 import android.widget.EditText;
 import android.widget.TextView;
 
@@ -41,7 +45,17 @@ public final class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_main);
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        View content = getLayoutInflater().inflate(R.layout.activity_main, root, false);
+        root.addView(content, new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+        FrameLayout bannerSlot = new FrameLayout(this);
+        bannerSlot.setVisibility(View.GONE);
+        root.addView(bannerSlot, new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        setContentView(root);
+        Ads.attach(this, bannerSlot);
         statusView = findViewById(R.id.status);
         endpointView = findViewById(R.id.endpoint);
         publicView = findViewById(R.id.peer_public);

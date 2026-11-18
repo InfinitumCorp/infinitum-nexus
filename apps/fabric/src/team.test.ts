@@ -343,7 +343,10 @@ test("incoming webhooks post as an app, check the token, and stop when the owner
     const reply = t.team.postWebhook(id!, token!, { text: "Rolled back", threadId: posted.messageId });
     assert.equal(t.team.getMessage(t.alice, reply.messageId).parentId, posted.messageId);
 
-    assert.throws(() => t.team.postWebhook(id!, `${token!.slice(0, -1)}A`.replace(/AA$/, "AB"), { text: "x" }), status(404));
+    // A different last character (one in sixteen tokens already ends in "A", so don't just set it to "A").
+    const wrong = `${token!.slice(0, -1)}${token!.endsWith("A") ? "B" : "A"}`;
+    assert.notEqual(wrong, token);
+    assert.throws(() => t.team.postWebhook(id!, wrong, { text: "x" }), status(404));
     assert.throws(() => t.team.postWebhook(id!, token!, { text: "  " }), status(400));
     assert.equal(t.team.webhooks(t.alice, ws.id).length, 1, "admins see every webhook");
     assert.equal(t.team.webhooks(t.bob, ws.id)[0]!.lastUsedAt !== null, true);

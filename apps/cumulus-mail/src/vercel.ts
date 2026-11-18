@@ -1,7 +1,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { Ledger, signerFromPrivateKey } from "@infinitum/firmament";
 import { cidSecretKeyForHost, socialFromEnv, upstreamIssuerFromEnv } from "@infinitum/cid";
-import { createCumulus, emptyCumulusStores } from "@infinitum/cumulus";
+import { applySnapshot, createCumulus, emptyCumulusStores } from "@infinitum/cumulus";
 import { RemoteState, HttpGateway } from "../../spectre/src/server/remote.ts";
 import { cidStorageFromEnv, suiteDocuments } from "../../spectre/src/server/cid-store.ts";
 import type { InboundMail } from "@infinitum/mail";
@@ -9,6 +9,7 @@ import { createMailApp } from "./app.ts";
 import { deliverOutbound, type Sender } from "./outbound.ts";
 import type { FileStore } from "./files.ts";
 import { WorkspaceStore } from "./workspace.ts";
+import { PgWorkspaceRepository, claimDriveRows, type DriveTransactional } from "./workspace-postgres.ts";
 import { BillingLinkStore } from "@infinitum/billing";
 
 /** Attachment storage, set by the Workers entry (R2) before the first request. */
@@ -75,9 +76,11 @@ function build() {
   const gateway = new HttpGateway(required("NEXUS_STORE_URL"), required("NEXUS_STORE_KEY"));
   const cidStorage = cidStorageFromEnv(process.env, gateway);
   // CUMULUS_ROWS=mail,wallet,quota keeps those as rows too, so their documents aren't loaded or saved.
+  // CUMULUS_ROWS=drive (CUMULUS_STORE=postgres): Drive metadata in drive_items rows, not the document.
+  const driveRows = cidStorage.products.includes("drive");
   const state = new RemoteState(gateway, {
     ...suiteDocuments(cidStorage, stores),
-    "cumulus-workspace": workspaceStore,
+    ...(driveRows ? {} : { "cumulus-workspace": workspaceStore }),
     "cumulus-billing": billingStore,
   });
   if (cidStorage.participant) state.participants.push(cidStorage.participant);
@@ -92,6 +95,14 @@ function build() {
   let verified: Promise<void> | undefined;
   const verifyOnce = () =>
     (verified ??= (async () => {
+      if (driveRows) {
+        // The first start copies the cumulus-workspace document into the rows, once ever.
+        await claimDriveRows(cidStorage.participant as unknown as DriveTransactional, cidStorage.schema ?? "public", async () => {
+          // Only the documents: no ledger entries after the highest sequence number.
+          const doc = (await gateway.load(Number.MAX_SAFE_INTEGER, {})).docs.find((d) => d.id === "cumulus-workspace");
+          return doc ? applySnapshot(new WorkspaceStore(), doc.data as Record<string, unknown>) : new WorkspaceStore();
+        });
+      }
       await state.sync();
       const result = await ledger.verify();
       if (!result.ok) throw new Error(`Firmament ledger failed verification at entry ${result.brokenAt}: ${result.reason}`);
@@ -105,6 +116,7 @@ function build() {
     suite,
     files: fileStore,
     workspaceStore,
+    workspaceRepository: driveRows ? new PgWorkspaceRepository({ db: cidStorage.db!, schema: cidStorage.schema }) : undefined,
     billingStore,
     publicDir: publicDir(), // static files come from the CDN (Vercel) or static assets (Workers)
     origin,

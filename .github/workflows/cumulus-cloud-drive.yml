@@ -69,3 +69,5 @@ jobs:
       - run: pnpm --filter @infinitum/cumulus-mail exec node --test --experimental-strip-types src/claim.http.test.ts
       # Drive on a repository that copies values in and out (as a database does): every change is an explicit put.
       - run: DRIVE_TEST_COPYING=1 pnpm --filter @infinitum/cumulus-mail exec node --test --experimental-strip-types src/workspace.test.ts
+      # CUMULUS_ROWS=drive: Drive metadata in rows, two saves of one document at once, the first-start copy.
+      - run: pnpm --filter @infinitum/cumulus-mail exec node --test --experimental-strip-types src/workspace-postgres.test.ts

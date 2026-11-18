@@ -25,7 +25,7 @@ import { QuotaStore } from "@infinitum/cloud";
 import { WalletStore } from "@infinitum/firm";
 import { CumulusTunnel, PostOfficeStore, TunnelStore, openMailStore, parseMasterKey } from "@infinitum/mail";
 import { applySnapshot, loadSnapshot } from "./persist.ts";
-import { backfillProductRows, parseRowProducts, type RowsSource } from "./rows.ts";
+import { backfillProductRows, parseRowProducts, type RowProduct, type RowsSource } from "./rows.ts";
 
 const { values } = parseArgs({
   options: {
@@ -37,7 +37,9 @@ const { values } = parseArgs({
   },
 });
 
-const products = parseRowProducts(values.products);
+const named = parseRowProducts(values.products);
+if (named.includes("drive")) throw new Error("drive is copied by the Mail app on its first start with CUMULUS_ROWS=drive, not by this tool");
+const products = named as Exclude<RowProduct, "drive">[];
 const { default: pg } = await import("pg");
 const source: RowsSource = {};
 const docs = { mail: "cumulus-mail", wallet: "firm-wallet", quota: "cumulus-quota" } as const;

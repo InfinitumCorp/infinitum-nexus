@@ -138,3 +138,4 @@
 
 /* Incoming webhooks */
 .t-secret { display: grid; gap: 6px; margin: 8px 16px; padding: 10px; border: 1px solid #c99a00; background: #fffaeb; }
+.t-workflow-text { margin: 2px 0; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--muted); }

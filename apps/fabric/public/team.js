@@ -256,6 +256,7 @@ function channelMenu(anchor) {
     named && ["Edit description", async () => { const r = await dialog("Description", [{ name: "purpose", label: "Description", value: c.purpose, max: 250 }]); if (r) { await api(T(`/channels/${c.id}`), { method: "PATCH", body: r }); await refreshChannel(); } }],
     named && ["Rename", async () => { const r = await dialog("Rename channel", [{ name: "name", label: "Name", value: c.name, max: 80 }]); if (r) { await api(T(`/channels/${c.id}`), { method: "PATCH", body: r }); await refreshChannel(); await loadSidebar(); } }],
     c.kind !== "dm" && c.member && ["Add people", async () => { const r = await dialog("Add people", [{ name: "people", label: "Usernames, separated by spaces", required: true }]); if (r) { await api(T(`/channels/${c.id}/invite`), { method: "POST", body: { people: r.people.split(/[\s,]+/) } }); await refreshChannel(); } }],
+    c.kind !== "dm" && ["Workflows", () => showWorkflows()],
     c.kind !== "dm" && ["Incoming webhooks", () => showWebhooks()],
     c.member && [c.muted ? "Unmute" : "Mute", async () => { await api(T(`/channels/${c.id}/prefs`), { method: "PUT", body: { muted: !c.muted } }); await refreshChannel(); await loadSidebar(); }],
     c.member && ["Mark as read", async () => { await api(T(`/channels/${c.id}/read`), { method: "POST", body: {} }); await loadSidebar(); }],
@@ -644,6 +645,52 @@ async function editProfile() {
   const me = state.bar.me;
   const r = await dialog("Edit profile", [{ name: "displayName", label: "Display name", value: me.displayName, max: 80 }, { name: "title", label: "Title", value: me.title || "", max: 100 }], "Save");
   if (r) { await api(T(`/workspaces/${state.wsId}/me`), { method: "PATCH", body: r }); peopleCache.at = 0; await loadSidebar(); }
+}
+
+const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+function workflowWhen(w) {
+  if (w.kind === "welcome") return "Sent to each person who joins";
+  const at = w.at;
+  return `${w.every === "day" ? "Every day" : w.every === "weekday" ? "Every weekday" : `Every ${WEEKDAYS[w.weekday]}`} at ${at}`;
+}
+
+async function showWorkflows() {
+  const c = state.channel;
+  const { workflows } = await api(T(`/channels/${c.id}/workflows`));
+  const admin = ["owner", "admin"].includes(state.bar.workspace.role);
+  state.thread = null;
+  panel("Workflows",
+    h("p", { class: "meta" }, `Welcome people who join ${chanLabel(c)}, or post the same message on a schedule. Workflow messages show the workflow's name.`),
+    workflows.length ? h("ul", { class: "t-files" }, ...workflows.map((w) => h("li", {},
+      h("span", { class: "strong" }, w.name), " ",
+      h("span", { class: "meta" }, `${workflowWhen(w)}${w.paused ? " · paused" : w.nextRunAt ? ` · next ${when(w.nextRunAt)}` : ""} · by ${w.createdBy.displayName}`),
+      h("p", { class: "t-workflow-text" }, w.text),
+      w.createdBy.sub === state.me.sub || admin ? h("span", { class: "t-row" },
+        h("button", { type: "button", class: "link", onclick: tryRun(async () => { await api(T(`/workflows/${w.id}`), { method: "PATCH", body: { paused: !w.paused } }); await showWorkflows(); }) }, w.paused ? "Resume" : "Pause"),
+        h("button", { type: "button", class: "link", onclick: tryRun(async () => { if (confirm(`Remove the workflow “${w.name}”?`)) { await api(T(`/workflows/${w.id}`), { method: "DELETE" }); await showWorkflows(); } }) }, "Remove")) : null)))
+      : h("p", { class: "meta" }, "No workflows here yet."),
+    c.member && !c.archived && state.bar.workspace.role !== "guest" ? h("p", { class: "t-row" },
+      h("button", { type: "button", class: "btn small", onclick: tryRun(async () => {
+        const r = await dialog("Welcome message", [
+          { name: "name", label: "Name", value: "Welcome", max: 60, required: true },
+          { name: "text", label: "Message sent to each person who joins. {name} becomes their name.", type: "textarea", rows: 5, max: 4000 },
+        ], "Add");
+        if (r) { await api(T(`/channels/${c.id}/workflows`), { method: "POST", body: { kind: "welcome", name: r.name, text: r.text } }); await showWorkflows(); }
+      }) }, "Add welcome message"),
+      h("button", { type: "button", class: "btn small", onclick: tryRun(async () => {
+        const r = await dialog("Recurring message", [
+          { name: "name", label: "Name", value: "Standup", max: 60, required: true },
+          { name: "text", label: "Message", type: "textarea", rows: 4, max: 4000 },
+          { name: "every", label: "Repeat", type: "select", options: [["weekday", "Every weekday"], ["day", "Every day"], ["week", "Once a week"]] },
+          { name: "weekday", label: "Day (for once a week)", type: "select", options: WEEKDAYS.map((d, i) => [String(i), d]) },
+          { name: "at", label: "Time", type: "time", value: "09:30", required: true },
+        ], "Add");
+        if (r) {
+          await api(T(`/channels/${c.id}/workflows`), { method: "POST", body: { kind: "recurring", name: r.name, text: r.text, every: r.every, weekday: Number(r.weekday), at: r.at, tzOffset: -new Date().getTimezoneOffset() } });
+          await showWorkflows();
+        }
+      }) }, "Add recurring message")) : null,
+  );
 }
 
 async function showWebhooks(created) {

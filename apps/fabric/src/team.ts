@@ -29,6 +29,8 @@ import {
   type ScheduledRow,
   type TeamMessageRow,
   type WebhookRow,
+  type WorkflowEvery,
+  type WorkflowRow,
   type WorkspaceRow,
 } from "./team-store.ts";
 
@@ -42,6 +44,7 @@ export const TEAM_LIMITS = {
   activeWindowMs: 5 * 60_000,
   pollOptions: 10,
   webhooks: 100,
+  workflowsPerChannel: 20,
   pollOption: 120,
 };
 
@@ -251,14 +254,16 @@ export class TeamService {
     if (existing && !existing.deactivatedAt) return this.workspaceView(me, ws);
     if (existing?.deactivatedAt) throw fail(403, "your account was removed from this workspace");
     const now = this.stamp();
+    const defaults = this.store.all<ChannelRow>("SELECT * FROM team_channels WHERE workspace_id = ? AND is_default = 1 AND archived_at IS NULL", ws.id);
     this.store.tx(() => {
       this.store.insert("team_members", { workspaceId: ws.id, sub: me.sub, role: "member", joinedAt: now, away: 0 });
-      for (const ch of this.store.all<ChannelRow>("SELECT * FROM team_channels WHERE workspace_id = ? AND is_default = 1 AND archived_at IS NULL", ws.id)) {
+      for (const ch of defaults) {
         this.addChannelMember(ch.id, me.sub, now);
         this.system(ch, me.sub, `joined #${ch.name}`);
       }
     });
     this.publish(this.workspaceSubs(ws.id), { type: "members", workspaceId: ws.id, sub: me.sub });
+    for (const ch of defaults) this.welcome(ch, me.sub);
     return this.workspaceView(me, ws);
   }
 
@@ -448,6 +453,7 @@ export class TeamService {
       this.addChannelMember(channelId, me.sub, this.stamp());
       this.system(channel, me.sub, `joined #${channel.name}`);
       this.publish(this.channelSubs(channelId), { type: "channel", workspaceId: channel.workspaceId, channelId });
+      this.welcome(channel, me.sub);
     }
     return this.channelView(me, channel, true);
   }
@@ -475,6 +481,7 @@ export class TeamService {
     for (const p of added) this.addChannelMember(channelId, p.sub, now);
     if (added.length) this.system(channel, me.sub, `added ${added.map((p) => `@${this.username(p.sub)}`).join(", ")}`);
     this.publish(this.channelSubs(channelId), { type: "channel", workspaceId: channel.workspaceId, channelId });
+    for (const p of added) this.welcome(channel, p.sub);
     return this.channelView(me, channel, true);
   }
 
@@ -933,7 +940,124 @@ export class TeamService {
         // The member left the workspace.
       }
     }
+    for (const w of this.store.all<WorkflowRow>("SELECT * FROM team_workflows WHERE kind = 'recurring' AND paused = 0 AND next_run_at <= ? ORDER BY next_run_at LIMIT 100", now)) {
+      const next = nextRun(w.every ?? "day", w.atMinute ?? 540, w.weekday, w.tzOffset, this.clock());
+      try {
+        const channel = this.channel(w.channelId);
+        if (channel.archivedAt || !this.channelMember(channel.id, w.createdBy)) {
+          this.store.run("UPDATE team_workflows SET paused = 1 WHERE id = ?", w.id);
+          continue;
+        }
+        this.store.run("UPDATE team_workflows SET next_run_at = ?, last_run_at = ? WHERE id = ?", next, now, w.id);
+        const text = open(w.ciphertext, this.key(channel), workflowAad(channel.id, w.id));
+        this.insertMessage(channel, w.createdBy, text, { id: randomUUID(), parent: null, alsoInChannel: false, fileIds: [], app: { id: w.id, name: w.name } });
+        sent += 1;
+      } catch (error) {
+        this.store.run("UPDATE team_workflows SET next_run_at = ? WHERE id = ?", next, w.id);
+        console.warn(`workflow not run: ${error instanceof Error ? error.message : "error"}`);
+      }
+    }
     return { sent, reminded };
+  }
+
+  // ---------- workflows ----------
+
+  /**
+   * A channel workflow. "welcome" sends its text to each person who joins the channel, in their
+   * own direct-message space ({name} becomes their name). "recurring" posts its text in the
+   * channel every day, every weekday or once a week at `at` (HH:MM, in the creator's time zone).
+   * The text is sealed with the channel key.
+   */
+  createWorkflow(me: FabricIdentity, channelId: string, input: { kind?: unknown; name?: unknown; text?: unknown; every?: unknown; at?: unknown; weekday?: unknown; tzOffset?: unknown }): WorkflowView {
+    const { channel, ws } = this.writable(me, channelId);
+    if (ws.role === "guest") throw fail(403, "guests cannot add workflows");
+    if (channel.kind === "dm") throw fail(400, "workflows run in channels");
+    if (input.kind !== "welcome" && input.kind !== "recurring") throw fail(400, "kind must be welcome or recurring");
+    if (this.store.count("SELECT COUNT(*) FROM team_workflows WHERE channel_id = ?", channelId) >= TEAM_LIMITS.workflowsPerChannel) throw fail(400, "this channel has too many workflows");
+    const name = label(input.name ?? (input.kind === "welcome" ? "Welcome" : "Reminder"), "name", 60);
+    const text = typeof input.text === "string" ? input.text.trim() : "";
+    if (!text) throw fail(400, "text is required");
+    if (text.length > TEAM_LIMITS.text) throw fail(400, "text is too long");
+    const tzOffset = typeof input.tzOffset === "number" && Number.isInteger(input.tzOffset) && Math.abs(input.tzOffset) <= 14 * 60 ? input.tzOffset : 0;
+    let every: WorkflowEvery | null = null;
+    let atMinute: number | null = null;
+    let weekday: number | null = null;
+    let nextRunAt: string | null = null;
+    if (input.kind === "recurring") {
+      if (input.every !== "day" && input.every !== "weekday" && input.every !== "week") throw fail(400, "every must be day, weekday or week");
+      every = input.every;
+      const m = typeof input.at === "string" ? /^([01]?\d|2[0-3]):([0-5]\d)$/.exec(input.at.trim()) : null;
+      if (!m) throw fail(400, "at must be a time like 09:30");
+      atMinute = Number(m[1]) * 60 + Number(m[2]);
+      if (every === "week") {
+        if (typeof input.weekday !== "number" || !Number.isInteger(input.weekday) || input.weekday < 0 || input.weekday > 6) throw fail(400, "weekday must be 0 (Sunday) to 6");
+        weekday = input.weekday;
+      }
+      nextRunAt = nextRun(every, atMinute, weekday, tzOffset, this.clock());
+    }
+    const id = randomUUID();
+    const row: WorkflowRow = {
+      id, workspaceId: channel.workspaceId, channelId, kind: input.kind, name, ciphertext: seal(text, this.key(channel), workflowAad(channel.id, id)),
+      every, atMinute, weekday, tzOffset, nextRunAt, paused: 0, createdBy: me.sub, createdAt: this.stamp(), lastRunAt: null,
+    };
+    this.store.insert("team_workflows", row);
+    this.system(channel, me.sub, `added the workflow “${name}”`);
+    return this.workflowView(row);
+  }
+
+  workflows(me: FabricIdentity, channelId: string): WorkflowView[] {
+    this.readable(me, channelId);
+    return this.store.all<WorkflowRow>("SELECT * FROM team_workflows WHERE channel_id = ? ORDER BY created_at", channelId).map((w) => this.workflowView(w));
+  }
+
+  /** Pause or resume a workflow. The person who made it, or an admin. */
+  updateWorkflow(me: FabricIdentity, id: string, input: { paused?: unknown }): WorkflowView {
+    const row = this.ownWorkflow(me, id);
+    if (typeof input.paused === "boolean") {
+      const next = !input.paused && row.kind === "recurring" ? nextRun(row.every ?? "day", row.atMinute ?? 540, row.weekday, row.tzOffset, this.clock()) : row.nextRunAt;
+      this.store.run("UPDATE team_workflows SET paused = ?, next_run_at = ? WHERE id = ?", input.paused ? 1 : 0, next, row.id);
+    }
+    return this.workflowView(this.store.one<WorkflowRow>("SELECT * FROM team_workflows WHERE id = ?", row.id)!);
+  }
+
+  deleteWorkflow(me: FabricIdentity, id: string): void {
+    const row = this.ownWorkflow(me, id);
+    this.store.run("DELETE FROM team_workflows WHERE id = ?", row.id);
+  }
+
+  private ownWorkflow(me: FabricIdentity, id: string): WorkflowRow {
+    const row = this.store.one<WorkflowRow>("SELECT * FROM team_workflows WHERE id = ?", uuid(id));
+    if (!row) throw fail(404, "workflow not found");
+    const { ws } = this.readable(me, row.channelId);
+    if (row.createdBy !== me.sub && !isAdmin(ws.role)) throw fail(403, "only the person who made it or an admin can change a workflow");
+    return row;
+  }
+
+  /** Run the channel's welcome workflows for someone who just joined. Never fails the join. */
+  private welcome(channel: ChannelRow, sub: string): void {
+    for (const w of this.store.all<WorkflowRow>("SELECT * FROM team_workflows WHERE channel_id = ? AND kind = 'welcome' AND paused = 0", channel.id)) {
+      try {
+        const text = open(w.ciphertext, this.key(channel), workflowAad(channel.id, w.id)).replaceAll("{name}", this.person(channel.workspaceId, sub).displayName);
+        this.deliverReminder(channel.workspaceId, sub, text, { id: w.id, name: `${w.name} · #${channel.name ?? ""}` });
+      } catch (error) {
+        console.warn(`welcome workflow not delivered: ${error instanceof Error ? error.message : "error"}`);
+      }
+    }
+  }
+
+  private workflowView(w: WorkflowRow): WorkflowView {
+    const channel = this.channel(w.channelId);
+    let text = "";
+    try {
+      text = open(w.ciphertext, this.key(channel), workflowAad(channel.id, w.id));
+    } catch {
+      text = "";
+    }
+    const at = w.atMinute === null ? null : `${String(Math.floor(w.atMinute / 60)).padStart(2, "0")}:${String(w.atMinute % 60).padStart(2, "0")}`;
+    return {
+      id: w.id, channelId: w.channelId, kind: w.kind, name: w.name, text, every: w.every, at, weekday: w.weekday, tzOffset: w.tzOffset,
+      nextRunAt: w.paused ? null : w.nextRunAt, paused: !!w.paused, createdBy: this.person(w.workspaceId, w.createdBy), createdAt: w.createdAt, lastRunAt: w.lastRunAt,
+    };
   }
 
   // ---------- activity, threads, unreads, search ----------
@@ -1374,7 +1498,7 @@ export class TeamService {
     this.publish(this.channelSubs(channel.id), { type: "message", workspaceId: channel.workspaceId, channelId: channel.id, messageId: id, parentId: null, sub: actor, mentioned: [], kind: channel.kind });
   }
 
-  private deliverReminder(workspaceId: string, sub: string, text: string): string {
+  private deliverReminder(workspaceId: string, sub: string, text: string, app?: { id: string; name: string }): string {
     const user = this.users.findUserBySub(sub);
     if (!user) throw new Error("no such user");
     const identity: FabricIdentity = { sub, issuer: user.issuer, username: user.username, email: user.email, name: user.name, expiresAt: 0 };
@@ -1385,7 +1509,7 @@ export class TeamService {
     this.store.tx(() => {
       this.store.insert("team_messages", {
         id, channelId: channel.id, sender: sub, ciphertext: seal(text, this.key(channel), messageAad(channel.id, id)),
-        parentId: null, createdAt: now, replyCount: 0, alsoInChannel: 0, kind: "system",
+        parentId: null, createdAt: now, replyCount: 0, alsoInChannel: 0, kind: app ? "user" : "system", appId: app?.id ?? null, appName: app?.name ?? null,
       });
       this.store.run("UPDATE team_channels SET last_message_at = ? WHERE id = ?", now, channel.id);
       this.store.insert("team_mentions", { messageId: id, sub, channelId: channel.id, createdAt: now });
@@ -1685,6 +1809,11 @@ export class TeamService {
   }
 }
 
+export interface WorkflowView {
+  id: string; channelId: string; kind: "welcome" | "recurring"; name: string; text: string;
+  every: WorkflowEvery | null; at: string | null; weekday: number | null; tzOffset: number;
+  nextRunAt: string | null; paused: boolean; createdBy: PersonView; createdAt: string; lastRunAt: string | null;
+}
 export interface WebhookView { id: string; name: string; channel: ChannelView; createdBy: PersonView; createdAt: string; lastUsedAt: string | null }
 export interface ScheduledView { id: string; channel: ChannelView; parentId: string | null; sendAt: string; createdAt: string; text: string }
 export interface ReminderView { id: string; text: string; remindAt: string; done: boolean; fired: boolean; messageId: string | null; createdAt: string }
@@ -1788,6 +1917,24 @@ function fileAad(channelId: string, id: string): string { return `fabric-team-fi
 function canvasAad(channelId: string): string { return `fabric-team-canvas:${channelId}`; }
 function reminderAad(id: string): string { return `fabric-team-reminder:${id}`; }
 function hashToken(token: string): string { return createHash("sha256").update(token).digest("base64url"); }
+function workflowAad(channelId: string, id: string): string { return `fabric-team-workflow:${channelId}:${id}`; }
+
+/** The next time a recurring workflow runs after `from`: at `atMinute` past local midnight, local time = UTC + tzOffset minutes. */
+export function nextRun(every: WorkflowEvery, atMinute: number, weekday: number | null, tzOffset: number, from: Date): string {
+  const local = from.getTime() + tzOffset * 60_000;
+  const day = new Date(local);
+  const base = Date.UTC(day.getUTCFullYear(), day.getUTCMonth(), day.getUTCDate(), 0, atMinute);
+  for (let i = 0; i < 9; i += 1) {
+    const at = base + i * 86_400_000;
+    if (at <= local) continue;
+    const wd = new Date(at).getUTCDay();
+    if (every === "weekday" && (wd === 0 || wd === 6)) continue;
+    if (every === "week" && wd !== (weekday ?? 1)) continue;
+    return new Date(at - tzOffset * 60_000).toISOString();
+  }
+  throw new Error("no next run");
+}
+
 function pollAad(channelId: string, id: string): string { return `fabric-team-poll:${channelId}:${id}`; }
 
 /** "10m", "2 hours", "1d" → milliseconds. */

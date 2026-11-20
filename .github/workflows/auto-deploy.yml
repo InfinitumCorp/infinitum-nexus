@@ -74,5 +74,7 @@ jobs:
         run: |
           set -euo pipefail
           pnpm install --frozen-lockfile
-          node apps/spectre/scripts/build-cloudflare.mjs
+          # The live-UI bundle: the pages id.cumuluscloud.app serves (plus the account bar). The default
+          # build embeds public/, which is not the live UI (apps/spectre/wrangler.jsonc).
+          node apps/spectre/scripts/build-cloudflare.mjs --assets apps/spectre/live-ui --out apps/spectre/dist/entry.mjs
           cd apps/spectre && npx -y wrangler deploy

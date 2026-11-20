@@ -26,7 +26,7 @@ export function filesFromAssets(dir) {
     for (const name of readdirSync(current)) {
       const p = join(current, name);
       if (statSync(p).isDirectory()) walk(p);
-      else files[`/${relative(dir, p).split("\\").join("/")}`] = { type: MIME[extname(p)] ?? "application/octet-stream", body: readFileSync(p).toString("base64") };
+      else if (!name.startsWith(".")) files[`/${relative(dir, p).split("\\").join("/")}`] = { type: MIME[extname(p)] ?? "application/octet-stream", body: readFileSync(p).toString("base64") };
     }
   };
   walk(dir);

@@ -21,6 +21,7 @@ describe("live public UI snapshot", () => {
 
   it("embeds the captured live bytes and not the repository copy of the home page", () => {
     const files = filesFromAssets(join(app, "live-ui"));
+    assert.equal(Object.keys(files).length, manifest.files.length);
     assert.equal(files["/id/bar.js"], undefined);
     for (const row of manifest.files) {
       const embedded = files[row.path];

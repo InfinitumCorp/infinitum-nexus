@@ -96,6 +96,11 @@ export interface Account {
   createdAt: string;
   entitlements: typeof FREE_ENTITLEMENTS;
   totp?: { secret: string; confirmed: boolean; lastStep: number };
+  /**
+   * OpenPGP public key this account published for one of its verified addresses.
+   * The private key is never stored. Persists with the account (the cid document, or the account row).
+   */
+  directoryKey?: { email: string; armored: string };
 }
 
 export interface LinkedIdentity {
@@ -334,6 +339,16 @@ const RESERVED = new Set([
 ]);
 const CHALLENGE_TTL_MS = 5 * 60_000;
 const hashToken = (t: string) => createHash("sha256").update(t).digest("hex");
+
+/** An armored OpenPGP public key, and not a private key. Mail reads at most 20_000 characters. */
+export function isPublicKeyArmor(value: string): boolean {
+  if (typeof value !== "string") return false;
+  const text = value.trim();
+  if (text.length < 40 || text.length > 20_000) return false;
+  if (text.includes("\u0000")) return false;
+  if (/BEGIN PGP (PRIVATE|SECRET) KEY BLOCK/.test(text)) return false;
+  return text.includes("-----BEGIN PGP PUBLIC KEY BLOCK-----") && text.includes("-----END PGP PUBLIC KEY BLOCK-----");
+}
 
 export class CidService {
   readonly store: CidStore;
@@ -1115,6 +1130,51 @@ export class CidService {
 
   async linkedIdentities(cid: string): Promise<LinkedIdentity[]> {
     return [...((await this.account(cid)).identities ?? [])];
+  }
+
+  /** Addresses this account may publish a public key for: the mailbox we issued, and provider-verified emails. */
+  async verifiedEmails(cid: string): Promise<string[]> {
+    const account = await this.account(cid);
+    const emails = [account.mailAddress.toLowerCase()];
+    for (const identity of account.identities ?? []) {
+      if (identity.email) emails.push(identity.email.toLowerCase());
+    }
+    return [...new Set(emails)];
+  }
+
+  /**
+   * Publish an OpenPGP public key for one verified address. Refuses another account's address
+   * and anything that is not a public key block. The armored text is not written to the ledger.
+   */
+  async publishDirectoryKey(cid: string, email: string, armored: string): Promise<"ok" | "forbidden" | "invalid"> {
+    const normalized = email.trim().toLowerCase();
+    if (!(await this.verifiedEmails(cid)).includes(normalized)) return "forbidden";
+    if (!isPublicKeyArmor(armored)) return "invalid";
+    const owner = await this.directoryKeyOwner(normalized);
+    if (owner && owner !== cid) return "forbidden";
+    const account = await this.account(cid);
+    account.directoryKey = { email: normalized, armored: armored.trim() };
+    await this.repo.putAccount(account);
+    await this.record("audit", cid, cid, { event: "directory_key.published" });
+    return "ok";
+  }
+
+  /** The public key published for this address, or undefined. */
+  async lookupDirectoryKey(email: string): Promise<string | undefined> {
+    const normalized = email.trim().toLowerCase();
+    for (const account of await this.repo.allAccounts()) {
+      const key = account.directoryKey;
+      if (key?.email === normalized && isPublicKeyArmor(key.armored)) return key.armored;
+    }
+    return undefined;
+  }
+
+  private async directoryKeyOwner(email: string): Promise<string | undefined> {
+    for (const account of await this.repo.allAccounts()) {
+      if (account.directoryKey?.email === email) return account.cid;
+      if (account.mailAddress.toLowerCase() === email) return account.cid;
+    }
+    return undefined;
   }
 
   async unlinkIdentity(cid: string, provider: string) {

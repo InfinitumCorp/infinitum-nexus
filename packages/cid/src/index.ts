@@ -2,6 +2,7 @@ export {
   CidService,
   CidStore,
   CidError,
+  isPublicKeyArmor,
   INFINITUM_APPS,
   FREE_ENTITLEMENTS,
   MAIL_DOMAIN,
@@ -37,7 +38,7 @@ export { loadOidcSigner, signerFromJwk, verifyOidcToken } from "./oidc-sign.ts";
 export type { OidcAlg, OidcPublicJwk, OidcSigner } from "./oidc-sign.ts";
 export { ID_CLIENTS, idClientFor, idClientOrigins } from "./id-clients.ts";
 export type { IdClient } from "./id-clients.ts";
-export { oidcDiscovery, profileOf, registerProductIdp, safeProductReturn } from "./product-idp.ts";
+export { IdRawResponse, oidcDiscovery, profileOf, registerProductIdp, safeProductReturn } from "./product-idp.ts";
 export type { ProductIdpHelpers } from "./product-idp.ts";
 export { exportCidAccounts, CID_EXPORT_FORMAT, CID_EXPORT_VERSION } from "./account-export.ts";
 export type { CidExport, CidExportAccount, CidExportAuthenticator, CidExportIdentity, CidExportGrant, CidExportOrganization } from "./account-export.ts";

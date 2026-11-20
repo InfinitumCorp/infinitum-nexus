@@ -16,7 +16,7 @@ import { scalvsCleanAgent, type CleanAgent, type CleanSuggestion } from "./clean
 import { bulkSenders, classify, inboxMix, THREAD_ACTIONS, type ThreadAction, type ThreadSnapshot } from "@infinitum/mail";
 import { readFile } from "node:fs/promises";
 import { extname, join, normalize, sep } from "node:path";
-import { CidError, MAIL_DOMAIN, UpstreamIdClient, UpstreamIdError, cumulusCorsHeaders, type Account } from "@infinitum/cid";
+import { CidError, IdRawResponse, MAIL_DOMAIN, UpstreamIdClient, UpstreamIdError, cumulusCorsHeaders, type Account } from "@infinitum/cid";
 import { QuotaError } from "@infinitum/cloud";
 import { WalletError } from "@infinitum/firm";
 import { MailError, isE2E, threadOf, transcript, type MailMessage } from "@infinitum/mail";
@@ -36,8 +36,8 @@ const OAUTH_COOKIE = "cmail_oauth";
 const UPSTREAM_COOKIE = "cmail_cid";
 /** The legacy "Sign in with Cumulus://ID" alias. In upstream mode each one forwards to the issuer. */
 const ID_ALIAS_ROUTES: [method: string, path: string][] = [
-  ["GET", "/api/id/authorize"], ["GET", "/api/id/redeem"], ["GET", "/api/id/end"], ["GET", "/api/id/userinfo"], ["GET", "/api/id/me"],
-  ["POST", "/api/id/token"], ["POST", "/api/id/signout"],
+  ["GET", "/api/id/authorize"], ["GET", "/api/id/redeem"], ["GET", "/api/id/end"], ["GET", "/api/id/logout"], ["GET", "/api/id/userinfo"], ["GET", "/api/id/me"],
+  ["POST", "/api/id/token"], ["POST", "/api/id/signout"], ["POST", "/api/id/revoke"],
 ];
 const MAX_BODY = 25_000_000;
 const MUTATING = new Set(["POST", "PUT", "PATCH", "DELETE"]);
@@ -140,12 +140,15 @@ async function readBody(req: IncomingMessage): Promise<Record<string, any>> {
   }
   if (!chunks.length) return {};
   const text = Buffer.concat(chunks).toString("utf8");
-  if (String(req.headers["content-type"] ?? "").startsWith("application/x-www-form-urlencoded")) return Object.fromEntries(new URLSearchParams(text));
+  const type = String(req.headers["content-type"] ?? "");
+  if (type.startsWith("application/x-www-form-urlencoded")) return Object.fromEntries(new URLSearchParams(text));
+  if (type.startsWith("application/pgp-keys")) return { armored: text };
   try {
     const parsed = JSON.parse(text);
     if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) throw new Error();
     return parsed;
   } catch {
+    if (text.includes("-----BEGIN PGP PUBLIC KEY BLOCK-----")) return { armored: text };
     throw new HttpError(400, "Body must be a JSON object");
   }
 }
@@ -343,7 +346,10 @@ export function createMailApp(deps: MailAppDeps) {
       route(method, path, (ctx) => new Redirect(`${cid.upstreamIssuer}${path}${ctx.query.size ? `?${ctx.query}` : ""}`, 307), false, { csrf: false });
     }
   } else {
-    registerIdProvider({ route, cid, origin: deps.origin, sessionCookie, device, need, str, Redirect, HttpError });
+    registerIdProvider({
+      route, cid, origin: deps.origin, sessionCookie, device, need, str, Redirect, HttpError,
+      clearBrowserSession: (ctx) => ctx.res.setHeader("Set-Cookie", sessionCookie("", 0)),
+    });
   }
 
   /* ---------------- Buying Infinitum products with a Cumulus://ID (see billing.ts) ---------------- */
@@ -855,6 +861,12 @@ export function createMailApp(deps: MailAppDeps) {
       // Hosted (serverless): load the latest state, run, and save atomically in one transaction.
       const result = deps.transaction ? await deps.transaction(run) : await run();
       if (MUTATING.has(req.method!) || result instanceof Redirect) deps.onChange?.();
+      if (result instanceof IdRawResponse) {
+        res.writeHead(result.status, { "Content-Type": result.contentType, "Cache-Control": "no-store" });
+        if (result.body) res.end(result.body);
+        else res.end();
+        return;
+      }
       if (result instanceof Redirect) {
         res.writeHead(result.status, { Location: result.location, "Cache-Control": "no-store" });
         res.end();

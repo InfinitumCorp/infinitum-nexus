@@ -23,7 +23,21 @@ Both documents name the realm issuer. JWKS is
 `https://id.cumuluscloud.app/realms/cumulus/protocol/openid-connect/certs`.
 Tokens are ES256 (or EdDSA, if that is the key that was loaded). Claims include
 `sub` (the cid), `cid`, `username`, `preferred_username`, `handle`, `email`,
-`email_verified`, `amr`, and `idp` (`google`, `cognito`, or `passkey`).
+`email_verified`, `amr`, `idp` (`google`, `cognito`, or `passkey`), and `sid`.
+Discovery also names `end_session_endpoint` and `revocation_endpoint`. Logout
+revokes the hinted session and the browser session, and only redirects to a
+registered client origin. Revocation answers 200 for an unknown token.
+
+## Public key directory
+
+Mail looks up OpenPGP public keys at `https://id.cumuluscloud.app/api/keys/{email}`
+(`CID_KEYS_URL` in the Mail repository). `GET` returns `application/pgp-keys` or
+404. `PUT` with `Authorization: Bearer` stores the armored public key only when
+that address is the token's mailbox or a provider-verified email on the same
+cid. A private key block is refused. The key is saved on the account record
+(the `cid` document, or the account row when `CUMULUS_STORE=postgres`). No new
+table, binding, or secret. Removing the field is the rollback; sign-in does
+not read it.
 
 ## Signing key
 

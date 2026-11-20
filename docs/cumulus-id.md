@@ -114,6 +114,24 @@ before setting `CUMULUS_ID_ISSUER` in production.
 Known limits: signing out everywhere at the issuer does not yet end Mail's local sessions, and
 MFA is enforced at the issuer only (a mirrored account has no local authenticator code).
 
+## Backend-only deploy (keep the live pages)
+
+`public/` in this repository is not what `https://id.cumuluscloud.app` serves today.
+`apps/spectre/live-ui/` is a byte snapshot of the pages that host returns, with
+`live-ui.manifest.json` holding each SHA-256. `scripts/live-ui.test.mjs` downloads
+those URLs again and fails if a byte changed. The Worker bundle that keeps those
+pages and ships the current API is:
+
+```sh
+node apps/spectre/scripts/build-cloudflare.mjs --assets apps/spectre/live-ui --out apps/spectre/dist/entry.mjs
+cd apps/spectre && npx wrangler deploy
+```
+
+Do not run the build without `--assets`: that embeds `public/` and replaces the live pages.
+`/id/bar.js` is in `public/` and is HTTP 404 on the host, so it is not in `live-ui/`.
+`/robots.txt` is a content-signal document the app does not reference; it is recorded
+in the manifest and is not embedded. No Worker secret is changed by this build.
+
 ## Deploy cumulus-id
 
 These steps are for the nexus Worker as it is today, before the cut-over. No DNS change is

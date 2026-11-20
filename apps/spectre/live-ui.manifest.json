@@ -1,0 +1,190 @@
+{
+  "origin": "https://id.cumuluscloud.app",
+  "capturedFrom": "public URLs only; two fetches, hashes matched",
+  "files": [
+    {
+      "path": "/app.css",
+      "urlPath": "/app.css",
+      "sha256": "bf7ca1a7307b27b33080c5a1cddff929931df4795ba2057998cc224f0334d4fb",
+      "bytes": 16417,
+      "contentType": "text/css",
+      "refs": []
+    },
+    {
+      "path": "/app.js",
+      "urlPath": "/app.js",
+      "sha256": "5f904f87636dc1c6b48df8db379d6d1dbf49d4fa3a25f124fb5c9d4121a40c02",
+      "bytes": 90530,
+      "contentType": "text/javascript",
+      "refs": []
+    },
+    {
+      "path": "/book.html",
+      "urlPath": "/book.html",
+      "sha256": "5bb27342e8b15b11fac4f7b4ab3e25b49ee0776fd79fcea893bfee69eaeefa39",
+      "bytes": 339,
+      "contentType": "text/html",
+      "refs": [
+        "/book.js",
+        "/embed.css"
+      ]
+    },
+    {
+      "path": "/book.js",
+      "urlPath": "/book.js",
+      "sha256": "668979cf7f1d56720c33ab3f8eb40ac482e060dc05fa9e3d32e7ed105e36bc4d",
+      "bytes": 5405,
+      "contentType": "text/javascript",
+      "refs": []
+    },
+    {
+      "path": "/brand.css",
+      "urlPath": "/brand.css",
+      "sha256": "8019f5f262a3901fbd90d03a57ed99a61167e49d75b1ed4681e6c08036102900",
+      "bytes": 2602,
+      "contentType": "text/css",
+      "refs": []
+    },
+    {
+      "path": "/embed.css",
+      "urlPath": "/embed.css",
+      "sha256": "e5c0d29ff74f378429909faf247f4b07e26a8c06dee6494680416d0e0235155b",
+      "bytes": 2620,
+      "contentType": "text/css",
+      "refs": []
+    },
+    {
+      "path": "/favicon.svg",
+      "urlPath": "/favicon.svg",
+      "sha256": "36da818437caeb683dbdf5892bd683e859650ad69c3e9f8d82dfa79b7677e591",
+      "bytes": 202,
+      "contentType": "image/svg+xml",
+      "refs": []
+    },
+    {
+      "path": "/firm-suite.css",
+      "urlPath": "/firm-suite.css",
+      "sha256": "110bd24274f6a0e75ecc388b95bd9735565ad10181fe9d0850fcd5c098f57ae7",
+      "bytes": 2787,
+      "contentType": "text/css",
+      "refs": []
+    },
+    {
+      "path": "/firm-suite.js",
+      "urlPath": "/firm-suite.js",
+      "sha256": "285530d1e898852086af9220d46175ffeff0d2eed575302bca66c1be1ce63dd2",
+      "bytes": 8451,
+      "contentType": "text/javascript",
+      "refs": []
+    },
+    {
+      "path": "/form.html",
+      "urlPath": "/form.html",
+      "sha256": "feba0ca47383734fe110dbe1b3e16a147eb336cbe4c100d4fd9942a0ea78bf5b",
+      "bytes": 332,
+      "contentType": "text/html",
+      "refs": [
+        "/embed.css",
+        "/form.js"
+      ]
+    },
+    {
+      "path": "/form.js",
+      "urlPath": "/form.js",
+      "sha256": "589b884ec24546d72eb89d2b93b91b2a5e0abbe78de30d3d6b7d1a5fb7ca6734",
+      "bytes": 3369,
+      "contentType": "text/javascript",
+      "refs": []
+    },
+    {
+      "path": "/i18n-catalogs.js",
+      "urlPath": "/i18n-catalogs.js",
+      "sha256": "73a42ff83dbe7d89a7621ea8e98b7e0bc5486b732ea7b99c03fb792fd6da0635",
+      "bytes": 37568,
+      "contentType": "text/javascript",
+      "refs": []
+    },
+    {
+      "path": "/i18n-start.js",
+      "urlPath": "/i18n-start.js",
+      "sha256": "009f4734672e611c8c8236a5b8c71431eeced1117771554152206f7a3c307354",
+      "bytes": 464,
+      "contentType": "text/javascript",
+      "refs": [
+        "/i18n-catalogs.js",
+        "/i18n.js"
+      ]
+    },
+    {
+      "path": "/i18n.css",
+      "urlPath": "/i18n.css",
+      "sha256": "a612a046d23f69a4e33c0ce04a0ddc02069eafc326ad15c76a7bd98af14a49b0",
+      "bytes": 719,
+      "contentType": "text/css",
+      "refs": []
+    },
+    {
+      "path": "/i18n.js",
+      "urlPath": "/i18n.js",
+      "sha256": "7e43882d1281129b355376cfb4b8b6c42934b164c4f1997ad19103c803d7e1ef",
+      "bytes": 13337,
+      "contentType": "text/javascript",
+      "refs": []
+    },
+    {
+      "path": "/id/button.js",
+      "urlPath": "/id/button.js",
+      "sha256": "2695d2c342bf8fb5b1b4d9ab19cb004a37d99e1e891c4b4fe81237d0c90c11ab",
+      "bytes": 7087,
+      "contentType": "text/javascript",
+      "refs": []
+    },
+    {
+      "path": "/index.html",
+      "urlPath": "/",
+      "sha256": "5fa5101f95291ab3ecdc285d0974a7aa04c6ed8950baa0aa91bee3e009562d90",
+      "bytes": 860,
+      "contentType": "text/html",
+      "refs": [
+        "/app.css",
+        "/app.js",
+        "/brand.css",
+        "/favicon.svg",
+        "/firm-suite.css",
+        "/firm-suite.js",
+        "/i18n-start.js",
+        "/i18n.css"
+      ]
+    }
+  ],
+  "excluded": [
+    {
+      "path": "/id/bar.js",
+      "status": 404,
+      "location": null
+    }
+  ],
+  "probedNotEmbedded": [
+    {
+      "path": "/robots.txt",
+      "status": 200,
+      "contentType": "text/plain; charset=utf-8",
+      "sha256": "8fa3036c68bfcbd32365f6225d24333264093b7cd38d306e106b4dbdc934fd5b",
+      "note": "Well-known URL. Body is a content-signal policy, not referenced by the application and not a file in public/. Not embedded."
+    },
+    {
+      "path": "/favicon.ico",
+      "status": 404,
+      "contentType": "application/json; charset=utf-8",
+      "sha256": null,
+      "note": "Browsers request this. The pages reference /favicon.svg instead. Live response is the Worker's JSON 404. Not embedded."
+    },
+    {
+      "path": "/manifest.webmanifest",
+      "status": 404,
+      "contentType": "application/json; charset=utf-8",
+      "sha256": null,
+      "note": "Not referenced by the pages. Live response is the Worker's JSON 404. Not embedded."
+    }
+  ]
+}

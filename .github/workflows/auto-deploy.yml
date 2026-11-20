@@ -78,3 +78,11 @@ jobs:
           # build embeds public/, which is not the live UI (apps/spectre/wrangler.jsonc).
           node apps/spectre/scripts/build-cloudflare.mjs --assets apps/spectre/live-ui --out apps/spectre/dist/entry.mjs
           cd apps/spectre && npx -y wrangler deploy
+      # Cumulus://Mail at mail.cumuluscloud.app (apps/cumulus-mail/cloudflare.config.ts, cf CLI). Its
+      # secrets (FIRMAMENT_SIGNER_KEY, NEXUS_STORE_URL, NEXUS_STORE_KEY, sign-in providers) are already on
+      # the Worker; a deploy without --secrets-file uploads none and keeps them.
+      - name: Deploy Cumulus://Mail Worker
+        working-directory: apps/cumulus-mail
+        run: |
+          set -euo pipefail
+          npx cf deploy --message "auto-deploy ${GITHUB_SHA::12}"

@@ -748,8 +748,8 @@ importers:
         specifier: ^26.6.6
         version: 26.6.6
       typescript:
-        specifier: ^5.9.0
-        version: 5.9.3
+        specifier: ^7.0.2
+        version: 7.0.2
 
   packages/sense:
     devDependencies:
@@ -2118,11 +2118,6 @@ packages:
   typebox@1.4.7:
     resolution: {integrity: sha512-KonYdBj3gOgG/rH96TlUs/f+eaEDqiKRW7KU4/LE/tEjEnRCcfpYLofBfHfNMBAiBosmY55e4YeCPuE+NXmJtg==}
 
-  typescript@5.9.3:
-    resolution: {integrity: sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw==}
-    engines: {node: '>=14.17'}
-    hasBin: true
-
   typescript@7.0.2:
     resolution: {integrity: sha512-8FYau96o3NKOhbjKi/qNvG/W5jhzxkbdm5sj9AbZ/5T5sWqn3hJgLfGx27sRKZWTvyzCP8dLRBTf5tBTSRVUNA==}
     engines: {node: '>=16.20.0'}
@@ -3421,8 +3416,6 @@ snapshots:
     optional: true
 
   typebox@1.4.7: {}
-
-  typescript@5.9.3: {}
 
   typescript@7.0.2:
     optionalDependencies:

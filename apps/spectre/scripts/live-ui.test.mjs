@@ -21,8 +21,13 @@ describe("live public UI snapshot", () => {
 
   it("embeds the captured live bytes and not the repository copy of the home page", () => {
     const files = filesFromAssets(join(app, "live-ui"));
-    assert.equal(Object.keys(files).length, manifest.files.length);
-    assert.equal(files["/id/bar.js"], undefined);
+    assert.equal(Object.keys(files).length, manifest.files.length + manifest.added.length);
+    // Files the live host doesn't serve yet, embedded from the repository (the account bar).
+    for (const row of manifest.added) {
+      const body = Buffer.from(files[row.path].body, "base64");
+      assert.equal(sha256(body), row.sha256, row.path);
+      assert.equal(sha256(readFileSync(join(app, "../..", row.source))), row.sha256, `${row.path} is the repository copy`);
+    }
     for (const row of manifest.files) {
       const embedded = files[row.path];
       assert.ok(embedded, row.path);
@@ -35,7 +40,7 @@ describe("live public UI snapshot", () => {
     assert.notEqual(sha256(repoHome), liveHome.sha256);
     const source = workerEntrySource(files);
     assert.match(source, /export \{ NexusStore \}/);
-    assert.doesNotMatch(source, /id\/bar\.js/);
+    assert.match(source, /id\/bar\.js/, "the account bar is served");
   });
 
   it("matches a fresh download of every captured public URL", async () => {
@@ -49,7 +54,10 @@ describe("live public UI snapshot", () => {
     }
     for (const row of manifest.excluded) {
       const response = await fetch(LIVE_ORIGIN + row.path, { redirect: "manual" });
-      assert.equal(response.status, row.status, row.path);
+      const added = manifest.added.find((a) => a.path === row.path);
+      // An added file: the old answer until the next deploy, then exactly the embedded bytes.
+      if (added && response.status === 200) assert.equal(sha256(Buffer.from(await response.arrayBuffer())), added.sha256, row.path);
+      else assert.equal(response.status, row.status, row.path);
     }
   });
 });

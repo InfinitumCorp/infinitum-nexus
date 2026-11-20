@@ -186,5 +186,15 @@
       "sha256": null,
       "note": "Not referenced by the pages. Live response is the Worker's JSON 404. Not embedded."
     }
+  ],
+  "added": [
+    {
+      "path": "/id/bar.js",
+      "source": "apps/spectre/public/id/bar.js",
+      "sha256": "6f66396b77bc5c509b40dfa669cb84f9232df0cda2e3698bc5d3e0d3137e93c8",
+      "bytes": 15843,
+      "contentType": "text/javascript",
+      "note": "The Cumulus account bar that Drive, Exchange and ARCHITECT load from this host. The live host answered 404 for it (see excluded); embedded from the repository so the next deploy serves it."
+    }
   ]
 }

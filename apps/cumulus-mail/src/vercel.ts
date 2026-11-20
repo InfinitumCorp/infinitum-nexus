@@ -2,7 +2,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { Ledger, signerFromPrivateKey } from "@infinitum/firmament";
 import { cidSecretKeyForHost, socialFromEnv, upstreamIssuerFromEnv } from "@infinitum/cid";
 import { applySnapshot, createCumulus, emptyCumulusStores } from "@infinitum/cumulus";
-import { RemoteState, HttpGateway } from "../../spectre/src/server/remote.ts";
+import { RemoteState, HttpGateway, type NexusGateway } from "../../spectre/src/server/remote.ts";
 import { cidStorageFromEnv, suiteDocuments } from "../../spectre/src/server/cid-store.ts";
 import type { InboundMail } from "@infinitum/mail";
 import { createMailApp } from "./app.ts";
@@ -15,6 +15,12 @@ import { BillingLinkStore } from "@infinitum/billing";
 
 /** Attachment storage, set by the Workers entry (R2) before the first request. */
 let fileStore: FileStore | undefined;
+let gatewayOverride: NexusGateway | undefined;
+/** Keep state somewhere other than the nexus-store function (tests). Call before the first request. */
+export function useGateway(gateway: NexusGateway) {
+  gatewayOverride = gateway;
+}
+
 export function useFileStore(store: FileStore) {
   fileStore = store;
 }
@@ -74,7 +80,7 @@ function build() {
   const workspaceStore = new WorkspaceStore(); // Cumulus://Drive, Dox, Spreads and Podium (metadata; contents in R2)
   const billingStore = new BillingLinkStore(); // CID -> billing org (holds org API keys; server-side only)
   // CUMULUS_STORE=postgres keeps Cumulus://ID in Postgres rows (see spectre/src/server/cid-store.ts).
-  const gateway = new HttpGateway(required("NEXUS_STORE_URL"), required("NEXUS_STORE_KEY"));
+  const gateway = gatewayOverride ?? new HttpGateway(required("NEXUS_STORE_URL"), required("NEXUS_STORE_KEY"));
   const cidStorage = cidStorageFromEnv(process.env, gateway);
   // CUMULUS_ROWS=mail,wallet,quota keeps those as rows too, so their documents aren't loaded or saved.
   // CUMULUS_ROWS=drive: Drive metadata in drive_items rows, not the document (Postgres or the gateway).

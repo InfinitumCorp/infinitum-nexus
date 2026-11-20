@@ -3,7 +3,7 @@
 Status: built (2026-11-13; Drive and the safe first-request claim added 2026-11-18). Every store,
 Cumulus://Drive included, has a repository with Postgres and gateway implementations; the switches are
 settings (`CUMULUS_STORE`, `CUMULUS_ROWS`) that are off until set. Nothing is switched on in production:
-the Supabase migrations `20261115`–`20261124` aren't applied yet, Mail runs `CUMULUS_STORE=document`. What is live and what
+the Supabase migrations `20261115`–`20261124` are applied (2026-11-20); Mail switches to rows with its next deploy. What is live and what
 still needs a person is in the Status section below. The original proposal follows it.
 
 ## Status (2026-11-18)
@@ -60,31 +60,23 @@ series: repository with the mailbox as today's unit first, then per-message rows
 
 What still needs a person (or a connector this session didn't have):
 
-1. **Supabase**: apply the migrations `20261115` through `20261124`, in order, and redeploy the
-   `nexus-store` edge function (#231). No refresh has to be run by hand any more: a gateway host's
-   first request claims the rows (`20261121_cumulus_rows_claim.sql`, made safe in `20261124`), which
-   copies the `cid` document (and, with `CUMULUS_ROWS`, the mail, wallet, quota and Drive documents) into
-   them once, under a lock, and records it in `cumulus_rows.claims`. Later starts never replace rows
-   written since, and rows that already hold something other than the document are never overwritten:
-   the host refuses to serve and says so (record the claim to keep the rows, or
-   `select cumulus_rows.release('<product>')` to copy the document). A host refuses to serve until the
-   claim migration is applied. Check afterwards with `select cumulus_id.compare_with_document()` (only
-   before new writes) and `select * from cumulus_rows.claims`. Before switching, check what the hosts
-   run on, because the claim only makes sense if everyone switches together:
-   - **Every host on one database switches in the same deploy.** A host still writing the documents
-     after the claim (Mail on `CUMULUS_STORE=document`, an older deployment still serving during a
-     rollout) writes what the rows never see. Afterwards, `cumulus_rows.claims.document_version` next
-     to `nexus_docs.version` shows whether a document moved on after its claim.
-   - **+SPCTR and Mail share Mail, Wallet and the quota**: give both the same `CUMULUS_ROWS` (without
-     `drive`, which only Mail serves) in the same deploy, or one keeps writing documents the other no
-     longer reads.
-   - **Release a product only once no host serves it from rows** (after the rollback deploy): a host
-     that already claimed keeps writing rows, and the next claim copies the document over them.
+1. **Supabase**: done 2026-11-20. Migrations `20261115` through `20261124` are applied (every function
+   checked identical to this repository), `nexus-store` is redeployed (version 3), and a rolled-back dry
+   run of the first claim copied the mail, wallet and quota documents and matched the ID rows. The
+   cutover notes below still apply:
+   - **Every host on one database switches in the same deploy.** Today only Mail writes these
+     documents: id.cumuluscloud.app keeps its own Durable Object and +SPCTR isn't deployed on Vercel.
+     Afterwards, `cumulus_rows.claims.document_version` next to `nexus_docs.version` shows whether a
+     document moved on after its claim.
+   - **+SPCTR and Mail share Mail, Wallet and the quota**: if +SPCTR is deployed against this database,
+     give it the same `CUMULUS_ROWS` (without `drive`).
+   - **Release a product only once no host serves it from rows** (after the rollback deploy).
    - The first claim locks the row tables and the documents while it copies: requests wait for it.
-2. **Cloudflare**: the GitHub organization secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`, so
-   the auto-deploy workflows can ship any of this. Mail itself is deployed with `cf deploy`
-   (apps/cumulus-mail/cloudflare.config.ts), which keeps `CUMULUS_STORE=document` until item 1 is done;
-   then set it to "gateway" there and deploy.
+2. **Cloudflare**: Mail's config (apps/cumulus-mail/cloudflare.config.ts) now says
+   `CUMULUS_STORE=gateway` and `CUMULUS_ROWS=mail,wallet,quota,drive`; it takes effect with the next
+   `cf deploy` of Mail (tested end to end with those settings in `production-config.http.test.ts`).
+   The GitHub organization secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` are still needed
+   for the auto-deploy workflows.
 3. **Yandex**: merge InfinitumCorp/cumulus-id-ru#3 (pins main `555ae4f`, with the account fixes of
    2026-11-18: #272, #273, #274), then run `ssh cumulus-id-russia 'bash -s' < scripts/setup.sh` from it.
 4. **id.cumuluscloud.app** keeps its state in a Cloudflare Durable Object, not Supabase; moving it means

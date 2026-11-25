@@ -171,6 +171,15 @@ types:
           suppressBelow:
             type: optional<double>
             docs: Noisy groups under this value are listed in suppressed instead of groups.
+      PrivacyBudgetStatus:
+        fields:
+          dataset: string
+          totalEpsilon:
+            type: double
+            docs: PRIVACY_TOTAL_EPSILON, the lifetime budget of every dataset.
+          spentEpsilon: double
+          remainingEpsilon: double
+          maxEpsilonPerRelease: double
       StoredReleaseResponse:
         fields:
           dataset: string
@@ -353,6 +362,12 @@ services:
             type: StoredReleaseRequest
             param-type: body
         returns: StoredReleaseResponse
+      getBudget:
+        http: GET /datasets/{name}/budget
+        docs: How much epsilon the dataset has left. Reading it spends nothing.
+        args:
+          name: string
+        returns: PrivacyBudgetStatus
 
   EmbedService:
     name: Embed Service

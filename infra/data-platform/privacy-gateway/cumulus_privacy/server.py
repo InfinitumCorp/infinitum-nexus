@@ -124,6 +124,7 @@ class Gateway:
             Route("POST", "/api/v1/erasure/subjects", self.erase, "product"),
             Route("POST", "/api/v1/erasure/subjects/all-products", self.erase_everywhere, "gateway"),
             Route("POST", "/api/v1/releases/datasets/{name}", self.release_dataset, "product"),
+            Route("GET", "/api/v1/releases/datasets/{name}/budget", self.release_budget, "product"),
             Route("POST", "/api/v1/embed/dashboards/{dashboardId}/guest-token", self.guest_token, "product"),
         ]
 
@@ -161,6 +162,9 @@ class Gateway:
 
     def get_dataset(self, b: dict[str, Any], caller: str = "", name: str = "") -> Any:
         return self._platform(self.catalog).read(caller, name)
+
+    def release_budget(self, b: dict[str, Any], caller: str = "", name: str = "") -> Any:
+        return self._platform(self.releases).budget(caller, name)
 
     def release_dataset(self, b: dict[str, Any], caller: str = "", name: str = "") -> Any:
         return self._platform(self.releases).release(caller, name, b)

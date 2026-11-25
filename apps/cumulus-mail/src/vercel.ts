@@ -1,18 +1,26 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { Ledger, signerFromPrivateKey } from "@infinitum/firmament";
 import { cidSecretKeyForHost, socialFromEnv, upstreamIssuerFromEnv } from "@infinitum/cid";
-import { createCumulus, emptyCumulusStores } from "@infinitum/cumulus";
-import { RemoteState, HttpGateway } from "../../spectre/src/server/remote.ts";
+import { applySnapshot, createCumulus, emptyCumulusStores } from "@infinitum/cumulus";
+import { RemoteState, HttpGateway, type NexusGateway } from "../../spectre/src/server/remote.ts";
 import { cidStorageFromEnv, suiteDocuments } from "../../spectre/src/server/cid-store.ts";
 import type { InboundMail } from "@infinitum/mail";
 import { createMailApp } from "./app.ts";
 import { deliverOutbound, type Sender } from "./outbound.ts";
 import type { FileStore } from "./files.ts";
 import { WorkspaceStore } from "./workspace.ts";
+import { PgWorkspaceRepository, claimDriveRows, type DriveTransactional } from "./workspace-postgres.ts";
+import { attachDriveRows } from "./workspace-remote.ts";
 import { BillingLinkStore } from "@infinitum/billing";
 
 /** Attachment storage, set by the Workers entry (R2) before the first request. */
 let fileStore: FileStore | undefined;
+let gatewayOverride: NexusGateway | undefined;
+/** Keep state somewhere other than the nexus-store function (tests). Call before the first request. */
+export function useGateway(gateway: NexusGateway) {
+  gatewayOverride = gateway;
+}
+
 export function useFileStore(store: FileStore) {
   fileStore = store;
 }
@@ -72,16 +80,21 @@ function build() {
   const workspaceStore = new WorkspaceStore(); // Cumulus://Drive, Dox, Spreads and Podium (metadata; contents in R2)
   const billingStore = new BillingLinkStore(); // CID -> billing org (holds org API keys; server-side only)
   // CUMULUS_STORE=postgres keeps Cumulus://ID in Postgres rows (see spectre/src/server/cid-store.ts).
-  const gateway = new HttpGateway(required("NEXUS_STORE_URL"), required("NEXUS_STORE_KEY"));
+  const gateway = gatewayOverride ?? new HttpGateway(required("NEXUS_STORE_URL"), required("NEXUS_STORE_KEY"));
   const cidStorage = cidStorageFromEnv(process.env, gateway);
   // CUMULUS_ROWS=mail,wallet,quota keeps those as rows too, so their documents aren't loaded or saved.
+  // CUMULUS_ROWS=drive: Drive metadata in drive_items rows, not the document (Postgres or the gateway).
+  const driveRows = cidStorage.products.includes("drive");
   const state = new RemoteState(gateway, {
     ...suiteDocuments(cidStorage, stores),
-    "cumulus-workspace": workspaceStore,
+    ...(driveRows ? {} : { "cumulus-workspace": workspaceStore }),
     "cumulus-billing": billingStore,
   });
   if (cidStorage.participant) state.participants.push(cidStorage.participant);
   if (cidStorage.rows) state.rows = cidStorage.rows;
+  // Through the gateway, Drive's rows are read and written like the suite's (claimed on the first request).
+  const remoteDrive = driveRows && cidStorage.readRows ? attachDriveRows(state, (ops) => cidStorage.readRows!(ops)) : undefined;
+
   const ledger = new Ledger(state.ledgerStore, { authorizedSigners: [signer.publicKey] });
   const suite = createCumulus({
     ledger, signer, rpId: new URL(origin).hostname, origins, stores, repository: cidStorage.repository, repositories: cidStorage.repositories, secretKey: cidSecretKeyForHost(),
@@ -92,6 +105,14 @@ function build() {
   let verified: Promise<void> | undefined;
   const verifyOnce = () =>
     (verified ??= (async () => {
+      if (driveRows && !remoteDrive) {
+        // The first start copies the cumulus-workspace document into the rows, once ever.
+        await claimDriveRows(cidStorage.participant as unknown as DriveTransactional, cidStorage.schema ?? "public", async () => {
+          // Only the documents: no ledger entries after the highest sequence number.
+          const doc = (await gateway.load(Number.MAX_SAFE_INTEGER, {})).docs.find((d) => d.id === "cumulus-workspace");
+          return doc ? applySnapshot(new WorkspaceStore(), doc.data as Record<string, unknown>) : new WorkspaceStore();
+        });
+      }
       await state.sync();
       const result = await ledger.verify();
       if (!result.ok) throw new Error(`Firmament ledger failed verification at entry ${result.brokenAt}: ${result.reason}`);
@@ -105,7 +126,9 @@ function build() {
     suite,
     files: fileStore,
     workspaceStore,
+    workspaceRepository: remoteDrive ?? (driveRows ? new PgWorkspaceRepository({ db: cidStorage.db!, schema: cidStorage.schema }) : undefined),
     billingStore,
+    afterCommit: (fn) => state.afterCommit(fn),
     publicDir: publicDir(), // static files come from the CDN (Vercel) or static assets (Workers)
     origin,
     secureCookies: origin.startsWith("https://"),

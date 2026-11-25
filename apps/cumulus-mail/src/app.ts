@@ -16,13 +16,13 @@ import { scalvsCleanAgent, type CleanAgent, type CleanSuggestion } from "./clean
 import { bulkSenders, classify, inboxMix, THREAD_ACTIONS, type ThreadAction, type ThreadSnapshot } from "@infinitum/mail";
 import { readFile } from "node:fs/promises";
 import { extname, join, normalize, sep } from "node:path";
-import { CidError, MAIL_DOMAIN, UpstreamIdClient, UpstreamIdError, cumulusCorsHeaders, type Account } from "@infinitum/cid";
+import { CidError, IdRawResponse, MAIL_DOMAIN, UpstreamIdClient, UpstreamIdError, cumulusCorsHeaders, type Account } from "@infinitum/cid";
 import { QuotaError } from "@infinitum/cloud";
 import { WalletError } from "@infinitum/firm";
 import { MailError, isE2E, threadOf, transcript, type MailMessage } from "@infinitum/mail";
 import type { CumulusSuite } from "@infinitum/cumulus";
 import { MAX_FILE_BYTES, isFileKey, safeType, uploadKey, type FileStore } from "./files.ts";
-import { DriveError, MAX_UPLOAD_BYTES, Workspace, WorkspaceStore, type DocKind } from "./workspace.ts";
+import { DriveError, MAX_UPLOAD_BYTES, Workspace, WorkspaceStore, type DocKind, type WorkspaceRepository } from "./workspace.ts";
 import { registerIdProvider } from "./id-provider.ts";
 import { registerBilling } from "./billing.ts";
 import { BillingLinkStore, RevenueClient } from "@infinitum/billing";
@@ -36,8 +36,8 @@ const OAUTH_COOKIE = "cmail_oauth";
 const UPSTREAM_COOKIE = "cmail_cid";
 /** The legacy "Sign in with Cumulus://ID" alias. In upstream mode each one forwards to the issuer. */
 const ID_ALIAS_ROUTES: [method: string, path: string][] = [
-  ["GET", "/api/id/authorize"], ["GET", "/api/id/redeem"], ["GET", "/api/id/end"], ["GET", "/api/id/userinfo"], ["GET", "/api/id/me"],
-  ["POST", "/api/id/token"], ["POST", "/api/id/signout"],
+  ["GET", "/api/id/authorize"], ["GET", "/api/id/redeem"], ["GET", "/api/id/end"], ["GET", "/api/id/logout"], ["GET", "/api/id/userinfo"], ["GET", "/api/id/me"],
+  ["POST", "/api/id/token"], ["POST", "/api/id/signout"], ["POST", "/api/id/revoke"],
 ];
 const MAX_BODY = 25_000_000;
 const MUTATING = new Set(["POST", "PUT", "PATCH", "DELETE"]);
@@ -71,6 +71,10 @@ export interface MailAppDeps {
   files?: FileStore;
   /** Drive metadata, saved with the rest of the shared state. Defaults to an in-memory store. */
   workspaceStore?: WorkspaceStore;
+  /** Where Drive items live instead of `workspaceStore` (CUMULUS_ROWS=drive). */
+  workspaceRepository?: WorkspaceRepository;
+  /** Runs a step once the request is saved (RemoteState.afterCommit): stored Drive files are deleted this way. */
+  afterCommit?: (fn: () => Promise<void>) => void;
   /** CID -> billing org links, saved with the rest of the shared state. Defaults to an in-memory store. */
   billingStore?: BillingLinkStore;
   /** Infinitum revenue API (Stripe Checkout, portal, entitlements). Defaults to the production API. */
@@ -136,12 +140,15 @@ async function readBody(req: IncomingMessage): Promise<Record<string, any>> {
   }
   if (!chunks.length) return {};
   const text = Buffer.concat(chunks).toString("utf8");
-  if (String(req.headers["content-type"] ?? "").startsWith("application/x-www-form-urlencoded")) return Object.fromEntries(new URLSearchParams(text));
+  const type = String(req.headers["content-type"] ?? "");
+  if (type.startsWith("application/x-www-form-urlencoded")) return Object.fromEntries(new URLSearchParams(text));
+  if (type.startsWith("application/pgp-keys")) return { armored: text };
   try {
     const parsed = JSON.parse(text);
     if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) throw new Error();
     return parsed;
   } catch {
+    if (text.includes("-----BEGIN PGP PUBLIC KEY BLOCK-----")) return { armored: text };
     throw new HttpError(400, "Body must be a JSON object");
   }
 }
@@ -233,14 +240,16 @@ export function createMailApp(deps: MailAppDeps) {
 
   const workspace = new Workspace({
     store: deps.workspaceStore ?? new WorkspaceStore(),
+    repository: deps.workspaceRepository,
     quota: suite.quota,
     files: deps.files,
+    afterCommit: deps.afterCommit,
     resolve: (who) => cid.cidForUsername(idName(who)),
     label: async (c) => (await cid.findAccount(c))?.mailAddress ?? "a Cumulus user",
   });
   /** Drive turns on the first time someone opens it; after that the CID permissions dashboard decides. */
   const driveAccess = async (cidValue: string, write: boolean) => {
-    if (workspace.firstVisit(cidValue)) await cid.grant(cidValue, DRIVE_APP, DRIVE_SCOPES);
+    if (await workspace.firstVisit(cidValue)) await cid.grant(cidValue, DRIVE_APP, DRIVE_SCOPES);
     if (!await cid.can(cidValue, DRIVE_APP, write ? "drive:write" : "drive:read")) throw new HttpError(403, "Drive's access was revoked in your Cumulus://ID permissions");
   };
   const KIND_LABEL: Record<string, string> = { folder: "a folder", file: "a file", dox: "a document", spreads: "a spreadsheet", podium: "a presentation" };
@@ -337,7 +346,10 @@ export function createMailApp(deps: MailAppDeps) {
       route(method, path, (ctx) => new Redirect(`${cid.upstreamIssuer}${path}${ctx.query.size ? `?${ctx.query}` : ""}`, 307), false, { csrf: false });
     }
   } else {
-    registerIdProvider({ route, cid, origin: deps.origin, sessionCookie, device, need, str, Redirect, HttpError });
+    registerIdProvider({
+      route, cid, origin: deps.origin, sessionCookie, device, need, str, Redirect, HttpError,
+      clearBrowserSession: (ctx) => ctx.res.setHeader("Set-Cookie", sessionCookie("", 0)),
+    });
   }
 
   /* ---------------- Buying Infinitum products with a Cumulus://ID (see billing.ts) ---------------- */
@@ -414,12 +426,17 @@ export function createMailApp(deps: MailAppDeps) {
     }
     throw new HttpError(405, "Method not allowed");
   };
-  /** Stored files this person may use: their own uploads, or files on mail in their mailbox (forwarding). */
-  const canUseFile = async (cidValue: string, key: string) =>
-    key.startsWith(`u/${cidValue}/`) || (await mail.view(cidValue)).messages.some((m) => (m.attachments ?? []).some((a) => a.id === key));
+  /**
+   * Stored files this person may use: their own uploads, or files on mail in their mailbox (forwarding).
+   * The mailbox is read once, and only when a file isn't one of their own uploads.
+   */
   const ownFiles = async (cidValue: string, v: unknown) => {
     const list = files(v);
-    for (const f of list) if (f.id && !(await canUseFile(cidValue, f.id))) throw new HttpError(403, "One of the attached files isn't yours to send.");
+    const others = list.filter((f) => f.id && !f.id.startsWith(`u/${cidValue}/`));
+    if (others.length) {
+      const onMail = new Set((await mail.view(cidValue)).messages.flatMap((m) => (m.attachments ?? []).map((a) => a.id)));
+      if (others.some((f) => !onMail.has(f.id!))) throw new HttpError(403, "One of the attached files isn't yours to send.");
+    }
     return list;
   };
 
@@ -844,6 +861,12 @@ export function createMailApp(deps: MailAppDeps) {
       // Hosted (serverless): load the latest state, run, and save atomically in one transaction.
       const result = deps.transaction ? await deps.transaction(run) : await run();
       if (MUTATING.has(req.method!) || result instanceof Redirect) deps.onChange?.();
+      if (result instanceof IdRawResponse) {
+        res.writeHead(result.status, { "Content-Type": result.contentType, "Cache-Control": "no-store" });
+        if (result.body) res.end(result.body);
+        else res.end();
+        return;
+      }
       if (result instanceof Redirect) {
         res.writeHead(result.status, { Location: result.location, "Cache-Control": "no-store" });
         res.end();

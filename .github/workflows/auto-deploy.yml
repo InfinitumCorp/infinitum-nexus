@@ -64,7 +64,7 @@ jobs:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v7
         with:
@@ -74,5 +74,15 @@ jobs:
         run: |
           set -euo pipefail
           pnpm install --frozen-lockfile
-          node apps/spectre/scripts/build-cloudflare.mjs
+          # The live-UI bundle: the pages id.cumuluscloud.app serves (plus the account bar). The default
+          # build embeds public/, which is not the live UI (apps/spectre/wrangler.jsonc).
+          node apps/spectre/scripts/build-cloudflare.mjs --assets apps/spectre/live-ui --out apps/spectre/dist/entry.mjs
           cd apps/spectre && npx -y wrangler deploy
+      # Cumulus://Mail at mail.cumuluscloud.app (apps/cumulus-mail/cloudflare.config.ts, cf CLI). Its
+      # secrets (FIRMAMENT_SIGNER_KEY, NEXUS_STORE_URL, NEXUS_STORE_KEY, sign-in providers) are already on
+      # the Worker; a deploy without --secrets-file uploads none and keeps them.
+      - name: Deploy Cumulus://Mail Worker
+        working-directory: apps/cumulus-mail
+        run: |
+          set -euo pipefail
+          npx cf deploy --message "auto-deploy ${GITHUB_SHA::12}"

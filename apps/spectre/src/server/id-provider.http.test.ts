@@ -190,12 +190,78 @@ describe("Cumulus://ID product sign-in", () => {
     assert.equal(doc.issuer, "https://id.cumuluscloud.app/realms/cumulus");
     assert.deepEqual(root, doc);
     assert.equal(doc.jwks_uri, `${cid.issuer}/protocol/openid-connect/certs`);
+    assert.equal(doc.end_session_endpoint, `${cid.issuer}/protocol/openid-connect/logout`);
+    assert.equal(doc.revocation_endpoint, `${cid.issuer}/protocol/openid-connect/revoke`);
     const jwks = await (await fetch(base + "/realms/cumulus/protocol/openid-connect/certs")).text();
     assert.match(jwks, /"kid":"test-oidc"/);
     assert.doesNotMatch(jwks, /"d"/);
     const keys = JSON.parse(jwks).keys;
     assert.equal(keys[0].kty, "EC");
     assert.equal(keys[0].d, undefined);
+  });
+
+  it("publishes and reads a public key only for the token's own address", async () => {
+    const body = await throughProvider("google", "scalvs", "https://scalvs.app/keys");
+    const pub = "-----BEGIN PGP PUBLIC KEY BLOCK-----\nxsBNB\n-----END PGP PUBLIC KEY BLOCK-----\n";
+    const priv = "-----BEGIN PGP PRIVATE KEY BLOCK-----\nsecret\n-----END PGP PRIVATE KEY BLOCK-----\n";
+    const email = "ada@gmail.example";
+    const put = await fetch(base + `/api/keys/${encodeURIComponent(email)}`, {
+      method: "PUT",
+      headers: { authorization: `Bearer ${body.access_token}`, "content-type": "application/pgp-keys" },
+      body: pub,
+    });
+    assert.equal(put.status, 204);
+    const got = await fetch(base + `/api/keys/${encodeURIComponent("Ada@gmail.example")}`, { redirect: "manual" });
+    assert.equal(got.status, 200);
+    assert.match(got.headers.get("content-type") ?? "", /application\/pgp-keys/);
+    assert.equal(await got.text(), pub.trim());
+    const missing = await fetch(base + "/api/keys/missing@example.com", { redirect: "manual" });
+    assert.equal(missing.status, 404);
+    const other = await fetch(base + "/api/keys/other@example.com", {
+      method: "PUT",
+      headers: { authorization: `Bearer ${body.access_token}`, "content-type": "application/pgp-keys" },
+      body: pub,
+    });
+    assert.equal(other.status, 403);
+    const secret = await fetch(base + `/api/keys/${encodeURIComponent(email)}`, {
+      method: "PUT",
+      headers: { authorization: `Bearer ${body.access_token}`, "content-type": "application/pgp-keys" },
+      body: priv,
+    });
+    assert.equal(secret.status, 400);
+    const still = await fetch(base + `/api/keys/${encodeURIComponent(email)}`);
+    assert.equal(await still.text(), pub.trim());
+    assert.equal(still.headers.get("location"), null);
+  });
+
+  it("logout and revocation end the session the token named", async () => {
+    const body = await throughProvider("google", "cndctr", "https://cndctr.app/api/auth/callback");
+    const logout = await fetch(base + `/realms/cumulus/protocol/openid-connect/logout?${new URLSearchParams({
+      id_token_hint: body.id_token,
+      client_id: "cndctr",
+      post_logout_redirect_uri: "https://cndctr.app/bye",
+      state: "out",
+    })}`, { redirect: "manual" });
+    assert.equal(logout.status, 302);
+    const to = new URL(logout.headers.get("location")!);
+    assert.equal(to.origin + to.pathname, "https://cndctr.app/bye");
+    assert.equal(to.searchParams.get("state"), "out");
+    assert.equal((await fetch(base + "/api/id/userinfo", { headers: { authorization: `Bearer ${body.access_token}` } })).status, 401);
+
+    const again = await throughProvider("google", "cndctr", "https://cndctr.app/api/auth/callback");
+    const revoked = await fetch(base + "/api/id/revoke", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded", origin: "https://cndctr.app" },
+      body: new URLSearchParams({ token: again.access_token }).toString(),
+    });
+    assert.equal(revoked.status, 200);
+    assert.equal((await fetch(base + "/api/id/userinfo", { headers: { authorization: `Bearer ${again.access_token}` } })).status, 401);
+    const unknown = await fetch(base + "/realms/cumulus/protocol/openid-connect/revoke", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ token: "not-a-token" }).toString(),
+    });
+    assert.equal(unknown.status, 200);
   });
 
   it("serves the button pointed at the ID host", async () => {

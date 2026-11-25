@@ -7,7 +7,7 @@ import { test } from "node:test";
 import type { FabricIdentity } from "./auth.ts";
 import { FabricServiceError, touchUser } from "./service.ts";
 import { FabricStore } from "./store.ts";
-import { TeamService, parseQuery, parseReminder, type TeamEvent } from "./team.ts";
+import { TeamService, parseIceServers, parseQuery, parseReminder, type TeamEvent } from "./team.ts";
 
 const ISSUER = "https://id.cumuluscloud.app/realms/cumulus";
 function person(n: number, username: string): FabricIdentity {
@@ -343,7 +343,10 @@ test("incoming webhooks post as an app, check the token, and stop when the owner
     const reply = t.team.postWebhook(id!, token!, { text: "Rolled back", threadId: posted.messageId });
     assert.equal(t.team.getMessage(t.alice, reply.messageId).parentId, posted.messageId);
 
-    assert.throws(() => t.team.postWebhook(id!, `${token!.slice(0, -1)}A`.replace(/AA$/, "AB"), { text: "x" }), status(404));
+    // A different last character (one in sixteen tokens already ends in "A", so don't just set it to "A").
+    const wrong = `${token!.slice(0, -1)}${token!.endsWith("A") ? "B" : "A"}`;
+    assert.notEqual(wrong, token);
+    assert.throws(() => t.team.postWebhook(id!, wrong, { text: "x" }), status(404));
     assert.throws(() => t.team.postWebhook(id!, token!, { text: "  " }), status(400));
     assert.equal(t.team.webhooks(t.alice, ws.id).length, 1, "admins see every webhook");
     assert.equal(t.team.webhooks(t.bob, ws.id)[0]!.lastUsedAt !== null, true);
@@ -358,4 +361,65 @@ test("incoming webhooks post as an app, check the token, and stop when the owner
   } finally {
     t.close();
   }
+});
+
+test("huddles: join, signal only to the right person, mute, one huddle at a time, end", () => {
+  const t = setup();
+  try {
+    const ws = t.team.createWorkspace(t.alice, "Acme");
+    t.team.joinWorkspace(t.bob, ws.inviteCode);
+    t.team.joinWorkspace(t.cara, ws.inviteCode);
+    const bar = t.team.sidebar(t.alice, ws.id);
+    const general = bar.channels.find((c) => c.name === "general")!;
+    const random = bar.channels.find((c) => c.name === "random")!;
+    const secret = t.team.createChannel(t.alice, ws.id, { name: "secret", private: true, members: ["bob"] });
+
+    assert.equal(t.team.huddle(t.alice, general.id), null);
+    const started = t.team.joinHuddle(t.alice, general.id);
+    assert.deepEqual(started.people.map((p) => p.username), ["alice"]);
+    assert.deepEqual(started.iceServers, []);
+    assert.match(t.team.list(t.bob, general.id).messages.at(-1)!.text, /started a huddle/);
+    assert.equal(t.team.sidebar(t.bob, ws.id).channels.find((c) => c.id === general.id)!.huddle!.people, 1);
+    assert.throws(() => t.team.joinHuddle(t.cara, secret.id), status(404), "only people who can see the channel can join");
+
+    const joined = t.team.joinHuddle(t.bob, general.id);
+    assert.deepEqual(joined.people.map((p) => p.username), ["alice", "bob"]);
+    assert.ok(t.events.some((e) => e.event.type === "huddle" && e.event.action === "joined" && e.event.sub === t.bob.sub));
+
+    t.events.length = 0;
+    t.team.signalHuddle(t.bob, general.id, { to: t.alice.sub, data: { description: { type: "offer", sdp: "v=0 fake" } } });
+    const signal = t.events.find((e) => e.event.type === "huddle-signal")!;
+    assert.deepEqual(signal.subs, [t.alice.sub], "a signal goes only to the person it is for");
+    assert.equal(signal.event.from, t.bob.sub);
+    t.team.signalHuddle(t.alice, general.id, { to: t.bob.sub, data: { candidate: { candidate: "candidate:1 1 udp 1 192.0.2.1 5000 typ host", sdpMid: "0" } } });
+    assert.throws(() => t.team.signalHuddle(t.cara, general.id, { to: t.alice.sub, data: { candidate: null } }), status(404), "outsiders cannot signal");
+    assert.throws(() => t.team.signalHuddle(t.bob, general.id, { to: t.cara.sub, data: { candidate: null } }), status(404));
+    assert.throws(() => t.team.signalHuddle(t.bob, general.id, { to: t.alice.sub, data: { description: { type: "rollback", sdp: "" } } }), status(400));
+
+    assert.equal(t.team.updateHuddle(t.bob, general.id, { muted: true, video: true }).people.find((p) => p.username === "bob")!.muted, true);
+    assert.throws(() => t.team.updateHuddle(t.cara, general.id, { muted: true }), status(404));
+
+    // Joining another huddle leaves the first one.
+    t.team.joinHuddle(t.bob, random.id);
+    assert.deepEqual(t.team.huddle(t.alice, general.id)!.people.map((p) => p.username), ["alice"]);
+    t.advance(12 * 60_000);
+    t.team.leaveHuddle(t.alice, general.id);
+    assert.equal(t.team.huddle(t.alice, general.id), null);
+    assert.match(t.team.list(t.alice, general.id).messages.at(-1)!.text, /ended the huddle after 12 minutes/);
+    assert.equal(t.team.sidebar(t.alice, ws.id).channels.find((c) => c.id === general.id)!.huddle, null);
+    t.team.leaveHuddle(t.bob, random.id);
+  } finally {
+    t.close();
+  }
+});
+
+test("FABRIC_ICE_SERVERS parsing", () => {
+  assert.deepEqual(parseIceServers(undefined), []);
+  assert.deepEqual(parseIceServers(" "), []);
+  assert.deepEqual(parseIceServers('[{"urls":"stun:stun.example.org:3478"},{"urls":["turn:turn.example.org:3478?transport=tcp"],"username":"u","credential":"p"}]'), [
+    { urls: "stun:stun.example.org:3478" },
+    { urls: ["turn:turn.example.org:3478?transport=tcp"], username: "u", credential: "p" },
+  ]);
+  assert.throws(() => parseIceServers("{}"), /JSON list/);
+  assert.throws(() => parseIceServers('[{"urls":"https://example.org"}]'), /stun:/);
 });

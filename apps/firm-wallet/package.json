@@ -20,8 +20,8 @@
     "fake-indexeddb": "^6.2.7",
     "typescript": "^7.0.2",
     "vite": "^8.3.8",
-    "vitest": "^5.1.0",
-    "wrangler": "^4.162.0"
+    "vitest": "^5.1.1",
+    "wrangler": "^4.165.0"
   },
   "dependencies": {
     "@infinitum/conjure": "workspace:*",
@@ -33,7 +33,7 @@
     "@scure/bip39": "^2.4.0",
     "preact": "^11.2.0",
     "qrcode-generator": "^2.0.4",
-    "viem": "^2.57.19",
+    "viem": "^2.58.2",
     "@infinitum/i18n": "workspace:*"
   }
 }

@@ -23,7 +23,21 @@ Both documents name the realm issuer. JWKS is
 `https://id.cumuluscloud.app/realms/cumulus/protocol/openid-connect/certs`.
 Tokens are ES256 (or EdDSA, if that is the key that was loaded). Claims include
 `sub` (the cid), `cid`, `username`, `preferred_username`, `handle`, `email`,
-`email_verified`, `amr`, and `idp` (`google` or `passkey`).
+`email_verified`, `amr`, `idp` (`google` or `passkey`), and `sid`.
+Discovery also names `end_session_endpoint` and `revocation_endpoint`. Logout
+revokes the hinted session and the browser session, and only redirects to a
+registered client origin. Revocation answers 200 for an unknown token.
+
+## Public key directory
+
+Mail looks up OpenPGP public keys at `https://id.cumuluscloud.app/api/keys/{email}`
+(`CID_KEYS_URL` in the Mail repository). `GET` returns `application/pgp-keys` or
+404. `PUT` with `Authorization: Bearer` stores the armored public key only when
+that address is the token's mailbox or a provider-verified email on the same
+cid. A private key block is refused. The key is saved on the account record
+(the `cid` document, or the account row when `CUMULUS_STORE=postgres`). No new
+table, binding, or secret. Removing the field is the rollback; sign-in does
+not read it.
 
 ## Signing key
 
@@ -97,6 +111,24 @@ before setting `CUMULUS_ID_ISSUER` in production.
 
 Known limits: signing out everywhere at the issuer does not yet end Mail's local sessions, and
 MFA is enforced at the issuer only (a mirrored account has no local authenticator code).
+
+## Backend-only deploy (keep the live pages)
+
+`public/` in this repository is not what `https://id.cumuluscloud.app` serves today.
+`apps/spectre/live-ui/` is a byte snapshot of the pages that host returns, with
+`live-ui.manifest.json` holding each SHA-256. `scripts/live-ui.test.mjs` downloads
+those URLs again and fails if a byte changed. The Worker bundle that keeps those
+pages and ships the current API is:
+
+```sh
+node apps/spectre/scripts/build-cloudflare.mjs --assets apps/spectre/live-ui --out apps/spectre/dist/entry.mjs
+cd apps/spectre && npx wrangler deploy
+```
+
+Do not run the build without `--assets`: that embeds `public/` and replaces the live pages.
+`/id/bar.js` is in `public/` and is HTTP 404 on the host, so it is not in `live-ui/`.
+`/robots.txt` is a content-signal document the app does not reference; it is recorded
+in the manifest and is not embedded. No Worker secret is changed by this build.
 
 ## Deploy cumulus-id
 

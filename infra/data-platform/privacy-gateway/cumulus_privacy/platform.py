@@ -587,11 +587,14 @@ class Eraser:
     erases them from every product, for when a person deletes their Cumulus ID.
     """
 
-    def __init__(self, redactor: Redactor, index: EventIndex) -> None:
-        self.redactor, self.index = redactor, index
+    def __init__(self, redactor: Redactor, index: EventIndex, documents: Any | None = None) -> None:
+        self.redactor, self.index, self.documents = redactor, index, documents
 
     def erase(self, product: str | None, cid: Any) -> dict[str, int]:
         if not isinstance(cid, str) or not cid.strip():
             raise _bad("cid is required")
         pseudonym = self.redactor.pseudonym("cid", cid.strip(), Destination.ANALYTICS)
-        return {"deleted": self.index.erase(pseudonym, product)}
+        deleted = self.index.erase(pseudonym, product)
+        if self.documents is not None:  # documents they own; they are also dropped from viewer lists
+            deleted += self.documents.erase(pseudonym, product)
+        return {"deleted": deleted}

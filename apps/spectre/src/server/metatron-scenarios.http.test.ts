@@ -167,4 +167,58 @@ describe("METATRON¹⁰⁰ scenarios, forecasts and signals over HTTP", () => {
     assert.ok(Array.isArray(s.body.notable));
     assert.ok(s.body.bookings === null || s.body.bookings.point.length === 8);
   });
+
+  it("saves scenarios per workspace, runs them by id, and keeps a Firmament trail", async () => {
+    assert.equal((await call("GET", "/api/metatron/scenarios")).status, 401);
+
+    // Start from a template; the name defaults to the template's title.
+    const saved = await call("POST", "/api/metatron/scenarios", { templateId: "supply-delay" }, cookie);
+    assert.equal(saved.status, 200, JSON.stringify(saved.body));
+    assert.match(saved.body.id, /^sc_/);
+    assert.equal(saved.body.templateId, "supply-delay");
+    assert.equal(saved.body.interventions.length, 3);
+    const id = saved.body.id as string;
+
+    // A hand-written model must pass the engine's checks before it is kept.
+    const bad = await call("POST", "/api/metatron/scenarios", { name: "Broken", model: { steps: 0, state: {}, update: {} } }, cookie);
+    assert.equal(bad.status, 400);
+    assert.match(bad.body.error, /steps/);
+    assert.equal((await call("POST", "/api/metatron/scenarios", { model: { steps: 3, state: { x: 1 }, update: { x: "x + 1" } } }, cookie)).status, 400, "a name is required");
+    const own = await call("POST", "/api/metatron/scenarios", { name: "  Cash in 3 weeks ", model: { steps: 3, stepUnit: "week", state: { cash: 100 }, update: { cash: "cash - 10" } } }, cookie);
+    assert.equal(own.status, 200, JSON.stringify(own.body));
+    assert.equal(own.body.name, "Cash in 3 weeks");
+
+    const list = await call("GET", "/api/metatron/scenarios", undefined, cookie);
+    assert.deepEqual(list.body.scenarios.map((x: { name: string }) => x.name).sort(), ["Cash in 3 weeks", saved.body.name].sort());
+    assert.equal(list.body.scenarios.find((x: { id: string }) => x.id === id).interventions, 3);
+
+    // Run a saved scenario by id: same answer as the template with the same seed.
+    const byId = await call("POST", "/api/metatron/compare", { scenarioId: id, runs: 100, seed: 3 }, cookie);
+    const byTpl = await call("POST", "/api/metatron/compare", { templateId: "supply-delay", runs: 100, seed: 3 }, cookie);
+    assert.equal(byId.status, 200, JSON.stringify(byId.body));
+    assert.deepEqual(byId.body.baseline, byTpl.body.baseline);
+    const sim = await call("POST", "/api/metatron/simulate", { scenarioId: own.body.id, runs: 50, seed: 1 }, cookie);
+    assert.equal(sim.status, 200, JSON.stringify(sim.body));
+
+    // Rename, then a model the saved interventions no longer fit is refused.
+    const renamed = await call("PATCH", `/api/metatron/scenarios/${id}`, { name: "Supplier slips" }, cookie);
+    assert.equal(renamed.status, 200, JSON.stringify(renamed.body));
+    assert.equal(renamed.body.name, "Supplier slips");
+    const misfit = await call("PATCH", `/api/metatron/scenarios/${id}`, { model: { steps: 3, state: { y: 1 }, update: { y: "y" } } }, cookie);
+    assert.equal(misfit.status, 400, JSON.stringify(misfit.body));
+    assert.equal((await call("GET", `/api/metatron/scenarios/${id}`, undefined, cookie)).body.name, "Supplier slips");
+
+    // Another workspace can't see, run, change or delete it.
+    const other = await signUp("grace");
+    assert.deepEqual((await call("GET", "/api/metatron/scenarios", undefined, other.cookie)).body.scenarios, []);
+    assert.equal((await call("GET", `/api/metatron/scenarios/${id}`, undefined, other.cookie)).status, 404);
+    assert.equal((await call("POST", "/api/metatron/compare", { scenarioId: id }, other.cookie)).status, 404);
+    assert.equal((await call("PATCH", `/api/metatron/scenarios/${id}`, { name: "x" }, other.cookie)).status, 404);
+    assert.equal((await call("DELETE", `/api/metatron/scenarios/${id}`, undefined, other.cookie)).status, 404);
+
+    // Delete, and the trail shows created, updated and deleted.
+    assert.equal((await call("DELETE", `/api/metatron/scenarios/${id}`, undefined, cookie)).status, 200);
+    assert.equal((await call("GET", `/api/metatron/scenarios/${id}`, undefined, cookie)).status, 404);
+    assert.deepEqual((await crm.history("scenario", id)).map((e) => (e.payload as { event: string }).event), ["created", "updated", "deleted"]);
+  });
 });

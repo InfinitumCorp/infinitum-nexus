@@ -70,18 +70,28 @@ CREATE INDEX IF NOT EXISTS mail_outbound_open ON ${s}.mail_outbound (seq) WHERE 
 }
 
 export async function migrateMail(db: MailQueryable, schema = "public"): Promise<void> {
-  await db.query(`BEGIN; SELECT pg_advisory_xact_lock(hashtext('cumulus-mail-migrate')); ${mailSchemaSql(schema)} COMMIT;`);
+  // One message, no BEGIN/COMMIT: one implicit transaction, rolled back on an error. Two servers starting
+  // at once can still both try to create a table (the advisory lock doesn't refresh what the rest of the
+  // message sees), so a "already exists" error is retried once.
+  const sql = `SELECT pg_advisory_xact_lock(hashtext('cumulus-mail-migrate')); ${mailSchemaSql(schema)}`;
+  try {
+    await db.query(sql);
+  } catch (err) {
+    if (!["23505", "42P06", "42P07", "42710"].includes((err as { code?: string } | null)?.code ?? "")) throw err;
+    await db.query(sql);
+  }
 }
 
 export class PgMailRepository implements MailRepository {
   readonly #db: MailQueryable;
   readonly #s: string;
   readonly #tunnel?: CumulusTunnel;
-  /** Each mailbox's messages as last read or written here: position and stored JSON, by message id. */
-  readonly #seen = new Map<string, Map<string, { ord: number; json: string }>>();
-
-  /** Accounts whose tunnel keys are known to be the stored ones. */
-  readonly #keysStored = new Set<string>();
+  /**
+   * For each mailbox object this repository handed out, its messages as read (position and JSON, by
+   * id), so writing it back touches only what changed. Kept per object, not per account: two requests
+   * holding their own copies of one mailbox never compare against each other's.
+   */
+  readonly #seen = new WeakMap<object, Map<string, { ord: number; json: string }>>();
 
   constructor(options: { db: MailQueryable; schema?: string; tunnel?: CumulusTunnel }) {
     const schema = options.schema ?? "public";
@@ -95,11 +105,12 @@ export class PgMailRepository implements MailRepository {
    * Make the tunnel hold the account's stored keys before anything is sealed or opened for it: adopt
    * them if they're stored, store this server's if it made them first. Keys are wrapped with the master
    * key, so they're safe at rest. If two servers make keys for one account at once, the first stored
-   * wins and the other adopts it.
+   * wins and the other adopts it. Not cached: a row this transaction wrote (and may still roll back)
+   * reads like a committed one, so "stored" is checked every time.
    */
   async #syncKeys(cid: string): Promise<void> {
     const tunnel = this.#tunnel;
-    if (!tunnel || this.#keysStored.has(cid)) return;
+    if (!tunnel) return;
     const read = async () => (await this.#db.query(`SELECT data FROM ${this.#s}.mail_tunnel_keys WHERE cid = $1`, [cid])).rows[0]?.data as StoredTunnelKeys | undefined;
     let stored = await read();
     if (!stored && tunnel.has(cid)) {
@@ -108,11 +119,11 @@ export class PgMailRepository implements MailRepository {
         `INSERT INTO ${this.#s}.mail_tunnel_keys (cid, data) VALUES ($1, $2) ON CONFLICT (cid) DO NOTHING RETURNING cid`,
         [cid, JSON.stringify(mine)],
       );
-      stored = rows.length ? mine : await read();
+      if (rows.length) return;
+      stored = await read();
     }
     if (!stored) return; // nobody has keys yet; they're stored with the account's first write
     tunnel.adopt(stored);
-    this.#keysStored.add(cid);
   }
 
   async mailbox(cid: string): Promise<StoredMailbox | undefined> {
@@ -129,7 +140,7 @@ export class PgMailRepository implements MailRepository {
     // Remember each message as the PostOffice sees it (opened), to write back only what changes.
     const seen = new Map<string, { ord: number; json: string }>();
     if (fromRows) stored.rows.forEach((r, i) => seen.set(r.id, { ord: Number(r.ord), json: JSON.stringify(messages[i]) }));
-    this.#seen.set(cid, seen);
+    this.#seen.set(box, seen);
     return box;
   }
 
@@ -145,7 +156,8 @@ export class PgMailRepository implements MailRepository {
       `INSERT INTO ${this.#s}.mail_mailboxes (cid, data) VALUES ($1, $2) ON CONFLICT (cid) DO UPDATE SET data = EXCLUDED.data`,
       [box.cid, JSON.stringify(meta)],
     );
-    const before = this.#seen.get(box.cid);
+    // A mailbox not read here (new, or a copy) replaces all of the account's message rows.
+    const before = this.#seen.get(box);
     const after = new Map<string, { ord: number; json: string }>();
     // Newest first in the list, so positions count up from the oldest. A message keeps its position
     // while it is still in order, so delivering one new message writes one row.
@@ -174,7 +186,41 @@ export class PgMailRepository implements MailRepository {
     } else {
       await this.#db.query(`DELETE FROM ${this.#s}.mail_messages WHERE cid = $1 AND NOT (id = ANY($2::text[]))`, [box.cid, [...after.keys()]]);
     }
-    this.#seen.set(box.cid, after);
+    this.#seen.set(box, after);
+  }
+
+  /** Without reading or locking the mailbox (every page's account menu asks). */
+  async hasMailbox(cid: string): Promise<boolean> {
+    const { rows } = await this.#db.query(`SELECT 1 FROM ${this.#s}.mail_mailboxes WHERE cid = $1`, [cid]);
+    return rows.length > 0;
+  }
+
+  /** Counted in the database: no message is read or opened. A mailbox saved before messages had rows is counted from its row. */
+  async unreadThreads(cid: string): Promise<number> {
+    const { rows } = await this.#db.query(
+      `SELECT count(DISTINCT thread_id)::int AS n FROM ${this.#s}.mail_messages WHERE cid = $1 AND folder = 'inbox' AND (data->>'unread')::boolean`,
+      [cid],
+    );
+    if (rows[0].n > 0) return rows[0].n;
+    const legacy = await this.#db.query(
+      `SELECT count(DISTINCT m->>'threadId')::int AS n FROM ${this.#s}.mail_mailboxes, jsonb_array_elements(coalesce(data->'messages', '[]')) m
+        WHERE cid = $1 AND m->>'folder' = 'inbox' AND (m->>'unread')::boolean`,
+      [cid],
+    );
+    return legacy.rows[0].n;
+  }
+
+  /** Scheduled drafts due by `now`, from the message rows (and mailboxes still in the old layout), without locks. */
+  async dueDraftCids(now: string): Promise<string[]> {
+    const { rows } = await this.#db.query(
+      `SELECT DISTINCT cid FROM ${this.#s}.mail_messages
+        WHERE folder = 'drafts' AND data->>'sendAt' IS NOT NULL AND (data->>'sendAt')::timestamptz <= $1::timestamptz
+       UNION
+       SELECT DISTINCT b.cid FROM ${this.#s}.mail_mailboxes b, jsonb_array_elements(coalesce(b.data->'messages', '[]')) m
+        WHERE m->>'folder' = 'drafts' AND m->>'sendAt' IS NOT NULL AND (m->>'sendAt')::timestamptz <= $1::timestamptz`,
+      [now],
+    );
+    return rows.map((r) => r.cid as string);
   }
 
   async mailboxCids(): Promise<string[]> {

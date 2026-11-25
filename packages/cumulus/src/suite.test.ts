@@ -62,6 +62,18 @@ describe("every Cumulus://ID comes with Mail, Cloud and a FIRM Wallet", () => {
     assert.equal(await suite.mail.addAlias(account.cid, "alex.press@cumuluscloud.app"), true);
   });
 
+  it("an alias can't hold a future username: that sign-up is refused, and the name's mail stays with no one else", async () => {
+    const { suite } = setup();
+    const { account: alice } = await signUp(suite, "alice");
+    assert.equal(await suite.mail.addAlias(alice.cid, "bobby@cumuluscloud.app"), true);
+    await assert.rejects(suite.cid.createAccount({ username: "bobby" }), (e: unknown) => e instanceof CidError && e.code === "taken");
+    await assert.rejects(suite.cid.createAccount({ username: "Bobby " }), (e: unknown) => e instanceof CidError && e.code === "taken");
+    // A name that's free in both places still signs up, with its mailbox and wallet.
+    const { account: bob } = await signUp(suite, "bob");
+    assert.equal(await suite.mail.resolve("bob@cumuluscloud.app"), bob.cid);
+    assert.ok((await suite.summary(bob.cid)).mail);
+  });
+
   it("backfills CIDs created before the suite was wired in", async () => {
     const { suite } = setup();
     const { account } = await signUp(suite, "old");
@@ -158,6 +170,25 @@ describe("shared 15 GB free tier", () => {
     await assert.rejects(suite.mail.send(a.cid, { to: "alex@cumuluscloud.app", subject: "Big", body: "x".repeat(20_000_000) }), (e: unknown) => e instanceof MailError && e.code === "quota_exceeded");
   });
 
+  it("mailing yourself and someone else with room for one copy only: refused before anyone is charged", async () => {
+    const { suite } = setup();
+    const a = (await signUp(suite, "nearfull")).account;
+    const b = (await signUp(suite, "friend")).account;
+    const body = "x".repeat(1_000_000);
+    const free = (await suite.quota.usage(a.cid)).limitBytes - (await suite.quota.usage(a.cid)).usedBytes;
+    await suite.cloud.put("filler.bin", a.cid, free - 1_500_000); // room for one copy of the message, not two
+    const before = { a: (await suite.quota.usage(a.cid)).usedBytes, b: (await suite.quota.usage(b.cid)).usedBytes };
+    await assert.rejects(
+      suite.mail.send(a.cid, { to: "nearfull@cumuluscloud.app, friend@cumuluscloud.app", subject: "Both", body }),
+      (e: unknown) => e instanceof MailError && e.code === "quota_exceeded",
+    );
+    assert.deepEqual({ a: (await suite.quota.usage(a.cid)).usedBytes, b: (await suite.quota.usage(b.cid)).usedBytes }, before, "nothing charged");
+    assert.equal((await inbox(suite, b.cid)).filter((m) => m.subject === "Both").length, 0);
+    // To the friend alone it fits.
+    await suite.mail.send(a.cid, { to: "friend@cumuluscloud.app", subject: "Just you", body });
+    assert.equal((await inbox(suite, b.cid)).filter((m) => m.subject === "Just you").length, 1);
+  });
+
   it("sharing a Cloud file mails the recipient", async () => {
     const { suite } = setup();
     const a = (await signUp(suite, "alex")).account;
@@ -211,6 +242,19 @@ describe("FIRM Wallet with Mail", () => {
     assert.equal((await suite.wallets.balances(b.cid)).FIRM, "5");
     assert.equal((await inbox(suite, b.cid)).filter((m) => m.system === "wallet").length, 2);
     assert.ok((await inbox(suite, a.cid)).some((m) => m.subject.startsWith("You sent 3 FIRM")));
+  });
+
+  it("a payment from a wallet with no mailbox goes through once and says so, instead of failing after the money moved", async () => {
+    const { suite } = setup();
+    const b = (await signUp(suite, "payee")).account;
+    const payer = "cid_00000000-0000-4000-8000-000000000001"; // a wallet whose account has no mailbox
+    const wallet = await suite.wallets.open(payer);
+    await suite.wallets.credit(payer, "FIRM", "10", "Settlement");
+    const tx = await suite.pay(payer, "payee@cumuluscloud.app", "FIRM", "4");
+    assert.equal(tx.amount, "4");
+    assert.equal((await suite.wallets.balances(payer)).FIRM, "6", "paid once");
+    const receipt = (await inbox(suite, b.cid)).find((m) => m.system === "wallet");
+    assert.match(receipt!.subject, new RegExp(`^${wallet.address} sent you 4 FIRM`));
   });
 });
 

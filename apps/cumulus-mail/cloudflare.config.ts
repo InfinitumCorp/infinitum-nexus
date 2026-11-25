@@ -38,6 +38,16 @@ export default defineConfig({
       // Mirrors for networks that throttle Cloudflare (Russian ISPs): ru. is AWS (also throttled in
       // Russia since 2026-11); ru2. is Firebase Hosting -> Cloud Run (mirror/), which gets through.
       MAIL_EXTRA_ORIGINS: bindings.text(`https://ru.${host},https://ru2.${host}`),
+      // Cumulus://ID, Mail, FIRM Wallet, the storage quota and Drive metadata live as rows in Supabase,
+      // reached through nexus-store (apps/spectre/src/server/cid-store.ts, docs/plans/relational-storage.md).
+      // supabase/migrations 20261115 through 20261124 are applied and nexus-store is redeployed (2026-11-20).
+      // The first request claims the rows: each document is copied in once, under a lock (the ID rows
+      // already match the `cid` document, so that one is only recorded). Nothing else writes these
+      // documents: id.cumuluscloud.app keeps its own Durable Object, and +SPCTR isn't deployed on Vercel.
+      // Rollback: docs/plans/relational-storage.md ("Cutover runbook"), then set "document" and no rows.
+      // Mail here is unsealed (no master key), which the gateway path requires.
+      CUMULUS_STORE: bindings.text("gateway"),
+      CUMULUS_ROWS: bindings.text("mail,wallet,quota,drive"),
       // Infinitum Search (POST /api/web-search) on VEIL's own engine; needs no key.
       VEIL_SEARCH_URL: bindings.text("https://infinitumveil.app/api/search"),
       FIRMAMENT_SIGNER_KEY: bindings.secret(),

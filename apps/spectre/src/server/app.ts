@@ -4,7 +4,7 @@ import { serveNodeLabyrinth, serveNodeLabyrinthProxy } from "@infinitum/lbrnth";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { readFile } from "node:fs/promises";
 import { join, normalize, extname } from "node:path";
-import { CidService, CidError, cumulusCorsHeaders, loadOidcSigner, oidcDiscovery, registerProductIdp, safeProductReturn, type Account, type OidcSigner } from "@infinitum/cid";
+import { CidService, CidError, cumulusCorsHeaders, IdRawResponse, loadOidcSigner, oidcDiscovery, registerProductIdp, safeProductReturn, type Account, type OidcSigner } from "@infinitum/cid";
 import type { CumulusSuite } from "@infinitum/cumulus";
 import { SpectreCRM, SpectreError } from "../core/crm.ts";
 import { scoreDealMetatron as scoreDeal, learnedContextFor } from "../core/intelligence-metatron.ts";
@@ -189,14 +189,16 @@ async function readBody(req: IncomingMessage): Promise<Record<string, any>> {
     chunks.push(c as Buffer);
   }
   if (!chunks.length) return {};
-  if (String(req.headers["content-type"] ?? "").startsWith("application/x-www-form-urlencoded")) {
-    return Object.fromEntries(new URLSearchParams(Buffer.concat(chunks).toString("utf8")));
-  }
+  const text = Buffer.concat(chunks).toString("utf8");
+  const type = String(req.headers["content-type"] ?? "");
+  if (type.startsWith("application/x-www-form-urlencoded")) return Object.fromEntries(new URLSearchParams(text));
+  if (type.startsWith("application/pgp-keys")) return { armored: text };
   try {
-    const parsed = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+    const parsed = JSON.parse(text);
     if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) throw new Error();
     return parsed;
   } catch {
+    if (text.includes("-----BEGIN PGP PUBLIC KEY BLOCK-----")) return { armored: text };
     throw new HttpError(400, "Body must be a JSON object");
   }
 }
@@ -303,9 +305,13 @@ export function createApp(deps: AppDeps) {
   }, false);
 
   route("POST", "/api/auth/signout", async (ctx) => {
-    const session = cid.store.sessions.get(ctx.user!.sessionId);
+    // Through the repository, so it works with ID in rows too (the in-memory store is empty there).
+    const session = await cid.repo.session(ctx.user!.sessionId);
     const idTokenHint = session?.idTokenHint;
-    if (session) delete session.idTokenHint;
+    if (session && idTokenHint) {
+      const { idTokenHint: _used, ...rest } = session;
+      await cid.repo.putSession(rest); // the hint is used once, here, and not kept on the revoked session
+    }
     await cid.revokeSession(ctx.user!.account.cid, ctx.user!.sessionId);
     ctx.res.setHeader("Set-Cookie", `${COOKIE}=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0`);
     if (!idClient) return { ok: true };
@@ -421,6 +427,9 @@ export function createApp(deps: AppDeps) {
     Redirect,
     HttpError,
     signer: oidc,
+    clearBrowserSession: (ctx) => {
+      ctx.res.setHeader("Set-Cookie", `${COOKIE}=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0${domainAttr}${deps.secureCookies ? "; Secure" : ""}`);
+    },
     // CID_DIRECTORY_KEY_SHA256 (Russia host) plus CID_DIRECTORY_KEY_SHA256_US (US host, lbrnth-host-us).
     labyrinthDirectoryKeySha256: (deps.labyrinthDirectoryKeySha256 === undefined
       ? [process.env.CID_DIRECTORY_KEY_SHA256, process.env.CID_DIRECTORY_KEY_SHA256_US].filter(Boolean).join(",")
@@ -1418,9 +1427,10 @@ export function createApp(deps: AppDeps) {
       };
       const result = deps.transaction ? await deps.transaction(run) : await run();
       if (MUTATING.has(req.method!) || result instanceof Redirect) deps.onChange?.();
-      if (result instanceof RawResponse) {
+      if (result instanceof IdRawResponse || result instanceof RawResponse) {
         res.writeHead(result.status, { "Content-Type": result.contentType, "Cache-Control": "no-store" });
-        res.end(result.body);
+        if (result.body) res.end(result.body);
+        else res.end();
         return;
       }
       if (result instanceof Redirect) {

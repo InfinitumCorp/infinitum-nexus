@@ -1,6 +1,6 @@
 // A tiny stand-in for Cloudflare D1 on Node's built-in SQLite, for tests and local crawls.
 import { DatabaseSync } from "node:sqlite";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 
 class Stmt {
   constructor(db, sql, args = []) { this.db = db; this.sql = sql; this.args = args.map((a) => (a === undefined ? null : a)); }
@@ -12,7 +12,8 @@ class Stmt {
 
 export function openD1(path = ":memory:") {
   const db = new DatabaseSync(path);
-  db.exec(readFileSync(new URL("../migrations/0001_init.sql", import.meta.url), "utf8"));
+  const dir = new URL("../migrations/", import.meta.url);
+  for (const f of readdirSync(dir).filter((n) => n.endsWith(".sql")).sort()) db.exec(readFileSync(new URL(f, dir), "utf8"));
   return {
     raw: db,
     prepare: (sql) => new Stmt(db, sql),

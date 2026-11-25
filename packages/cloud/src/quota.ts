@@ -42,6 +42,8 @@ export interface QuotaRepository {
   extraGb(cid: string): Promise<number | undefined>;
   /** 0 or less removes the extra storage. */
   setExtraGb(cid: string, gb: number): Promise<void>;
+  /** Optional: usage for display, without the lock `usage` takes for a charge. */
+  peekUsage?(cid: string): Promise<Record<QuotaProduct, number> | undefined>;
 }
 
 /** Today's QuotaStore Maps, snapshot format unchanged. */
@@ -96,8 +98,9 @@ export class StorageQuota {
     return { mail: 0, cloud: 0, ...(await this.repo.usage(cid)) };
   }
 
+  /** The meter, for display and for a quick "will it fit" check. charge() checks again under its lock. */
   async usage(cid: string): Promise<QuotaUsage> {
-    const row = await this.row(cid);
+    const row = this.repo.peekUsage ? { mail: 0, cloud: 0, ...(await this.repo.peekUsage(cid)) } : await this.row(cid);
     const usedBytes = row.mail + row.cloud;
     const limitBytes = await this.limitBytes(cid);
     const pct = Math.min(100, (usedBytes / limitBytes) * 100);

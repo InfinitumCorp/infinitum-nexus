@@ -42,7 +42,7 @@ interface Call {
   req: IncomingMessage;
   res: ServerResponse;
 }
-interface Route { method: string; pattern: RegExp; handler: Handler; status?: number; limit?: number; raw?: boolean }
+interface Route { method: string; pattern: RegExp; handler: Handler; status?: number; limit?: number; raw?: boolean; bucket?: { name: string; max: number } }
 
 /** Fan-out of live events to connected browsers. */
 export class TeamHub {
@@ -111,6 +111,7 @@ export function teamRoutes(): Route[] {
     r("GET", `/workspaces/${ID}/groups`, ({ team, me, params }) => ({ groups: team.groups(me, params[0]!) })),
     r("POST", `/workspaces/${ID}/groups`, ({ team, me, params, body }) => team.saveGroup(me, params[0]!, body)),
     r("DELETE", `/workspaces/${ID}/groups/${NAME}`, ({ team, me, params }) => team.deleteGroup(me, params[0]!, params[1]!)),
+    r("GET", `/workspaces/${ID}/webhooks`, ({ team, me, params }) => ({ webhooks: team.webhooks(me, params[0]!) })),
     r("GET", `/workspaces/${ID}/scheduled`, ({ team, me, params }) => ({ scheduled: team.scheduledList(me, params[0]!) })),
     r("GET", `/workspaces/${ID}/reminders`, ({ team, me, params }) => ({ reminders: team.reminders(me, params[0]!) })),
     r("POST", `/workspaces/${ID}/reminders`, ({ team, me, params, body }) => team.remind(me, params[0]!, body.text, body.at), { status: 201 }),
@@ -141,6 +142,13 @@ export function teamRoutes(): Route[] {
     r("PUT", `/channels/${ID}/canvas`, ({ team, me, params, body }) => team.setCanvas(me, params[0]!, body.text)),
     r("POST", `/channels/${ID}/bookmarks`, ({ team, me, params, body }) => team.addBookmark(me, params[0]!, body), { status: 201 }),
     r("POST", `/channels/${ID}/files`, ({ team, me, params, body }) => team.upload(me, params[0]!, body), { status: 201, limit: FILE_BODY_LIMIT }),
+    r("POST", `/channels/${ID}/webhooks`, ({ team, me, params, body }) => team.createWebhook(me, params[0]!, body), { status: 201 }),
+    r("GET", `/channels/${ID}/huddle`, ({ team, me, params }) => ({ huddle: team.huddle(me, params[0]!) })),
+    r("POST", `/channels/${ID}/huddle/join`, ({ team, me, params }) => team.joinHuddle(me, params[0]!)),
+    r("POST", `/channels/${ID}/huddle/leave`, ({ team, me, params }) => team.leaveHuddle(me, params[0]!)),
+    r("PUT", `/channels/${ID}/huddle`, ({ team, me, params, body }) => team.updateHuddle(me, params[0]!, body)),
+    r("POST", `/channels/${ID}/huddle/signal`, ({ team, me, params, body }) => team.signalHuddle(me, params[0]!, body), { bucket: { name: "signal", max: 1200 } }),
+    r("POST", `/channels/${ID}/polls`, ({ team, me, params, body }) => team.createPoll(me, params[0]!, body), { status: 201 }),
     r("POST", `/channels/${ID}/schedule`, ({ team, me, params, body }) => team.schedule(me, params[0]!, body), { status: 201 }),
     r("POST", `/channels/${ID}/typing`, ({ team, me, params, body }) => team.typing(me, params[0]!, typeof body.parentId === "string" ? body.parentId : null)),
 
@@ -151,6 +159,8 @@ export function teamRoutes(): Route[] {
     r("POST", `/messages/${ID}/reactions`, ({ team, me, params, body }) => ({ reactions: team.react(me, params[0]!, body.emoji, typeof body.on === "boolean" ? body.on : undefined) })),
     r("PUT", `/messages/${ID}/pin`, ({ team, me, params, body }) => team.pin(me, params[0]!, body.pinned !== false)),
     r("PUT", `/messages/${ID}/save`, ({ team, me, params, body }) => team.save(me, params[0]!, body)),
+    r("POST", `/messages/${ID}/vote`, ({ team, me, params, body }) => team.vote(me, params[0]!, body.choice, typeof body.on === "boolean" ? body.on : undefined)),
+    r("POST", `/messages/${ID}/close`, ({ team, me, params }) => team.closePoll(me, params[0]!)),
 
     r("DELETE", `/bookmarks/${ID}`, ({ team, me, params }) => team.removeBookmark(me, params[0]!)),
     r("GET", `/files/${ID}`, ({ team, me, params, query, res, security }) => {
@@ -165,6 +175,7 @@ export function teamRoutes(): Route[] {
       });
       res.end(file.data);
     }, { raw: true }),
+    r("DELETE", `/webhooks/${ID}`, ({ team, me, params }) => team.deleteWebhook(me, params[0]!)),
     r("DELETE", `/scheduled/${ID}`, ({ team, me, params }) => team.cancelScheduled(me, params[0]!)),
     r("PATCH", `/reminders/${ID}`, ({ team, me, params, body }) => team.updateReminder(me, params[0]!, body)),
     r("DELETE", `/reminders/${ID}`, ({ team, me, params }) => team.deleteReminder(me, params[0]!)),
@@ -185,6 +196,18 @@ export async function handleTeam(req: IncomingMessage, res: ServerResponse, url:
     return true;
   }
 
+  // Incoming webhooks: called by other servers, so no session and no Origin check. The token is the credential.
+  const hook = /^\/api\/team\/hooks\/([0-9a-fA-F-]{36})\/([A-Za-z0-9_-]{43})$/.exec(path);
+  if (hook) {
+    if (method !== "POST") throw new FabricServiceError(405, "method not allowed");
+    if (!context.allow(`hook:${hook[1]!.toLowerCase()}`, 60, 60_000)) throw new FabricServiceError(429, "too many requests");
+    const parsed = await context.readJson(req, BODY_LIMIT);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new FabricServiceError(400, "bad request");
+    const body = parsed as Record<string, unknown>;
+    context.sendJson(res, 200, context.team.postWebhook(hook[1]!, hook[2]!, { text: body.text, threadId: body.threadId ?? body.thread_id }));
+    return true;
+  }
+
   let matchedPath = false;
   for (const route of ROUTES) {
     const m = route.pattern.exec(path);
@@ -198,7 +221,8 @@ export async function handleTeam(req: IncomingMessage, res: ServerResponse, url:
     if (method !== "GET") {
       context.assertMutation(req, actor);
       const isFile = route.limit !== undefined;
-      if (!context.allow(`${isFile ? "file" : "team"}:${me.sub}`, isFile ? 30 : 300, 60_000)) throw new FabricServiceError(429, "too many requests");
+      const bucket = route.bucket ?? (isFile ? { name: "file", max: 30 } : { name: "team", max: 300 });
+      if (!context.allow(`${bucket.name}:${me.sub}`, bucket.max, 60_000)) throw new FabricServiceError(429, "too many requests");
       if (method !== "DELETE" || req.headers["content-type"]) {
         const parsed = req.headers["content-length"] === "0" && method === "DELETE" ? {} : await context.readJson(req, route.limit ?? BODY_LIMIT);
         if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new FabricServiceError(400, "bad request");

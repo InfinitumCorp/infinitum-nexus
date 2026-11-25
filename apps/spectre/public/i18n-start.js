@@ -4,7 +4,22 @@
 import { startI18n } from "/i18n.js";
 import catalogs from "/i18n-catalogs.js";
 
+// The menu lives in the sidebar's #lang-switch slot (inside the ☰ menu on phones), so it
+// never sits over the dashboard. Screens without the sidebar (sign-in, booking) keep the
+// small corner float, and body.lang-floating pads the page so it covers nothing there.
 const slot = document.createElement("div");
-slot.className = "lang-float";
-document.body.append(slot);
 startI18n({ catalogs, switcher: slot });
+
+function place() {
+  const home = document.getElementById("lang-switch");
+  if (home) {
+    if (slot.parentElement !== home) home.append(slot);
+    slot.className = "";
+  } else if (slot.parentElement !== document.body) {
+    slot.className = "lang-float";
+    document.body.append(slot);
+  }
+  document.body.classList.toggle("lang-floating", !home);
+}
+place();
+new MutationObserver(place).observe(document.getElementById("root") ?? document.body, { childList: true, subtree: true });

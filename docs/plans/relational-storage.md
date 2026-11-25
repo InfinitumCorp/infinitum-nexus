@@ -1,9 +1,12 @@
 # Plan: relational storage for Cumulus://ID, Mail, Wallet and Quota
 
-Status: proposal. Nothing here is implemented yet. One decision is needed before work starts (see
-[Decision needed](#decision-needed)).
+Status: built (2026-11-13; Drive and the safe first-request claim added 2026-11-18). Every store,
+Cumulus://Drive included, has a repository with Postgres and gateway implementations; the switches are
+settings (`CUMULUS_STORE`, `CUMULUS_ROWS`) that are off until set. Nothing is switched on in production:
+the Supabase migrations `20261115`–`20261124` are applied (2026-11-20); Mail switches to rows with its next deploy. What is live and what
+still needs a person is in the Status section below. The original proposal follows it.
 
-## Status (2026-11-13)
+## Status (2026-11-18)
 
 Decided: **Supabase for the US, Yandex for Russia.** Postgres hosts don't need a database password
 anywhere: US products reach Supabase through the `nexus-store` edge function they already use
@@ -23,10 +26,26 @@ local socket with peer authentication.
 | Storage quota repository | #204 |
 | Storage quota on Postgres (no overspend under concurrency) | #207 |
 | Mail step 1: MailRepository (mailbox as the unit, async PostOffice, one read and one write per mailbox per call) | #211 |
-| Mail on Postgres: PgMailRepository (mailbox rows sealed at rest, row locks so concurrent deliveries are kept, SKIP LOCKED outbound claims) | This PR |
+| Mail on Postgres: PgMailRepository (mailbox rows sealed at rest, row locks so concurrent deliveries are kept, SKIP LOCKED outbound claims) | #212 |
 | Mail step 2 on Postgres: one row per message (only changed messages written, each sealed at write time), outbound subject and body sealed to the sender | #213 |
-| Tunnel keys as rows (`mail_tunnel_keys`, wrapped with the master key; servers adopt the first stored keys) | This PR |
-| Message paging (reads still load a whole mailbox) | Not started |
+| Tunnel keys as rows (`mail_tunnel_keys`, wrapped with the master key; servers adopt the first stored keys) | #214 |
+| `CUMULUS_ROWS=mail,wallet,quota` (with `CUMULUS_STORE=postgres`): those products on rows in the same request transaction, their documents no longer loaded; `packages/cumulus/src/rows-cli.ts` copies and verifies the documents first | #220 |
+| `CUMULUS_ROWS=wallet,quota` with `CUMULUS_STORE=gateway` (Supabase through nexus-store, migration `20261115_cumulus_rows_wallet_quota.sql`; no edge function change). Also fixes a race in the row writes: two servers creating the same key at once both passed the "doesn't exist yet" check | #221 |
+| `CUMULUS_ROWS=mail` with `CUMULUS_STORE=gateway` (migration `20261116_cumulus_rows_mail.sql`): mailboxes, messages, addresses and outbound mail through nexus-store; a mailbox version makes concurrent changes re-run; unsealed (hosts with a mail master key use `CUMULUS_STORE=postgres`) | #223 |
+| Single server (`main.ts`, the Russia issuer): each request in its own Postgres transaction, and `CUMULUS_ROWS=mail,wallet,quota` with a verified first-start copy of mail.json (opened with the master key, sealed again in the table), wallet.json and quota.json | #225 |
+| Postgres wallet and quota: lock the person, not only the row (a first upload or first wallet can't race) | #222 |
+| Showing a balance, the storage meter, the unread count, or whether there is a mailbox takes no lock and loads no mailbox (Postgres and gateway) | #226, #227, #228 |
+| A request Postgres ended to break a deadlock re-runs (`RemoteState`); gateway writes in one lock order; nexus-store reports deadlocks as conflicts | #229, #230, #231 (edge function needs a redeploy) |
+| Independent reviews of the gateway, direct-Postgres and ID-gateway paths, and their fixes: tunnel keys after a rollback, an all-or-nothing first-start copy, scheduled send without locking every mailbox, documents a host doesn't keep no longer re-sent on every request, nothing saved after a store failure part way through a request, expired sign-ins swept, +SPCTR sign-out through the repository | #232, #233, #234, #235 |
+| Cumulus://Drive metadata behind a repository: every change an explicit put, tested on a copying repository | #260 |
+| `CUMULUS_ROWS=drive` (with `CUMULUS_STORE=postgres`, the Mail app): items in `drive_items` (owner, folder, who it's shared with as columns), saves of one document take its row lock so neither is lost; the first start copies the `cumulus-workspace` document in once, under a lock | #261 |
+| `CUMULUS_ROWS=drive` with `CUMULUS_STORE=gateway` (migration `20261122_cumulus_rows_drive.sql`): Drive rows through nexus-store, claimed with the host's first request; each item write carries the item as read, so two saves of one document at once re-run and the second is told it changed | #263 |
+| Drive with overlapping requests (an independent review's findings): the items a request only read are checked at commit (migration `20261123_cumulus_rows_drive_checks.sql`), a deletion re-runs if its folder got new contents, sizes are read again before they are released, and each document save writes its contents under a new key | #266 |
+| Stored Drive files are deleted only once the request is saved (`RemoteState.afterCommit`): a deletion that is rolled back or re-run keeps its contents | #267 |
+| Claims made safe (an independent review's findings, `20261124_cumulus_rows_claim_safety.sql`): rows holding something else are never overwritten (the host refuses instead), a rollback releases the claim so switching back copies the document, no claim without a document, documents locked in one order | #268 |
+| +SPCTR on `CUMULUS_ROWS=mail,wallet,quota` (gateway): its sign-ups, mail, wallet and storage meter in the same rows as Mail, the documents no longer loaded or saved | #269 |
+| All migrations apply in order to an empty database, and applying them all a second time succeeds (checked 2026-11-18) | — |
+| Message paging (reads still load a whole mailbox) | Not started: the Mail page loads whole mailboxes, so paging changes the UI (needs approval) |
 
 US Supabase project: the `cumulus_id` tables and `refresh_from_document()` exist (created 2026-11-12;
 9 accounts, 8 passkeys, 7 sessions, 7 grants copied and compared equal to the document).
@@ -41,14 +60,25 @@ series: repository with the mailbox as today's unit first, then per-message rows
 
 What still needs a person (or a connector this session didn't have):
 
-1. **Supabase**: done 2026-11-13. Both migrations are applied, `nexus-store` v2 is deployed, and
-   `compare_with_document()` reports the rows equal to the document (9 accounts, 7 sessions). Left:
-   merge #196 (`CUMULUS_STORE=gateway` for Mail) once Cloudflare deploys run (item 2), and run
-   `select cumulus_id.refresh_from_document()` just before that deploy goes live.
-2. **Cloudflare**: the GitHub organization secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`, so
-   the auto-deploy workflows can ship any of this.
-3. **Yandex**: after #192 is merged and its commit is pinned in cumulus-id-ru (`SHA`), run
-   `ssh cumulus-id-russia 'bash -s' < scripts/setup.sh`.
+1. **Supabase**: done 2026-11-20. Migrations `20261115` through `20261124` are applied (every function
+   checked identical to this repository), `nexus-store` is redeployed (version 3), and a rolled-back dry
+   run of the first claim copied the mail, wallet and quota documents and matched the ID rows. The
+   cutover notes below still apply:
+   - **Every host on one database switches in the same deploy.** Today only Mail writes these
+     documents: id.cumuluscloud.app keeps its own Durable Object and +SPCTR isn't deployed on Vercel.
+     Afterwards, `cumulus_rows.claims.document_version` next to `nexus_docs.version` shows whether a
+     document moved on after its claim.
+   - **+SPCTR and Mail share Mail, Wallet and the quota**: if +SPCTR is deployed against this database,
+     give it the same `CUMULUS_ROWS` (without `drive`).
+   - **Release a product only once no host serves it from rows** (after the rollback deploy).
+   - The first claim locks the row tables and the documents while it copies: requests wait for it.
+2. **Cloudflare**: Mail's config (apps/cumulus-mail/cloudflare.config.ts) now says
+   `CUMULUS_STORE=gateway` and `CUMULUS_ROWS=mail,wallet,quota,drive`; it takes effect with the next
+   `cf deploy` of Mail (tested end to end with those settings in `production-config.http.test.ts`).
+   The GitHub organization secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` are still needed
+   for the auto-deploy workflows.
+3. **Yandex**: merge InfinitumCorp/cumulus-id-ru#3 (pins main `555ae4f`, with the account fixes of
+   2026-11-18: #272, #273, #274), then run `ssh cumulus-id-russia 'bash -s' < scripts/setup.sh` from it.
 4. **id.cumuluscloud.app** keeps its state in a Cloudflare Durable Object, not Supabase; moving it means
    reading that object, which needs Cloudflare access.
 
@@ -194,6 +224,38 @@ The US tables were created and backfilled on 2026-11-12 (9 accounts, 8 passkeys,
 a Durable Object, not Supabase, and Russia's Yandex Managed PostgreSQL needs Yandex Cloud access;
 both are still to do.
 
+### Cutover: Mail, Wallet and Quota (`CUMULUS_ROWS`)
+
+On a host already running `CUMULUS_STORE=postgres`:
+
+1. Dry run: `node --experimental-strip-types packages/cumulus/src/rows-cli.ts --from-nexus-docs` (hosted,
+   `NEXUS_DATABASE_URL`) or `--dir DATA_DIR` (single server). It prints counts and writes nothing.
+2. Stop writes (or pick a quiet moment), then run it again with `--write` and `CID_DATABASE_URL` (and
+   `--schema` = `CID_DATABASE_SCHEMA`). It exits non-zero if anything reads back differently. With a
+   master key, mail is sealed in the tables and the tunnel keys are copied too.
+3. Set `CUMULUS_ROWS=mail,wallet,quota` and deploy. The documents stay as they were; removing a product
+   from `CUMULUS_ROWS` is the rollback (anything written to its rows since is not carried back).
+
+On a host running `CUMULUS_STORE=gateway` (Supabase): apply `20261115_cumulus_rows_wallet_quota.sql`, run
+`select cumulus_rows.refresh_from_documents()` just before the deploy that sets
+`CUMULUS_ROWS=wallet,quota` goes live, and check the counts it returns against the documents. For mail,
+apply `20261116_cumulus_rows_mail.sql` too and run `select cumulus_rows.refresh_mail_from_document()` in
+the same moment, then `CUMULUS_ROWS=mail,wallet,quota`.
+
+Drive (Mail app, `CUMULUS_STORE=postgres`): add `drive` to `CUMULUS_ROWS`. The first start creates the
+`drive_*` tables and copies the `cumulus-workspace` document into them once (recorded in `drive_claims`);
+the document is then no longer loaded or saved. Removing `drive` is the rollback (changes made since
+stay in the rows only). File contents stay in R2 either way.
+
+Through the gateway (Supabase): apply `20261122_cumulus_rows_drive.sql` after `20261121`, then add `drive`
+to `CUMULUS_ROWS`. The host's first request claims the `cumulus-workspace` document (no manual refresh);
+`select cumulus_rows.compare_drive_with_document()` right after should say `"same": true`.
+Rollback through the gateway: `select cumulus_rows.restore_drive_document()` writes the rows back into
+the document (changes since the switch included), then remove `drive` from `CUMULUS_ROWS` and deploy.
+Run it only once no server with `CUMULUS_ROWS=drive` is taking requests (or in a quiet moment right
+before the deploy): a Drive change written to the rows after the restore isn't in the document, and a
+server that starts on rows after it copies the document in again over the rows.
+
 ### Cutover runbook (Cumulus://ID, phase 4)
 
 1. Pick the Postgres host and create a database. On Cloudflare, put Hyperdrive in front of it and
@@ -208,7 +270,9 @@ both are still to do.
 4. Watch the `nexus-store` metrics line: `participantFailures` must stay 0.
 5. Rollback: write the rows back out first, so nothing created since the cutover is lost:
    `pnpm --filter @infinitum/cid backfill --to-snapshot cid.json` (single server) or
-   `select cumulus_id.restore_document()` (Supabase), then set `CUMULUS_STORE=document` again.
+   `select cumulus_id.restore_document()` (Supabase; it also releases the `cid` claim, so a later switch
+   copies the document again), then set `CUMULUS_STORE=document` again. For mail, wallet and quota, remove the
+   product from `CUMULUS_ROWS`, deploy, then `select cumulus_rows.release('mail')` (etc.).
 
 ### 4. Risks
 

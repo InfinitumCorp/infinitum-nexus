@@ -7,7 +7,7 @@ import { test } from "node:test";
 import type { FabricIdentity } from "./auth.ts";
 import { FabricServiceError, touchUser } from "./service.ts";
 import { FabricStore } from "./store.ts";
-import { TeamService, parseQuery, parseReminder, type TeamEvent } from "./team.ts";
+import { TeamService, parseIceServers, parseQuery, parseReminder, type TeamEvent } from "./team.ts";
 
 const ISSUER = "https://id.cumuluscloud.app/realms/cumulus";
 function person(n: number, username: string): FabricIdentity {
@@ -275,4 +275,151 @@ test("reminder and search query parsing", () => {
   assert.ok(q.has.has("file"));
   assert.equal(q.after, "2026-11-01T00:00:00.000Z");
   assert.equal(q.before, "2026-11-02T00:00:00.000Z");
+});
+
+test("polls: create, vote, move a single vote, multiple choice, anonymous, close", () => {
+  const t = setup();
+  try {
+    const ws = t.team.createWorkspace(t.alice, "Acme");
+    t.team.joinWorkspace(t.bob, ws.inviteCode);
+    t.team.joinWorkspace(t.cara, ws.inviteCode);
+    const general = t.team.sidebar(t.alice, ws.id).channels.find((c) => c.name === "general")!;
+    assert.throws(() => t.team.createPoll(t.alice, general.id, { question: "Lunch?", options: ["Pizza"] }), status(400));
+    assert.throws(() => t.team.createPoll(t.alice, general.id, { question: "Lunch?", options: ["Pizza", "pizza"] }), status(400));
+    const poll = t.team.createPoll(t.alice, general.id, { question: "Lunch?", options: ["Pizza", "Sushi", "Soup"] });
+    assert.equal(poll.text, "Lunch?");
+    assert.deepEqual(poll.poll!.options.map((o) => o.text), ["Pizza", "Sushi", "Soup"]);
+    // The options are sealed, not stored as plain text.
+    const raw = t.store.database.prepare("SELECT ciphertext FROM team_polls").get() as { ciphertext: string };
+    assert.doesNotMatch(raw.ciphertext, /Sushi/);
+
+    t.team.vote(t.bob, poll.id, 0);
+    let view = t.team.vote(t.bob, poll.id, 1);
+    assert.deepEqual(view.poll!.options.map((o) => o.count), [0, 1, 0], "a single-choice vote moves");
+    assert.equal(view.poll!.options[1]!.mine, true);
+    view = t.team.vote(t.cara, poll.id, 1);
+    assert.deepEqual(view.poll!.options[1]!.voters, ["Bob", "Cara"]);
+    assert.equal(view.poll!.voters, 2);
+    view = t.team.vote(t.cara, poll.id, 1);
+    assert.equal(view.poll!.options[1]!.count, 1, "voting again takes the vote back");
+    assert.throws(() => t.team.vote(t.bob, poll.id, 7), status(400));
+    assert.throws(() => t.team.closePoll(t.bob, poll.id), status(403));
+    assert.equal(t.team.closePoll(t.alice, poll.id).poll!.closed, true);
+    assert.throws(() => t.team.vote(t.cara, poll.id, 0), status(400));
+    assert.ok(t.events.some((e) => e.event.type === "poll" && e.event.messageId === poll.id));
+
+    const multi = t.team.send(t.alice, general.id, { text: '/poll "Which days?" "Mon" "Tue" "Wed" --multiple --anonymous' }).message!;
+    t.team.vote(t.bob, multi.id, 0);
+    view = t.team.vote(t.bob, multi.id, 2);
+    assert.deepEqual(view.poll!.options.map((o) => o.count), [1, 0, 1]);
+    assert.deepEqual(view.poll!.options[0]!.voters, [], "anonymous polls hide who voted");
+    assert.equal(view.poll!.anonymous, true);
+    assert.throws(() => t.team.send(t.alice, general.id, { text: "/poll just a question" }), status(400));
+    t.team.remove(t.alice, multi.id);
+    assert.throws(() => t.team.vote(t.bob, multi.id, 0), status(404));
+  } finally {
+    t.close();
+  }
+});
+
+test("incoming webhooks post as an app, check the token, and stop when the owner leaves", () => {
+  const t = setup();
+  try {
+    const ws = t.team.createWorkspace(t.alice, "Acme");
+    t.team.joinWorkspace(t.bob, ws.inviteCode);
+    const ops = t.team.createChannel(t.alice, ws.id, { name: "ops", members: ["bob"] });
+    assert.throws(() => t.team.createWebhook(t.cara, ops.id, { name: "CI" }), status(404));
+    const hook = t.team.createWebhook(t.bob, ops.id, { name: "Deploys" });
+    const [, , , , id, token] = hook.path.split("/");
+    assert.match(hook.path, /^\/api\/team\/hooks\/[0-9a-f-]{36}\/[A-Za-z0-9_-]{43}$/);
+    const stored = t.store.database.prepare("SELECT token_hash FROM team_webhooks").get() as { token_hash: string };
+    assert.notEqual(stored.token_hash, token, "only a hash of the token is stored");
+
+    const posted = t.team.postWebhook(id!, token!, { text: "Deployed v2 to production" });
+    const msg = t.team.getMessage(t.alice, posted.messageId);
+    assert.deepEqual(msg.app, { id, name: "Deploys" });
+    assert.equal(msg.sender.username, "bob");
+    assert.equal(msg.text, "Deployed v2 to production");
+    const reply = t.team.postWebhook(id!, token!, { text: "Rolled back", threadId: posted.messageId });
+    assert.equal(t.team.getMessage(t.alice, reply.messageId).parentId, posted.messageId);
+
+    // A different last character (one in sixteen tokens already ends in "A", so don't just set it to "A").
+    const wrong = `${token!.slice(0, -1)}${token!.endsWith("A") ? "B" : "A"}`;
+    assert.notEqual(wrong, token);
+    assert.throws(() => t.team.postWebhook(id!, wrong, { text: "x" }), status(404));
+    assert.throws(() => t.team.postWebhook(id!, token!, { text: "  " }), status(400));
+    assert.equal(t.team.webhooks(t.alice, ws.id).length, 1, "admins see every webhook");
+    assert.equal(t.team.webhooks(t.bob, ws.id)[0]!.lastUsedAt !== null, true);
+    t.team.joinWorkspace(t.cara, ws.inviteCode);
+    assert.equal(t.team.webhooks(t.cara, ws.id).length, 0);
+    assert.throws(() => t.team.deleteWebhook(t.cara, id!), status(403));
+
+    t.team.leaveChannel(t.bob, ops.id);
+    assert.throws(() => t.team.postWebhook(id!, token!, { text: "still here?" }), status(410));
+    t.team.deleteWebhook(t.alice, id!);
+    assert.throws(() => t.team.postWebhook(id!, token!, { text: "gone" }), status(404));
+  } finally {
+    t.close();
+  }
+});
+
+test("huddles: join, signal only to the right person, mute, one huddle at a time, end", () => {
+  const t = setup();
+  try {
+    const ws = t.team.createWorkspace(t.alice, "Acme");
+    t.team.joinWorkspace(t.bob, ws.inviteCode);
+    t.team.joinWorkspace(t.cara, ws.inviteCode);
+    const bar = t.team.sidebar(t.alice, ws.id);
+    const general = bar.channels.find((c) => c.name === "general")!;
+    const random = bar.channels.find((c) => c.name === "random")!;
+    const secret = t.team.createChannel(t.alice, ws.id, { name: "secret", private: true, members: ["bob"] });
+
+    assert.equal(t.team.huddle(t.alice, general.id), null);
+    const started = t.team.joinHuddle(t.alice, general.id);
+    assert.deepEqual(started.people.map((p) => p.username), ["alice"]);
+    assert.deepEqual(started.iceServers, []);
+    assert.match(t.team.list(t.bob, general.id).messages.at(-1)!.text, /started a huddle/);
+    assert.equal(t.team.sidebar(t.bob, ws.id).channels.find((c) => c.id === general.id)!.huddle!.people, 1);
+    assert.throws(() => t.team.joinHuddle(t.cara, secret.id), status(404), "only people who can see the channel can join");
+
+    const joined = t.team.joinHuddle(t.bob, general.id);
+    assert.deepEqual(joined.people.map((p) => p.username), ["alice", "bob"]);
+    assert.ok(t.events.some((e) => e.event.type === "huddle" && e.event.action === "joined" && e.event.sub === t.bob.sub));
+
+    t.events.length = 0;
+    t.team.signalHuddle(t.bob, general.id, { to: t.alice.sub, data: { description: { type: "offer", sdp: "v=0 fake" } } });
+    const signal = t.events.find((e) => e.event.type === "huddle-signal")!;
+    assert.deepEqual(signal.subs, [t.alice.sub], "a signal goes only to the person it is for");
+    assert.equal(signal.event.from, t.bob.sub);
+    t.team.signalHuddle(t.alice, general.id, { to: t.bob.sub, data: { candidate: { candidate: "candidate:1 1 udp 1 192.0.2.1 5000 typ host", sdpMid: "0" } } });
+    assert.throws(() => t.team.signalHuddle(t.cara, general.id, { to: t.alice.sub, data: { candidate: null } }), status(404), "outsiders cannot signal");
+    assert.throws(() => t.team.signalHuddle(t.bob, general.id, { to: t.cara.sub, data: { candidate: null } }), status(404));
+    assert.throws(() => t.team.signalHuddle(t.bob, general.id, { to: t.alice.sub, data: { description: { type: "rollback", sdp: "" } } }), status(400));
+
+    assert.equal(t.team.updateHuddle(t.bob, general.id, { muted: true, video: true }).people.find((p) => p.username === "bob")!.muted, true);
+    assert.throws(() => t.team.updateHuddle(t.cara, general.id, { muted: true }), status(404));
+
+    // Joining another huddle leaves the first one.
+    t.team.joinHuddle(t.bob, random.id);
+    assert.deepEqual(t.team.huddle(t.alice, general.id)!.people.map((p) => p.username), ["alice"]);
+    t.advance(12 * 60_000);
+    t.team.leaveHuddle(t.alice, general.id);
+    assert.equal(t.team.huddle(t.alice, general.id), null);
+    assert.match(t.team.list(t.alice, general.id).messages.at(-1)!.text, /ended the huddle after 12 minutes/);
+    assert.equal(t.team.sidebar(t.alice, ws.id).channels.find((c) => c.id === general.id)!.huddle, null);
+    t.team.leaveHuddle(t.bob, random.id);
+  } finally {
+    t.close();
+  }
+});
+
+test("FABRIC_ICE_SERVERS parsing", () => {
+  assert.deepEqual(parseIceServers(undefined), []);
+  assert.deepEqual(parseIceServers(" "), []);
+  assert.deepEqual(parseIceServers('[{"urls":"stun:stun.example.org:3478"},{"urls":["turn:turn.example.org:3478?transport=tcp"],"username":"u","credential":"p"}]'), [
+    { urls: "stun:stun.example.org:3478" },
+    { urls: ["turn:turn.example.org:3478?transport=tcp"], username: "u", credential: "p" },
+  ]);
+  assert.throws(() => parseIceServers("{}"), /JSON list/);
+  assert.throws(() => parseIceServers('[{"urls":"https://example.org"}]'), /stun:/);
 });

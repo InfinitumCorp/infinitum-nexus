@@ -268,6 +268,7 @@ export class PostOffice {
   }
 
   async has(cid: string): Promise<boolean> {
+    if (this.repository.hasMailbox) return this.repository.hasMailbox(cid);
     return Boolean(await this.repository.mailbox(cid));
   }
 
@@ -309,6 +310,7 @@ export class PostOffice {
   }
 
   async unreadCount(cid: string): Promise<number> {
+    if (this.repository.unreadThreads) return this.repository.unreadThreads(cid);
     const box = await this.repository.mailbox(cid);
     return box ? unreadThreads(box) : 0;
   }
@@ -328,7 +330,11 @@ export class PostOffice {
     if (!input.subject.trim() && !input.body.trim()) throw new MailError("empty", "Write a subject or a message.");
 
     const size = messageBytes({ subject: input.subject, body: input.body }) + attachmentBytes(input.attachments);
-    if (this.quota && !(await this.quota.canFit(cid, size))) {
+    // Mailing yourself keeps a second copy (in your inbox, besides Sent): both must fit before anything
+    // is charged or delivered, or a refusal half way would leave the recipients' charges behind.
+    const self = sender.owner.email.toLowerCase();
+    const copies = [...to, ...cc].some((p) => p.email.toLowerCase() === self) ? 2 : 1;
+    if (this.quota && !(await this.quota.canFit(cid, size * copies))) {
       throw new MailError("quota_exceeded", "Your Cumulus storage is full. Free up space in Mail or Cloud to send.");
     }
 
@@ -716,6 +722,10 @@ ${reason}`,
   async sendAllDue(): Promise<number> {
     let sent = 0;
     const now = this.clock().getTime();
+    if (this.repository.dueDraftCids) {
+      for (const cid of await this.repository.dueDraftCids(new Date(now).toISOString())) sent += await this.sendDue(cid);
+      return sent;
+    }
     for (const cid of await this.repository.mailboxCids()) {
       const box = await this.repository.mailbox(cid);
       if (!box?.messages.some((m) => m.folder === "drafts" && m.sendAt && Date.parse(m.sendAt) <= now)) continue;

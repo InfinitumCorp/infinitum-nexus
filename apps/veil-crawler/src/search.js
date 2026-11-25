@@ -1,7 +1,7 @@
 /**
  * Searching VEIL's own index (D1 full-text search). Used by the infinitumveil.app Worker,
- * which binds the same database. Ranking: BM25 with title weighted most, and pages that
- * load fewer trackers rank higher.
+ * which binds the same database. Ranking: BM25 with title weighted most; pages that load
+ * fewer trackers rank higher, and so do pages on well-known sites (Tranco rank, a small nudge).
  */
 export const PAGE_SIZE = 10;
 export const MAX_OFFSET = 9;
@@ -15,7 +15,8 @@ export function ftsQuery(q, joiner = " ") {
 const SQL = `
   SELECT p.url, p.title, p.description,
          snippet(pages_fts, 2, '', '', ' … ', 24) AS snip,
-         bm25(pages_fts, 10.0, 4.0, 1.0) + p.trackers * 0.3 AS rank
+         bm25(pages_fts, 10.0, 4.0, 1.0) + p.trackers * 0.3
+         - CASE WHEN h.rank <= 1000 THEN 2.0 WHEN h.rank <= 10000 THEN 1.2 WHEN h.rank <= 100000 THEN 0.6 ELSE 0 END AS rank
   FROM pages_fts
   JOIN pages p ON p.id = pages_fts.rowid
   JOIN hosts h ON h.host = p.host

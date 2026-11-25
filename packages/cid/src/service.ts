@@ -96,6 +96,11 @@ export interface Account {
   createdAt: string;
   entitlements: typeof FREE_ENTITLEMENTS;
   totp?: { secret: string; confirmed: boolean; lastStep: number };
+  /**
+   * OpenPGP public key this account published for one of its verified addresses.
+   * The private key is never stored. Persists with the account (the cid document, or the account row).
+   */
+  directoryKey?: { email: string; armored: string };
 }
 
 export interface LinkedIdentity {
@@ -270,6 +275,11 @@ export interface CidConfig {
    */
   repository?: CidRepository;
   /**
+   * Whether a mail address already belongs to someone (Cumulus://Mail aliases): a username whose
+   * address is taken can't be signed up, or its mail would go to the alias's owner.
+   */
+  addressTaken?: (address: string) => Promise<boolean>;
+  /**
    * 32-byte key that seals authenticator-app seeds at rest (AES-256-GCM, bound to the account).
    * Without it they are stored as they are, as before. See secret-box.ts.
    */
@@ -330,6 +340,16 @@ const RESERVED = new Set([
 const CHALLENGE_TTL_MS = 5 * 60_000;
 const hashToken = (t: string) => createHash("sha256").update(t).digest("hex");
 
+/** An armored OpenPGP public key, and not a private key. Mail reads at most 20_000 characters. */
+export function isPublicKeyArmor(value: string): boolean {
+  if (typeof value !== "string") return false;
+  const text = value.trim();
+  if (text.length < 40 || text.length > 20_000) return false;
+  if (text.includes("\u0000")) return false;
+  if (/BEGIN PGP (PRIVATE|SECRET) KEY BLOCK/.test(text)) return false;
+  return text.includes("-----BEGIN PGP PUBLIC KEY BLOCK-----") && text.includes("-----END PGP PUBLIC KEY BLOCK-----");
+}
+
 export class CidService {
   readonly store: CidStore;
   /** Keycloak issuer for Cumulus://ID, https://id.cumuluscloud.app/realms/cumulus by default. */
@@ -340,7 +360,7 @@ export class CidService {
   readonly mailDomain: string;
   /** Exact CORS origins for ID, Cloud and Mail. Never a wildcard. */
   readonly corsOrigins: readonly string[];
-  private readonly cfg: Required<Omit<CidConfig, "store" | "repository" | "secretKey" | "social" | "onEvent" | "upstreamIssuer">>;
+  private readonly cfg: Required<Omit<CidConfig, "store" | "repository" | "secretKey" | "social" | "onEvent" | "upstreamIssuer" | "addressTaken">>;
   /** Every read and write of CID data goes through here. */
   readonly repo: CidRepository;
   readonly #secrets: SecretBox;
@@ -349,9 +369,11 @@ export class CidService {
   private readonly socialProviders: Partial<Record<SocialProviderId, SocialCredentials>>;
   private readonly socialClient: SocialClient;
   private readonly onEvent?: CidConfig["onEvent"];
+  private readonly addressTaken?: CidConfig["addressTaken"];
 
   constructor(config: CidConfig) {
     this.onEvent = config.onEvent;
+    this.addressTaken = config.addressTaken;
     this.upstreamIssuer = config.upstreamIssuer ? config.upstreamIssuer.replace(/\/$/, "") : undefined;
     this.store = config.store ?? new CidStore();
     this.repo = config.repository ?? new MapCidRepository(this.store);
@@ -460,6 +482,7 @@ export class CidService {
     }
     if (RESERVED.has(username)) throw new CidError("reserved", "That username is reserved");
     if (await this.repo.cidForUsername(username)) throw new CidError("taken", "That username is taken");
+    if (await this.addressTaken?.(`${username}@${this.mailDomain}`)) throw new CidError("taken", "That username is taken");
 
     const account: Account = {
       cid: `cid_${randomUUID()}`,
@@ -558,6 +581,8 @@ export class CidService {
 
   private async issueChallenge(purpose: Challenge["purpose"], cid?: string): Promise<string> {
     const value = randomBytes(32).toString("base64url");
+    // Anyone can start a sign-in, so unfinished challenges are cleared as new ones are made.
+    await this.repo.sweepOneTime("challenge", this.now().getTime());
     await this.repo.putOneTime("challenge", value, { value, cid, purpose, expiresAt: this.now().getTime() + CHALLENGE_TTL_MS });
     return value;
   }
@@ -642,6 +667,10 @@ export class CidService {
     const auth = await this.repo.authenticator(authenticatorId);
     if (!auth || auth.cid !== cid) throw new CidError("not_found", "No such key on this account");
     const acct = await this.account(cid);
+    // This "last key" check reads every key but writes only the one removed. Two servers removing an
+    // account's last two keys at once don't both get through only because each request also appends a
+    // ledger entry (the record() below): the second commit's entry number is taken, so it re-runs and
+    // sees one key left. Keep a ledger entry here (and in unlinkIdentity), or that account is locked out.
     if ((await this.listAuthenticators(cid)).length === 1 && !acct.federated && !acct.identities?.length) {
       throw new CidError("last_key", "Add another passkey or security key before removing your last one");
     }
@@ -693,6 +722,7 @@ export class CidService {
     // A security key tap without verification needs the authenticator-app code too.
     if (account.totp?.confirmed && !result.userVerified) {
       const mfaToken = randomBytes(24).toString("base64url");
+      await this.repo.sweepOneTime("mfa", this.now().getTime());
       await this.repo.putOneTime("mfa", mfaToken, { cid: account.cid, method: "passkey+totp", device, expiresAt: this.now().getTime() + CHALLENGE_TTL_MS });
       return { status: "mfa_required", mfaToken };
     }
@@ -864,7 +894,7 @@ export class CidService {
     if (!(await this.repo.account(cid))) {
       const str = (v: unknown) => (typeof v === "string" ? v : "");
       const wanted = str(claims.preferred_username || claims.username).trim().toLowerCase();
-      const username = USERNAME.test(wanted) && !RESERVED.has(wanted) && !(await this.repo.cidForUsername(wanted))
+      const username = USERNAME.test(wanted) && !RESERVED.has(wanted) && !(await this.repo.cidForUsername(wanted)) && !(await this.addressTaken?.(`${wanted}@${this.mailDomain}`))
         ? wanted
         : await this.freeUsername(wanted || "member");
       const email = str(claims.email).toLowerCase();
@@ -1000,6 +1030,7 @@ export class CidService {
       expiresAt: this.now().getTime() + 10 * 60_000,
       linkToCid,
     };
+    await this.repo.sweepOneTime("oauth", this.now().getTime());
     await this.repo.putOneTime("oauth", pending.state, pending);
     const url = await this.socialClient.authorizeUrl(spec, creds, pending, challenge);
     return { url, state: pending.state };
@@ -1027,7 +1058,16 @@ export class CidService {
       throw new CidError("social_failed", (err as Error).message);
     }
     const key = `${profile.provider}|${profile.subject}`;
-    const existing = await this.repo.cidForIdentity(key);
+    let existing = await this.repo.cidForIdentity(key);
+    // A link the account no longer lists (left behind when another account at the same provider was
+    // linked in its place, before that removed it): it no longer signs in. Drop it.
+    if (existing) {
+      const holder = await this.repo.account(existing);
+      if (!holder?.identities?.some((i) => i.provider === profile.provider && i.subject === profile.subject)) {
+        await this.repo.deleteIdentity(key);
+        existing = undefined;
+      }
+    }
 
     if (pending.linkToCid) {
       if (existing && existing !== pending.linkToCid) {
@@ -1051,6 +1091,7 @@ export class CidService {
     const method = `social:${spec.id}` as const;
     if (account.totp?.confirmed) {
       const mfaToken = randomBytes(24).toString("base64url");
+      await this.repo.sweepOneTime("mfa", this.now().getTime());
       await this.repo.putOneTime("mfa", mfaToken, { cid, method: `${method}+totp`, device, expiresAt: this.now().getTime() + CHALLENGE_TTL_MS });
       return { status: "mfa_required", mfaToken };
     }
@@ -1062,12 +1103,17 @@ export class CidService {
     let base = hint.toLowerCase().replace(/[^a-z0-9._-]/g, "").replace(/^[._-]+/, "").slice(0, 24);
     if (base.length < 3) base = `${base}user`.slice(0, 24);
     let name = base;
-    for (let i = 2; (await this.repo.cidForUsername(name)) || RESERVED.has(name); i++) name = `${base}${i}`;
+    const free = async (n: string) => !RESERVED.has(n) && !(await this.repo.cidForUsername(n)) && !(await this.addressTaken?.(`${n}@${this.mailDomain}`));
+    for (let i = 2; !(await free(name)); i++) name = `${base}${i}`;
     return name;
   }
 
   private async attachIdentity(cid: string, profile: SocialProfile) {
     const account = await this.account(cid);
+    // One account per provider: the one linked before at this provider stops signing in to this CID.
+    for (const old of (account.identities ?? []).filter((i) => i.provider === profile.provider && i.subject !== profile.subject)) {
+      await this.repo.deleteIdentity(`${old.provider}|${old.subject}`);
+    }
     const identity: LinkedIdentity = {
       provider: profile.provider,
       subject: profile.subject,
@@ -1084,6 +1130,51 @@ export class CidService {
 
   async linkedIdentities(cid: string): Promise<LinkedIdentity[]> {
     return [...((await this.account(cid)).identities ?? [])];
+  }
+
+  /** Addresses this account may publish a public key for: the mailbox we issued, and provider-verified emails. */
+  async verifiedEmails(cid: string): Promise<string[]> {
+    const account = await this.account(cid);
+    const emails = [account.mailAddress.toLowerCase()];
+    for (const identity of account.identities ?? []) {
+      if (identity.email) emails.push(identity.email.toLowerCase());
+    }
+    return [...new Set(emails)];
+  }
+
+  /**
+   * Publish an OpenPGP public key for one verified address. Refuses another account's address
+   * and anything that is not a public key block. The armored text is not written to the ledger.
+   */
+  async publishDirectoryKey(cid: string, email: string, armored: string): Promise<"ok" | "forbidden" | "invalid"> {
+    const normalized = email.trim().toLowerCase();
+    if (!(await this.verifiedEmails(cid)).includes(normalized)) return "forbidden";
+    if (!isPublicKeyArmor(armored)) return "invalid";
+    const owner = await this.directoryKeyOwner(normalized);
+    if (owner && owner !== cid) return "forbidden";
+    const account = await this.account(cid);
+    account.directoryKey = { email: normalized, armored: armored.trim() };
+    await this.repo.putAccount(account);
+    await this.record("audit", cid, cid, { event: "directory_key.published" });
+    return "ok";
+  }
+
+  /** The public key published for this address, or undefined. */
+  async lookupDirectoryKey(email: string): Promise<string | undefined> {
+    const normalized = email.trim().toLowerCase();
+    for (const account of await this.repo.allAccounts()) {
+      const key = account.directoryKey;
+      if (key?.email === normalized && isPublicKeyArmor(key.armored)) return key.armored;
+    }
+    return undefined;
+  }
+
+  private async directoryKeyOwner(email: string): Promise<string | undefined> {
+    for (const account of await this.repo.allAccounts()) {
+      if (account.directoryKey?.email === email) return account.cid;
+      if (account.mailAddress.toLowerCase() === email) return account.cid;
+    }
+    return undefined;
   }
 
   async unlinkIdentity(cid: string, provider: string) {

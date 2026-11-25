@@ -47,7 +47,7 @@ jobs:
       TEST_DATABASE_URL: postgresql://postgres:ci-only@127.0.0.1:5432/postgres
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: Install (includes Google DP wheels, Linux only)
@@ -95,7 +95,7 @@ jobs:
       CONJURE_SHA256: 108fd6481d49f098e71067519331d9d34a257f11a24e3b46e45579fefba09231
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-java@v5
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: "21"
@@ -198,7 +198,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: Boot DataHub from the pinned quickstart

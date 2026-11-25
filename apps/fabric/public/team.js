@@ -157,7 +157,7 @@ async function loadSidebar() {
   const row = (c) => h("li", {}, h("button", {
     type: "button", class: `${c.unread && !c.muted ? "unread" : ""}${c.muted ? " muted" : ""}`, "aria-current": state.channel?.id === c.id ? "true" : null,
     onclick: tryRun(() => openChannel(c.id)),
-  }, c.kind === "dm" && c.people?.[0] ? dot(c.people[0]) : null, h("span", { class: "name" }, chanLabel(c)), c.mentions ? h("span", { class: "badge" }, String(c.mentions)) : null));
+  }, c.kind === "dm" && c.people?.[0] ? dot(c.people[0]) : null, h("span", { class: "name" }, chanLabel(c)), c.huddle ? h("span", { class: "t-huddle-mark", title: `Huddle · ${c.huddle.people}` }, "🎧") : null, c.mentions ? h("span", { class: "badge" }, String(c.mentions)) : null));
   const all = [...bar.channels, ...bar.direct];
   $("#starred").replaceChildren(...all.filter((c) => c.starred).map(row));
   $("#starred").parentElement.hidden = !all.some((c) => c.starred);
@@ -235,6 +235,7 @@ function renderHead() {
       h("button", { type: "button", class: "btn small", onclick: tryRun(showPins) }, `Pins${c.pins ? ` ${c.pins}` : ""}`),
       h("button", { type: "button", class: "btn small", onclick: tryRun(showCanvas) }, c.canvas ? "Canvas •" : "Canvas"),
       h("button", { type: "button", class: "btn small", onclick: tryRun(() => showFiles(c.id)) }, "Files"),
+      huddleButton(c),
       !c.member && !c.archived ? h("button", { type: "button", class: "btn primary small", onclick: tryRun(async () => { await api(T(`/channels/${c.id}/join`), { method: "POST", body: {} }); await openChannel(c.id); }) }, "Join channel") : null,
       h("button", { type: "button", class: "btn small", "aria-label": "Channel settings", onclick: (e) => channelMenu(e.currentTarget) }, "…"),
     ),
@@ -256,6 +257,7 @@ function channelMenu(anchor) {
     named && ["Edit description", async () => { const r = await dialog("Description", [{ name: "purpose", label: "Description", value: c.purpose, max: 250 }]); if (r) { await api(T(`/channels/${c.id}`), { method: "PATCH", body: r }); await refreshChannel(); } }],
     named && ["Rename", async () => { const r = await dialog("Rename channel", [{ name: "name", label: "Name", value: c.name, max: 80 }]); if (r) { await api(T(`/channels/${c.id}`), { method: "PATCH", body: r }); await refreshChannel(); await loadSidebar(); } }],
     c.kind !== "dm" && c.member && ["Add people", async () => { const r = await dialog("Add people", [{ name: "people", label: "Usernames, separated by spaces", required: true }]); if (r) { await api(T(`/channels/${c.id}/invite`), { method: "POST", body: { people: r.people.split(/[\s,]+/) } }); await refreshChannel(); } }],
+    c.kind !== "dm" && ["Incoming webhooks", () => showWebhooks()],
     c.member && [c.muted ? "Unmute" : "Mute", async () => { await api(T(`/channels/${c.id}/prefs`), { method: "PUT", body: { muted: !c.muted } }); await refreshChannel(); await loadSidebar(); }],
     c.member && ["Mark as read", async () => { await api(T(`/channels/${c.id}/read`), { method: "POST", body: {} }); await loadSidebar(); }],
     named && !c.archived && ["Archive channel", async () => { if (confirm(`Archive #${c.name}? People can still read it.`)) { await api(T(`/channels/${c.id}/archive`), { method: "POST", body: { archived: true } }); await refreshChannel(); await loadSidebar(); } }],
@@ -305,11 +307,12 @@ function renderMessages(focusId, stick = true) {
 function messageItem(m, { compact = false, focus = false, inThread = false } = {}) {
   if (m.kind === "system") return h("li", { class: "t-msg system" }, h("span", { class: "meta" }, `${m.sender.displayName} ${m.text} · ${time(m.createdAt)}`));
   const li = h("li", { class: `t-msg${compact ? " compact" : ""}${focus ? " focus" : ""}${m.mentions.includes(state.me.sub) ? " mentioned" : ""}${m.pinned ? " pinned" : ""}`, "data-id": m.id });
-  if (!compact) li.append(h("div", { class: "t-who" }, dot(m.sender), h("button", { type: "button", class: "link strong", onclick: tryRun(() => showProfile(m.sender)) }, personName(m.sender)), h("span", { class: "meta" }, time(m.createdAt)), m.pinned ? h("span", { class: "meta" }, "📌 pinned") : null));
+  if (!compact) li.append(h("div", { class: "t-who" }, m.app ? h("span", { class: "t-app", title: `Posted by an app for ${m.sender.displayName}` }, "APP") : dot(m.sender), h("button", { type: "button", class: "link strong", onclick: tryRun(() => showProfile(m.sender)) }, m.app ? m.app.name : personName(m.sender)), h("span", { class: "meta" }, time(m.createdAt)), m.pinned ? h("span", { class: "meta" }, "📌 pinned") : null));
   const body = h("div", { class: "t-body" });
   if (m.deleted) body.append(h("p", { class: "meta" }, "This message was deleted."));
   else if (m.unreadable) body.append(h("p", { class: "meta" }, "This message could not be read."));
   else if (state.editing === m.id) body.append(editBox(m));
+  else if (m.poll) body.append(h("p", { class: "strong" }, "📊 ", ...inline(m.text)), pollBlock(m));
   else body.append(format(m.text));
   if (m.editedAt && !m.deleted) body.append(h("span", { class: "meta" }, " (edited)"));
   if (m.alsoInChannel && !inThread) body.prepend(h("p", { class: "meta" }, "replied to a thread"));
@@ -326,6 +329,39 @@ function messageItem(m, { compact = false, focus = false, inThread = false } = {
   if (m.replyCount && !inThread) li.append(h("button", { type: "button", class: "t-replies link", onclick: tryRun(() => openThread(m.id)) }, `${m.replyCount} ${m.replyCount === 1 ? "reply" : "replies"}`, h("span", { class: "meta" }, ` · last ${when(m.lastReplyAt)}`)));
   if (!m.deleted && !m.unreadable) li.append(actions(m, inThread));
   return li;
+}
+
+function pollBlock(m) {
+  const p = m.poll;
+  const most = Math.max(1, ...p.options.map((o) => o.count));
+  const mine = m.sender.sub === state.me.sub || ["owner", "admin"].includes(state.bar.workspace.role);
+  return h("div", { class: "t-poll" },
+    h("ol", { class: "t-poll-options" }, ...p.options.map((o, i) => {
+      const bar = h("span", { class: "t-poll-bar" });
+      bar.style.width = `${Math.round((o.count / most) * 100)}%`;
+      return h("li", {},
+        h("button", {
+          type: "button", class: `t-poll-option${o.mine ? " mine" : ""}`, disabled: p.closed, "aria-pressed": String(o.mine),
+          onclick: tryRun(async () => { await api(T(`/messages/${m.id}/vote`), { method: "POST", body: { choice: i } }); await afterChange(m); }),
+        }, bar, h("span", { class: "t-poll-text" }, o.mine ? `✓ ${o.text}` : o.text), h("span", { class: "meta" }, String(o.count))),
+        o.voters.length ? h("span", { class: "meta t-poll-voters" }, o.voters.join(", ")) : null);
+    })),
+    h("p", { class: "meta t-row" },
+      `${p.voters} ${p.voters === 1 ? "person" : "people"} voted · ${p.multiple ? "pick any" : "pick one"}${p.anonymous ? " · anonymous" : ""}${p.closed ? " · closed" : ""}`,
+      mine && !p.closed ? h("button", { type: "button", class: "link", onclick: tryRun(async () => { if (confirm("Close this poll? No one can vote after that.")) { await api(T(`/messages/${m.id}/close`), { method: "POST", body: {} }); await afterChange(m); } }) }, "Close poll") : null),
+  );
+}
+
+async function newPoll() {
+  const r = await dialog("Create a poll", [
+    { name: "question", label: "Question", max: 300, required: true },
+    { name: "options", label: "Options, one per line (2 to 10)", type: "textarea", rows: 5, max: 1300 },
+    { name: "multiple", label: "People can pick more than one", type: "checkbox" },
+    { name: "anonymous", label: "Anonymous: hide who voted", type: "checkbox" },
+  ], "Post poll");
+  if (!r) return;
+  await api(T(`/channels/${state.channel.id}/polls`), { method: "POST", body: { question: r.question, options: r.options.split(/\r?\n/).map((o) => o.trim()).filter(Boolean), multiple: r.multiple, anonymous: r.anonymous } });
+  await refreshChannel();
 }
 
 function actions(m, inThread) {
@@ -458,7 +494,7 @@ function bindComposer(ta, submit, parentId) {
   });
 }
 
-const COMMANDS = ["/me", "/shrug", "/topic", "/purpose", "/rename", "/invite", "/kick", "/join", "/leave", "/archive", "/dm", "/remind me to ", "/status", "/away", "/active", "/dnd", "/mute", "/unmute", "/who", "/help"];
+const COMMANDS = ["/me", "/shrug", "/topic", "/purpose", "/rename", "/invite", "/kick", "/join", "/leave", "/archive", "/dm", "/remind me to ", "/status", "/away", "/active", "/dnd", "/mute", "/unmute", "/who", "/poll ", "/help"];
 let peopleCache = { at: 0, list: [] };
 async function suggest(ta) {
   const box = $("#suggest");
@@ -507,6 +543,7 @@ $("#file").addEventListener("change", tryRun(async (e) => {
   renderAttachments();
 }));
 
+$("#poll").addEventListener("click", tryRun(newPoll));
 $("#schedule").addEventListener("click", tryRun(async () => {
   const text = $("#text").value;
   if (!text.trim()) throw new Error("Write the message first");
@@ -536,7 +573,7 @@ $("#older").addEventListener("click", tryRun(async () => {
 function panel(title, ...content) {
   $("#panel").hidden = false;
   $("#panel-title").textContent = title;
-  $("#panel-body").replaceChildren(...content);
+  $("#panel-body").replaceChildren(...content.filter((c) => c !== null && c !== undefined && c !== false));
 }
 $("#panel-close").addEventListener("click", () => { $("#panel").hidden = true; state.thread = null; });
 
@@ -608,6 +645,29 @@ async function editProfile() {
   const me = state.bar.me;
   const r = await dialog("Edit profile", [{ name: "displayName", label: "Display name", value: me.displayName, max: 80 }, { name: "title", label: "Title", value: me.title || "", max: 100 }], "Save");
   if (r) { await api(T(`/workspaces/${state.wsId}/me`), { method: "PATCH", body: r }); peopleCache.at = 0; await loadSidebar(); }
+}
+
+async function showWebhooks(created) {
+  const c = state.channel;
+  const { webhooks } = await api(T(`/workspaces/${state.wsId}/webhooks`));
+  const here = webhooks.filter((w) => w.channel.id === c.id);
+  state.thread = null;
+  panel("Incoming webhooks",
+    h("p", { class: "meta" }, `Other services can post to ${chanLabel(c)} by sending JSON like {"text": "Build passed"} to a webhook URL. Messages show the webhook's name and are posted on behalf of the person who added it.`),
+    created ? h("div", { class: "t-secret" },
+      h("p", { class: "strong" }, `Copy the URL for “${created.name}” now. It is shown only once.`),
+      h("input", { class: "input", readonly: true, value: `${location.origin}${created.path}`, onfocus: (e) => e.target.select() }),
+      h("button", { type: "button", class: "btn small", onclick: tryRun(async () => { await navigator.clipboard.writeText(`${location.origin}${created.path}`); showNote("Copied."); }) }, "Copy URL")) : null,
+    here.length ? h("ul", { class: "t-files" }, ...here.map((w) => h("li", {},
+      h("span", { class: "strong" }, w.name), " ",
+      h("span", { class: "meta" }, `added by ${w.createdBy.displayName} · ${w.lastUsedAt ? `last used ${when(w.lastUsedAt)}` : "never used"}`), " ",
+      h("button", { type: "button", class: "link", onclick: tryRun(async () => { if (confirm(`Remove the webhook “${w.name}”? Anything still sending to it will get an error.`)) { await api(T(`/webhooks/${w.id}`), { method: "DELETE" }); await showWebhooks(); } }) }, "Remove"))))
+      : h("p", { class: "meta" }, "No webhooks post here yet."),
+    c.member && !c.archived && state.bar.workspace.role !== "guest" ? h("button", { type: "button", class: "btn small", onclick: tryRun(async () => {
+      const r = await dialog("Add an incoming webhook", [{ name: "name", label: "Name shown on its messages", max: 60, required: true, placeholder: "CI, Deploys, Alerts…" }], "Add");
+      if (r) await showWebhooks(await api(T(`/channels/${c.id}/webhooks`), { method: "POST", body: { name: r.name } }));
+    }) }, "Add incoming webhook") : null,
+  );
 }
 
 async function showPins() {
@@ -746,6 +806,8 @@ function connect() {
   state.events = es;
   es.addEventListener("team", (e) => {
     const ev = JSON.parse(e.data);
+    if (ev.type === "huddle-signal") { onHuddleSignal(ev); return; }
+    if (ev.type === "huddle" && ev.channelId === huddle.channelId) refreshHuddle().catch((err) => showError(err.message));
     if (ev.workspaceId !== state.wsId) return;
     if (ev.type === "typing") {
       if (ev.channelId === state.channel?.id || ev.parentId === state.thread?.parent.id) { state.typing.set(ev.username, Date.now()); renderTyping(); }
@@ -786,6 +848,240 @@ async function notify(ev) {
 }
 
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && state.channel) soon(refreshChannel); });
+
+// ---------- huddles ----------
+// Live audio/video calls in a channel. The server relays WebRTC signalling over the event stream;
+// audio and video go directly between browsers (a full mesh). Each pair uses "perfect negotiation",
+// so either side can renegotiate (camera on, screen share) without offers colliding.
+
+const huddle = { channelId: null, view: null, local: null, video: null, screen: false, muted: false, peers: new Map(), tiles: new Map(), built: false };
+
+function huddleButton(c) {
+  if (huddle.channelId === c.id) return h("button", { type: "button", class: "btn small t-huddle-live", onclick: tryRun(leaveHuddle) }, "Leave huddle");
+  if (!c.member || c.archived) return c.huddle ? h("span", { class: "meta" }, `🎧 Huddle · ${c.huddle.people}`) : null;
+  return h("button", { type: "button", class: `btn small${c.huddle ? " t-huddle-live" : ""}`, onclick: tryRun(() => joinHuddle(c.id)) }, c.huddle ? `🎧 Join huddle · ${c.huddle.people}` : "🎧 Huddle");
+}
+
+async function joinHuddle(channelId) {
+  if (!navigator.mediaDevices?.getUserMedia || !window.RTCPeerConnection) throw new Error("This browser cannot make calls.");
+  if (huddle.channelId) await leaveHuddle();
+  try {
+    huddle.local = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true }, video: false });
+  } catch (e) {
+    throw new Error(e?.name === "NotAllowedError" ? "Allow microphone access to join the huddle." : "No microphone was found.");
+  }
+  Object.assign(huddle, { channelId, muted: false, video: null, screen: false });
+  try {
+    huddle.view = await api(T(`/channels/${channelId}/huddle/join`), { method: "POST", body: {} });
+  } catch (e) {
+    huddle.local.getTracks().forEach((t) => t.stop());
+    Object.assign(huddle, { channelId: null, local: null });
+    throw e;
+  }
+  // Whoever joins calls everyone already there.
+  for (const p of huddle.view.people) if (p.sub !== state.me.sub) peer(p.sub);
+  renderHuddle();
+  if (state.channel) renderHead();
+  await loadSidebar();
+}
+
+async function leaveHuddle() {
+  const id = huddle.channelId;
+  if (!id) return;
+  for (const p of huddle.peers.values()) p.pc.close();
+  huddle.peers.clear();
+  huddle.local?.getTracks().forEach((t) => t.stop());
+  huddle.video?.stop();
+  Object.assign(huddle, { channelId: null, view: null, local: null, video: null, screen: false, muted: false });
+  renderHuddle();
+  await api(T(`/channels/${id}/huddle/leave`), { method: "POST", body: {} }).catch(() => {});
+  if (state.channel) renderHead();
+  await loadSidebar().catch(() => {});
+}
+
+// Closing the tab: tell the server right away (it also notices a dropped connection after 15 s).
+window.addEventListener("pagehide", () => {
+  if (huddle.channelId) fetch(T(`/channels/${huddle.channelId}/huddle/leave`), { method: "POST", keepalive: true, headers: { "content-type": "application/json" }, body: "{}" }).catch(() => {});
+});
+
+const signal = (to, data) => api(T(`/channels/${huddle.channelId}/huddle/signal`), { method: "POST", body: { to, data } });
+
+function peer(sub) {
+  let p = huddle.peers.get(sub);
+  if (p) return p;
+  const pc = new RTCPeerConnection({ iceServers: huddle.view?.iceServers || [] });
+  p = { pc, polite: state.me.sub > sub, makingOffer: false, ignoreOffer: false, stream: null, videoSender: null };
+  huddle.peers.set(sub, p);
+  pc.onnegotiationneeded = async () => {
+    try {
+      p.makingOffer = true;
+      await pc.setLocalDescription();
+      await signal(sub, { description: pc.localDescription });
+    } catch (e) {
+      console.warn("huddle offer", e);
+    } finally {
+      p.makingOffer = false;
+    }
+  };
+  pc.onicecandidate = ({ candidate }) => { if (huddle.channelId) signal(sub, { candidate: candidate ? candidate.toJSON() : null }).catch(() => {}); };
+  pc.ontrack = ({ track, streams }) => {
+    if (streams[0]) p.stream = streams[0];
+    else { p.stream = p.stream || new MediaStream(); p.stream.addTrack(track); }
+    renderHuddle();
+  };
+  pc.onconnectionstatechange = () => {
+    if (pc.connectionState === "failed") pc.restartIce();
+    renderHuddle();
+  };
+  for (const t of huddle.local.getAudioTracks()) pc.addTrack(t, huddle.local);
+  if (huddle.video) p.videoSender = pc.addTrack(huddle.video, huddle.local);
+  return p;
+}
+
+async function onHuddleSignal(ev) {
+  if (!huddle.channelId || ev.channelId !== huddle.channelId) return;
+  const p = peer(ev.from);
+  const { description, candidate } = ev.data || {};
+  try {
+    if (description) {
+      const collision = description.type === "offer" && (p.makingOffer || p.pc.signalingState !== "stable");
+      p.ignoreOffer = !p.polite && collision;
+      if (p.ignoreOffer) return;
+      await p.pc.setRemoteDescription(description);
+      if (description.type === "offer") {
+        await p.pc.setLocalDescription();
+        await signal(ev.from, { description: p.pc.localDescription });
+      }
+    } else if (candidate !== undefined) {
+      try {
+        await p.pc.addIceCandidate(candidate || undefined);
+      } catch (e) {
+        if (!p.ignoreOffer) throw e;
+      }
+    }
+  } catch (e) {
+    console.warn("huddle signal", e);
+  }
+}
+
+async function refreshHuddle() {
+  if (!huddle.channelId) return;
+  const { huddle: view } = await api(T(`/channels/${huddle.channelId}/huddle`));
+  if (!view || !view.people.some((p) => p.sub === state.me.sub)) { await leaveHuddle(); return; }
+  huddle.view = view;
+  const present = new Set(view.people.map((p) => p.sub));
+  for (const [sub, p] of huddle.peers) if (!present.has(sub)) { p.pc.close(); huddle.peers.delete(sub); }
+  renderHuddle();
+}
+
+async function setVideoTrack(track) {
+  const old = huddle.video;
+  if (old) { huddle.local.removeTrack(old); old.stop(); }
+  huddle.video = track;
+  if (track) huddle.local.addTrack(track);
+  for (const p of huddle.peers.values()) {
+    if (p.videoSender) await p.videoSender.replaceTrack(track);
+    else if (track) p.videoSender = p.pc.addTrack(track, huddle.local);
+  }
+}
+
+const tellHuddle = (body) => api(T(`/channels/${huddle.channelId}/huddle`), { method: "PUT", body }).then((v) => { huddle.view = v; renderHuddle(); });
+
+async function toggleMute() {
+  huddle.muted = !huddle.muted;
+  for (const t of huddle.local.getAudioTracks()) t.enabled = !huddle.muted;
+  await tellHuddle({ muted: huddle.muted });
+}
+
+async function toggleCamera() {
+  if (huddle.video && !huddle.screen) {
+    await setVideoTrack(null);
+    await tellHuddle({ video: false, screen: false });
+    return;
+  }
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 640 }, height: { ideal: 360 } } });
+  } catch (e) {
+    throw new Error(e?.name === "NotAllowedError" ? "Allow camera access to turn on video." : "No camera was found.");
+  }
+  huddle.screen = false;
+  await setVideoTrack(stream.getVideoTracks()[0]);
+  await tellHuddle({ video: true, screen: false });
+}
+
+async function toggleScreen() {
+  if (huddle.screen) {
+    huddle.screen = false;
+    await setVideoTrack(null);
+    await tellHuddle({ video: false, screen: false });
+    return;
+  }
+  if (!navigator.mediaDevices.getDisplayMedia) throw new Error("This browser cannot share the screen.");
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+  } catch {
+    return; // The person closed the picker.
+  }
+  const track = stream.getVideoTracks()[0];
+  track.addEventListener("ended", () => { if (huddle.screen && huddle.video === track) tryRun(toggleScreen)(); });
+  huddle.screen = true;
+  await setVideoTrack(track);
+  await tellHuddle({ video: true, screen: true });
+}
+
+function tileFor(person) {
+  const me = person.sub === state.me.sub;
+  let t = huddle.tiles.get(person.sub);
+  if (!t) {
+    const video = h("video", { autoplay: true, playsinline: true });
+    video.muted = me; // never play your own microphone back to yourself
+    t = { el: h("div", { class: "t-tile" }, h("span", { class: "t-tile-initial", "aria-hidden": "true" }, (person.displayName || "?")[0].toUpperCase()), video, h("span", { class: "t-tile-name" })), video };
+    huddle.tiles.set(person.sub, t);
+  }
+  const stream = me ? huddle.local : huddle.peers.get(person.sub)?.stream;
+  if (stream && t.video.srcObject !== stream) { t.video.srcObject = stream; t.video.play().catch(() => {}); }
+  const muted = me ? huddle.muted : person.muted;
+  const video = me ? !!huddle.video : person.video;
+  const screen = me ? huddle.screen : person.screen;
+  t.el.classList.toggle("on-camera", video);
+  t.el.classList.toggle("muted", muted);
+  const link = me ? "" : huddle.peers.get(person.sub)?.pc.connectionState;
+  t.el.querySelector(".t-tile-name").textContent = `${muted ? "🔇 " : ""}${person.displayName}${me ? " (you)" : ""}${screen ? " · sharing screen" : ""}${link && link !== "connected" ? ` · ${link}` : ""}`;
+  return t;
+}
+
+function renderHuddle() {
+  const box = $("#huddle");
+  if (!huddle.channelId || !huddle.view) {
+    box.hidden = true;
+    for (const t of huddle.tiles.values()) { t.video.srcObject = null; t.el.remove(); }
+    huddle.tiles.clear();
+    return;
+  }
+  if (!huddle.built) {
+    box.replaceChildren(h("div", { class: "t-huddle-head" }), h("div", { class: "t-huddle-tiles" }), h("div", { class: "t-row t-huddle-controls" }));
+    huddle.built = true;
+  }
+  box.hidden = false;
+  const [head, tiles, controls] = box.children;
+  const c = state.bar && [...state.bar.channels, ...state.bar.direct].find((x) => x.id === huddle.channelId);
+  head.replaceChildren(h("strong", {}, `🎧 ${c ? chanLabel(c) : "Huddle"}`), h("span", { class: "meta" }, ` · ${huddle.view.people.length} in the huddle`));
+  const present = new Set();
+  for (const person of huddle.view.people) {
+    present.add(person.sub);
+    const t = tileFor(person);
+    if (t.el.parentNode !== tiles) tiles.append(t.el);
+  }
+  for (const [sub, t] of huddle.tiles) if (!present.has(sub)) { t.video.srcObject = null; t.el.remove(); huddle.tiles.delete(sub); }
+  controls.replaceChildren(
+    h("button", { type: "button", class: `btn small${huddle.muted ? " primary" : ""}`, "aria-pressed": String(huddle.muted), onclick: tryRun(toggleMute) }, huddle.muted ? "Unmute" : "Mute"),
+    h("button", { type: "button", class: "btn small", "aria-pressed": String(!!huddle.video && !huddle.screen), onclick: tryRun(toggleCamera) }, huddle.video && !huddle.screen ? "Camera off" : "Camera on"),
+    navigator.mediaDevices?.getDisplayMedia ? h("button", { type: "button", class: "btn small", "aria-pressed": String(huddle.screen), onclick: tryRun(toggleScreen) }, huddle.screen ? "Stop sharing" : "Share screen") : null,
+    h("button", { type: "button", class: "btn small t-huddle-leave", onclick: tryRun(leaveHuddle) }, "Leave"),
+  );
+}
 
 // ---------- top-level wiring ----------
 
@@ -853,7 +1149,14 @@ $("#new-dm").addEventListener("click", tryRun(async () => {
 
 $("#create-ws").addEventListener("submit", tryRun(async (e) => { e.preventDefault(); state.wsId = (await api(T("/workspaces"), { method: "POST", body: { name: $("#ws-name").value } })).id; await start(); }));
 $("#join-ws").addEventListener("submit", tryRun(async (e) => { e.preventDefault(); state.wsId = (await api(T("/join"), { method: "POST", body: { code: $("#ws-code").value } })).id; await start(); }));
-$("#logout").addEventListener("click", tryRun(async () => { await api("/api/auth/logout", { method: "POST" }); location.href = "/team"; }));
+// The Cumulus://ID account bar's "Sign out" navigates to #signout (data-signout).
+const signOutFromHash = async () => {
+  if (location.hash !== "#signout") return;
+  await api("/api/auth/logout", { method: "POST" }).catch(() => {});
+  location.href = "/team";
+};
+window.addEventListener("hashchange", signOutFromHash);
+signOutFromHash();
 
 document.addEventListener("keydown", (e) => {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { e.preventDefault(); $("#search").focus(); }
@@ -873,10 +1176,11 @@ async function start() {
 if (new URLSearchParams(location.search).get("error") === "sign-in-failed") showError("Sign-in failed. Try again.");
 try {
   state.me = await api("/api/me");
-  $("#logout").hidden = false;
+  const person = state.me;
+  window.CumulusBar?.setProfile({ name: person.name || person.username, username: person.username, email: person.email || undefined });
   await start();
   $("#me-button").hidden = !state.bar;
 } catch (e) {
-  if (/unauthorized/.test(e.message)) $("#signed-out").hidden = false;
+  if (/unauthorized/.test(e.message)) { $("#signed-out").hidden = false; window.CumulusBar?.setProfile(null); }
   else showError(e.message);
 }

@@ -53,7 +53,7 @@ export class HttpGateway implements NexusGateway {
     });
     if (res.status === 409) throw new ConflictError();
     const text = await res.text();
-    if (!res.ok) throw new Error(`Data store error ${res.status}: ${text.slice(0, 200)}`);
+    if (!res.ok) throw new StoreError(`Data store error ${res.status}: ${text.slice(0, 200)}`);
     return JSON.parse(text) as T;
   }
   load(since: number, versions: Record<string, number>) {
@@ -134,6 +134,18 @@ export class RemoteState {
    * (Cumulus://ID rows behind nexus-store). Read at commit; the source resets itself via begin/rollback.
    */
   rows: { pending(): unknown[] } | null = null;
+  /** Work to do once the current attempt is saved (null: no request is running). */
+  private committedHooks: (() => Promise<void>)[] | null = null;
+
+  /**
+   * Run `fn` once the current request is saved: never for an attempt that is rolled back or re-run.
+   * For what can't be undone and must not happen unless the change is kept, such as deleting a stored
+   * file. Outside a request it runs now. A failure is logged, not thrown: the change is already saved.
+   */
+  afterCommit(fn: () => Promise<void>): void {
+    if (this.committedHooks) this.committedHooks.push(fn);
+    else void fn().catch((err) => console.error(`remote: after-commit step failed: ${(err as Error).message}`));
+  }
 
   /** @param docs named stores to keep in sync, e.g. { cid: cidStore, spectre: spectreStore } */
   constructor(gateway: NexusGateway, docs: Record<string, object>) {
@@ -151,7 +163,12 @@ export class RemoteState {
     this.ledgerStore.committed.push(...entries.sort((a, b) => a.seq - b.seq));
     for (const row of docs) {
       const store = this.docs[row.id];
-      if (!store) continue;
+      if (!store) {
+        // A document this host doesn't keep (e.g. `cid` once ID is in rows): remember its version so
+        // the gateway stops sending it with every request.
+        this.versions[row.id] = row.version;
+        continue;
+      }
       applySnapshot(store, row.data);
       this.versions[row.id] = row.version;
       this.baseline[row.id] = JSON.stringify(row.data);
@@ -177,6 +194,9 @@ export class RemoteState {
         serialized[id] = json;
       }
     }
+    // In id order, as every host sends them: the database locks them in this order, so two commits (or a
+    // commit and a rows claim) can't each hold one document the other waits for.
+    changed.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
     const entries = this.ledgerStore.pending;
     const rows = this.rows?.pending() ?? [];
     if (!changed.length && !entries.length && !rows.length) return;
@@ -225,6 +245,7 @@ export class RemoteState {
       const rollbackParticipants = async () => {
         for (const p of begun.splice(0)) await p.rollback().catch(() => undefined);
       };
+      this.committedHooks = [];
       try {
         for (const p of this.participants) {
           await p.begin();
@@ -237,6 +258,12 @@ export class RemoteState {
         } catch (error) {
           outcome = { ok: false, error };
         }
+        // Postgres ended the request's transaction to let another one through (a deadlock, or a
+        // serialization failure): nothing of it can be saved, so treat it as a conflict and re-run.
+        if (!outcome.ok && isRetryableDatabaseError(outcome.error)) throw new ConflictError();
+        // The store itself failed part way (a gateway read, a database statement): the request did only
+        // part of its work, so nothing of it is saved. Refusals (a wrong code, a taken name) still are.
+        if (!outcome.ok && isStoreFailure(outcome.error)) throw outcome.error;
         await this.commit();
         // The ledger and documents are saved: now the participants. A failure here leaves them
         // behind the ledger, which can't be undone any more; it is reported, never silent.
@@ -250,9 +277,14 @@ export class RemoteState {
             throw err;
           }
         }
+        // Saved, whatever the request answered: now the steps that had to wait for that.
+        const hooks = this.committedHooks ?? [];
+        this.committedHooks = null;
+        for (const hook of hooks) await hook().catch((err) => console.error(`remote: after-commit step failed: ${(err as Error).message}`));
         if (!outcome.ok) throw outcome.error;
         return outcome.value;
       } catch (err) {
+        this.committedHooks = null;
         await rollbackParticipants();
         if (err instanceof ConflictError) {
           this.rollback();
@@ -276,6 +308,22 @@ export class RemoteState {
   }
 }
 
+
+/** The data store failed (as opposed to the request refusing something). */
+export class StoreError extends Error {}
+
+/** A gateway error, or any Postgres error (a five-character SQLSTATE such as 23505). */
+export function isStoreFailure(err: unknown): boolean {
+  if (err instanceof StoreError) return true;
+  const code = (err as { code?: unknown } | null)?.code;
+  return typeof code === "string" && /^[0-9A-Z]{5}$/.test(code);
+}
+
+/** Postgres errors after which the whole transaction is gone but running it again can succeed. */
+export function isRetryableDatabaseError(err: unknown): boolean {
+  const code = (err as { code?: unknown } | null)?.code;
+  return code === "40P01" /* deadlock_detected */ || code === "40001" /* serialization_failure */;
+}
 
 /** In-memory gateway with the same rules as the database function (tests, local runs). */
 export class MemoryGateway implements NexusGateway {

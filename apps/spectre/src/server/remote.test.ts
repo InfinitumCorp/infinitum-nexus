@@ -114,6 +114,101 @@ describe("Hosted state (serverless instances sharing Supabase)", () => {
     assert.equal(a.crm.list("companies", acct.cid).length, 0);
   });
 
+  it("re-runs a request Postgres ended to break a deadlock, and saves nothing from the failed run", async () => {
+    const db = new MemoryGateway();
+    const a = instance(db);
+    const acct = await a.state.transaction(() => a.cid.createAccount({ username: "alex" }));
+    let runs = 0;
+    const result = await a.state.transaction(async () => {
+      runs++;
+      a.crm.addCompany(acct.cid, acct.cid, { name: `Run ${runs}` });
+      if (runs === 1) throw Object.assign(new Error("deadlock detected"), { code: "40P01" });
+      return "done";
+    });
+    assert.equal(result, "done");
+    assert.equal(runs, 2);
+    assert.deepEqual(a.crm.list("companies", acct.cid).map((c) => c.name), ["Run 2"], "the failed run's change was dropped");
+    assert.equal(a.state.stats.conflicts, 1);
+    // Any other error is the request's own and isn't re-run.
+    let other = 0;
+    await assert.rejects(a.state.transaction(async () => { other++; throw Object.assign(new Error("duplicate"), { code: "23505" }); }), /duplicate/);
+    assert.equal(other, 1);
+  });
+
+  it("after-commit steps run once the request is saved, never for a run that is re-run or rolled back", async () => {
+    const db = new MemoryGateway();
+    const a = instance(db);
+    const acct = await a.state.transaction(() => a.cid.createAccount({ username: "hooks" }));
+    const ran: string[] = [];
+    let runs = 0;
+    await a.state.transaction(async () => {
+      runs++;
+      a.state.afterCommit(async () => void ran.push(`run ${runs}`));
+      a.crm.addCompany(acct.cid, acct.cid, { name: `Run ${runs}` });
+      if (runs === 1) throw Object.assign(new Error("deadlock detected"), { code: "40P01" });
+    });
+    assert.deepEqual(ran, ["run 2"], "only the run that was saved");
+
+    // The store fails: nothing is saved, so nothing runs.
+    const down = instance(db);
+    down.state.participants.push({ begin: async () => {}, commit: async () => {}, rollback: async () => {} });
+    const commit = db.commit.bind(db);
+    db.commit = async () => { throw new Error("store unreachable"); };
+    await assert.rejects(down.state.transaction(async () => {
+      down.state.afterCommit(async () => void ran.push("never"));
+      down.crm.addCompany(acct.cid, acct.cid, { name: "Lost" });
+    }), /unreachable/);
+    db.commit = commit;
+    assert.deepEqual(ran, ["run 2"]);
+
+    // A refusal is still saved, so its steps run; a failing step doesn't fail the request.
+    await assert.rejects(a.state.transaction(async () => {
+      a.state.afterCommit(async () => { throw new Error("bucket down"); });
+      a.state.afterCommit(async () => void ran.push("after refusal"));
+      throw new Error("refused");
+    }), /refused/);
+    assert.deepEqual(ran, ["run 2", "after refusal"]);
+  });
+
+  it("a document this host doesn't keep is sent once, not with every request", async () => {
+    const db = new MemoryGateway();
+    db.docs.set("cid", { id: "cid", version: 3, data: { accounts: { __map: [] } } });
+    const crmStore = emptyStore();
+    const state = new RemoteState(db, { spectre: crmStore });
+    const sent: string[][] = [];
+    const load = db.load.bind(db);
+    db.load = async (since, versions) => {
+      const r = await load(since, versions);
+      sent.push(r.docs.map((d) => d.id));
+      return r;
+    };
+    for (let i = 0; i < 3; i++) await state.transaction(async () => undefined);
+    assert.deepEqual(sent, [["cid"], [], []]);
+  });
+
+  it("a store failure part way through a request saves nothing of it; a refusal still saves what it recorded", async () => {
+    const db = new MemoryGateway();
+    const a = instance(db);
+    const acct = await a.state.transaction(() => a.cid.createAccount({ username: "alex" }));
+    const { StoreError } = await import("./remote.ts");
+    for (const failure of [new StoreError("Data store error 502"), Object.assign(new Error("duplicate key"), { code: "23505" })]) {
+      await assert.rejects(a.state.transaction(async () => {
+        a.crm.addCompany(acct.cid, acct.cid, { name: "Half done" });
+        throw failure;
+      }));
+      assert.equal(a.crm.list("companies", acct.cid).length, 0, "rolled back in memory");
+      const fresh = instance(db, a.signer);
+      assert.equal(await fresh.state.transaction(async () => fresh.crm.list("companies", acct.cid).length), 0, "and not saved");
+    }
+    // A refusal (the request's own error, no store involved) keeps today's behavior: what it recorded is saved.
+    await assert.rejects(a.state.transaction(async () => {
+      a.crm.addCompany(acct.cid, acct.cid, { name: "Recorded" });
+      throw new Error("refused");
+    }), /refused/);
+    const fresh = instance(db, a.signer);
+    assert.equal(await fresh.state.transaction(async () => fresh.crm.list("companies", acct.cid).length), 1);
+  });
+
   it("doesn't write anything for read-only requests", async () => {
     const db = new MemoryGateway();
     const a = instance(db);

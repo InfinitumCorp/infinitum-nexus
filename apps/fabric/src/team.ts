@@ -9,7 +9,7 @@
  * channel key; reminders are sealed with the master key. Plaintext exists only
  * in this process, for a signed-in member who may read it.
  */
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { open, randomKey, seal } from "@infinitum/fabric";
 import type { FabricIdentity } from "./auth.ts";
 import { FabricServiceError } from "./service.ts";
@@ -23,10 +23,12 @@ import {
   type FileRow,
   type GroupRow,
   type MemberRow,
+  type PollRow,
   type ReminderRow,
   type Role,
   type ScheduledRow,
   type TeamMessageRow,
+  type WebhookRow,
   type WorkspaceRow,
 } from "./team-store.ts";
 
@@ -38,6 +40,13 @@ export const TEAM_LIMITS = {
   page: 50,
   searchScan: 5000,
   activeWindowMs: 5 * 60_000,
+  pollOptions: 10,
+  /** People in one huddle. Media flows peer to peer (a full mesh), so this stays small. */
+  huddlePeople: 8,
+  /** How long a person may be disconnected before they are taken out of a huddle. */
+  huddleGraceMs: 15_000,
+  webhooks: 100,
+  pollOption: 120,
 };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -107,7 +116,14 @@ export interface ChannelView {
   lastReadAt: string | null;
   lastMessageAt: string | null;
   people?: PersonView[];
+  /** A huddle going on in this channel right now. */
+  huddle: { people: number; startedAt: string } | null;
 }
+
+export interface HuddlePerson { sub: string; username: string; displayName: string; muted: boolean; video: boolean; screen: boolean; joinedAt: string }
+export interface HuddleView { channelId: string; startedAt: string; startedBy: string; people: HuddlePerson[]; iceServers: IceServer[] }
+export interface IceServer { urls: string | string[]; username?: string; credential?: string }
+interface Huddle { channelId: string; workspaceId: string; startedAt: string; startedBy: string; people: Map<string, { joinedAt: string; muted: boolean; video: boolean; screen: boolean }> }
 
 export interface ReactionView { emoji: string; count: number; subs: string[]; mine: boolean }
 export interface FileView { id: string; name: string; mime: string; size: number; createdAt: string; channelId: string; uploader: string }
@@ -133,6 +149,19 @@ export interface MessageView {
   saved: boolean;
   files: FileView[];
   mentions: string[];
+  /** A poll attached to this message; the message text is its question. */
+  poll: PollView | null;
+  /** The app (webhook or workflow) that posted this on its creator's behalf. */
+  app: { id: string; name: string } | null;
+}
+
+export interface PollView {
+  options: { text: string; count: number; voters: string[]; mine: boolean }[];
+  anonymous: boolean;
+  multiple: boolean;
+  closed: boolean;
+  /** Number of people who voted. */
+  voters: number;
 }
 
 export interface SendResult {
@@ -168,9 +197,12 @@ export class TeamService {
   private readonly keys = new Map<string, Buffer>();
   private readonly lastSeen = new Map<string, number>();
   private readonly connected = new Map<string, number>();
+  private readonly huddles = new Map<string, Huddle>();
+  private readonly iceServers: IceServer[];
   private lastStamp = 0;
 
-  constructor(users: FabricStore, masterKey: Buffer, options: { publish?: Publish; clock?: () => Date } = {}) {
+  constructor(users: FabricStore, masterKey: Buffer, options: { publish?: Publish; clock?: () => Date; iceServers?: IceServer[] } = {}) {
+    this.iceServers = options.iceServers ?? [];
     this.users = users;
     this.store = new TeamStore(users.database);
     this.masterKey = masterKey;
@@ -192,6 +224,11 @@ export class TeamService {
     this.seen(sub);
     if ((before === 0) !== (n === 0)) {
       for (const workspaceId of this.workspaceIds(sub)) this.publish(this.workspaceSubs(workspaceId), { type: "presence", workspaceId, sub });
+    }
+    // A closed tab cannot say goodbye: take its person out of any huddle unless they reconnect soon.
+    if (n === 0 && [...this.huddles.values()].some((h) => h.people.has(sub))) {
+      const timer = setTimeout(() => { if (!this.connected.get(sub)) this.leaveAllHuddles(sub); }, TEAM_LIMITS.huddleGraceMs);
+      timer.unref?.();
     }
   }
 
@@ -1144,6 +1181,14 @@ export class TeamService {
         return { ephemeral: name === "mute" ? "Channel muted." : "Channel unmuted." };
       case "who":
         return { ephemeral: `In ${channelLabel(channel)}: ${this.channelPeople(me, channelId).map((p) => `@${p.username}`).join(", ")}` };
+      case "poll": {
+        const flags = { anonymous: /(^|\s)--anonymous(?=\s|$)/i.test(rest), multiple: /(^|\s)--multiple(?=\s|$)/i.test(rest) };
+        const body = rest.replace(/(^|\s)--(anonymous|multiple)(?=\s|$)/gi, " ").trim();
+        const quoted = [...body.matchAll(/"([^"]+)"|\u201c([^\u201d]+)\u201d/g)].map((m) => (m[1] ?? m[2] ?? "").trim()).filter(Boolean);
+        const parts = quoted.length >= 3 ? quoted : body.split("|").map((p) => p.trim()).filter(Boolean);
+        if (parts.length < 3) throw fail(400, 'usage: /poll "Question" "Option" "Option" [--anonymous] [--multiple]');
+        return { message: this.createPoll(me, channelId, { question: parts[0], options: parts.slice(1), ...flags }) };
+      }
       case "help":
         return { ephemeral: HELP };
       default:
@@ -1151,17 +1196,250 @@ export class TeamService {
     }
   }
 
+  // ---------- huddles ----------
+  //
+  // A huddle is a live audio/video call in a channel or conversation. The server only tracks who is
+  // in it and relays WebRTC signalling (session descriptions and ICE candidates) between them over
+  // the event stream; audio and video go directly between browsers. Nothing about a huddle is stored.
+
+  huddle(me: FabricIdentity, channelId: string): HuddleView | null {
+    this.readable(me, channelId);
+    const h = this.huddles.get(channelId);
+    return h ? this.huddleView(h) : null;
+  }
+
+  /** Join (or start) the huddle in a channel. You can be in one huddle at a time. */
+  joinHuddle(me: FabricIdentity, channelId: string): HuddleView {
+    const { channel } = this.writable(me, channelId);
+    for (const other of [...this.huddles.values()]) if (other.channelId !== channelId && other.people.has(me.sub)) this.leaveHuddle(me, other.channelId);
+    let h = this.huddles.get(channelId);
+    if (h && !h.people.has(me.sub) && h.people.size >= TEAM_LIMITS.huddlePeople) throw fail(400, `a huddle holds up to ${TEAM_LIMITS.huddlePeople} people`);
+    const now = this.clock().toISOString();
+    if (!h) {
+      h = { channelId, workspaceId: channel.workspaceId, startedAt: now, startedBy: me.sub, people: new Map() };
+      this.huddles.set(channelId, h);
+      this.system(channel, me.sub, "started a huddle");
+    }
+    if (!h.people.has(me.sub)) h.people.set(me.sub, { joinedAt: now, muted: false, video: false, screen: false });
+    this.publishHuddle(h, me.sub, "joined");
+    return this.huddleView(h);
+  }
+
+  leaveHuddle(me: FabricIdentity, channelId: string): void {
+    const h = this.huddles.get(channelId);
+    if (!h || !h.people.delete(me.sub)) return;
+    this.endIfEmpty(h, me.sub);
+  }
+
+  /** Tell the others whether you are muted, on camera or sharing your screen. */
+  updateHuddle(me: FabricIdentity, channelId: string, input: { muted?: unknown; video?: unknown; screen?: unknown }): HuddleView {
+    const h = this.huddles.get(channelId);
+    const p = h?.people.get(me.sub);
+    if (!h || !p) throw fail(404, "you are not in this huddle");
+    if (typeof input.muted === "boolean") p.muted = input.muted;
+    if (typeof input.video === "boolean") p.video = input.video;
+    if (typeof input.screen === "boolean") p.screen = input.screen;
+    this.publishHuddle(h, me.sub, "updated");
+    return this.huddleView(h);
+  }
+
+  /**
+   * Relay one WebRTC signalling message to another person in the same huddle: either
+   * { description: { type, sdp } } or { candidate: {...} }. It goes only to that person.
+   */
+  signalHuddle(me: FabricIdentity, channelId: string, input: { to?: unknown; data?: unknown }): void {
+    const h = this.huddles.get(channelId);
+    if (!h || !h.people.has(me.sub)) throw fail(404, "you are not in this huddle");
+    const to = typeof input.to === "string" ? input.to : "";
+    if (!h.people.has(to) || to === me.sub) throw fail(404, "that person is not in this huddle");
+    const data = input.data;
+    if (!data || typeof data !== "object" || Array.isArray(data)) throw fail(400, "data is required");
+    const d = data as Record<string, unknown>;
+    const description = d.description as Record<string, unknown> | undefined;
+    const valid = description
+      ? (description.type === "offer" || description.type === "answer") && typeof description.sdp === "string" && description.sdp.length <= 40_000
+      : d.candidate === null || (typeof d.candidate === "object" && d.candidate !== null && JSON.stringify(d.candidate).length <= 2_000);
+    if (!valid) throw fail(400, "signal is not a session description or ICE candidate");
+    this.publish([to], {
+      type: "huddle-signal", workspaceId: h.workspaceId, channelId, from: me.sub,
+      data: description ? { description: { type: description.type, sdp: description.sdp } } : { candidate: d.candidate },
+    });
+  }
+
+  private leaveAllHuddles(sub: string): void {
+    for (const h of [...this.huddles.values()]) if (h.people.delete(sub)) this.endIfEmpty(h, sub);
+  }
+
+  private endIfEmpty(h: Huddle, sub: string): void {
+    if (h.people.size > 0) {
+      this.publishHuddle(h, sub, "left");
+      return;
+    }
+    this.huddles.delete(h.channelId);
+    const minutes = Math.max(1, Math.round((this.clock().getTime() - Date.parse(h.startedAt)) / 60_000));
+    try {
+      this.system(this.channel(h.channelId), sub, `ended the huddle after ${minutes} ${minutes === 1 ? "minute" : "minutes"}`);
+    } catch {
+      // The channel is gone.
+    }
+    this.publish(this.channelSubs(h.channelId), { type: "huddle", workspaceId: h.workspaceId, channelId: h.channelId, sub, action: "ended" });
+  }
+
+  private publishHuddle(h: Huddle, sub: string, action: string): void {
+    this.publish(this.channelSubs(h.channelId), { type: "huddle", workspaceId: h.workspaceId, channelId: h.channelId, sub, action, people: h.people.size });
+  }
+
+  private huddleView(h: Huddle): HuddleView {
+    return {
+      channelId: h.channelId, startedAt: h.startedAt, startedBy: h.startedBy, iceServers: this.iceServers,
+      people: [...h.people].map(([sub, p]) => {
+        const person = this.person(h.workspaceId, sub);
+        return { sub, username: person.username, displayName: person.displayName, ...p };
+      }),
+    };
+  }
+
+  // ---------- polls ----------
+
+  /** Post a poll. The question is the message text, so it is searchable and notifies like any message. */
+  createPoll(me: FabricIdentity, channelId: string, input: { question?: unknown; options?: unknown; anonymous?: unknown; multiple?: unknown }): MessageView {
+    const question = label(input.question, "question", 300);
+    if (!Array.isArray(input.options)) throw fail(400, "options are required");
+    const options = input.options.map((o) => (typeof o === "string" ? o.replace(/[\u0000-\u001f\u007f]/g, "").trim() : "")).filter(Boolean);
+    if (options.length < 2 || options.length > TEAM_LIMITS.pollOptions) throw fail(400, `a poll needs 2 to ${TEAM_LIMITS.pollOptions} options`);
+    if (options.some((o) => o.length > TEAM_LIMITS.pollOption)) throw fail(400, `an option can be up to ${TEAM_LIMITS.pollOption} characters`);
+    if (new Set(options.map((o) => o.toLowerCase())).size !== options.length) throw fail(400, "each option must be different");
+    const { channel } = this.writable(me, channelId);
+    const id = randomUUID();
+    const result = this.insertMessage(channel, me.sub, question, {
+      id, parent: null, alsoInChannel: false, fileIds: [],
+      extra: (now) => this.store.insert("team_polls", {
+        messageId: id, channelId: channel.id, ciphertext: seal(JSON.stringify(options), this.key(channel), pollAad(channel.id, id)),
+        anonymous: input.anonymous === true ? 1 : 0, multiple: input.multiple === true ? 1 : 0, createdAt: now,
+      }),
+    });
+    return this.view(me, result.row);
+  }
+
+  /** Vote for option `choice` (0-based), or take the vote back. A single-choice poll moves the vote. */
+  vote(me: FabricIdentity, messageId: string, choice: unknown, on?: boolean): MessageView {
+    const row = this.message(messageId);
+    const { channel } = this.writable(me, row.channelId);
+    const poll = row.deletedAt ? null : this.store.one<PollRow>("SELECT * FROM team_polls WHERE message_id = ?", row.id);
+    if (!poll) throw fail(404, "poll not found");
+    if (poll.closedAt) throw fail(400, "this poll is closed");
+    const count = this.pollOptions(channel, poll).length;
+    if (typeof choice !== "number" || !Number.isInteger(choice) || choice < 0 || choice >= count) throw fail(400, "no such option");
+    const has = !!this.store.one("SELECT choice FROM team_poll_votes WHERE message_id = ? AND sub = ? AND choice = ?", row.id, me.sub, choice);
+    const want = on ?? !has;
+    this.store.tx(() => {
+      if (want && !has) {
+        if (!poll.multiple) this.store.run("DELETE FROM team_poll_votes WHERE message_id = ? AND sub = ?", row.id, me.sub);
+        this.store.insert("team_poll_votes", { messageId: row.id, sub: me.sub, choice, createdAt: this.stamp() });
+      }
+      if (!want && has) this.store.run("DELETE FROM team_poll_votes WHERE message_id = ? AND sub = ? AND choice = ?", row.id, me.sub, choice);
+    });
+    this.publish(this.channelSubs(channel.id), { type: "poll", workspaceId: channel.workspaceId, channelId: channel.id, messageId: row.id, parentId: row.parentId });
+    return this.view(me, row);
+  }
+
+  /** Close a poll so no one can vote. The person who asked, or an admin. */
+  closePoll(me: FabricIdentity, messageId: string): MessageView {
+    const row = this.message(messageId);
+    const { channel, ws } = this.readable(me, row.channelId);
+    const poll = row.deletedAt ? null : this.store.one<PollRow>("SELECT * FROM team_polls WHERE message_id = ?", row.id);
+    if (!poll) throw fail(404, "poll not found");
+    if (row.sender !== me.sub && !isAdmin(ws.role)) throw fail(403, "only the person who asked or an admin can close a poll");
+    if (!poll.closedAt) {
+      this.store.run("UPDATE team_polls SET closed_at = ? WHERE message_id = ?", this.stamp(), row.id);
+      this.publish(this.channelSubs(channel.id), { type: "poll", workspaceId: channel.workspaceId, channelId: channel.id, messageId: row.id, parentId: row.parentId });
+    }
+    return this.view(me, row);
+  }
+
+  // ---------- incoming webhooks ----------
+
+  /**
+   * Make an incoming webhook for a channel. The returned path holds a secret token that is shown
+   * only once; the server keeps its SHA-256 hash. Messages it posts appear as the app, on behalf
+   * of the person who made it, and stop working if that person leaves the channel.
+   */
+  createWebhook(me: FabricIdentity, channelId: string, input: { name?: unknown }): WebhookView & { path: string } {
+    const { channel, ws } = this.writable(me, channelId);
+    if (ws.role === "guest") throw fail(403, "guests cannot add apps");
+    if (this.store.count("SELECT COUNT(*) FROM team_webhooks WHERE workspace_id = ?", channel.workspaceId) >= TEAM_LIMITS.webhooks) throw fail(400, "this workspace has too many webhooks");
+    const name = label(input.name, "name", 60);
+    const id = randomUUID();
+    const token = randomBytes(32).toString("base64url");
+    const row: WebhookRow = { id, workspaceId: channel.workspaceId, channelId, name, tokenHash: hashToken(token), createdBy: me.sub, createdAt: this.stamp(), lastUsedAt: null };
+    this.store.insert("team_webhooks", row);
+    this.system(channel, me.sub, `added the incoming webhook “${name}”`);
+    return { ...this.webhookView(me, row), path: `/api/team/hooks/${id}/${token}` };
+  }
+
+  /** Webhooks in a workspace: all of them for admins, your own for everyone else. */
+  webhooks(me: FabricIdentity, workspaceId: string): WebhookView[] {
+    const m = this.member(me, workspaceId);
+    const rows = isAdmin(m.role)
+      ? this.store.all<WebhookRow>("SELECT * FROM team_webhooks WHERE workspace_id = ? ORDER BY created_at", workspaceId)
+      : this.store.all<WebhookRow>("SELECT * FROM team_webhooks WHERE workspace_id = ? AND created_by = ? ORDER BY created_at", workspaceId, me.sub);
+    return rows.map((r) => this.webhookView(me, r));
+  }
+
+  deleteWebhook(me: FabricIdentity, id: string): void {
+    const row = this.store.one<WebhookRow>("SELECT * FROM team_webhooks WHERE id = ?", uuid(id));
+    if (!row) throw fail(404, "webhook not found");
+    const m = this.member(me, row.workspaceId);
+    if (row.createdBy !== me.sub && !isAdmin(m.role)) throw fail(403, "only the person who added it or an admin can remove a webhook");
+    this.store.run("DELETE FROM team_webhooks WHERE id = ?", row.id);
+  }
+
+  /** Post through a webhook. No session: the token in the path is the credential. */
+  postWebhook(id: string, token: string, input: { text?: unknown; threadId?: unknown }): { ok: true; messageId: string } {
+    const row = UUID.test(id) ? this.store.one<WebhookRow>("SELECT * FROM team_webhooks WHERE id = ?", id.toLowerCase()) : null;
+    const expected = row ? Buffer.from(row.tokenHash) : Buffer.alloc(43);
+    const given = Buffer.from(hashToken(token));
+    if (!row || given.length !== expected.length || !timingSafeEqual(given, expected)) throw fail(404, "webhook not found");
+    const text = typeof input.text === "string" ? input.text.replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, "") : "";
+    if (!text.trim()) throw fail(400, "text is required");
+    if (text.length > TEAM_LIMITS.text) throw fail(400, "text is too long");
+    const channel = this.channel(row.channelId);
+    if (channel.archivedAt) throw fail(410, "the channel is archived");
+    const owner = this.store.one<MemberRow>("SELECT * FROM team_members WHERE workspace_id = ? AND sub = ? AND deactivated_at IS NULL", row.workspaceId, row.createdBy);
+    if (!owner || !this.channelMember(channel.id, row.createdBy)) throw fail(410, "the person who added this webhook is no longer in the channel");
+    let parent: TeamMessageRow | null = null;
+    if (typeof input.threadId === "string" && UUID.test(input.threadId)) {
+      parent = this.store.one<TeamMessageRow>("SELECT * FROM team_messages WHERE id = ? AND channel_id = ? AND deleted_at IS NULL", input.threadId.toLowerCase(), channel.id);
+      if (parent?.parentId) parent = this.message(parent.parentId);
+    }
+    const messageId = randomUUID();
+    this.insertMessage(channel, row.createdBy, text, { id: messageId, parent, alsoInChannel: false, fileIds: [], app: { id: row.id, name: row.name } });
+    this.store.run("UPDATE team_webhooks SET last_used_at = ? WHERE id = ?", this.clock().toISOString(), row.id);
+    return { ok: true, messageId };
+  }
+
+  private webhookView(me: FabricIdentity, row: WebhookRow): WebhookView {
+    return {
+      id: row.id, name: row.name, channel: this.channelView(me, this.channel(row.channelId)),
+      createdBy: this.person(row.workspaceId, row.createdBy), createdAt: row.createdAt, lastUsedAt: row.lastUsedAt,
+    };
+  }
+
   // ---------- internals ----------
 
-  private insertMessage(channel: ChannelRow, sender: string, text: string, opts: { id: string; parent: TeamMessageRow | null; alsoInChannel: boolean; fileIds: string[] }): { row: TeamMessageRow; notInChannel: string[] } {
+  private insertMessage(
+    channel: ChannelRow, sender: string, text: string,
+    opts: { id: string; parent: TeamMessageRow | null; alsoInChannel: boolean; fileIds: string[]; app?: { id: string; name: string }; extra?: (now: string) => void },
+  ): { row: TeamMessageRow; notInChannel: string[] } {
     const now = this.stamp();
     const row: TeamMessageRow = {
       id: opts.id, channelId: channel.id, sender, ciphertext: seal(text, this.key(channel), messageAad(channel.id, opts.id)),
       parentId: opts.parent?.id ?? null, createdAt: now, editedAt: null, deletedAt: null, replyCount: 0, lastReplyAt: null,
-      alsoInChannel: opts.alsoInChannel ? 1 : 0, kind: "user",
+      alsoInChannel: opts.alsoInChannel ? 1 : 0, kind: "user", appId: opts.app?.id ?? null, appName: opts.app?.name ?? null,
     };
     const notInChannel = this.store.tx(() => {
       this.store.insert("team_messages", row);
+      opts.extra?.(now);
       for (const f of opts.fileIds) this.store.run("UPDATE team_files SET message_id = ? WHERE id = ?", row.id, f);
       if (opts.parent) this.store.run("UPDATE team_messages SET reply_count = reply_count + 1, last_reply_at = ? WHERE id = ?", now, opts.parent.id);
       if (!opts.parent || opts.alsoInChannel) this.store.run("UPDATE team_channels SET last_message_at = ? WHERE id = ?", now, channel.id);
@@ -1438,6 +1716,7 @@ export class TeamService {
       id: c.id, workspaceId: c.workspaceId, kind: c.kind, name, topic: c.topic, purpose: c.purpose, createdBy: c.createdBy, createdAt: c.createdAt,
       archived: !!c.archivedAt, isDefault: !!c.isDefault, memberCount: subs.length, member: !!mine, muted: !!mine?.muted, starred: !!mine?.starred,
       unread, mentions, lastReadAt: lastRead, lastMessageAt: c.lastMessageAt,
+      huddle: this.huddles.has(c.id) ? { people: this.huddles.get(c.id)!.people.size, startedAt: this.huddles.get(c.id)!.startedAt } : null,
       ...(withPeople || c.kind === "dm" || c.kind === "group" ? { people: (c.kind === "dm" || c.kind === "group" ? others : subs).slice(0, 50).map((s) => this.person(c.workspaceId, s)) } : {}),
     };
   }
@@ -1484,7 +1763,39 @@ export class TeamService {
       saved: !!this.store.one("SELECT message_id FROM team_saved WHERE message_id = ? AND sub = ?", row.id, me.sub),
       files: this.store.all<FileRow>("SELECT * FROM team_files WHERE message_id = ? ORDER BY created_at", row.id).map(fileView),
       mentions: this.store.all<{ sub: string }>("SELECT sub FROM team_mentions WHERE message_id = ?", row.id).map((m) => m.sub),
+      poll: row.deletedAt ? null : this.pollView(me, channel, row.id),
+      app: row.appId ? { id: row.appId, name: row.appName ?? "App" } : null,
     };
+  }
+
+  private pollView(me: FabricIdentity, channel: ChannelRow, messageId: string): PollView | null {
+    const poll = this.store.one<PollRow>("SELECT * FROM team_polls WHERE message_id = ?", messageId);
+    if (!poll) return null;
+    let texts: string[];
+    try {
+      texts = this.pollOptions(channel, poll);
+    } catch {
+      return null;
+    }
+    const votes = this.store.all<{ sub: string; choice: number }>("SELECT sub, choice FROM team_poll_votes WHERE message_id = ? ORDER BY created_at", messageId);
+    return {
+      options: texts.map((text, i) => {
+        const subs = votes.filter((v) => v.choice === i).map((v) => v.sub);
+        return {
+          text, count: subs.length, mine: subs.includes(me.sub),
+          voters: poll.anonymous ? [] : subs.slice(0, 50).map((s) => this.person(channel.workspaceId, s).displayName),
+        };
+      }),
+      anonymous: !!poll.anonymous,
+      multiple: !!poll.multiple,
+      closed: !!poll.closedAt,
+      voters: new Set(votes.map((v) => v.sub)).size,
+    };
+  }
+
+  private pollOptions(channel: ChannelRow, poll: PollRow): string[] {
+    const parsed: unknown = JSON.parse(open(poll.ciphertext, this.key(channel), pollAad(channel.id, poll.messageId)));
+    return Array.isArray(parsed) ? parsed.map(String) : [];
   }
 
   private scheduledView(me: FabricIdentity, row: ScheduledRow): ScheduledView {
@@ -1497,6 +1808,7 @@ export class TeamService {
   }
 }
 
+export interface WebhookView { id: string; name: string; channel: ChannelView; createdBy: PersonView; createdAt: string; lastUsedAt: string | null }
 export interface ScheduledView { id: string; channel: ChannelView; parentId: string | null; sendAt: string; createdAt: string; text: string }
 export interface ReminderView { id: string; text: string; remindAt: string; done: boolean; fired: boolean; messageId: string | null; createdAt: string }
 
@@ -1505,6 +1817,7 @@ const HELP = [
   "/invite @a @b · /kick @a · /join #channel · /leave · /archive · /who",
   "/dm @person message · /remind me to [what] in 10m | at 15:00 | tomorrow",
   "/status :emoji: text | clear · /away · /active · /dnd 30m | off · /mute · /unmute",
+  '/poll "Question" "Option" "Option" [--anonymous] [--multiple]',
 ].join("\n");
 
 function isAdmin(role: Role): boolean {
@@ -1597,6 +1910,29 @@ function messageAad(channelId: string, id: string): string { return `fabric-team
 function fileAad(channelId: string, id: string): string { return `fabric-team-file:${channelId}:${id}`; }
 function canvasAad(channelId: string): string { return `fabric-team-canvas:${channelId}`; }
 function reminderAad(id: string): string { return `fabric-team-reminder:${id}`; }
+function hashToken(token: string): string { return createHash("sha256").update(token).digest("base64url"); }
+/** FABRIC_ICE_SERVERS: a JSON list of { urls, username?, credential? } with stun:, stuns:, turn: or turns: URLs. */
+export function parseIceServers(text: string | undefined): IceServer[] {
+  if (!text || !text.trim()) return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new Error("FABRIC_ICE_SERVERS must be a JSON list");
+  }
+  if (!Array.isArray(parsed)) throw new Error("FABRIC_ICE_SERVERS must be a JSON list");
+  return parsed.map((entry, i) => {
+    const e = entry as Record<string, unknown>;
+    const urls = typeof e?.urls === "string" ? [e.urls] : Array.isArray(e?.urls) ? e.urls : [];
+    if (urls.length === 0 || !urls.every((u) => typeof u === "string" && /^(stuns?|turns?):[^\s]+$/i.test(u))) throw new Error(`FABRIC_ICE_SERVERS entry ${i + 1} needs stun:, stuns:, turn: or turns: urls`);
+    const out: IceServer = { urls: typeof e.urls === "string" ? e.urls : (urls as string[]) };
+    if (typeof e.username === "string") out.username = e.username;
+    if (typeof e.credential === "string") out.credential = e.credential;
+    return out;
+  });
+}
+
+function pollAad(channelId: string, id: string): string { return `fabric-team-poll:${channelId}:${id}`; }
 
 /** "10m", "2 hours", "1d" → milliseconds. */
 export function duration(text: string): number | null {

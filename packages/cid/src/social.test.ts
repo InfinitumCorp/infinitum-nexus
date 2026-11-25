@@ -295,6 +295,29 @@ describe("CID social sign-in", () => {
     await rejectsWith(signInWith(cid, fake, "google", me.cid), "identity_in_use");
   });
 
+  it("linking another account at the same provider: the one before no longer signs in", async () => {
+    const { cid, fake } = setup(["google"]);
+    const me = await cid.createAccount({ username: "relink" });
+    assert.equal((await signInWith(cid, fake, "google", me.cid)).status, "linked");
+    // Link a different Google account in its place.
+    fake.users.google = { ...fake.users.google!, sub: "g-999", email: "alex.new@gmail.example" };
+    assert.equal((await signInWith(cid, fake, "google", me.cid)).status, "linked");
+    assert.deepEqual((await cid.linkedIdentities(me.cid)).map((i) => i.subject), ["g-999"]);
+    // The old Google account signs in to a new CID of its own, not to this one.
+    fake.users.google = { ...fake.users.google!, sub: "g-111" };
+    const old = await signInWith(cid, fake, "google");
+    assert.ok(old.status === "ok" && old.session.cid !== me.cid, "the replaced link doesn't open the account");
+  });
+
+  it("a link left behind before this fix no longer signs in", async () => {
+    const { cid, fake } = setup(["google"]);
+    const me = await cid.createAccount({ username: "stale" });
+    await cid.repo.setIdentity("google|g-111", me.cid); // the account doesn't list it
+    const res = await signInWith(cid, fake, "google");
+    assert.ok(res.status === "ok" && res.session.cid !== me.cid);
+    assert.notEqual(await cid.repo.cidForIdentity("google|g-111"), me.cid);
+  });
+
   it("still requires the authenticator-app code when multifactor is on", async () => {
     const { cid, fake, now } = setup(["google"]);
     const first = await signInWith(cid, fake, "google");

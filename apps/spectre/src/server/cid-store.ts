@@ -13,6 +13,14 @@
  *                                      ledger and the other documents were saved, and rolls back
  *                                      whenever RemoteState re-runs or abandons the request.
  *
+ * CUMULUS_ROWS moves more products into the same database and the same per-request transaction: a
+ * comma-separated list of "mail", "wallet", "quota", with CUMULUS_STORE=postgres or gateway (through
+ * nexus-store: migrations 20261115_cumulus_rows_wallet_quota.sql and 20261116_cumulus_rows_mail.sql;
+ * the first request claims the rows, which copies the documents in once). Their documents
+ * ("cumulus-mail", "firm-wallet", "cumulus-quota") are then no longer loaded or saved. Copy them in
+ * first with packages/cumulus/src/rows-cli.ts; the documents stay as they were, so removing a product
+ * from CUMULUS_ROWS is the rollback (anything written to its rows since is not carried back).
+ *
  * The database is CID_DATABASE_URL, or a Cloudflare Hyperdrive binding passed to
  * useCidDatabaseUrl() by the Worker. CID_DATABASE_SCHEMA picks the schema (default "public").
  * Create the tables and copy the document first with the backfill (packages/cid backfill-cli.ts);
@@ -20,7 +28,21 @@
  * is the rollback.
  */
 import { PgCidRepository, PgRequestScope, RemoteCidRepository, type CidReadOp, type CidRepository, type PgPoolClient, type Queryable } from "@infinitum/cid";
-import type { NexusGateway, TransactionParticipant } from "./remote.ts";
+import { RemoteRows, parseRowProducts, productRepositories, type CumulusConfig, type RowProduct } from "@infinitum/cumulus";
+import { ConflictError, type NexusGateway, type TransactionParticipant } from "./remote.ts";
+
+/** The rows already hold something other than the document: overwriting them could lose data. */
+export class ClaimRefused extends Error {
+  readonly products: string[];
+  constructor(products: string[]) {
+    super(
+      `Cumulus rows for ${products.join(", ")} already hold data that differs from their documents, so they weren't replaced and this host won't serve. ` +
+        "If the rows are right, record the claim (insert into cumulus_rows.claims (product, copied) values ('<product>', '{}')); " +
+        "if the documents are right, select cumulus_rows.release('<product>') and the next request copies them. See supabase/migrations/20261124_cumulus_rows_claim_safety.sql.",
+    );
+    this.products = products;
+  }
+}
 
 let databaseUrlOverride: string | undefined;
 /** The Worker passes its Hyperdrive connection string here before the first request. */
@@ -37,30 +59,119 @@ export interface CidStorage {
   participant?: TransactionParticipant;
   /** Row writes the gateway saves with the ledger (gateway mode): set as RemoteState.rows. */
   rows?: { pending(): unknown[] };
+  /** Products kept as rows in the same database (CUMULUS_ROWS); their documents aren't loaded. */
+  products: RowProduct[];
+  /** The gateway's row lookups (gateway mode), for products a host keeps itself (Drive in the Mail app). */
+  readRows?: (ops: unknown[]) => Promise<unknown[]>;
+  /** Their repositories, for createCumulus({ repositories }). */
+  repositories?: CumulusConfig["repositories"];
+  /** Postgres mode: the request-scoped connection and schema, for rows a host keeps itself (Drive). */
+  db?: Queryable;
+  schema?: string;
+}
+
+/** The RemoteState document each row product replaces. */
+export const PRODUCT_DOCUMENTS: Record<RowProduct, string> = { mail: "cumulus-mail", wallet: "firm-wallet", quota: "cumulus-quota", drive: "cumulus-workspace" };
+
+/**
+ * The suite's documents a host keeps in RemoteState: `cid` unless ID is in rows, and Mail, Wallet and
+ * Quota unless CUMULUS_ROWS keeps them as rows.
+ */
+export function suiteDocuments(storage: CidStorage, stores: { cid: object; mail: object; wallet: object; quota: object; suite: object }): Record<string, object> {
+  const docs: Record<string, object> = {
+    ...(storage.inDocuments ? { cid: stores.cid } : {}),
+    [PRODUCT_DOCUMENTS.mail]: stores.mail,
+    [PRODUCT_DOCUMENTS.wallet]: stores.wallet,
+    [PRODUCT_DOCUMENTS.quota]: stores.quota,
+    "cumulus-suite": stores.suite,
+  };
+  for (const product of storage.products) delete docs[PRODUCT_DOCUMENTS[product]];
+  return docs;
 }
 
 export function cidStorageFromEnv(env: Record<string, string | undefined> = process.env, gateway?: NexusGateway): CidStorage {
   const mode = (env.CUMULUS_STORE ?? "document").trim().toLowerCase();
-  if (mode === "document" || mode === "") return { inDocuments: true };
+  const products = parseRowProducts(env.CUMULUS_ROWS);
+  if (products.length && mode !== "postgres" && mode !== "gateway") throw new Error("CUMULUS_ROWS needs CUMULUS_STORE=postgres or gateway");
+  if (mode === "document" || mode === "") return { inDocuments: true, products };
   if (mode === "gateway") {
     const read = gateway?.readRows?.bind(gateway);
     if (!read) throw new Error("CUMULUS_STORE=gateway needs the nexus-store gateway (NEXUS_STORE_URL); this host's store doesn't keep ID rows");
     const repo = new RemoteCidRepository((ops: CidReadOp[]) => read(ops));
+    // Wallet and quota rows go through the same lookups and the same commit (CUMULUS_ROWS).
+    const more = products.length ? new RemoteRows((ops) => read(ops)) : undefined;
+    const reset = () => {
+      repo.begin();
+      more?.begin();
+    };
+    // Before this host's first request reads any rows, it claims them: the database copies each
+    // document it keeps as rows (ID, and the CUMULUS_ROWS products) into the rows, once ever, under a
+    // lock (supabase/migrations/20261121_cumulus_rows_claim.sql, made safe in 20261124). So the switch
+    // needs no manual refresh, rows written since an earlier claim are never replaced, and rows that hold
+    // something other than the document are never overwritten: the host refuses to serve instead.
+    let claimed: Promise<void> | undefined;
+    const claim = () =>
+      (claimed ??= gateway!
+        .commit([], [], ["cid", ...products].map((product) => ({ kind: "claim", id: product })))
+        .then(
+          (result) => {
+            const refused = Object.entries(result as Record<string, unknown>)
+              .filter(([k, v]) => k.startsWith("claim:") && (v as { refused?: string } | null)?.refused)
+              .map(([k]) => k.slice("claim:".length));
+            if (refused.length) throw new ClaimRefused(refused);
+          },
+          (err) => {
+            // A conflict (another commit held a document the claim needed): the request re-runs.
+            if (err instanceof ConflictError) throw err;
+            throw new Error(`Cumulus rows couldn't be claimed (are supabase/migrations up to 20261124_cumulus_rows_claim_safety.sql applied?): ${(err as Error).message}`);
+          },
+        )
+        .catch((err) => {
+          claimed = undefined;
+          throw err;
+        }));
     return {
       inDocuments: false,
+      products,
+      readRows: (ops) => read(ops as never),
       repository: repo,
-      rows: repo,
+      repositories: more
+        ? {
+            wallet: products.includes("wallet") ? more.wallet : undefined,
+            quota: products.includes("quota") ? more.quota : undefined,
+            mail: products.includes("mail")
+              ? (tunnel) => {
+                  // Through the gateway, mail is stored as given; sealed mail needs CUMULUS_STORE=postgres.
+                  if (tunnel.persistent) throw new Error("CUMULUS_ROWS=mail through the gateway can't seal mail: with a mail master key use CUMULUS_STORE=postgres");
+                  return more.mail;
+                }
+              : undefined,
+          }
+        : undefined,
+      rows: more ? { pending: () => [...repo.pending(), ...more.pending()] } : repo,
       // A new request, and every re-run, starts from the rows as saved.
-      participant: { begin: async () => repo.begin(), commit: async () => repo.begin(), rollback: async () => repo.begin() },
+      participant: {
+        begin: async () => {
+          await claim();
+          reset();
+        },
+        commit: async () => reset(),
+        rollback: async () => reset(),
+      },
     };
   }
   if (mode !== "postgres") throw new Error(`CUMULUS_STORE must be "document", "gateway" or "postgres", not "${env.CUMULUS_STORE}"`);
   const url = databaseUrlOverride ?? env.CID_DATABASE_URL;
   if (!url) throw new Error("CUMULUS_STORE=postgres needs CID_DATABASE_URL (or a Hyperdrive binding)");
   const scope = new PgRequestScope(lazyPool(url));
+  const schema = env.CID_DATABASE_SCHEMA || "public";
   return {
     inDocuments: false,
-    repository: new PgCidRepository({ db: scope, schema: env.CID_DATABASE_SCHEMA || "public" }),
+    products,
+    repository: new PgCidRepository({ db: scope, schema }),
+    repositories: products.length ? productRepositories(products, scope, schema) : undefined,
+    db: scope,
+    schema,
     participant: scope,
   };
 }
@@ -69,7 +180,12 @@ export function cidStorageFromEnv(env: Record<string, string | undefined> = proc
 function lazyPool(connectionString: string): Queryable & { connect(): Promise<PgPoolClient> } {
   let pool: Promise<Queryable & { connect(): Promise<PgPoolClient> }> | undefined;
   const get = () =>
-    (pool ??= import("pg").then(({ default: pg }) => new pg.Pool({ connectionString, max: 5 }) as unknown as Queryable & { connect(): Promise<PgPoolClient> }));
+    (pool ??= import("pg").then(({ default: pg }) => {
+      const p = new pg.Pool({ connectionString, max: 5 });
+      // An idle connection the server closes (restart, failover) is dropped from the pool, not a crash.
+      p.on("error", (err: Error) => console.error(`cumulus: idle database connection closed: ${err.message}`));
+      return p as unknown as Queryable & { connect(): Promise<PgPoolClient> };
+    }));
   return {
     query: async (text, params) => (await get()).query(text, params),
     connect: async () => (await get()).connect(),

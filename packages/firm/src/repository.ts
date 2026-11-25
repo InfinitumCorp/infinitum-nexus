@@ -15,6 +15,8 @@ export interface WalletRepository {
   /** Transfers to or from `cid`, newest first, at most `limit`. */
   transfersOf(cid: string, limit: number): Promise<WalletTransfer[]>;
   putTransfer(transfer: WalletTransfer): Promise<void>;
+  /** Optional: a wallet for display, without the lock `account` takes before a payment. */
+  peekAccount?(cid: string): Promise<WalletAccount | undefined>;
 }
 
 export class MapWalletRepository implements WalletRepository {

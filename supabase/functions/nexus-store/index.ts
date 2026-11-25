@@ -68,7 +68,9 @@ async function commit(entries: unknown[], docs: unknown[], cid?: unknown[]) {
     : await rest("rpc/nexus_commit", { method: "POST", body: JSON.stringify({ p_entries: entries, p_docs: docs }) });
   const text = await res.text();
   if (res.ok) return json(JSON.parse(text));
-  if (text.includes("nexus_conflict")) return json({ error: "conflict" }, 409);
+  // A row changed since the request read it, or Postgres ended the transaction to break a deadlock or
+  // a serialization failure: nothing was saved, and running the request again can succeed.
+  if (text.includes("nexus_conflict") || /"code"\s*:\s*"(40P01|40001)"/.test(text)) return json({ error: "conflict" }, 409);
   console.error("commit failed", res.status, text.slice(0, 300));
   return json({ error: "commit failed" }, 500);
 }

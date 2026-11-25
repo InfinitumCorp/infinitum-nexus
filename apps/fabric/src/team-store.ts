@@ -26,6 +26,8 @@ export interface TeamMessageRow {
   id: string; channelId: string; sender: string; ciphertext: string; parentId: string | null; createdAt: string;
   editedAt: string | null; deletedAt: string | null; replyCount: number; lastReplyAt: string | null;
   alsoInChannel: number; kind: "user" | "system";
+  /** Set when an app (webhook or workflow) posted the message on the creator's behalf. */
+  appId?: string | null; appName?: string | null;
 }
 export interface ReactionRow { messageId: string; sub: string; emoji: string; createdAt: string }
 export interface PinRow { channelId: string; messageId: string; pinnedBy: string; pinnedAt: string }
@@ -36,6 +38,15 @@ export interface ReminderRow { id: string; workspaceId: string; sub: string; sea
 export interface GroupRow { id: string; workspaceId: string; handle: string; name: string; createdBy: string; createdAt: string }
 export interface FileRow { id: string; channelId: string; messageId: string | null; uploader: string; name: string; mime: string; size: number; ciphertext: string; createdAt: string }
 export interface CanvasRow { channelId: string; ciphertext: string; updatedBy: string; updatedAt: string }
+export interface PollRow { messageId: string; channelId: string; ciphertext: string; anonymous: number; multiple: number; closedAt: string | null; createdAt: string }
+export interface WebhookRow { id: string; workspaceId: string; channelId: string; name: string; tokenHash: string; createdBy: string; createdAt: string; lastUsedAt: string | null }
+export type WorkflowKind = "welcome" | "recurring";
+export type WorkflowEvery = "day" | "weekday" | "week";
+export interface WorkflowRow {
+  id: string; workspaceId: string; channelId: string; kind: WorkflowKind; name: string; ciphertext: string;
+  every: WorkflowEvery | null; atMinute: number | null; weekday: number | null; tzOffset: number; nextRunAt: string | null;
+  paused: number; createdBy: string; createdAt: string; lastRunAt: string | null;
+}
 export interface MentionRow { messageId: string; sub: string; channelId: string; createdAt: string }
 
 type Row = Record<string, unknown>;
@@ -248,7 +259,55 @@ export class TeamStore {
         updated_by TEXT NOT NULL REFERENCES users(sub),
         updated_at TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS team_polls (
+        message_id TEXT PRIMARY KEY REFERENCES team_messages(id),
+        channel_id TEXT NOT NULL REFERENCES team_channels(id),
+        ciphertext TEXT NOT NULL,
+        anonymous INTEGER NOT NULL DEFAULT 0,
+        multiple INTEGER NOT NULL DEFAULT 0,
+        closed_at TEXT,
+        created_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS team_poll_votes (
+        message_id TEXT NOT NULL REFERENCES team_polls(message_id),
+        sub TEXT NOT NULL REFERENCES users(sub),
+        choice INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (message_id, sub, choice)
+      );
+      CREATE TABLE IF NOT EXISTS team_webhooks (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES team_workspaces(id),
+        channel_id TEXT NOT NULL REFERENCES team_channels(id),
+        name TEXT NOT NULL,
+        token_hash TEXT NOT NULL,
+        created_by TEXT NOT NULL REFERENCES users(sub),
+        created_at TEXT NOT NULL,
+        last_used_at TEXT
+      );
+      CREATE TABLE IF NOT EXISTS team_workflows (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES team_workspaces(id),
+        channel_id TEXT NOT NULL REFERENCES team_channels(id),
+        kind TEXT NOT NULL CHECK (kind IN ('welcome','recurring')),
+        name TEXT NOT NULL,
+        ciphertext TEXT NOT NULL,
+        every TEXT CHECK (every IN ('day','weekday','week')),
+        at_minute INTEGER,
+        weekday INTEGER,
+        tz_offset INTEGER NOT NULL DEFAULT 0,
+        next_run_at TEXT,
+        paused INTEGER NOT NULL DEFAULT 0,
+        created_by TEXT NOT NULL REFERENCES users(sub),
+        created_at TEXT NOT NULL,
+        last_run_at TEXT
+      );
+      CREATE INDEX IF NOT EXISTS team_workflows_due ON team_workflows(kind, paused, next_run_at);
     `);
+    // Columns added after the first release.
+    const columns = new Set(this.all<{ name: string }>("PRAGMA table_info(team_messages)").map((c) => c.name));
+    if (!columns.has("app_id")) this.db.exec("ALTER TABLE team_messages ADD COLUMN app_id TEXT");
+    if (!columns.has("app_name")) this.db.exec("ALTER TABLE team_messages ADD COLUMN app_name TEXT");
   }
 }
 

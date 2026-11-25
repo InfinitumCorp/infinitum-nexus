@@ -77,8 +77,8 @@ for (const [name, repository] of variants) {
 }
 
 describe("storage quota on PostgreSQL, two uploads at once", { skip: pgPool ? false : "set CID_TEST_PG_URL to run" }, () => {
-  test("two transactions filling the last free space: the second waits for the first and is refused", async () => {
-    const schema = `quota_race_${process.pid}`;
+  for (const first of [false, true]) test(`two transactions filling the last free space${first ? " on someone's first upload" : ""}: the second waits for the first and is refused`, async () => {
+    const schema = `quota_race_${process.pid}_${first ? "first" : "more"}`;
     pgSchemas.push(schema);
     await migrateQuota(pgPool!, schema);
     // Each upload waits after reading the usage row until the other has read it too (or 500 ms pass,
@@ -86,7 +86,8 @@ describe("storage quota on PostgreSQL, two uploads at once", { skip: pgPool ? fa
     let arrived = 0;
     let release!: () => void;
     const bothRead = new Promise<void>((r) => (release = r));
-    await new StorageQuota({ repository: new PgQuotaRepository({ db: pgPool!, schema }), freeGb: 1 }).charge("cid:a", "cloud", 1);
+    const seed = first ? 0 : 1; // a usage row already there, or none yet
+    if (seed) await new StorageQuota({ repository: new PgQuotaRepository({ db: pgPool!, schema }), freeGb: 1 }).charge("cid:a", "cloud", seed);
     const upload = async () => {
       const client = await pgPool!.connect();
       const db = {
@@ -113,7 +114,25 @@ describe("storage quota on PostgreSQL, two uploads at once", { skip: pgPool ? fa
     };
     assert.deepEqual((await Promise.all([upload(), upload()])).sort(), ["full", "stored"]);
     const after = await new StorageQuota({ repository: new PgQuotaRepository({ db: pgPool!, schema }), freeGb: 1 }).usage("cid:a");
-    assert.equal(after.usedBytes, 0.6 * GB + 1, "never over the plan");
+    assert.equal(after.usedBytes, 0.6 * GB + seed, "never over the plan");
+  });
+
+  test("the storage meter doesn't wait for an upload in progress", async () => {
+    const schema = `quota_peek_${process.pid}`;
+    pgSchemas.push(schema);
+    await migrateQuota(pgPool!, schema);
+    const quota = new StorageQuota({ repository: new PgQuotaRepository({ db: pgPool!, schema }), freeGb: 1 });
+    await quota.charge("cid:m", "mail", 1000);
+    const client = await pgPool!.connect();
+    try {
+      await client.query("BEGIN");
+      await new PgQuotaRepository({ db: client, schema }).usage("cid:m"); // an upload holds the lock
+      const shown = await Promise.race([quota.usage("cid:m"), new Promise((r) => setTimeout(() => r("waited"), 1500))]);
+      assert.equal((shown as { usedBytes: number }).usedBytes, 1000);
+    } finally {
+      await client.query("ROLLBACK");
+      client.release();
+    }
   });
 });
 

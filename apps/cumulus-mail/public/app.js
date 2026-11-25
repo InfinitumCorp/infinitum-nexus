@@ -1044,6 +1044,18 @@ async function signOutFromBar() {
 }
 window.addEventListener("hashchange", () => void signOutFromBar());
 
+/* Shown when the first load fails for any reason other than "please sign in" (a dropped or
+ * throttled connection, a timeout, a server error), so the page never stays blank. */
+function renderLoadFailed() {
+  document.querySelector("#app").replaceChildren(el("div", { class: "auth" }, [el("div", { class: "auth-card" }, [
+    el("div", { class: "mark" }, ["Cumulus://Mail", el("sup", { class: "tm" }, ["™"])]),
+    el("p", { class: "error", role: "alert" }, ["Request failed"]),
+    el("button", { class: "primary", onClick: () => location.reload() }, ["Reload"]),
+  ])]));
+}
+
+const FIRST_LOAD_TIMEOUT_MS = 30_000;
+
 async function boot() {
   if (await signOutFromBar()) return;
   const desktopChallenge = takeDesktopChallenge();
@@ -1059,7 +1071,11 @@ async function boot() {
     }
   }
   try {
-    state.data = await api("/api/state");
+    let timer;
+    state.data = await Promise.race([
+      api("/api/state"),
+      new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("timeout")), FIRST_LOAD_TIMEOUT_MS); }),
+    ]).finally(() => clearTimeout(timer));
     if (pending) {
       try { sessionStorage.removeItem(NEXT_KEY); } catch {}
       location.replace(pending.next);
@@ -1071,7 +1087,8 @@ async function boot() {
     if (desktopChallenge) return renderDesktopApprove(desktopChallenge);
     render();
   } catch {
-    // Not signed in: renderAuth() has already been shown.
+    // Not signed in: renderAuth() has already been shown. Anything else gets a Reload button.
+    if (!document.querySelector("#app .auth-card")) renderLoadFailed();
   }
 }
 

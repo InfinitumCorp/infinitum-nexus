@@ -91,7 +91,7 @@ export interface Account {
   federated?: { issuer: string; subject: string };
   /** Set on a product's local mirror of an account issued by Cumulus://ID (see adoptUpstreamAccount). */
   upstream?: { issuer: string; adoptedAt: string };
-  /** Google, GitHub, Microsoft, Apple, ChatGPT or Amazon Cognito accounts linked for sign-in. */
+  /** Google, GitHub, Microsoft, Apple, or ChatGPT accounts linked for sign-in. */
   identities?: LinkedIdentity[];
   createdAt: string;
   entitlements: typeof FREE_ENTITLEMENTS;
@@ -191,7 +191,7 @@ interface DeviceHandoff {
   challenge: string;
   app: string;
   expiresAt: number;
-  /** How the browser session was created: google, cognito, passkey, or another provider id. */
+  /** How the browser session was created: google, passkey, or another provider id. */
   idp?: string;
   /** OpenID Connect nonce, returned on the ID token when the product sent one. */
   nonce?: string;
@@ -1001,7 +1001,7 @@ export class CidService {
 
   /** Providers with credentials configured, in display order. */
   socialProvidersEnabled(): { id: SocialProviderId; label: string }[] {
-    const order: SocialProviderId[] = ["google", "apple", "microsoft", "github", "chatgpt", "cognito"];
+    const order: SocialProviderId[] = ["google", "apple", "microsoft", "github", "chatgpt"];
     return order.filter((id) => this.socialProviders[id]).map((id) => ({ id, label: PROVIDERS[id].label }));
   }
 

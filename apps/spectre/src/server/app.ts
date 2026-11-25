@@ -365,7 +365,7 @@ export function createApp(deps: AppDeps) {
     }, false, { csrf: false });
   }
 
-  /* ---------------- Social sign-in (Google, Apple, Microsoft, GitHub, ChatGPT, Cognito) ---------------- */
+  /* ---------------- Social sign-in (Google, Apple, Microsoft, GitHub, ChatGPT) ---------------- */
 
   localAuthRoute("GET", "/api/auth/providers", () => cid.socialProvidersEnabled(), false);
 

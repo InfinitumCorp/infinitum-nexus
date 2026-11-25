@@ -20,6 +20,16 @@ describe("shared product clients", () => {
     assert.equal(idClientFor("toString", "https://scalvs.app/"), null);
   });
 
+  it("lets the Cumulus Apple app return only to its own callback", () => {
+    assert.ok(idClientFor("cumulus-apple", "cumulus://oauth/callback"));
+    assert.equal(idClientFor("cumulus-apple", "cumulus://oauth/callback/x"), null);
+    assert.equal(idClientFor("cumulus-apple", "cumulus://evil/callback"), null);
+    assert.equal(idClientFor("cumulus-apple", "evil://oauth/callback"), null);
+    assert.equal(idClientFor("cumulus-apple", "https://mail.cumuluscloud.app/"), null);
+    assert.equal(idClientFor("cumulus-mail", "cumulus://oauth/callback"), null);
+    assert.equal(idClientFor("cumulus-apple", "javascript:alert(1)"), null);
+  });
+
   it("lets Infinitum developers sign in on developer.infinitumcorporation.ai only", () => {
     assert.ok(idClientFor("developer", "https://developer.infinitumcorporation.ai/"));
     assert.equal(idClientFor("developer", "https://infinitumcorporation.ai/"), null);

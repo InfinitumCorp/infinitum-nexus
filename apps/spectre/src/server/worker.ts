@@ -20,7 +20,7 @@ import { STATIC_ASSET_CSP } from "./static-policy.ts";
  * Spectre stores) lives in one SQLite-backed Durable Object, NexusStore, with the same
  * all-or-nothing commit rules as the Supabase nexus-store function.
  * Configuration: wrangler.jsonc (vars, NexusStore, the free AI binding) and Worker secrets
- * (FIRMAMENT_SIGNER_KEY, COGNITO_CLIENT_SECRET, optional GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET,
+ * (FIRMAMENT_SIGNER_KEY, optional GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET,
  * and CID_OIDC_SIGNING_KEY). OpenID Connect stays off when CID_OIDC_SIGNING_KEY is unset.
  * Ask Spectre uses the AI binding, then OMNIROUTE_*. See docs/cumulus-id.md.
  */

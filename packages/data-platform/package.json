@@ -6,7 +6,8 @@
   "private": true,
   "exports": {
     ".": "./src/index.ts",
-    "./sdk": "./src/sdk.ts"
+    "./sdk": "./src/sdk.ts",
+    "./platform-client": "./src/platform-client.ts"
   },
   "engines": {
     "node": ">=22.18"

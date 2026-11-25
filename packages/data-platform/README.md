@@ -77,3 +77,21 @@ import { Collector } from "@infinitum/data-platform/sdk";
 - Publishing offers into `@infinitum/data-exchange` (consent records and revenue share live there).
 - Contracts for the other products' events (ARCHITECT, EIDETIC, SPECTRE and others), defined with each product's owner.
 - Opting out of HRVST stops new collection immediately, but does not yet purge that person's earlier packets. Today the owner withdraws packets one by one (`packet.deleted`).
+
+## Privacy gateway client
+
+`@infinitum/data-platform/platform-client` is a typed client for the privacy gateway's product
+APIs (`infra/data-platform/conjure/platform.yml`): collection, catalog, event search, erasure,
+differentially private releases and Superset guest tokens. It runs server-side with the product's
+gateway token, and it turns Conjure errors into `PlatformApiError` (`shortName`, `errorCode`,
+`parameters`, `retryAfter`). It retries 429 and 503 after their `Retry-After`, and network failures
+with backoff. A test checks every path it calls against the Conjure file.
+
+```ts
+import { PlatformClient } from "@infinitum/data-platform/platform-client";
+
+const platform = new PlatformClient({ baseUrl: process.env.DATA_API_URL!, productToken: process.env.DATA_API_TOKEN! });
+await platform.ingest([{ eventId: crypto.randomUUID(), product: "spectre", tenant, eventType: "spectre.deal.stage_changed",
+  schemaVersion: 1, occurredAt: new Date().toISOString(), region: "EU", consent: ["ESSENTIAL", "ANALYTICS"], payload }]);
+```
+

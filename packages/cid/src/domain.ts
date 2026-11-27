@@ -11,7 +11,7 @@
 
 export const CUMULUS_DOMAIN = "cumuluscloud.app";
 export const CUMULUS_ID_HOST = "id.cumuluscloud.app";
-export const CUMULUS_CLOUD_HOST = "cloud.cumuluscloud.app";
+export const CUMULUS_CLOUD_HOST = "drive.cumuluscloud.app";
 export const CUMULUS_MAIL_HOST = "mail.cumuluscloud.app";
 
 /** Mailbox domain. Addresses look like alex@cumuluscloud.app. */
@@ -73,7 +73,7 @@ function httpsOrigin(value: string | undefined, fallback: string, name: string):
 export function readCumulusDomain(env: NodeJS.ProcessEnv = process.env): CumulusDomain {
   const domain = host(env.CUMULUS_DOMAIN, CUMULUS_DOMAIN, "CUMULUS_DOMAIN");
   const idHost = host(env.CUMULUS_ID_HOST, `id.${domain}`, "CUMULUS_ID_HOST");
-  const cloudHost = host(env.CUMULUS_CLOUD_HOST, `cloud.${domain}`, "CUMULUS_CLOUD_HOST");
+  const cloudHost = host(env.CUMULUS_CLOUD_HOST, `drive.${domain}`, "CUMULUS_CLOUD_HOST");
   const mailHost = host(env.CUMULUS_MAIL_HOST, `mail.${domain}`, "CUMULUS_MAIL_HOST");
   const mailDomain = host(env.CUMULUS_MAIL_DOMAIN, domain, "CUMULUS_MAIL_DOMAIN");
   const cookieRaw = (env.CUMULUS_COOKIE_DOMAIN ?? "").trim().toLowerCase();

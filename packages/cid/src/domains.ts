@@ -5,7 +5,7 @@
  *   CUMULUS_ROOT_DOMAIN=cumuluscloud.app
  *   CUMULUS_ID_HOST=id.cumuluscloud.app
  *   CUMULUS_KEYCLOAK_REALM=cumulus
- *   CUMULUS_CLOUD_HOST=cloud.cumuluscloud.app
+ *   CUMULUS_CLOUD_HOST=drive.cumuluscloud.app
  *   CUMULUS_MAIL_HOST=mail.cumuluscloud.app
  *
  * The CID issuer is the Keycloak realm on the ID host:
@@ -29,7 +29,7 @@ export const CUMULUS_DOMAIN_DEFAULTS = Object.freeze({
   rootDomain: "cumuluscloud.app",
   idHost: "id.cumuluscloud.app",
   realm: "cumulus",
-  cloudHost: "cloud.cumuluscloud.app",
+  cloudHost: "drive.cumuluscloud.app",
   mailHost: "mail.cumuluscloud.app",
 });
 
@@ -88,7 +88,7 @@ function realmName(value: string | undefined, fallback: string): string {
 export function cumulusDomains(env: Record<string, string | undefined> = process.env): CumulusDomains {
   const rootDomain = hostname(env.CUMULUS_ROOT_DOMAIN, CUMULUS_DOMAIN_DEFAULTS.rootDomain, "CUMULUS_ROOT_DOMAIN");
   const idHost = hostname(env.CUMULUS_ID_HOST, `id.${rootDomain}`, "CUMULUS_ID_HOST");
-  const cloudHost = hostname(env.CUMULUS_CLOUD_HOST, `cloud.${rootDomain}`, "CUMULUS_CLOUD_HOST");
+  const cloudHost = hostname(env.CUMULUS_CLOUD_HOST, `drive.${rootDomain}`, "CUMULUS_CLOUD_HOST");
   const mailHost = hostname(env.CUMULUS_MAIL_HOST, `mail.${rootDomain}`, "CUMULUS_MAIL_HOST");
   const realm = realmName(env.CUMULUS_KEYCLOAK_REALM, CUMULUS_DOMAIN_DEFAULTS.realm);
   for (const [name, host] of [

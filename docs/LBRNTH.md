@@ -18,7 +18,7 @@ CAS branch heads, immutable tags, historical byte reads and file-level diffs giv
 products a stable integration surface without assuming a Git server or UI.
 
 Hosts that expose Labyrinth to a browser allow only the exact Cumulus origins
-(`https://id.cumuluscloud.app`, `https://cloud.cumuluscloud.app`,
+(`https://id.cumuluscloud.app`, `https://drive.cumuluscloud.app`,
 `https://mail.cumuluscloud.app` by default). CORS is not a wildcard.
 Cumulus://ID's issuer is the Keycloak realm
 `https://id.cumuluscloud.app/realms/cumulus`, with JWKS at

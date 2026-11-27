@@ -33,7 +33,7 @@ Run +SPCTR locally: `node apps/spectre/src/server/main.ts`, then open http://loc
 | `CUMULUS_ROOT_DOMAIN` | `cumuluscloud.app` | Mail addresses: `name@cumuluscloud.app` |
 | `CUMULUS_ID_HOST` | `id.cumuluscloud.app` | Host for the Cumulus://ID Keycloak issuer |
 | `CUMULUS_KEYCLOAK_REALM` | `cumulus` | Issuer `https://id.cumuluscloud.app/realms/cumulus`. JWKS `https://id.cumuluscloud.app/realms/cumulus/protocol/openid-connect/certs` |
-| `CUMULUS_CLOUD_HOST` | `cloud.cumuluscloud.app` | Cumulus://Cloud |
+| `CUMULUS_CLOUD_HOST` | `drive.cumuluscloud.app` | Cumulus://Cloud |
 | `CUMULUS_MAIL_HOST` | `mail.cumuluscloud.app` | Cumulus://Mail |
 
 The issuer is derived from the ID host and realm: `https://<CUMULUS_ID_HOST>/realms/<CUMULUS_KEYCLOAK_REALM>`. CORS allows only the exact HTTPS origins of the three hosts. A wildcard origin is rejected, and `Access-Control-Allow-Origin` is never `*`. When `CUMULUS_ROOT_DOMAIN` is overridden on its own, the three hosts follow it (`id.`, `cloud.`, `mail.`). An explicit host must be that root domain or one of its subdomains.
@@ -86,7 +86,7 @@ Coming next: AI account research the Spectre agent team, then `$FIRM` and produc
 
 `packages/cloud` stores Drive bytes on the local filesystem and file metadata in PostgreSQL. The S3-compatible driver is a stub and is off by default. Setup, environment variables, the license table, and launch gaps are in [packages/cloud/README.md](packages/cloud/README.md).
 
-Cumulus://ID, Cumulus://Cloud, and Cumulus://Mail use `cumuluscloud.app` (DNS and HTTPS on Cloudflare): `id.cumuluscloud.app`, `cloud.cumuluscloud.app`, and `mail.cumuluscloud.app`. Mailboxes are `name@cumuluscloud.app`. See `.env.example`.
+Cumulus://ID, Cumulus://Cloud, and Cumulus://Mail use `cumuluscloud.app` (DNS and HTTPS on Cloudflare): `id.cumuluscloud.app`, `drive.cumuluscloud.app`, and `mail.cumuluscloud.app`. Mailboxes are `name@cumuluscloud.app`. See `.env.example`.
 
 ## Requirements
 

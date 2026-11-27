@@ -32,7 +32,7 @@ test("METATRON¹⁰⁰ opens its canonical host mttrn.app", () => {
 test("lists the seven free-tier products from the product page", () => {
   assert.deepEqual(APPS.map((a) => a.id), ["cid", "mail", "cloud", "scalvs", "architect", "metatron", "wallet"]);
   assert.equal(PRODUCTION_ORIGINS.cid, "https://id.cumuluscloud.app");
-  assert.equal(PRODUCTION_ORIGINS.cloud, "https://cloud.cumuluscloud.app");
+  assert.equal(PRODUCTION_ORIGINS.cloud, "https://drive.cumuluscloud.app");
   assert.equal(PRODUCTION_ORIGINS.mail, "https://mail.cumuluscloud.app");
   assert.equal(DEFAULT_ORIGINS.mail, "http://localhost:3010");
 });

@@ -30,7 +30,7 @@ export function createDriveApp(opts: {
   auth: DriveAuth;
   rateLimit?: number;
   rateWindowMs?: number;
-  /** Absolute origin used in share links. Default https://cloud.cumuluscloud.app. */
+  /** Absolute origin used in share links. Default https://drive.cumuluscloud.app. */
   publicOrigin?: string;
   /** Browser origins allowed to call this API. Default ID, Cloud, and Mail. */
   allowedOrigins?: readonly string[];

@@ -6,7 +6,7 @@ final class ConfigurationTests: XCTestCase {
         let configuration = CumulusConfiguration.production
         XCTAssertEqual(configuration.idOrigin.host, "id.cumuluscloud.app")
         XCTAssertEqual(configuration.mailAPI.host, "mail.cumuluscloud.app")
-        XCTAssertEqual(configuration.cloudAPI.host, "cloud.cumuluscloud.app")
+        XCTAssertEqual(configuration.cloudAPI.host, "drive.cumuluscloud.app")
         XCTAssertEqual(configuration.downloadPage.host, "cumuluscloud.app")
         XCTAssertEqual(configuration.clientID, "cumulus-apple")
         XCTAssertEqual(configuration.expectedIssuer, "https://id.cumuluscloud.app/realms/cumulus")
@@ -36,8 +36,8 @@ final class ConfigurationTests: XCTestCase {
             redirectURI: URL(string: "cumulus://oauth/callback")!,
             scopes: ["openid"],
             mailAPI: URL(string: "https://mail.cumuluscloud.app")!,
-            cloudAPI: URL(string: "https://cloud.cumuluscloud.app")!,
-            exchangeAPI: URL(string: "https://cloud.cumuluscloud.app")!,
+            cloudAPI: URL(string: "https://drive.cumuluscloud.app")!,
+            exchangeAPI: URL(string: "https://drive.cumuluscloud.app")!,
             downloadPage: URL(string: "https://cumuluscloud.app")!
         ))
     }
@@ -48,14 +48,14 @@ final class ConfigurationTests: XCTestCase {
             "CUMULUS_COGNITO_DOMAIN": "auth.example.test",
         ])
         XCTAssertEqual(configuration.mailAPI.host, "mail.example.test")
-        XCTAssertEqual(configuration.cloudAPI.host, "cloud.cumuluscloud.app")
+        XCTAssertEqual(configuration.cloudAPI.host, "drive.cumuluscloud.app")
         XCTAssertEqual(configuration.issuer, CumulusConfiguration.production.issuer, "COGNITO variables are ignored")
         XCTAssertEqual(configuration.clientID, "cumulus-apple")
     }
 
     func testJSONFile() throws {
         let json = """
-        {"idOrigin":"https://id.cumuluscloud.app","issuer":"https://id.cumuluscloud.app/realms/cumulus","clientID":"cumulus-apple","redirectURI":"cumulus://oauth/callback","scopes":["openid","email"],"mailAPI":"https://mail.cumuluscloud.app","cloudAPI":"https://cloud.cumuluscloud.app","exchangeAPI":"https://cloud.cumuluscloud.app","downloadPage":"https://cumuluscloud.app"}
+        {"idOrigin":"https://id.cumuluscloud.app","issuer":"https://id.cumuluscloud.app/realms/cumulus","clientID":"cumulus-apple","redirectURI":"cumulus://oauth/callback","scopes":["openid","email"],"mailAPI":"https://mail.cumuluscloud.app","cloudAPI":"https://drive.cumuluscloud.app","exchangeAPI":"https://drive.cumuluscloud.app","downloadPage":"https://cumuluscloud.app"}
         """
         let configuration = try CumulusConfiguration.load(data: Data(json.utf8))
         XCTAssertEqual(configuration.scopes, ["openid", "email"])
@@ -69,12 +69,12 @@ final class ConfigurationTests: XCTestCase {
             redirectURI: URL(string: "cumulus://oauth/callback")!,
             scopes: ["openid"],
             mailAPI: URL(string: "https://mail.cumuluscloud.app")!,
-            cloudAPI: URL(string: "https://cloud.cumuluscloud.app")!,
-            exchangeAPI: URL(string: "https://cloud.cumuluscloud.app")!,
+            cloudAPI: URL(string: "https://drive.cumuluscloud.app")!,
+            exchangeAPI: URL(string: "https://drive.cumuluscloud.app")!,
             downloadPage: URL(string: "https://cumuluscloud.app")!
         ))
         let old = """
-        {"idOrigin":"https://id.cumuluscloud.app","issuer":"https://id.cumuluscloud.app/realms/cumulus","clientID":"cumulus-apple","redirectURI":"cumulus://oauth/callback","mailAPI":"https://mail.cumuluscloud.app","cloudAPI":"https://cloud.cumuluscloud.app","exchangeAPI":"https://cloud.cumuluscloud.app","downloadPage":"https://cumuluscloud.app","cognitoDomain":"cumulus-id.auth.us-east-1.amazoncognito.com"}
+        {"idOrigin":"https://id.cumuluscloud.app","issuer":"https://id.cumuluscloud.app/realms/cumulus","clientID":"cumulus-apple","redirectURI":"cumulus://oauth/callback","mailAPI":"https://mail.cumuluscloud.app","cloudAPI":"https://drive.cumuluscloud.app","exchangeAPI":"https://drive.cumuluscloud.app","downloadPage":"https://cumuluscloud.app","cognitoDomain":"cumulus-id.auth.us-east-1.amazoncognito.com"}
         """
         XCTAssertEqual(try CumulusConfiguration.load(data: Data(old.utf8)).authorizationEndpoint.host, "id.cumuluscloud.app")
     }

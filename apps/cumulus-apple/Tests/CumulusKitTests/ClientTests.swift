@@ -63,7 +63,7 @@ final class ClientTests: XCTestCase {
                 return (200, Data(#"{"versions":[{"id":"ver-1","version":1,"size":12,"sha256":"abc","mediaType":"application/pdf","encrypted":false,"createdAt":"2026-11-01T00:00:00Z","current":true}]}"#.utf8))
             }
             if path == "/v1/files/file-1/shares" && request.httpMethod == "POST" {
-                return (201, Data(#"{"share":{"id":"share-1","fileId":"file-1","expiresAt":null,"revokedAt":null,"createdAt":"2026-11-05T00:00:00Z","token":"tok","url":"https://cloud.cumuluscloud.app/v1/s/tok"}}"#.utf8))
+                return (201, Data(#"{"share":{"id":"share-1","fileId":"file-1","expiresAt":null,"revokedAt":null,"createdAt":"2026-11-05T00:00:00Z","token":"tok","url":"https://drive.cumuluscloud.app/v1/s/tok"}}"#.utf8))
             }
             if path == "/v1/trash" {
                 return (200, Data(#"{"folders":[],"files":[]}"#.utf8))
@@ -80,7 +80,7 @@ final class ClientTests: XCTestCase {
         let versions = try await api.fileVersions(id: "file-1")
         XCTAssertEqual(versions.first?.current, true)
         let share = try await api.createShare(fileID: "file-1")
-        XCTAssertEqual(share.url, "https://cloud.cumuluscloud.app/v1/s/tok")
+        XCTAssertEqual(share.url, "https://drive.cumuluscloud.app/v1/s/tok")
         _ = try await api.driveTrash()
         XCTAssertTrue(paths.contains("/v1/files/file-1/content GET"))
     }

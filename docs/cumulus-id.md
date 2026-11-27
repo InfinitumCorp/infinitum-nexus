@@ -174,7 +174,7 @@ returns to the page the person is on.
 | Product | `data-client` | Origin the redirect must use |
 |---|---|---|
 | Infinitum | `infinitum` | `https://infinitumcorporation.ai` (also `www` and `downloads`) |
-| Cumulus://Cloud | `cumulus-cloud` | `https://drive.cumuluscloud.app` (also `cloud.cumuluscloud.app`, `cumuluscloud.app`, `www`) |
+| Cumulus://Cloud | `cumulus-cloud` | `https://drive.cumuluscloud.app` (also `drive.cumuluscloud.app`, `cumuluscloud.app`, `www`) |
 | Cumulus://Mail | `cumulus-mail` | `https://mail.cumuluscloud.app` (also `ru.mail.cumuluscloud.app`) |
 | SCALVS | `scalvs` | `https://scalvs.app`, `https://www.scalvs.app`, `https://ru.scalvs.app` |
 | Architect | `architect` | `https://rchtch.app` (also `www`) |

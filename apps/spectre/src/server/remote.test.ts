@@ -135,6 +135,34 @@ describe("Hosted state (serverless instances sharing Supabase)", () => {
     assert.equal(other, 1);
   });
 
+  it("a document loaded from Postgres (keys in jsonb order) isn't written back by requests that change nothing", async () => {
+    // jsonb keeps object keys in its own order (shorter keys first), not the order they were written.
+    const jsonbOrder = (v: unknown): unknown =>
+      Array.isArray(v) ? v.map(jsonbOrder)
+        : v && typeof v === "object" ? Object.fromEntries(Object.keys(v).sort((x, y) => x.length - y.length || (x < y ? -1 : 1)).map((k) => [k, jsonbOrder((v as Record<string, unknown>)[k])]))
+        : v;
+    const db = new MemoryGateway();
+    const load = db.load.bind(db);
+    db.load = async (since, versions) => {
+      const r = await load(since, versions);
+      return { ...r, docs: r.docs.map((d) => ({ ...d, data: jsonbOrder(d.data) as Record<string, unknown> })) };
+    };
+    const a = instance(db);
+    const acct = await a.state.transaction(() => a.cid.createAccount({ username: "jsonb" }));
+    const b = instance(db, a.signer);
+    let commits = 0;
+    const commit = db.commit.bind(db);
+    db.commit = async (...args) => { commits++; return commit(...args); };
+    for (let i = 0; i < 3; i++) {
+      await b.state.transaction(async () => (await b.cid.getAccount(acct.cid)).username);
+      await a.state.transaction(async () => (await a.cid.getAccount(acct.cid)).username);
+    }
+    assert.equal(commits, 0, "nothing changed, so nothing is written");
+    // A real change still is.
+    await b.state.transaction(() => b.cid.createAccount({ username: "jsonb2" }));
+    assert.equal(commits, 1);
+  });
+
   it("after-commit steps run once the request is saved, never for a run that is re-run or rolled back", async () => {
     const db = new MemoryGateway();
     const a = instance(db);

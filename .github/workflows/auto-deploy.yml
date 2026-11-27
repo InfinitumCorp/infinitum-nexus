@@ -77,7 +77,8 @@ jobs:
           # The live-UI bundle: the pages id.cumuluscloud.app serves (plus the account bar). The default
           # build embeds public/, which is not the live UI (apps/spectre/wrangler.jsonc).
           node apps/spectre/scripts/build-cloudflare.mjs --assets apps/spectre/live-ui --out apps/spectre/dist/entry.mjs
-          cd apps/spectre && npx -y wrangler deploy
+          # A pinned Wrangler: inside this pnpm workspace a bare `npx -y wrangler` can resolve to no binary.
+          cd apps/spectre && npx -y wrangler@4.169.0 deploy
       # Cumulus://Mail at mail.cumuluscloud.app (apps/cumulus-mail/cloudflare.config.ts, cf CLI). Its
       # secrets (FIRMAMENT_SIGNER_KEY, NEXUS_STORE_URL, NEXUS_STORE_KEY, sign-in providers) are already on
       # the Worker; a deploy without --secrets-file uploads none and keeps them.

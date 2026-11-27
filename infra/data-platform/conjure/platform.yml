@@ -172,7 +172,7 @@ types:
         fields:
           deleted:
             type: integer
-            docs: Events deleted. 0 when there were none; repeating the call is safe.
+            docs: Events and owned documents deleted. 0 when there were none; repeating the call is safe.
 
       ReleaseMetric:
         values:
@@ -244,6 +244,74 @@ types:
             type: string
             docs: Pass to the Superset embedded SDK (fetchGuestToken). Short-lived; ask again when it expires.
           expiresAt: datetime
+
+      DocumentUpsert:
+        docs: Title and body are redacted (Presidio) before storage; search runs on the redacted text.
+        fields:
+          tenant: TenantId
+          title:
+            type: string
+            docs: At most 300 characters.
+          body:
+            type: string
+            docs: Plain text, at most 200,000 characters.
+          url:
+            type: optional<string>
+            docs: An https:// link back to the document in the product.
+          labels:
+            type: optional<list<string>>
+            docs: At most 20 lower-case labels to filter on.
+          ownerCid:
+            type: optional<Cid>
+            docs: The person the document belongs to. Stored as a pseudonym; used for erasure and visibility.
+          viewers:
+            type: optional<list<Cid>>
+            docs: >-
+              If set, only these people (and the owner) find the document. If not set, everyone
+              searching the tenant does. At most 500.
+          updatedAt: datetime
+      DocumentRef:
+        fields:
+          collection: string
+          documentId: string
+      DocumentRemoveRequest:
+        fields:
+          tenant: TenantId
+      DocumentRemoveResponse:
+        fields:
+          deleted:
+            type: integer
+            docs: 1 if the document existed, else 0. Repeating the call is safe.
+      DocumentQuery:
+        fields:
+          tenant: TenantId
+          text:
+            type: string
+            docs: Web-search syntax ("exact phrase", -excluded). At most 500 characters.
+          collections: optional<list<string>>
+          labels:
+            type: optional<list<string>>
+            docs: Every label must be on the document.
+          viewer:
+            type: optional<Cid>
+            docs: The person searching. Without it, only documents with no viewers list are found.
+          pageSize:
+            type: optional<integer>
+            docs: 1 to 50, default 20.
+      DocumentHit:
+        fields:
+          collection: string
+          documentId: string
+          title: string
+          snippet: string
+          url: optional<string>
+          labels: list<string>
+          updatedAt: datetime
+      DocumentSearchResponse:
+        fields:
+          hits:
+            type: list<DocumentHit>
+            docs: Best match first.
 
     errors:
       SchemaMismatch:
@@ -445,3 +513,38 @@ services:
             type: GuestTokenRequest
             param-type: body
         returns: GuestTokenResponse
+
+  DocumentService:
+    name: Document Service
+    package: app.infinitum.cumulus.data.platform
+    base-path: /api/v1/documents
+    default-auth: header
+    docs: >-
+      Tenant-scoped full-text search over a product's documents, on Postgres full-text search
+      (free tier). Personal data in titles and bodies is redacted before storage.
+    endpoints:
+      putDocument:
+        http: PUT /collections/{collection}/documents/{documentId}
+        args:
+          collection: string
+          documentId: string
+          document:
+            type: DocumentUpsert
+            param-type: body
+        returns: DocumentRef
+      removeDocument:
+        http: POST /collections/{collection}/documents/{documentId}/remove
+        args:
+          collection: string
+          documentId: string
+          request:
+            type: DocumentRemoveRequest
+            param-type: body
+        returns: DocumentRemoveResponse
+      searchDocuments:
+        http: POST /search
+        args:
+          query:
+            type: DocumentQuery
+            param-type: body
+        returns: DocumentSearchResponse

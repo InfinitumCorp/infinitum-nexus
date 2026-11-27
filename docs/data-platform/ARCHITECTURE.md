@@ -215,6 +215,22 @@ with the same query DSL, so we use it.
   AWS option would put EU data in the US, so only metadata-free indexes could go there. That
   needs William's OK.
 
+**Document search** ([`documents.py`](../../infra/data-platform/privacy-gateway/cumulus_privacy/documents.py),
+Conjure `DocumentService`). Products also index their own documents: help articles, playbooks
+and notes. A document is keyed by product, collection, tenant and document ID. On the free tier
+it lives in `data_platform.documents`, using Postgres full-text search with the title weighted
+above the body and `websearch_to_tsquery` syntax. The rules:
+
+- Every search is scoped to the calling product and one tenant. A product's token never reads
+  another product's documents.
+- Titles and bodies are redacted by Presidio before storage. Queries are stripped of anything
+  Presidio detects, so nobody can probe for a person by email or name.
+- A document sent with `viewers` stays restricted to those people and its owner. People are
+  stored only as CID pseudonyms. A restricted document stays restricted even after erasure
+  empties its viewer list.
+- Right to erasure (`ErasureService`) also deletes the person's own documents and removes them
+  from every viewer list.
+
 ## 7. Metacat: evaluation only
 
 Full evaluation: [EVALUATIONS.md](EVALUATIONS.md#3-metacat).

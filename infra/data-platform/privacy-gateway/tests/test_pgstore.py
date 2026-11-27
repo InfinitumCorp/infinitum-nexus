@@ -185,3 +185,32 @@ def test_dp_release_over_stored_events(stack, clean):
         "groupBy": "stage", "publicGroups": ["won"], "epsilon": 0.25,
     })
     assert out["groups"] == {"won": 2.0} and out["remainingEpsilon"] == pytest.approx(0.75)
+
+
+def test_documents_in_postgres(clean, redactor):
+    from cumulus_privacy.documents import Documents
+    from cumulus_privacy.pgstore import PostgresDocumentStore
+
+    with psycopg.connect(ADMIN, autocommit=True) as c:
+        c.execute("truncate data_platform.documents")
+    docs = Documents(redactor, PostgresDocumentStore(clean))
+    base = {"tenant": "acme", "updatedAt": "2026-11-20T10:00:00Z"}
+    docs.put("spectre", "playbooks", "a", {**base, "title": "Pricing", "body": "renewal mentioned once", "labels": ["sales"]})
+    docs.put("spectre", "playbooks", "b", {**base, "title": "Renewal guide", "body": "renewal steps", "labels": ["emea"]})
+    docs.put("spectre", "notes", "p", {**base, "title": "Renewal note", "body": "x",
+                                       "ownerCid": "cid_owner0001", "viewers": ["cid_viewer0001"]})
+    docs.put("spectre", "playbooks", "g", {**base, "tenant": "globex", "title": "Renewal", "body": ""})
+    q = {"tenant": "acme", "text": "renewal"}
+    assert [h["documentId"] for h in docs.search("spectre", q)["hits"]] == ["b", "a"]  # title outranks body
+    assert {h["documentId"] for h in docs.search("spectre", {**q, "viewer": "cid_viewer0001"})["hits"]} == {"a", "b", "p"}
+    assert [h["documentId"] for h in docs.search("spectre", {**q, "labels": ["emea"]})["hits"]] == ["b"]
+    assert [h["documentId"] for h in docs.search("spectre", {**q, "text": 'renewal -pricing'})["hits"]] == ["b"]
+    assert docs.search("cumulus-mail", q)["hits"] == []
+    hit = docs.search("spectre", q)["hits"][0]
+    assert hit["updatedAt"] == "2026-11-20T10:00:00Z" and "renewal" in hit["snippet"].lower()
+    # Erasure: the viewer leaves the list, the document stays restricted.
+    pseudonym = docs._pseudonym("cid_viewer0001")
+    assert docs.store.erase(pseudonym, "spectre") == 0
+    assert {h["documentId"] for h in docs.search("spectre", {**q, "viewer": "cid_viewer0001"})["hits"]} == {"a", "b"}
+    assert docs.store.erase(docs._pseudonym("cid_owner0001"), None) == 1
+    assert docs.remove("spectre", "playbooks", "a", {"tenant": "acme"}) == {"deleted": 1}

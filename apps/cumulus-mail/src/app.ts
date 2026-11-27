@@ -210,6 +210,16 @@ export function createMailApp(deps: MailAppDeps) {
   const scalvs = deps.scalvs ?? routerScalvs(ai);
   const cleanAgent = deps.cleanAgent ?? scalvsCleanAgent({ router: ai });
   const search = deps.search !== undefined ? deps.search : mailSearchFromEnv(ai);
+  // Mail deleted for good: once that is saved, its files go too, unless other mail still has them
+  // (forwarded mail shares a file's key) or the store can't tell (then they are kept).
+  const stored = deps.files;
+  if (stored?.delete) {
+    const afterCommit = deps.afterCommit ?? ((fn: () => Promise<void>) => void fn().catch(() => undefined));
+    mail.onFilesReleased = (ids) =>
+      afterCommit(async () => {
+        for (const id of ids) if ((await mail.attachmentInUse(id)) === false) await stored.delete!(id).catch(() => undefined);
+      });
+  }
   const searchTimes = new Map<string, number[]>();
   const suggestions = new Map<string, { list: CleanSuggestion[]; note: string }>(); // per CID, in memory until approved
   const routes: { method: string; pattern: RegExp; keys: string[]; auth: boolean; optionalAuth: boolean; csrf: boolean; drive: boolean; handler: Handler }[] = [];

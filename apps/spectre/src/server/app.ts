@@ -439,6 +439,8 @@ export function createApp(deps: AppDeps) {
       ? [process.env.CID_DIRECTORY_KEY_SHA256, process.env.CID_DIRECTORY_KEY_SHA256_US].filter(Boolean).join(",")
       : deps.labyrinthDirectoryKeySha256) || undefined,
     exportKeySha256: (deps.cidExportKeySha256 === undefined ? process.env.CID_EXPORT_KEY_SHA256 : deps.cidExportKeySha256) || undefined,
+    // After the cut-over, products hold the standalone issuer's tokens: Labyrinth's directory accepts them too.
+    issuerAccessToken: idClient ? (token) => idClient.accessToken(token) : undefined,
   });
 
   route("GET", "/api/me/identities", async (ctx) => idClient

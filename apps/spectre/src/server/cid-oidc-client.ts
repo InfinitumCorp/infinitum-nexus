@@ -40,6 +40,7 @@ interface Discovery {
   jwks_uri: string;
   end_session_endpoint?: string;
   revocation_endpoint?: string;
+  userinfo_endpoint?: string;
 }
 
 type Jwk = webcrypto.JsonWebKey & { kid?: string };
@@ -56,6 +57,9 @@ export function createOidcClient(config: OidcClientConfig) {
   const now = config.now ?? (() => new Date());
   let discovery: { doc: Discovery; at: number } | null = null;
   let jwks: Jwk[] | null = null;
+  // accessToken(): the issuer's yes, for up to 30 seconds (never past the token's expiry), so a busy Labyrinth doesn't
+  // ask the issuer on every command. A sign-out at the issuer reaches Labyrinth within those 30 seconds.
+  const vouched = new Map<string, { until: number; hit: { cid: string; exp: number; sid: string } }>();
 
   const getJson = async (url: string) => {
     const res = await doFetch(url, { headers: { accept: "application/json" } });
@@ -81,6 +85,7 @@ export function createOidcClient(config: OidcClientConfig) {
       jwks_uri: httpsUrl(doc.jwks_uri, "jwks_uri"),
       end_session_endpoint: doc.end_session_endpoint ? httpsUrl(doc.end_session_endpoint, "end_session_endpoint") : undefined,
       revocation_endpoint: doc.revocation_endpoint ? httpsUrl(doc.revocation_endpoint, "revocation_endpoint") : undefined,
+      userinfo_endpoint: doc.userinfo_endpoint ? httpsUrl(doc.userinfo_endpoint, "userinfo_endpoint") : undefined,
     };
     discovery = { doc: parsed, at: Date.now() };
     return parsed;
@@ -179,6 +184,44 @@ export function createOidcClient(config: OidcClientConfig) {
         ...(opts.idTokenHint ? { id_token_hint: opts.idTokenHint } : {}),
       }).toString();
       return url.toString();
+    },
+
+    /**
+     * Who a Cumulus://ID access token (minted for any product) belongs to, asked of the issuer itself: its userinfo
+     * endpoint checks the signature, that it is an access token, its expiry, and that the session behind it is still
+     * signed in. Null for anything it refuses or can't answer. The token's own `exp` and `sid` come back for the
+     * caller's session bookkeeping; they are read only after the issuer accepted the token.
+     */
+    async accessToken(token: string): Promise<{ cid: string; exp: number; sid: string } | null> {
+      if (!/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(token) || token.length > 8000) return null;
+      let payload: Record<string, unknown>;
+      try {
+        payload = JSON.parse(Buffer.from(token.split(".")[1]!, "base64url").toString("utf8")) as Record<string, unknown>;
+      } catch {
+        return null;
+      }
+      if (payload.iss !== issuer) return null; // another issuer's token: not ours to ask about
+      const key = createHash("sha256").update(token).digest("base64url");
+      const cached = vouched.get(key);
+      if (cached && cached.until > now().getTime()) return cached.hit;
+      vouched.delete(key);
+      let endpoint: string | undefined;
+      try {
+        endpoint = (await discover()).userinfo_endpoint;
+      } catch {
+        return null;
+      }
+      if (!endpoint) return null;
+      const res = await doFetch(endpoint, { headers: { authorization: `Bearer ${token}`, accept: "application/json" }, redirect: "manual" });
+      if (!res.ok) return null;
+      const info = (await res.json().catch(() => null)) as Record<string, unknown> | null;
+      const sub = typeof info?.sub === "string" ? info.sub : "";
+      if (!sub || sub !== payload.sub || typeof payload.exp !== "number" || typeof payload.sid !== "string" || !payload.sid) return null;
+      if (payload.exp * 1000 <= now().getTime()) return null;
+      const hit = { cid: sub, exp: payload.exp, sid: payload.sid };
+      if (vouched.size >= 1000) vouched.delete(vouched.keys().next().value!);
+      vouched.set(key, { until: Math.min(now().getTime() + 30_000, payload.exp * 1000), hit });
+      return hit;
     },
 
     /** Account page at the issuer, where passkeys, MFA and linked accounts are managed. */

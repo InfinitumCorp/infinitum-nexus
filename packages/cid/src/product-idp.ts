@@ -13,11 +13,12 @@
  * The same authorize and token handlers also serve the OpenID Connect paths under
  * /realms/cumulus/protocol/openid-connect/ when a signer is configured.
  */
+import { createHash } from "node:crypto";
 import { isPublicKeyArmor, type Account, type CidService } from "./service.ts";
 import { idClientFor, idClientOrigins } from "./id-clients.ts";
 import type { OidcSigner } from "./oidc-sign.ts";
 import { verifyOidcToken } from "./oidc-sign.ts";
-import { answerLabyrinthDirectory, labyrinthDirectoryKeyMatches, LabyrinthDirectoryError } from "./labyrinth-directory.ts";
+import { answerLabyrinthDirectory, issuerSessionId, labyrinthDirectoryKeyMatches, LabyrinthDirectoryError } from "./labyrinth-directory.ts";
 import { exportCidAccounts } from "./account-export.ts";
 
 export const profileOf = (a: Account) => ({ cid: a.cid, username: a.username, email: a.mailAddress, name: a.username, handle: a.handle });
@@ -95,6 +96,12 @@ export interface ProductIdpHelpers {
    * Cumulus://ID to InfinitumCorp/cumulus-id. Unset (the default): the route is not registered.
    */
   exportKeySha256?: string;
+  /**
+   * In OpenID Connect client mode (+SPCTR with SPECTRE_AUTH=oidc): who an access token from the standalone issuer
+   * belongs to, as that issuer answers it, or null. Lets the Labyrinth directory accept those tokens; the person's
+   * organization, scopes and entitlement still come from this store.
+   */
+  issuerAccessToken?: (token: string) => Promise<{ cid: string; exp: number; sid: string } | null>;
 }
 
 const ALL_ORIGINS = idClientOrigins();
@@ -412,11 +419,16 @@ export function registerProductIdp(h: ProductIdpHelpers) {
           const hit = await accountFromToken(token);
           return { cid: hit.account.cid, sessionId: hit.sessionId };
         } catch {
-          return null;
+          // Not one of this store's sessions: in client mode, maybe the standalone issuer's access token.
+          if (!h.issuerAccessToken || !JWT.test(token)) return null;
+          const hit = await h.issuerAccessToken(token).catch(() => null);
+          if (!hit) return null;
+          const tag = createHash("sha256").update(`cid-issuer-session:${hit.sid}`).digest("base64url").slice(0, 22);
+          return { cid: hit.cid, sessionId: issuerSessionId(hit.exp, tag) };
         }
       };
       try {
-        return await answerLabyrinthDirectory(cid, resolve, ctx.body);
+        return await answerLabyrinthDirectory(cid, resolve, ctx.body, { issuerSessions: Boolean(h.issuerAccessToken) });
       } catch (err) {
         if (err instanceof LabyrinthDirectoryError) throw new HttpError(err.status, err.message);
         throw err;

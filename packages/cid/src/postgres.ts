@@ -75,7 +75,16 @@ CREATE INDEX IF NOT EXISTS cid_pending_expiry ON ${t("cid_pending")} (kind, expi
 /** Create the tables, holding a transaction-scoped advisory lock so two servers starting at once don't race. */
 export async function migrateCid(db: Queryable, schema = "public"): Promise<void> {
   // One simple-protocol query: every statement runs on the same connection, in one transaction.
-  await db.query(`BEGIN; SELECT pg_advisory_xact_lock(hashtext('cumulus-id-migrate')); ${cidSchemaSql(schema)} COMMIT;`);
+  // One message, no BEGIN/COMMIT: one implicit transaction, rolled back on an error. Two servers starting
+  // at once can still both try to create a table (the advisory lock doesn't refresh what the rest of the
+  // message sees), so a "already exists" error is retried once.
+  const sql = `SELECT pg_advisory_xact_lock(hashtext('cumulus-id-migrate')); ${cidSchemaSql(schema)}`;
+  try {
+    await db.query(sql);
+  } catch (err) {
+    if (!["23505", "42P06", "42P07", "42710"].includes((err as { code?: string } | null)?.code ?? "")) throw err;
+    await db.query(sql);
+  }
 }
 
 /** A pooled connection, as `pg` hands out from Pool.connect(). */

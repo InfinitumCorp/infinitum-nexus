@@ -136,6 +136,20 @@ Conjure), so a suite maps one to one onto Deequ `VerificationSuite` checks later
 package `packages/data-platform/src/quality.ts` (on another branch) uses the same check names
 for in-Worker rebuilds.
 
+**At ingest.** A dataset spec can carry `quality` checks (`DatasetCheck` in `platform.yml`), and
+the collector applies them to every batch (`ingest_quality.py`):
+
+- **Checks on each event:** required fields (completeness with min 1.0), range, allowed values,
+  and freshness of `occurredAt` or a datetime field. An event that fails is rejected with a
+  reason and is not stored.
+- **Checks on the whole batch:** completeness below 1.0, uniqueness, and anomaly against
+  earlier runs. These are measured into a quality run and never block, because one batch is
+  only a sample.
+
+Quality runs hold numbers and check names, never event values. They live in
+`data_platform.quality_runs` for 90 days. Products read them with
+`GET /api/v1/quality/datasets/{name}/runs`, and Superset charts them through the read-only role.
+
 **When to adopt Deequ itself:** when Hudi or Spark tables exist (see 4). Then the same suites run
 as Deequ checks inside the Spark jobs, and the metrics repository feeds anomaly detection.
 

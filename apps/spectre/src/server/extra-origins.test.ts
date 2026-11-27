@@ -20,3 +20,12 @@ test("after the Cumulus://ID cut-over: +SPCTR has its own host and signs in thro
   assert.match(json, /"SPECTRE_AUTH":\s*"oidc"/);
   assert.match(config, /"ai":\s*\{\s*"binding":\s*"AI"\s*\}/);
 });
+
+test("at the Cumulus://Mail launch: Auto deploy no longer deploys the old Mail Worker onto mail.cumuluscloud.app", () => {
+  // mail.cumuluscloud.app moves to InfinitumCorp/cumulus-mail (Worker cumulus-mail-api). A deploy of apps/cumulus-mail,
+  // whose config lists that domain, would take it back every time main changes.
+  const workflow = readFileSync(new URL("../../../../.github/workflows/auto-deploy.yml", import.meta.url), "utf8");
+  const steps = workflow.replace(/^\s*#.*$/gm, "");
+  assert.doesNotMatch(steps, /working-directory:\s*apps\/cumulus-mail/);
+  assert.doesNotMatch(steps, /cf deploy/);
+});

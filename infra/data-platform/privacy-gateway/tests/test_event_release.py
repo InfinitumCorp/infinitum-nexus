@@ -180,3 +180,18 @@ def test_release_over_http(setup, redactor, tmp_path):
         assert call(req(), tok="g" * 40)[0] == 401  # the pipeline token is not a product token
     finally:
         httpd.shutdown()
+
+
+def test_budget_status_is_scoped_and_spends_nothing(setup):
+    releases, budget, index = setup
+    before = releases.budget("spectre", DEALS["name"])
+    assert before == {"dataset": DEALS["name"], "totalEpsilon": 2.0, "spentEpsilon": 0.0,
+                      "remainingEpsilon": 2.0, "maxEpsilonPerRelease": 1.0}
+    assert set(before) == set(OBJECTS["PrivacyBudgetStatus"]["fields"])
+    releases.release("spectre", DEALS["name"], req(epsilon=0.75))
+    after = releases.budget("spectre", DEALS["name"])
+    assert after["spentEpsilon"] == 0.75 and after["remainingEpsilon"] == 1.25
+    assert budget.spent(DEALS["name"]) == pytest.approx(0.75)
+    with pytest.raises(PlatformError) as e:
+        releases.budget("cumulus-mail", DEALS["name"])
+    assert e.value.name == "DatasetNotFound"

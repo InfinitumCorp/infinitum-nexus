@@ -24,6 +24,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable
 
 from .dp import BudgetExceeded, PrivacyBudget, release
+from .ingest_quality import MemoryQualityLog
 from .event_release import StoredReleases
 from .embed import GuestTokens, parse_embed_dashboards
 from .pipeline import prepare_export
@@ -122,8 +123,10 @@ class Gateway:
             Route("GET", "/api/v1/catalog/datasets/{name}", self.get_dataset, "product"),
             Route("POST", "/api/v1/search/events", self.search, "product"),
             Route("POST", "/api/v1/erasure/subjects", self.erase, "product"),
+            Route("GET", "/api/v1/quality/datasets/{name}/runs", self.quality_runs, "product"),
             Route("POST", "/api/v1/erasure/subjects/all-products", self.erase_everywhere, "gateway"),
             Route("POST", "/api/v1/releases/datasets/{name}", self.release_dataset, "product"),
+            Route("GET", "/api/v1/releases/datasets/{name}/budget", self.release_budget, "product"),
             Route("POST", "/api/v1/embed/dashboards/{dashboardId}/guest-token", self.guest_token, "product"),
         ]
 
@@ -162,6 +165,9 @@ class Gateway:
     def get_dataset(self, b: dict[str, Any], caller: str = "", name: str = "") -> Any:
         return self._platform(self.catalog).read(caller, name)
 
+    def release_budget(self, b: dict[str, Any], caller: str = "", name: str = "") -> Any:
+        return self._platform(self.releases).budget(caller, name)
+
     def release_dataset(self, b: dict[str, Any], caller: str = "", name: str = "") -> Any:
         return self._platform(self.releases).release(caller, name, b)
     def guest_token(self, b: dict[str, Any], caller: str = "", dashboardId: str = "") -> Any:  # noqa: N803
@@ -169,6 +175,9 @@ class Gateway:
 
     def search(self, b: dict[str, Any], caller: str = "", **_: str) -> Any:
         return self._platform(self.searcher).search(caller, b)
+
+    def quality_runs(self, b: dict[str, Any], caller: str = "", name: str = "") -> Any:
+        return self._platform(self.collector).quality_runs(caller, name)
 
     def erase(self, b: dict[str, Any], caller: str = "", **_: str) -> Any:
         return self._platform(self.eraser).erase(caller, b.get("cid"))
@@ -306,11 +315,12 @@ def main() -> None:
     index: Any = None
     if dsn:
         # Free-tier layout: everything in Supabase Postgres (Ireland). No OpenSearch needed.
-        from .pgstore import PostgresBudget, PostgresCatalog, PostgresEventIndex
+        from .pgstore import PostgresBudget, PostgresCatalog, PostgresEventIndex, PostgresQualityLog
 
         budget: Any = PostgresBudget(dsn, epsilon)
         catalog: Any = PostgresCatalog(dsn, sink)
         index = PostgresEventIndex(dsn)
+        quality_log: Any = PostgresQualityLog(dsn)
     else:
         budget = PrivacyBudget(os.environ.get("PRIVACY_BUDGET_FILE", "/var/lib/privacy-gateway/budget.json"), epsilon)
         catalog = Catalog(os.environ.get("PLATFORM_CATALOG_FILE", "/var/lib/privacy-gateway/catalog.json"), sink)
@@ -318,6 +328,7 @@ def main() -> None:
             os.environ.get("OPENSEARCH_URL", "http://localhost:9200"),
             refresh=os.environ.get("OPENSEARCH_REFRESH_ON_WRITE") == "1",
         )
+        quality_log = MemoryQualityLog()
     redactor = Redactor()
     collector = searcher = releases = None
     products = parse_product_tokens(os.environ.get("PLATFORM_PRODUCT_TOKENS", ""))
@@ -331,7 +342,7 @@ def main() -> None:
     )
     eraser = Eraser(redactor, index)
     if products:
-        collector = Collector(catalog, redactor, index, os.environ.get("PLATFORM_REGION", "EU"), limits)
+        collector = Collector(catalog, redactor, index, os.environ.get("PLATFORM_REGION", "EU"), limits, quality_log)
         searcher = Searcher(index)
         releases = StoredReleases(catalog, index, budget)
     else:

@@ -129,6 +129,9 @@ test("team chat over HTTP: workspace, channel, thread, reaction, file, search an
     assert.match(page, /Sign in with Cumulus ID/);
     assert.match(page, /Create a Cumulus ID/);
     assert.equal((await fetch(`${origin}/team.js`)).status, 200);
+    // Huddles may use the camera and microphone on the Teams page, and nowhere else.
+    assert.match((await fetch(`${origin}/team`)).headers.get("permissions-policy") ?? "", /camera=\(self\), microphone=\(self\), display-capture=\(self\)/);
+    assert.match((await fetch(`${origin}/`)).headers.get("permissions-policy") ?? "", /camera=\(\), microphone=\(\)/);
     assert.equal((await fetch(`${origin}/api/team/workspaces`)).status, 401);
     const register = await fetch(`${origin}/api/auth/login?register=1&return=/team`, { redirect: "manual" });
     assert.match(register.headers.get("location") ?? "", /\/protocol\/openid-connect\/registrations\?/);

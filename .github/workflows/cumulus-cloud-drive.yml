@@ -65,3 +65,19 @@ jobs:
       - run: pnpm --filter @infinitum/cumulus-mail exec node --test --experimental-strip-types src/rows-gateway.http.test.ts
       # CUMULUS_ROWS=mail through the gateway: the Mail app on mail rows, concurrent changes, copying the document in.
       - run: pnpm --filter @infinitum/cumulus-mail exec node --test --experimental-strip-types src/mail-gateway.http.test.ts
+      # A gateway host's first request claims the rows from the documents, once (no manual refresh).
+      - run: pnpm --filter @infinitum/cumulus-mail exec node --test --experimental-strip-types src/claim.http.test.ts
+      # Claims never overwrite rows that hold something else; a rollback releases the claim.
+      - run: pnpm --filter @infinitum/cumulus-mail exec node --test --experimental-strip-types src/claim-safety.http.test.ts
+      # +SPCTR on CUMULUS_ROWS: a sign-up there lands in the rows Mail reads.
+      - run: pnpm --filter @infinitum/spectre exec node --test --experimental-strip-types src/server/spectre-rows.http.test.ts
+      # Mail with the storage settings in cloudflare.config.ts, on all migrations and existing documents.
+      - run: pnpm --filter @infinitum/cumulus-mail exec node --test --experimental-strip-types src/production-config.http.test.ts
+      # Drive on a repository that copies values in and out (as a database does): every change is an explicit put.
+      - run: DRIVE_TEST_COPYING=1 pnpm --filter @infinitum/cumulus-mail exec node --test --experimental-strip-types src/workspace.test.ts
+      # CUMULUS_ROWS=drive: Drive metadata in rows, two saves of one document at once, the first-start copy.
+      - run: pnpm --filter @infinitum/cumulus-mail exec node --test --experimental-strip-types src/workspace-postgres.test.ts
+      # CUMULUS_ROWS=drive through the gateway: nexus-store's SQL, the first-request claim, two servers saving one document.
+      - run: pnpm --filter @infinitum/cumulus-mail exec node --test --experimental-strip-types src/drive-gateway.http.test.ts
+      # Overlapping requests through the gateway: two moves into each other, an upload into a folder being deleted, two saves.
+      - run: pnpm --filter @infinitum/cumulus-mail exec node --test --experimental-strip-types src/drive-gateway-races.http.test.ts

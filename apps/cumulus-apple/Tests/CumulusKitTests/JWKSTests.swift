@@ -5,9 +5,12 @@ import FoundationNetworking
 @testable import CumulusKit
 
 final class JWKSTests: XCTestCase {
-    private let modulus = "tEsbYj2jFfKj3w0XO5wwEUcsRT_oKw8U1psYNbVR8j1c92LAoFYPogAdx8tNxca0RTb1rymypYItRL1jv5ReHnZh7p09VcAAA_Akr6acXyHTiTxd21Wx7KS73kVK1-Ecb8qncpAzpTHeCaOaz33W0zTJPBW2-8fzAtAaNhprcfPnzqOiVH5GIUj5ExD10-wWMDcjE9sV7y0S3kF881V23WvQZAPko0_WN3aYkEpdqWiezkUhBQfro-wSiZsdw-JtZPnM9DZRKfJf0kxw2avZ8XXfw3qKh_max7Uuzt9GUN0wqHiJn97p6A9Unz6Vs9J-RMmk6FeaZBVM0SFQFxCHnw"
+    private let modulus = "0pWMfLbGPMlInM0wC96OrsLCQGbKNV7vjKKkVpcyNe88UuJ7miotYKWFvfcrcb52heMrkOEBi8HGoKXXEf2B9VWMthUqNM0rejwt8XuF6zKXJMoJmewaOXlcUZ-PDkmCeukcSDP3tvNlYrSOqHBLmSAJrhwmugY7Uf1EdyccC7stOZqL8fr7z2qnphcz-fCImsEnxDs3x6p-4-LeIsulWaEaVVEYTe8nEHhTe5Kt_F_D0e_lOKdtbdutru4PB68Pqfulab2WUib2_d9Cy4b3OfZl9-7QzbaErnH5xYtzomXtiad2MeQ3y81JGiik-zsQr7ax2ezWaBO8ifaGWA2qsw"
     private let exponent = "AQAB"
-    private let token = "eyJhbGciOiJSUzI1NiIsImtpZCI6InRlc3Qta2V5IiwidHlwIjoiSldUIn0.eyJpc3MiOiJodHRwczovL2NvZ25pdG8taWRwLnVzLWVhc3QtMS5hbWF6b25hd3MuY29tL3VzLWVhc3QtMV9mUmxNTzdkbmEiLCJzdWIiOiJ1c2VyLTEiLCJhdWQiOiI2MGJlamV0cjJhZ3QybDZuNWdrM3Y5dG1kMiIsImV4cCI6MTcwMDAwMzYwMCwiaWF0IjoxNzAwMDAwMDAwLCJub25jZSI6Im5vbmNlLTEiLCJlbWFpbCI6ImFsZXhAY3VtdWx1c2Nsb3VkLmFwcCIsInRva2VuX3VzZSI6ImlkIn0.FPkAHc5L7gyqeqrf_AVxAz-2f3aQDhmdbEpZR2GSyyCHf4sOqvlkwJLJsXw8pzPMrvKGkzBQ6cFA-83qDj69Kw4toLL1TMCk_-FF95PE6tQMOmvbMFjbOxyp3uyzaE964N6XuLVfdcp-qnf9LV_cCDlnsD8AHywINGPdomNslmpL0yuodRP0wP32qyIeJhCr9lrpHUrfTYFMtlO-tdHJvcniejaxWDnQMqN2-bvmxMD21dtfjh8EVmweUHzUi2LcxK0zlQiVBbkZfPf826N3vJBgZKsDW9B4gHN2A3PeeoGC1HroeJ-BMMXab9oreGV6c_Bcfj4pvmJvYnhUc9-mOg"
+    private let token = "eyJhbGciOiJSUzI1NiIsImtpZCI6InRlc3Qta2V5IiwidHlwIjoiSldUIn0.eyJpc3MiOiJodHRwczovL2lkLmN1bXVsdXNjbG91ZC5hcHAvcmVhbG1zL2N1bXVsdXMiLCJzdWIiOiJjaWRfN2YxYzJlNjQtMGQzYi00YzU1LTlhNTEtMmE2YTRiMWQ5ZTAxIiwiYXVkIjoiY3VtdWx1cy1hcHBsZSIsImV4cCI6MTcwMDAwMzYwMCwiaWF0IjoxNzAwMDAwMDAwLCJub25jZSI6Im5vbmNlLTEiLCJlbWFpbCI6ImFsZXhAY3VtdWx1c2Nsb3VkLmFwcCJ9.hGs_HJpbgeu9qNTYjgBEmMWT7gRmRbgiGTandfcm9uyqACMR2ym4qf876wgf-YIWrGGDpyaZaLp3RV3u8MjC6yHxIXM5Fvzv5wFbzsk6SREHd_JrmWtc7BE4AZ0Z6d5-VXqgGLQr2Vf7IQ1t9m99MMN8xvqF9fylfMnzr3NVFOiRTJ5J9ilav2diCFdLjtIL07FPDUZyoDvBoHHxhF-AZsSCiAEaMrcrFzpl69d3g2jvzSxK2iR6U5IskCZZQYWAQMBbTB6kdjL24fmAhjgBn4j3QQwtYvl2EruASqjZXUG6hp7ihaLGYfUKrhnfDPzQRLiHQaSL9m-80RpwB8Id5w"
+    private let ecX = "wNXbC1hchHlwORWo3HcnRFCOTyeU5_-6oOHPeoX9PJY"
+    private let ecY = "QGEFkkSU4-DTDwtlF8DbKRyvGgfryrfp9tcReGYc104"
+    private let esToken = "eyJhbGciOiJFUzI1NiIsImtpZCI6ImNpZC1lcyIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL2lkLmN1bXVsdXNjbG91ZC5hcHAvcmVhbG1zL2N1bXVsdXMiLCJzdWIiOiJjaWRfN2YxYzJlNjQtMGQzYi00YzU1LTlhNTEtMmE2YTRiMWQ5ZTAxIiwiYXVkIjoiY3VtdWx1cy1hcHBsZSIsImV4cCI6MTcwMDAwMzYwMCwiaWF0IjoxNzAwMDAwMDAwLCJub25jZSI6Im5vbmNlLTEiLCJlbWFpbCI6ImFsZXhAY3VtdWx1c2Nsb3VkLmFwcCJ9.MKzBcbOoy4jmPnlbjxud8RNlRgAEuMaiCnEKq9bQuMLDJt-g7yHH-6Lh6sp6WphBqYYHpr0mz0eghwmHZjXY-g"
 
     func testMontgomerySmallExponent() {
         let result = Montgomery.exponentiate(base: [7], exponent: [5], modulus: [13], width: 1)
@@ -18,9 +21,9 @@ final class JWKSTests: XCTestCase {
         let keys = try makeJWKS(kid: "test-key")
         let now = Date(timeIntervalSince1970: 1_700_000_000)
         let claims = try OIDC.validateIDToken(idToken: token, configuration: .production, nonce: "nonce-1", jwks: keys, now: now)
-        XCTAssertEqual(claims.subject, "user-1")
+        XCTAssertEqual(claims.subject, "cid_7f1c2e64-0d3b-4c55-9a51-2a6a4b1d9e01")
         XCTAssertEqual(claims.email, "alex@cumuluscloud.app")
-        XCTAssertEqual(claims.audience, ["60bejetr2agt2l6n5gk3v9tmd2"])
+        XCTAssertEqual(claims.audience, ["cumulus-apple"])
 
         var flipped = token
         let last = flipped.removeLast()
@@ -34,14 +37,37 @@ final class JWKSTests: XCTestCase {
         XCTAssertThrowsError(try OIDC.verifySignature(idToken: none, jwks: keys))
     }
 
+    func testES256FromCumulusIDIsVerified() throws {
+        let keys = try JWKS.parse(makeECJWKSData(kid: "cid-es"))
+        XCTAssertEqual(keys.keys.first?.kty, "EC")
+        guard ES256.isAvailable else {
+            // Linux runner: no CryptoKit, so ES256 must fail closed rather than pass.
+            XCTAssertThrowsError(try OIDC.verifySignature(idToken: esToken, jwks: keys))
+            return
+        }
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let claims = try OIDC.validateIDToken(idToken: esToken, configuration: .production, nonce: "nonce-1", jwks: keys, now: now)
+        XCTAssertEqual(claims.subject, "cid_7f1c2e64-0d3b-4c55-9a51-2a6a4b1d9e01")
+        XCTAssertEqual(claims.issuer, "https://id.cumuluscloud.app/realms/cumulus")
+
+        var flipped = esToken
+        let last = flipped.removeLast()
+        flipped.append(last == "A" ? "B" : "A")
+        XCTAssertThrowsError(try OIDC.verifySignature(idToken: flipped, jwks: keys))
+        XCTAssertThrowsError(try OIDC.verifySignature(idToken: esToken, jwks: try JWKS.parse(makeECJWKSData(kid: "other"))))
+        // An RSA key must never verify an ES256 token, and the reverse.
+        XCTAssertThrowsError(try OIDC.verifySignature(idToken: esToken, jwks: try makeJWKS(kid: "cid-es")))
+        XCTAssertThrowsError(try OIDC.verifySignature(idToken: token, jwks: try JWKS.parse(makeECJWKSData(kid: "test-key"))))
+    }
+
     func testExchangeVerifiesTheIDTokenBeforeStoringIt() async throws {
         let transport = ScriptedTransport()
         transport.handler = { request in
-            if request.url?.absoluteString.hasSuffix("/.well-known/jwks.json") == true {
+            if request.url?.absoluteString.hasSuffix("/protocol/openid-connect/certs") == true {
                 XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
                 return (200, try self.makeJWKSData(kid: "test-key"))
             }
-            XCTAssertEqual(request.url?.host, "cumulus-id.auth.us-east-1.amazoncognito.com")
+            XCTAssertEqual(request.url?.absoluteString, "https://id.cumuluscloud.app/realms/cumulus/protocol/openid-connect/token")
             XCTAssertFalse(String(data: request.httpBody ?? Data(), encoding: .utf8)?.contains("client_secret") ?? false)
             let body = #"{"access_token":"access","id_token":"\#(self.token)","token_type":"Bearer","expires_in":3600}"#
             return (200, Data(body.utf8))
@@ -50,14 +76,14 @@ final class JWKSTests: XCTestCase {
         let api = CumulusAPI(configuration: .production, http: HTTPClient(transport: transport), tokens: store)
         let now = Date(timeIntervalSince1970: 1_700_000_000)
         let signedIn = try await api.exchange(code: "code", verifier: String(repeating: "d", count: 43), nonce: "nonce-1", now: now)
-        XCTAssertEqual(signedIn.claims.subject, "user-1")
+        XCTAssertEqual(signedIn.claims.subject, "cid_7f1c2e64-0d3b-4c55-9a51-2a6a4b1d9e01")
         XCTAssertEqual(try store.load()?.accessToken, "access")
     }
 
     func testExchangeDoesNotStoreABadSignature() async throws {
         let transport = ScriptedTransport()
         transport.handler = { request in
-            if request.url?.absoluteString.hasSuffix("jwks.json") == true {
+            if request.url?.absoluteString.hasSuffix("/protocol/openid-connect/certs") == true {
                 return (200, try self.makeJWKSData(kid: "test-key"))
             }
             var bad = self.token
@@ -78,6 +104,13 @@ final class JWKSTests: XCTestCase {
 
     private func makeJWKS(kid: String) throws -> JWKS {
         try JWKS.parse(makeJWKSData(kid: kid))
+    }
+
+    private func makeECJWKSData(kid: String) -> Data {
+        let json = """
+        {"keys":[{"kty":"EC","crv":"P-256","kid":"\(kid)","alg":"ES256","use":"sig","x":"\(ecX)","y":"\(ecY)"}]}
+        """
+        return Data(json.utf8)
     }
 
     private func makeJWKSData(kid: String) throws -> Data {

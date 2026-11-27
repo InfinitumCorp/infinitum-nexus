@@ -330,7 +330,11 @@ export class PostOffice {
     if (!input.subject.trim() && !input.body.trim()) throw new MailError("empty", "Write a subject or a message.");
 
     const size = messageBytes({ subject: input.subject, body: input.body }) + attachmentBytes(input.attachments);
-    if (this.quota && !(await this.quota.canFit(cid, size))) {
+    // Mailing yourself keeps a second copy (in your inbox, besides Sent): both must fit before anything
+    // is charged or delivered, or a refusal half way would leave the recipients' charges behind.
+    const self = sender.owner.email.toLowerCase();
+    const copies = [...to, ...cc].some((p) => p.email.toLowerCase() === self) ? 2 : 1;
+    if (this.quota && !(await this.quota.canFit(cid, size * copies))) {
       throw new MailError("quota_exceeded", "Your Cumulus storage is full. Free up space in Mail or Cloud to send.");
     }
 

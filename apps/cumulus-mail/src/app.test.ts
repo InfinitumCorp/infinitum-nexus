@@ -71,6 +71,16 @@ describe("Cumulus://Mail over HTTP", () => {
     assert.match(page.data, /noindex/);
   });
 
+  it("shows something before the first API call returns, and a Reload button if it fails", async () => {
+    const b = new Browser();
+    const page = await b.call("GET", "/");
+    assert.match(String(page.data), /<div id="app"><div class="auth"><p class="muted" role="status">Loading…<\/p><\/div><\/div>/);
+    const js = String((await b.call("GET", "/app.js")).data);
+    assert.match(js, /function renderLoadFailed\(\)/);
+    assert.match(js, /FIRST_LOAD_TIMEOUT_MS/);
+    assert.match(js, /if \(!document\.querySelector\("#app \.auth-card"\)\) renderLoadFailed\(\);/);
+  });
+
   it("publishes the mail domain and allows only exact Cumulus origins", async () => {
     const b = new Browser();
     const config = await b.call("GET", "/cumulus-config.js");

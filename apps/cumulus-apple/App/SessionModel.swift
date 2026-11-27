@@ -103,7 +103,7 @@ final class CumulusSession: ObservableObject {
         return MailboxIndex.thread(mailbox.messages, threadID: selectedMessage.threadId)
     }
 
-    /// Re-checks a stored ID token against the Cognito JWKS. A bad signature signs the app out.
+    /// Re-checks a stored ID token against the Cumulus://ID JWKS. A bad signature signs the app out.
     func restore() async {
         guard !isPreview, let idToken = tokens?.idToken else { return }
         do {

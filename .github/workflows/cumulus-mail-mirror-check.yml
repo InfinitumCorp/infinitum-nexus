@@ -22,7 +22,7 @@ jobs:
       matrix:
         origin: [https://mail.cumuluscloud.app, https://ru.mail.cumuluscloud.app]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           sparse-checkout: apps/cumulus-mail/downloads/worker.js
           sparse-checkout-cone-mode: false

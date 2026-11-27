@@ -95,7 +95,7 @@ jobs:
       CONJURE_SHA256: 108fd6481d49f098e71067519331d9d34a257f11a24e3b46e45579fefba09231
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-java@v5
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: "21"

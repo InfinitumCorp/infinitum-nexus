@@ -12,7 +12,7 @@ import type { Authenticator, CidService, Grant } from "./service.ts";
  * What is left out on purpose: sessions and their token hashes, pending WebAuthn challenges,
  * pending MFA steps, social sign-in (OAuth) state, browser-to-app handoff codes and
  * unconfirmed TOTP enrolments. People sign in again on the new issuer; their cid, passkeys,
- * linked Google/Cognito accounts and confirmed authenticator app carry over.
+ * linked social accounts and confirmed authenticator app carry over.
  */
 
 export const CID_EXPORT_FORMAT = "cumulus-id.export";

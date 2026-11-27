@@ -55,7 +55,7 @@ class StoredReleases:
         backend: Callable[[], dp.NoiseBackend] | None = None,
         max_rows: int = MAX_ROWS,
     ) -> None:
-        self.catalog, self.source, self.budget = catalog, source, budget
+        self.catalog, self.source, self.budget_ledger = catalog, source, budget
         self.backend = backend
         self.max_rows = max_rows
 
@@ -67,6 +67,19 @@ class StoredReleases:
         if f["rule"] != "KEEP" or f["classification"] not in GROUPABLE:
             raise _bad(f"{what} {name} is {f['classification']} with rule {f['rule']}; it cannot be released")
         return f
+
+    def budget(self, caller: str, name: str) -> dict[str, Any]:
+        """How much epsilon the dataset has left. Product-scoped like the release itself."""
+        self.catalog.read(caller, name)  # 404 for other products' datasets
+        spent = self.budget_ledger.spent(name)
+        total = float(self.budget_ledger.total)
+        return {
+            "dataset": name,
+            "totalEpsilon": round(total, 6),
+            "spentEpsilon": round(spent, 6),
+            "remainingEpsilon": round(max(0.0, total - spent), 6),
+            "maxEpsilonPerRelease": MAX_EPSILON_PER_RELEASE,
+        }
 
     def release(self, caller: str, name: str, req: Mapping[str, Any]) -> dict[str, Any]:
         spec = self.catalog.read(caller, name)  # 404 / 403 for other products' datasets
@@ -110,9 +123,9 @@ class StoredReleases:
         if metric == "sum" and not lower < upper:
             raise _bad("lower must be below upper")
 
-        if float(epsilon) > self.budget.remaining(name) + 1e-12:
+        if float(epsilon) > self.budget_ledger.remaining(name) + 1e-12:
             raise PlatformError(409, "PrivacyBudgetExceeded",
-                                f"{name}: {self.budget.remaining(name):.4f} epsilon left", {"name": name})
+                                f"{name}: {self.budget_ledger.remaining(name):.4f} epsilon left", {"name": name})
 
         stored = self.source.release_rows(caller, name, start, end, self.max_rows + 1)
         if len(stored) > self.max_rows:
@@ -138,7 +151,7 @@ class StoredReleases:
                 group_key="group",
                 public_groups=groups,
                 epsilon=float(epsilon),
-                budget=self.budget,
+                budget=self.budget_ledger,
                 max_partitions=max_partitions,
                 value_key="value" if value_field else None,
                 lower=float(lower),
@@ -158,5 +171,5 @@ class StoredReleases:
             "epsilon": out.epsilon,
             "groups": out.groups,
             "suppressed": out.suppressed,
-            "remainingEpsilon": round(self.budget.remaining(name), 6),
+            "remainingEpsilon": round(self.budget_ledger.remaining(name), 6),
         }

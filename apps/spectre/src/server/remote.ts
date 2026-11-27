@@ -171,7 +171,10 @@ export class RemoteState {
       }
       applySnapshot(store, row.data);
       this.versions[row.id] = row.version;
-      this.baseline[row.id] = JSON.stringify(row.data);
+      // The store as it now is, serialized the way commit() compares it. Not row.data: Postgres jsonb
+      // returns object keys in its own order, so that string never equals the store's, and every
+      // request after a load rewrote the whole document (and made every other server load it again).
+      this.baseline[row.id] = JSON.stringify(toSnapshot(store));
     }
   }
 

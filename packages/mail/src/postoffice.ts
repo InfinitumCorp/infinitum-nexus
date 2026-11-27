@@ -774,7 +774,9 @@ ${reason}`,
     if (!message) return;
     await this.edit(u, cid, (mail) => mail.remove(id));
     for (const a of message.attachments ?? []) if (a.id) u.released.add(a.id);
-    if (!message.system && message.folder !== "drafts") await this.quota?.release(cid, "mail", messageBytes(message));
+    // What its delivery charged: the text and its files (attachmentBytes), so deleting mail with
+    // attachments gives their storage back too.
+    if (!message.system && message.folder !== "drafts") await this.quota?.release(cid, "mail", messageBytes(message) + attachmentBytes(message.attachments));
   }
 
   emptyTrash(cid: string): Promise<number> {

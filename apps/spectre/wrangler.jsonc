@@ -6,7 +6,6 @@
 //   FIRMAMENT_SIGNER_KEY   base64 PKCS#8 Ed25519 ledger signing key (keep a safe copy)
 //   NEXUS_STORE_KEY        gateway key for the Supabase nexus-store (Vercel path). The Worker
 //                          uses the NexusStore Durable Object and does not read this key.
-//   COGNITO_CLIENT_SECRET  Amazon Cognito app client secret (Cognito stays off until it is set)
 //   GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET   Google sign-in (off until both are set)
 //   CID_OIDC_SIGNING_KEY   ES256 or Ed25519 private JWK. OpenID Connect stays off until it is set.
 //                          node scripts/generate-oidc-key.mjs   (writes a file, does not print the key)
@@ -30,11 +29,7 @@
     "SPECTRE_EXTRA_ORIGINS": "https://ru.id.cumuluscloud.app",
     "CUMULUS_MAIL_ORIGIN": "https://mail.cumuluscloud.app",
     // Infinitum Search (@search, /api/web-search, Conjure web seeding) on VEIL's own engine; needs no key.
-    "VEIL_SEARCH_URL": "https://infinitumveil.app/api/search",
-    "COGNITO_REGION": "us-east-1",
-    "COGNITO_USER_POOL_ID": "us-east-1_fRlMO7dna",
-    "COGNITO_CLIENT_ID": "60bejetr2agt2l6n5gk3v9tmd2",
-    "COGNITO_DOMAIN": "cumulus-id.auth.us-east-1.amazoncognito.com"
+    "VEIL_SEARCH_URL": "https://infinitumveil.app/api/search"
   },
   "durable_objects": { "bindings": [{ "name": "NEXUS_STATE", "class_name": "NexusStore" }] },
   "ai": { "binding": "AI" },

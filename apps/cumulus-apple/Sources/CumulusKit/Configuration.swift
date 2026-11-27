@@ -2,6 +2,9 @@ import Foundation
 
 /// API origins for the Cumulus apps. Read from a JSON file or the process environment.
 /// No client secret belongs here. The Apple client is a public PKCE client.
+///
+/// Sign-in is Cumulus://ID's own OpenID Connect issuer (`https://id.cumuluscloud.app/realms/cumulus`).
+/// Amazon Cognito was removed on 2026-11-18; any `cognito*` keys left in an old JSON file are ignored.
 public struct CumulusConfiguration: Codable, Equatable, Sendable {
     public var idOrigin: URL
     public var issuer: URL
@@ -12,10 +15,6 @@ public struct CumulusConfiguration: Codable, Equatable, Sendable {
     public var cloudAPI: URL
     public var exchangeAPI: URL
     public var downloadPage: URL
-    /// Cognito hosted UI hostname, without a scheme. Nil keeps the Keycloak issuer paths.
-    public var cognitoDomain: String?
-    public var cognitoRegion: String?
-    public var cognitoUserPoolID: String?
 
     public init(
         idOrigin: URL,
@@ -26,10 +25,7 @@ public struct CumulusConfiguration: Codable, Equatable, Sendable {
         mailAPI: URL,
         cloudAPI: URL,
         exchangeAPI: URL,
-        downloadPage: URL,
-        cognitoDomain: String? = nil,
-        cognitoRegion: String? = nil,
-        cognitoUserPoolID: String? = nil
+        downloadPage: URL
     ) throws {
         self.idOrigin = idOrigin
         self.issuer = issuer
@@ -40,72 +36,38 @@ public struct CumulusConfiguration: Codable, Equatable, Sendable {
         self.cloudAPI = cloudAPI
         self.exchangeAPI = exchangeAPI
         self.downloadPage = downloadPage
-        self.cognitoDomain = cognitoDomain?.nilIfEmpty
-        self.cognitoRegion = cognitoRegion?.nilIfEmpty
-        self.cognitoUserPoolID = cognitoUserPoolID?.nilIfEmpty
         try validate()
     }
 
-    /// Live Cumulus://ID is the public Cognito user pool. These identifiers are not secrets.
+    /// Live Cumulus://ID. The client id and callback are registered as `cumulus-apple` in
+    /// packages/cid/src/id-clients.ts. These identifiers are not secrets.
     public static let production = try! CumulusConfiguration(
         idOrigin: URL(string: "https://id.cumuluscloud.app")!,
-        issuer: URL(string: "https://cognito-idp.us-east-1.amazonaws.com/us-east-1_fRlMO7dna")!,
-        clientID: "60bejetr2agt2l6n5gk3v9tmd2",
+        issuer: URL(string: "https://id.cumuluscloud.app/realms/cumulus")!,
+        clientID: "cumulus-apple",
         redirectURI: URL(string: "cumulus://oauth/callback")!,
         scopes: ["openid", "email", "profile"],
         mailAPI: URL(string: "https://mail.cumuluscloud.app")!,
         cloudAPI: URL(string: "https://cloud.cumuluscloud.app")!,
         exchangeAPI: URL(string: "https://cloud.cumuluscloud.app")!,
-        downloadPage: URL(string: "https://cumuluscloud.app")!,
-        cognitoDomain: "cumulus-id.auth.us-east-1.amazoncognito.com",
-        cognitoRegion: "us-east-1",
-        cognitoUserPoolID: "us-east-1_fRlMO7dna"
+        downloadPage: URL(string: "https://cumuluscloud.app")!
     )
 
-    public var usesCognito: Bool {
-        cognitoDomain != nil && cognitoRegion != nil && cognitoUserPoolID != nil
-    }
+    public var authorizationEndpoint: URL { endpoint("protocol/openid-connect/auth") }
 
-    public var authorizationEndpoint: URL {
-        if usesCognito {
-            return URL(string: "https://\(cognitoDomain!)/oauth2/authorize")!
-        }
-        return endpoint("protocol/openid-connect/auth")
-    }
+    public var tokenEndpoint: URL { endpoint("protocol/openid-connect/token") }
 
-    public var tokenEndpoint: URL {
-        if usesCognito {
-            return URL(string: "https://\(cognitoDomain!)/oauth2/token")!
-        }
-        return endpoint("protocol/openid-connect/token")
-    }
+    public var userInfoEndpoint: URL { endpoint("protocol/openid-connect/userinfo") }
 
-    public var userInfoEndpoint: URL {
-        if usesCognito {
-            return URL(string: "https://\(cognitoDomain!)/oauth2/userInfo")!
-        }
-        return endpoint("protocol/openid-connect/userinfo")
+    /// The issuer's public signing keys (ES256 for Cumulus://ID). ID tokens are checked against this set.
+    public var jwksURL: URL { endpoint("protocol/openid-connect/certs") }
+
+    public var expectedIssuer: String {
+        issuer.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
     }
 
     private func endpoint(_ path: String) -> URL {
-        let base = issuer.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        return URL(string: base + "/" + path)!
-    }
-
-    /// Cognito publishes RSA keys here. The native client checks ID tokens against this set.
-    public var jwksURL: URL {
-        if usesCognito {
-            return URL(string: expectedIssuer + "/.well-known/jwks.json")!
-        }
-        return URL(string: expectedIssuer + "/protocol/openid-connect/certs")!
-    }
-
-    /// Cognito's issuer is the user-pool URL, not the hosted UI.
-    public var expectedIssuer: String {
-        if usesCognito {
-            return "https://cognito-idp.\(cognitoRegion!).amazonaws.com/\(cognitoUserPoolID!)"
-        }
-        return issuer.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        URL(string: expectedIssuer + "/" + path)!
     }
 
     public static func load(data: Data) throws -> CumulusConfiguration {
@@ -119,10 +81,7 @@ public struct CumulusConfiguration: Codable, Equatable, Sendable {
             mailAPI: try url(decoded.mailAPI, name: "mailAPI"),
             cloudAPI: try url(decoded.cloudAPI, name: "cloudAPI"),
             exchangeAPI: try url(decoded.exchangeAPI, name: "exchangeAPI"),
-            downloadPage: try url(decoded.downloadPage, name: "downloadPage"),
-            cognitoDomain: decoded.cognitoDomain,
-            cognitoRegion: decoded.cognitoRegion,
-            cognitoUserPoolID: decoded.cognitoUserPoolID
+            downloadPage: try url(decoded.downloadPage, name: "downloadPage")
         )
     }
 
@@ -141,16 +100,8 @@ public struct CumulusConfiguration: Codable, Equatable, Sendable {
             mailAPI: try url(value("CUMULUS_MAIL_API", base.mailAPI.absoluteString), name: "CUMULUS_MAIL_API"),
             cloudAPI: try url(value("CUMULUS_CLOUD_API", base.cloudAPI.absoluteString), name: "CUMULUS_CLOUD_API"),
             exchangeAPI: try url(value("CUMULUS_EXCHANGE_API", base.exchangeAPI.absoluteString), name: "CUMULUS_EXCHANGE_API"),
-            downloadPage: try url(value("CUMULUS_DOWNLOAD_PAGE", base.downloadPage.absoluteString), name: "CUMULUS_DOWNLOAD_PAGE"),
-            cognitoDomain: optional(environment, "CUMULUS_COGNITO_DOMAIN", base.cognitoDomain),
-            cognitoRegion: optional(environment, "CUMULUS_COGNITO_REGION", base.cognitoRegion),
-            cognitoUserPoolID: optional(environment, "CUMULUS_COGNITO_USER_POOL_ID", base.cognitoUserPoolID)
+            downloadPage: try url(value("CUMULUS_DOWNLOAD_PAGE", base.downloadPage.absoluteString), name: "CUMULUS_DOWNLOAD_PAGE")
         )
-    }
-
-    private static func optional(_ environment: [String: String], _ key: String, _ fallback: String?) -> String? {
-        let raw = environment[key]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return raw.isEmpty ? fallback : raw
     }
 
     private func validate() throws {
@@ -172,16 +123,9 @@ public struct CumulusConfiguration: Codable, Equatable, Sendable {
         guard scheme == "https" || scheme == "cumulus" else {
             throw CumulusError.configuration("redirectURI must be https or cumulus.")
         }
-        if usesCognito {
-            let domain = cognitoDomain!
-            if domain.contains("://") || domain.contains("/") || domain.contains("*") {
-                throw CumulusError.configuration("cognitoDomain must be a hostname.")
-            }
-            guard cognitoRegion?.isEmpty == false, cognitoUserPoolID?.isEmpty == false else {
-                throw CumulusError.configuration("Cognito needs a region and a user pool id.")
-            }
-        } else if cognitoDomain != nil || cognitoRegion != nil || cognitoUserPoolID != nil {
-            throw CumulusError.configuration("Cognito sign-in needs the domain, region, and user pool id together.")
+        let issuerHost = (issuer.host ?? "").lowercased()
+        if issuerHost.hasSuffix("amazoncognito.com") || issuerHost.hasSuffix("amazonaws.com") {
+            throw CumulusError.configuration("Amazon Cognito sign-in was removed. Use the Cumulus://ID issuer.")
         }
     }
 
@@ -210,16 +154,6 @@ public struct CumulusConfiguration: Codable, Equatable, Sendable {
         var cloudAPI: String
         var exchangeAPI: String
         var downloadPage: String
-        var cognitoDomain: String?
-        var cognitoRegion: String?
-        var cognitoUserPoolID: String?
-    }
-}
-
-private extension String {
-    var nilIfEmpty: String? {
-        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
     }
 }
 

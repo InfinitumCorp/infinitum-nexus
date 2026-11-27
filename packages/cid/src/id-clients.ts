@@ -20,6 +20,11 @@ export interface IdClient {
    * http://localhost:<port> (RFC 8252 loopback redirect). PKCE still binds the code to the tool.
    */
   loopback?: boolean;
+  /**
+   * Native apps return through a private-use URI scheme (RFC 8252 section 7.1), for example
+   * cumulus://oauth/callback. Only these exact strings are accepted, and PKCE still binds the code.
+   */
+  nativeRedirects?: string[];
 }
 
 export const ID_CLIENTS: Record<string, IdClient> = {
@@ -46,6 +51,13 @@ export const ID_CLIENTS: Record<string, IdClient> = {
       "https://mail.cumuluscloud.app",
       "https://ru.mail.cumuluscloud.app",
     ],
+  },
+  // The Cumulus iPhone, iPad and Mac app (apps/cumulus-apple). Public client: PKCE, no secret.
+  "cumulus-apple": {
+    name: "Cumulus://Cloud",
+    app: "cumulus",
+    origins: [],
+    nativeRedirects: ["cumulus://oauth/callback"],
   },
   "cumulus-mail": {
     name: "Cumulus://Mail",
@@ -177,6 +189,7 @@ export function idClientFor(clientId: string, redirectUri: string): IdClient | n
     return null;
   }
   if (url.username || url.password || url.hash) return null;
+  if (url.protocol !== "http:" && url.protocol !== "https:") return client.nativeRedirects?.includes(redirectUri) ? client : null;
   if (url.protocol === "http:") return client.loopback && isLoopback(url) ? client : null;
   if (url.protocol !== "https:") return null;
   return client.origins.includes(url.origin) ? client : null;

@@ -14,7 +14,7 @@ const content = (value: unknown, encoding: unknown): string | Uint8Array => {
 };
 const head = (v: unknown): string | null => v === null ? null : text(v);
 export function labyrinthToken(header: string | null): string | undefined {
-  return header?.match(/^Bearer ([^\s]{1,512})$/)?.[1];
+  return header?.match(/^Bearer ([^\s]{1,8000})$/)?.[1];
 }
 /** No cid/org/role claims accepted. Server derives all authority from the live CID session. */
 export function labyrinthCommand(auth: CidLabyrinth, token: string, value: unknown): unknown {

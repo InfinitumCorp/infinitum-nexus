@@ -16,7 +16,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const ORIGIN = "http://localhost";
 
 /** Shared harness for the growth-feature HTTP tests. */
-export async function harness(opts: { providers?: Providers; cronSecret?: string; twilioAuthToken?: string; labyrinth?: CumulusConfig["labyrinth"]; labyrinthEndpoint?: string | null; labyrinthDirectoryKeySha256?: string | null; cidExportKeySha256?: string | null; oidcClient?: OidcClientConfig | null; repository?: CumulusConfig["repository"]; oidcSigner?: Parameters<typeof createApp>[0]["oidcSigner"] } = {}) {
+export async function harness(opts: { providers?: Providers; cronSecret?: string; twilioAuthToken?: string; labyrinth?: CumulusConfig["labyrinth"]; labyrinthEndpoint?: string | null; labyrinthDirectoryKeySha256?: string | null; cidExportKeySha256?: string | null; oidcClient?: OidcClientConfig | null; repository?: CumulusConfig["repository"]; oidcSigner?: Parameters<typeof createApp>[0]["oidcSigner"]; issuerSessionKey?: Buffer | null } = {}) {
   const signer = generateSigner();
   const ledger = new Ledger(undefined, { authorizedSigners: [signer.publicKey] });
   const suite = createCumulus({ ledger, signer, rpId: "localhost", origins: [ORIGIN], labyrinth: opts.labyrinth, repository: opts.repository });

@@ -61,22 +61,12 @@ async function scopes(cid: CidService, who: string): Promise<LabyrinthDirectoryS
   return out;
 }
 
-/**
- * Sessions of the standalone Cumulus://ID issuer (InfinitumCorp/cumulus-id) have no row in this store. A token from it
- * resolves (see ProductIdpHelpers.issuerAccessToken) to the session id `issuer.<exp>.<tag>`: live until the access
- * token's own expiry, which is how long that token is good for anyway. The person's organization, LBRNTH scopes and
- * entitlement still come from this store, by cid.
- */
-export const ISSUER_SESSION = /^issuer\.(\d{9,11})\.[A-Za-z0-9_-]{8,64}$/;
-
-export function issuerSessionId(exp: number, tag: string): string {
-  return `issuer.${Math.floor(exp)}.${tag}`;
-}
-
 export interface LabyrinthDirectoryOptions {
-  /** Accept `issuer.` session ids (set only when the standalone issuer's tokens are accepted). */
-  issuerSessions?: boolean;
-  now?: () => number;
+  /**
+   * Client mode only: whether a session id this host issued for a standalone-issuer token (`issuer.…`, see
+   * apps/spectre issuer-sessions.ts) is still live for that cid. Unset: such ids are never live.
+   */
+  issuerSessionActive?: (cid: string, sessionId: string) => boolean;
 }
 
 /** Answer one directory call. Throws LabyrinthDirectoryError for a refused or malformed call. */
@@ -107,10 +97,9 @@ export async function answerLabyrinthDirectory(cid: CidService, resolveToken: Ci
     case "session": {
       const who = short(b.cid);
       const sessionId = short(b.sessionId);
-      const issued = opts.issuerSessions ? ISSUER_SESSION.exec(sessionId) : null;
-      const live = issued
-        ? Number(issued[1]) * 1000 > (opts.now ?? Date.now)()
-        : sessionId.startsWith("issuer.") ? false : await cid.isSessionActive(who, sessionId);
+      const live = sessionId.startsWith("issuer.")
+        ? opts.issuerSessionActive?.(who, sessionId) === true
+        : await cid.isSessionActive(who, sessionId);
       const active = !!(await cid.findAccount(who)) && live;
       return { active, organization: active ? await membership(cid, who) : null, scopes: active ? await scopes(cid, who) : [] };
     }

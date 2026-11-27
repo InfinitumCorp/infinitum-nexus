@@ -4,7 +4,8 @@ import { serveNodeLabyrinth, serveNodeLabyrinthProxy } from "@infinitum/lbrnth";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { readFile } from "node:fs/promises";
 import { join, normalize, extname } from "node:path";
-import { CidService, CidError, cumulusCorsHeaders, IdRawResponse, loadOidcSigner, oidcDiscovery, registerProductIdp, safeProductReturn, type Account, type OidcSigner } from "@infinitum/cid";
+import { CidService, CidError, cidSecretKeyForHost, cumulusCorsHeaders, IdRawResponse, loadOidcSigner, oidcDiscovery, registerProductIdp, safeProductReturn, type Account, type OidcSigner } from "@infinitum/cid";
+import { issuerSessions } from "./issuer-sessions.ts";
 import type { CumulusSuite } from "@infinitum/cumulus";
 import { SpectreCRM, SpectreError } from "../core/crm.ts";
 import { scoreDealMetatron as scoreDeal, learnedContextFor } from "../core/intelligence-metatron.ts";
@@ -106,6 +107,11 @@ export interface AppDeps {
    * SPECTRE_AUTH (=oidc), CID_ISSUER and CID_CLIENT_ID; null keeps the in-process sign-in.
    */
   oidcClient?: OidcClientConfig | null;
+  /**
+   * Key for the Labyrinth directory's standalone-issuer session ids (issuer-sessions.ts). Default: derived from
+   * CID_SECRET_KEY or FIRMAMENT_SIGNER_KEY (cidSecretKeyForHost); none: issuer tokens aren't accepted there.
+   */
+  issuerSessionKey?: Buffer | null;
   /** Tests: scripted model for Conjure simulations. */
   conjureComplete?: Complete;
   /** Hosted Conjure for "@conjure" in Ask. Defaults to CONJURE_URL + CONJURE_PRODUCT_KEY; null turns it off. */
@@ -243,6 +249,8 @@ export function createApp(deps: AppDeps) {
   // OpenID Connect client mode. Null: passkeys, MFA and social sign-in run here, as before.
   const issuerConfig = deps.oidcClient === undefined ? oidcClientFromEnv(process.env) : deps.oidcClient;
   const idClient = issuerConfig ? createOidcClient(issuerConfig) : null;
+  const issuerKey = deps.issuerSessionKey === undefined ? cidSecretKeyForHost() : deps.issuerSessionKey;
+  const forIssuer = idClient && issuerKey ? issuerSessions(issuerKey) : null;
   /** Sign-in routes of the in-process CID. In client mode they answer 404: the issuer owns them. */
   const localAuthRoute: typeof route = idClient
     ? (method, path) => route(method, path, () => { throw new HttpError(404, "Not found"); }, false, { csrf: false })
@@ -440,7 +448,11 @@ export function createApp(deps: AppDeps) {
       : deps.labyrinthDirectoryKeySha256) || undefined,
     exportKeySha256: (deps.cidExportKeySha256 === undefined ? process.env.CID_EXPORT_KEY_SHA256 : deps.cidExportKeySha256) || undefined,
     // After the cut-over, products hold the standalone issuer's tokens: Labyrinth's directory accepts them too.
-    issuerAccessToken: idClient ? (token) => idClient.accessToken(token) : undefined,
+    issuerAccessToken: forIssuer ? async (token) => {
+      const hit = await idClient!.accessToken(token);
+      return hit ? { cid: hit.cid, sessionId: forIssuer.id(hit.cid, hit.sid, hit.exp) } : null;
+    } : undefined,
+    issuerSessionActive: forIssuer ? (who, sessionId) => forIssuer.active(who, sessionId) : undefined,
   });
 
   route("GET", "/api/me/identities", async (ctx) => idClient

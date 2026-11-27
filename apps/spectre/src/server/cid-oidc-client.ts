@@ -58,11 +58,44 @@ export function createOidcClient(config: OidcClientConfig) {
   let discovery: { doc: Discovery; at: number } | null = null;
   let jwks: Jwk[] | null = null;
   // accessToken(): the issuer's yes, for up to 30 seconds (never past the token's expiry), so a busy Labyrinth doesn't
-  // ask the issuer on every command. A sign-out at the issuer reaches Labyrinth within those 30 seconds.
-  const vouched = new Map<string, { until: number; hit: { cid: string; exp: number; sid: string } }>();
+  // ask the issuer on every command. A sign-out at the issuer reaches a directly presented token within those 30 seconds (repository bearers: see
+  // issuer-sessions.ts).
+  const vouched = new Map<string, { until: number; hit: { cid: string; exp: number; sid: string } | null }>();
+  const remember = (key: string, until: number, hit: { cid: string; exp: number; sid: string } | null) => {
+    if (vouched.size >= 1000) vouched.delete(vouched.keys().next().value!);
+    vouched.set(key, { until, hit });
+  };
+
+  /** The token's signature, checked against the issuer's published keys (ES256 or Ed25519), before asking it anything. */
+  async function signedByIssuer(token: string): Promise<boolean> {
+    const [head, body, sig] = token.split(".") as [string, string, string];
+    let header: { alg?: string; kid?: string; typ?: string };
+    try {
+      header = JSON.parse(Buffer.from(head, "base64url").toString("utf8")) as typeof header;
+    } catch {
+      return false;
+    }
+    if (header.typ !== "at+jwt" || (header.alg !== "ES256" && header.alg !== "EdDSA")) return false;
+    const pick = async (refresh: boolean) => (await keys(header.kid, refresh)).find((k) => k.kid === header.kid && (header.alg === "ES256" ? k.crv === "P-256" : k.crv === "Ed25519"));
+    let jwk: Jwk | undefined;
+    try {
+      jwk = (await pick(false)) ?? (await pick(true));
+    } catch {
+      return false;
+    }
+    if (!jwk) return false;
+    const algo = header.alg === "ES256" ? { name: "ECDSA", namedCurve: "P-256" } : { name: "Ed25519" };
+    try {
+      const key = await globalThis.crypto.subtle.importKey("jwk", { kty: jwk.kty, crv: jwk.crv, x: jwk.x, y: jwk.y } as webcrypto.JsonWebKey, algo, false, ["verify"]);
+      const verifyAlgo = header.alg === "ES256" ? { name: "ECDSA", hash: "SHA-256" } : { name: "Ed25519" };
+      return await globalThis.crypto.subtle.verify(verifyAlgo, key, Buffer.from(sig, "base64url"), Buffer.from(`${head}.${body}`));
+    } catch {
+      return false;
+    }
+  }
 
   const getJson = async (url: string) => {
-    const res = await doFetch(url, { headers: { accept: "application/json" } });
+    const res = await doFetch(url, { headers: { accept: "application/json" }, signal: AbortSignal.timeout(5000) });
     if (!res.ok) throw new OidcClientError(`Cumulus://ID answered ${res.status}`);
     return (await res.json()) as Record<string, unknown>;
   };
@@ -205,6 +238,13 @@ export function createOidcClient(config: OidcClientConfig) {
       const cached = vouched.get(key);
       if (cached && cached.until > now().getTime()) return cached.hit;
       vouched.delete(key);
+      if (typeof payload.exp !== "number" || payload.exp * 1000 <= now().getTime() || typeof payload.sid !== "string" || !payload.sid) return null;
+      // Made-up tokens stop here, without a call to the issuer; a refusal is remembered for 30 seconds as well.
+      const refuse = () => {
+        remember(key, now().getTime() + 30_000, null);
+        return null;
+      };
+      if (!(await signedByIssuer(token))) return refuse();
       let endpoint: string | undefined;
       try {
         endpoint = (await discover()).userinfo_endpoint;
@@ -212,15 +252,19 @@ export function createOidcClient(config: OidcClientConfig) {
         return null;
       }
       if (!endpoint) return null;
-      const res = await doFetch(endpoint, { headers: { authorization: `Bearer ${token}`, accept: "application/json" }, redirect: "manual" });
+      let res: Response;
+      try {
+        res = await doFetch(endpoint, { headers: { authorization: `Bearer ${token}`, accept: "application/json" }, redirect: "manual", signal: AbortSignal.timeout(3000) });
+      } catch {
+        return null; // the issuer didn't answer in time: no answer, nothing remembered
+      }
+      if (res.status === 401 || res.status === 403) return refuse();
       if (!res.ok) return null;
       const info = (await res.json().catch(() => null)) as Record<string, unknown> | null;
       const sub = typeof info?.sub === "string" ? info.sub : "";
-      if (!sub || sub !== payload.sub || typeof payload.exp !== "number" || typeof payload.sid !== "string" || !payload.sid) return null;
-      if (payload.exp * 1000 <= now().getTime()) return null;
+      if (!sub || sub !== payload.sub) return refuse();
       const hit = { cid: sub, exp: payload.exp, sid: payload.sid };
-      if (vouched.size >= 1000) vouched.delete(vouched.keys().next().value!);
-      vouched.set(key, { until: Math.min(now().getTime() + 30_000, payload.exp * 1000), hit });
+      remember(key, Math.min(now().getTime() + 30_000, payload.exp * 1000), hit);
       return hit;
     },
 

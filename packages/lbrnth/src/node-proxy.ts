@@ -20,7 +20,7 @@ export async function serveNodeLabyrinthProxy(req: IncomingMessage, res: ServerR
   if (req.method !== "POST") return fail(405);
   const explicit = req.headers.authorization;
   const authorization = explicit !== undefined ? explicit : options.cookieToken ? `Bearer ${options.cookieToken}` : undefined;
-  if (!authorization || !/^Bearer [^\s]{1,512}$/.test(authorization)) return fail(401);
+  if (!authorization || !/^Bearer [^\s]{1,8000}$/.test(authorization)) return fail(401);
   let length = 0; const chunks: Buffer[] = [];
   for await (const chunk of req) { length += Buffer.byteLength(chunk); if (length > 2 * 1024 * 1024) return fail(413); chunks.push(Buffer.from(chunk)); }
   const body = Buffer.concat(chunks).toString("utf8");

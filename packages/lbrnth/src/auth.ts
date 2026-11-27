@@ -58,7 +58,7 @@ export class CidLabyrinth {
     } });
   }
   #identity(token: string) {
-    if (typeof token !== "string" || !token || token.length > 512) throw new LabyrinthError("forbidden", "Cumulus ID sign-in required");
+    if (typeof token !== "string" || !token || token.length > 8000) throw new LabyrinthError("forbidden", "Cumulus ID sign-in required");
     const auth = this.#cid.authenticate(token);
     const delegated = token.startsWith("lbrnth_") ? this.#grants.get(this.#tokenHash(token)) : undefined;
     const validDelegation = delegated && delegated.expires > this.#clock().getTime() && this.#cid.isSessionActive(delegated.cid, delegated.parentSession);

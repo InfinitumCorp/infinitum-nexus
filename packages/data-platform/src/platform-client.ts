@@ -1,7 +1,7 @@
 // © Infinitum Corporation®. All rights reserved.
 /**
  * Typed client for the Cumulus privacy gateway's product APIs, as declared in
- * infra/data-platform/conjure/platform.yml: collection, catalog, event search, erasure,
+ * infra/data-platform/conjure/platform.yml: collection, catalog, event search, document search, erasure,
  * differentially private releases and Superset guest tokens.
  *
  * - Authenticates with the product's token (PLATFORM_PRODUCT_TOKENS on the gateway).
@@ -116,6 +116,49 @@ export interface StoredReleaseResponse {
   groups: Record<string, number>;
   suppressed: string[];
   remainingEpsilon: number;
+}
+
+export interface DocumentUpsert {
+  tenant: string;
+  /** At most 300 characters. Redacted before storage. */
+  title: string;
+  /** Plain text, at most 200,000 characters. Redacted before storage. */
+  body: string;
+  /** An https:// link back to the document in the product. */
+  url?: string;
+  /** At most 20 lower-case labels. */
+  labels?: string[];
+  ownerCid?: string;
+  /** If set, only these people (and the owner) find the document. At most 500. */
+  viewers?: string[];
+  updatedAt: string;
+}
+
+export interface DocumentRef {
+  collection: string;
+  documentId: string;
+}
+
+export interface DocumentQuery {
+  tenant: string;
+  /** Web-search syntax ("exact phrase", -excluded). At most 500 characters. */
+  text: string;
+  collections?: string[];
+  /** Every label must be on the document. */
+  labels?: string[];
+  /** The person searching. Without it, only documents with no viewers list are found. */
+  viewer?: string;
+  pageSize?: number;
+}
+
+export interface DocumentHit {
+  collection: string;
+  documentId: string;
+  title: string;
+  snippet: string;
+  url?: string | null;
+  labels: string[];
+  updatedAt: string;
 }
 
 export interface GuestTokenResponse {
@@ -289,6 +332,22 @@ export class PlatformClient {
   /** ReleaseService.releaseDataset: a DP count or sum over this product's stored events. */
   releaseDataset(name: string, request: StoredReleaseRequest): Promise<StoredReleaseResponse> {
     return this.call("POST", `/api/v1/releases/datasets/${enc(name)}`, request);
+  }
+
+  /** DocumentService.putDocument: insert or replace one document. */
+  putDocument(collection: string, documentId: string, document: DocumentUpsert): Promise<DocumentRef> {
+    return this.call("PUT", `/api/v1/documents/collections/${enc(collection)}/documents/${enc(documentId)}`, document);
+  }
+
+  /** DocumentService.removeDocument: 1 if it existed, else 0. Safe to repeat. */
+  removeDocument(collection: string, documentId: string, tenant: string): Promise<{ deleted: number }> {
+    return this.call("POST", `/api/v1/documents/collections/${enc(collection)}/documents/${enc(documentId)}/remove`, { tenant });
+  }
+
+  /** DocumentService.searchDocuments: best match first, within one tenant of this product. */
+  async searchDocuments(query: DocumentQuery): Promise<DocumentHit[]> {
+    const res: { hits: DocumentHit[] } = await this.call("POST", "/api/v1/documents/search", query);
+    return res.hits;
   }
 
   /** EmbedService.createGuestToken: for the Superset embedded SDK's fetchGuestToken. */

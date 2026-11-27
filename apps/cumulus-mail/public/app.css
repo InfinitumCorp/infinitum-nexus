@@ -30,7 +30,7 @@ header { display: flex; align-items: center; gap: 12px; height: var(--bar-height
 .mark { font-size: 22px; line-height: 1; letter-spacing: -.04em; white-space: nowrap; }
 .mark span { color: var(--faint); }
 /* ™ after the wordmark (same size and position as sup.tm). */
-.mark::after { content: "™"; font-size: .5em; vertical-align: super; line-height: 0; margin-left: .08em; letter-spacing: 0; }
+.mark:not(:has(> sup.tm))::after { content: "™"; font-size: .5em; vertical-align: super; line-height: 0; margin-left: .08em; letter-spacing: 0; }
 .search { flex: 1; max-width: 720px; display: flex; align-items: center; gap: 10px; height: 46px; padding: 0 18px; border-radius: 0; background: var(--chip); transition: border-color .15s; }
 .search:focus-within { background: var(--bg); }
 .search input { flex: 1; min-width: 0; border: 0; outline: none; background: none; }

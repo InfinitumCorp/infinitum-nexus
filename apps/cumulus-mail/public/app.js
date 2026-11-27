@@ -869,6 +869,16 @@ async function finishSignIn(response) {
   await boot();
 }
 
+/* The sign-in options are public, so they are fetched once, at start, alongside /api/state
+ * instead of after it fails: one round trip less before the sign-in card is complete. */
+let providersPromise = null;
+function loadProviders() {
+  providersPromise ||= fetch("/api/auth/providers", { headers: { "x-cumulus": "1" }, credentials: "same-origin" })
+    .then((r) => (r.ok ? r.json() : Promise.reject(new Error("Request failed"))))
+    .catch((e) => { providersPromise = null; throw e; });
+  return providersPromise;
+}
+
 function renderAuth(message = "") {
   
   const root = document.querySelector("#app");
@@ -876,7 +886,7 @@ function renderAuth(message = "") {
   const fail = (e) => { err.textContent = e.name === "NotAllowedError" ? "Passkey request was cancelled." : e.message; };
   const username = el("input", { placeholder: `name@${MAIL_DOMAIN}`, "aria-label": "Your new Cumulus://ID", autocomplete: "username webauthn", autocapitalize: "none", spellcheck: "false" });
   const social = el("div", { class: "social" });
-  api("/api/auth/providers")
+  loadProviders()
     .then((providers) => social.replaceChildren(...providers.map((p) => el("a", { class: "outline", href: `/api/auth/oauth/${encodeURIComponent(p.id)}/start` }, [`Continue with ${p.label}`]))))
     .catch(() => {});
   root.replaceChildren(el("div", { class: "auth" }, [el("div", { class: "auth-card" }, [
@@ -1057,6 +1067,7 @@ function renderLoadFailed() {
 const FIRST_LOAD_TIMEOUT_MS = 30_000;
 
 async function boot() {
+  loadProviders().catch(() => {});
   if (await signOutFromBar()) return;
   const desktopChallenge = takeDesktopChallenge();
   const pending = takeNext();

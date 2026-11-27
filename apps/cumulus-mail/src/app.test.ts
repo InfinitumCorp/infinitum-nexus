@@ -79,6 +79,12 @@ describe("Cumulus://Mail over HTTP", () => {
     assert.match(js, /function renderLoadFailed\(\)/);
     assert.match(js, /FIRST_LOAD_TIMEOUT_MS/);
     assert.match(js, /if \(!document\.querySelector\("#app \.auth-card"\)\) renderLoadFailed\(\);/);
+    // Sign-in options load alongside /api/state, not after it.
+    assert.match(js, /async function boot\(\) \{\s+loadProviders\(\)\.catch/);
+    // One ™ after a wordmark: the CSS one only where the markup has no <sup class="tm">.
+    const css = String((await b.call("GET", "/app.css")).data);
+    assert.match(css, /\.mark:not\(:has\(> sup\.tm\)\)::after \{ content: "™";/);
+    assert.doesNotMatch(css, /(^|\n)\.mark::after/m);
   });
 
   it("publishes the mail domain and allows only exact Cumulus origins", async () => {

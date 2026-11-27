@@ -207,6 +207,74 @@ class PostgresEventIndex:
             return int(c.execute("select data_platform.purge_expired_events()").fetchone()[0])
 
 
+class PostgresDocumentStore:
+    """documents.DocumentStore on Postgres full-text search: title weighted above body,
+    ranked with ts_rank, snippet from ts_headline. The query is parsed with
+    websearch_to_tsquery, so quotes and "-word" work and nothing in it is SQL."""
+
+    def __init__(self, dsn: str) -> None:
+        self.dsn = dsn
+
+    def upsert(self, doc: dict[str, Any]) -> bool:
+        with _connect(self.dsn) as c:
+            row = c.execute(
+                """insert into data_platform.documents (product, collection, tenant, document_id, title, body,
+                       url, labels, owner_cid, viewers, restricted, updated_at)
+                   values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                   on conflict (product, collection, tenant, document_id) do update set
+                       title = excluded.title, body = excluded.body, url = excluded.url,
+                       labels = excluded.labels, owner_cid = excluded.owner_cid, viewers = excluded.viewers,
+                       restricted = excluded.restricted, updated_at = excluded.updated_at, stored_at = now()
+                   returning (xmax = 0)""",
+                (doc["product"], doc["collection"], doc["tenant"], doc["documentId"], doc["title"], doc["body"],
+                 doc.get("url"), doc["labels"], doc.get("ownerCid"), doc["viewers"], doc["restricted"],
+                 _ts(doc["updatedAt"])),
+            ).fetchone()
+        return bool(row and row[0])
+
+    def remove(self, product: str, collection: str, tenant: str, document_id: str) -> int:
+        with _connect(self.dsn) as c:
+            return c.execute(
+                """delete from data_platform.documents
+                   where product = %s and collection = %s and tenant = %s and document_id = %s""",
+                (product, collection, tenant, document_id),
+            ).rowcount
+
+    def search(self, product: str, tenant: str, text: str, collections: list[str], labels: list[str],
+               viewer: str | None, limit: int) -> list[dict[str, Any]]:
+        where = ["product = %(product)s", "tenant = %(tenant)s", "tsv @@ q",
+                 "(not restricted or %(viewer)s = any(viewers) or owner_cid = %(viewer)s)"]
+        if collections:
+            where.append("collection = any(%(collections)s)")
+        if labels:
+            where.append("labels @> %(labels)s")
+        sql = f"""select collection, document_id, title,
+                         ts_headline('simple', body, q, 'MaxWords=30, MinWords=10, MaxFragments=1'),
+                         url, labels, updated_at
+                  from data_platform.documents, websearch_to_tsquery('simple', %(text)s) q
+                  where {' and '.join(where)}
+                  order by ts_rank(tsv, q) desc, updated_at desc
+                  limit %(limit)s"""
+        args = {"product": product, "tenant": tenant, "text": text, "viewer": viewer,
+                "collections": collections, "labels": labels, "limit": int(limit)}
+        with _connect(self.dsn) as c:
+            rows = c.execute(sql, args).fetchall()
+        return [
+            {"collection": col, "documentId": did, "title": title, "snippet": snip, "url": url,
+             "labels": list(labs or []), "updatedAt": upd.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")}
+            for col, did, title, snip, url, labs, upd in rows
+        ]
+
+    def erase(self, cid_pseudonym: str, product: str | None) -> int:
+        scope, args = ("and product = %s", [product]) if product else ("", [])
+        with _connect(self.dsn) as c:
+            n = c.execute(f"delete from data_platform.documents where owner_cid = %s {scope}",
+                          [cid_pseudonym, *args]).rowcount
+            c.execute(f"""update data_platform.documents set viewers = array_remove(viewers, %s)
+                          where %s = any(viewers) {scope}""", [cid_pseudonym, cid_pseudonym, *args])
+        return n
+
+
 class PostgresQualityLog:
     """Quality runs (numbers and check names only) in data_platform.quality_runs. Runs older
     than KEEP_DAYS are dropped as new ones arrive, so the free-tier database stays small."""

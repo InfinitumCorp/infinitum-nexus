@@ -25,7 +25,8 @@ export type RowsReadOp =
   | { op: "mailAddress"; address: string }
   | { op: "mailOutbound"; id: string }
   | { op: "mailOpenOutbound" }
-  | { op: "mailDueOutbound"; now: string; staleBefore: string; limit: number };
+  | { op: "mailDueOutbound"; now: string; staleBefore: string; limit: number }
+  | { op: "mailAttachmentInUse"; id: string };
 
 /** One write for public.nexus_commit_cid. `expect` absent: not checked; null: must not exist. */
 export interface RowsWriteOp {
@@ -124,6 +125,11 @@ export class RemoteRows {
         }
         const [n] = (await rows.#read([{ op: "mailbox", cid, only: "unread" }])) as number[];
         return Number(n ?? 0);
+      },
+      // Asked after a request is saved (to delete a file nothing uses any more): the database's answer.
+      attachmentInUse: async (id) => {
+        const [used] = (await rows.#read([{ op: "mailAttachmentInUse", id }])) as boolean[];
+        return used !== false;
       },
       dueDraftCids: async (now) => {
         const [cids] = (await rows.#read([{ op: "mailboxCids", dueBy: now }])) as string[][];

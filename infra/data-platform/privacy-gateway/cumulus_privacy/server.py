@@ -26,6 +26,7 @@ from typing import Any, Callable
 from .dp import BudgetExceeded, PrivacyBudget, release
 from .ingest_quality import MemoryQualityLog
 from .event_release import StoredReleases
+from .documents import Documents
 from .embed import GuestTokens, parse_embed_dashboards
 from .pipeline import prepare_export
 from .platform import Catalog, Collector, DataHubSink, Eraser, IngestLimits, OpenSearchIndex, PlatformError, Searcher
@@ -104,6 +105,7 @@ class Gateway:
         eraser: Eraser | None = None,
         guest_tokens: GuestTokens | None = None,
         releases: StoredReleases | None = None,
+        documents: Documents | None = None,
     ) -> None:
         if len(token) < 32:
             raise ValueError("PRIVACY_GATEWAY_TOKEN must be at least 32 characters")
@@ -112,6 +114,7 @@ class Gateway:
         self.product_tokens = product_tokens or {}
         self.eraser = eraser
         self.releases = releases
+        self.documents = documents
         self.guest_tokens = guest_tokens
         self.routes = [
             Route("POST", "/api/v1/redact", self.redact, "gateway"),
@@ -126,6 +129,10 @@ class Gateway:
             Route("GET", "/api/v1/quality/datasets/{name}/runs", self.quality_runs, "product"),
             Route("POST", "/api/v1/erasure/subjects/all-products", self.erase_everywhere, "gateway"),
             Route("POST", "/api/v1/releases/datasets/{name}", self.release_dataset, "product"),
+            Route("PUT", "/api/v1/documents/collections/{collection}/documents/{documentId}", self.put_document, "product"),
+            Route("POST", "/api/v1/documents/collections/{collection}/documents/{documentId}/remove",
+                  self.remove_document, "product"),
+            Route("POST", "/api/v1/documents/search", self.search_documents, "product"),
             Route("GET", "/api/v1/releases/datasets/{name}/budget", self.release_budget, "product"),
             Route("POST", "/api/v1/embed/dashboards/{dashboardId}/guest-token", self.guest_token, "product"),
         ]
@@ -164,6 +171,15 @@ class Gateway:
 
     def get_dataset(self, b: dict[str, Any], caller: str = "", name: str = "") -> Any:
         return self._platform(self.catalog).read(caller, name)
+
+    def put_document(self, b: dict[str, Any], caller: str = "", collection: str = "", documentId: str = "") -> Any:  # noqa: N803
+        return self._platform(self.documents).put(caller, collection, documentId, b)
+
+    def remove_document(self, b: dict[str, Any], caller: str = "", collection: str = "", documentId: str = "") -> Any:  # noqa: N803
+        return self._platform(self.documents).remove(caller, collection, documentId, b)
+
+    def search_documents(self, b: dict[str, Any], caller: str = "", **_: str) -> Any:
+        return self._platform(self.documents).search(caller, b)
 
     def release_budget(self, b: dict[str, Any], caller: str = "", name: str = "") -> Any:
         return self._platform(self.releases).budget(caller, name)
@@ -313,13 +329,15 @@ def main() -> None:
     gms = os.environ.get("DATAHUB_GMS_URL")
     sink = DataHubSink(gms, os.environ.get("DATAHUB_GMS_TOKEN")) if gms else None
     index: Any = None
+    doc_store: Any = None  # document search needs Postgres (the free-tier layout)
     if dsn:
         # Free-tier layout: everything in Supabase Postgres (Ireland). No OpenSearch needed.
-        from .pgstore import PostgresBudget, PostgresCatalog, PostgresEventIndex, PostgresQualityLog
+        from .pgstore import PostgresBudget, PostgresCatalog, PostgresDocumentStore, PostgresEventIndex, PostgresQualityLog
 
         budget: Any = PostgresBudget(dsn, epsilon)
         catalog: Any = PostgresCatalog(dsn, sink)
         index = PostgresEventIndex(dsn)
+        doc_store = PostgresDocumentStore(dsn)
         quality_log: Any = PostgresQualityLog(dsn)
     else:
         budget = PrivacyBudget(os.environ.get("PRIVACY_BUDGET_FILE", "/var/lib/privacy-gateway/budget.json"), epsilon)
@@ -330,7 +348,7 @@ def main() -> None:
         )
         quality_log = MemoryQualityLog()
     redactor = Redactor()
-    collector = searcher = releases = None
+    collector = searcher = releases = documents = None
     products = parse_product_tokens(os.environ.get("PLATFORM_PRODUCT_TOKENS", ""))
     # Free tier: Supabase allows 500 MB per database, so stop taking events at 450 MB by default.
     limit_mb = int(os.environ.get("PLATFORM_STORAGE_LIMIT_MB", "450" if dsn else "0"))
@@ -340,11 +358,13 @@ def main() -> None:
         storage_limit_bytes=limit_mb * 1024 * 1024,
         storage=getattr(index, "storage_bytes", None),
     )
-    eraser = Eraser(redactor, index)
+    eraser = Eraser(redactor, index, doc_store)
     if products:
         collector = Collector(catalog, redactor, index, os.environ.get("PLATFORM_REGION", "EU"), limits, quality_log)
         searcher = Searcher(index)
         releases = StoredReleases(catalog, index, budget)
+        if doc_store is not None:
+            documents = Documents(redactor, doc_store)
     else:
         catalog = None
     if dsn:
@@ -355,7 +375,8 @@ def main() -> None:
     if products and guest_secret and dashboards:
         guest_tokens = GuestTokens(guest_secret, dashboards, redactor,
                                    audience=os.environ.get("SUPERSET_GUEST_TOKEN_AUDIENCE", "superset"))
-    gw = Gateway(redactor, budget, token, catalog, collector, searcher, products, eraser, guest_tokens, releases)
+    gw = Gateway(redactor, budget, token, catalog, collector, searcher, products, eraser, guest_tokens, releases,
+                 documents)
     host = os.environ.get("HOST", "127.0.0.1")
     port = int(os.environ.get("PORT", "8090"))
     httpd = ThreadingHTTPServer((host, port), make_handler(gw))

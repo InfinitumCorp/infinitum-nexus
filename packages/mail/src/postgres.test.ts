@@ -69,6 +69,29 @@ describe("Cumulus://Mail on PostgreSQL", { skip: url ? false : "set CID_TEST_PG_
     assert.equal((await again.view("a")).messages.find((m) => m.folder === "sent")?.delivery?.find((h) => h.email === "priya@example.com")?.detail, "Sent to the recipient's mail server.");
   });
 
+  test("whether a file is still attached anywhere: answered from the rows, and always 'in use' when sealed", async () => {
+    const schema = await fresh("attach");
+    const po = new PostOffice({ repository: new PgMailRepository({ db: pool!, schema }) });
+    await po.provision({ cid: "a", address: "ann@cumuluscloud.app", name: "Ann" });
+    await po.provision({ cid: "b", address: "ben@cumuluscloud.app", name: "Ben" });
+    const file = { id: "u/a/00000000-0000-4000-8000-0000000000aa", name: "x.pdf", type: "application/pdf", size: 10 };
+    await po.send("a", { to: "ben@cumuluscloud.app, out@example.com", subject: "File", body: ".", attachments: [file] });
+    assert.equal(await po.attachmentInUse(file.id), true);
+    assert.equal(await po.attachmentInUse("u/a/00000000-0000-4000-8000-0000000000bb"), false);
+    for (const [cid, folder] of [["a", "sent"], ["b", "inbox"]] as const) {
+      const m = (await po.view(cid)).messages.find((x) => x.subject === "File" && x.folder === folder)!;
+      await po.move(cid, m.id, "trash");
+      await po.remove(cid, m.id);
+    }
+    assert.equal(await po.attachmentInUse(file.id), true, "the outbound job to example.com still has it");
+    const [job] = await po.claimOutbound();
+    await po.finishOutbound(job.id, { ok: true, providerId: "p" });
+    assert.equal(await po.attachmentInUse(file.id), false, "no mail has it now");
+
+    const sealed = new PgMailRepository({ db: pool!, schema, tunnel: new CumulusTunnel({ masterKey: parseMasterKey(generateMasterKey()) }) });
+    assert.equal(await sealed.attachmentInUse("anything"), true, "sealed attachments can't be searched: keep the file");
+  });
+
   test("with a tunnel, message content is sealed in the database and opened on read", async () => {
     const schema = await fresh("sealed");
     const tunnel = new CumulusTunnel({ masterKey: parseMasterKey(generateMasterKey()) });

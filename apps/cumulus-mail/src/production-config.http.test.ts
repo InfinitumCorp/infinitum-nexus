@@ -136,6 +136,18 @@ describe("Mail with the production storage settings", { skip: url ? false : "set
     assert.equal(await count("SELECT count(*)::int AS n FROM cumulus_rows.wallet_accounts WHERE cid = $1", [cid]), 1, "the wallet is a row");
     assert.equal(await count("SELECT count(*)::int AS n FROM cumulus_rows.drive_items WHERE owner = $1 AND data->>'name' = 'Plans'", [cid]), 1, "the folder is a row");
     for (const doc of ["cid", "cumulus-mail", "firm-wallet", "cumulus-quota", "cumulus-workspace"]) assert.ok(!docsWritten.has(doc), `${doc} isn't written`);
+
+    // A file sent to someone: the database knows it's attached, so deleting the sender's copy keeps it.
+    const up = await fetch(`${base}/api/files?name=a.txt`, { method: "POST", headers: { "content-type": "text/plain", "x-cumulus": "1", cookie }, body: "hello" });
+    const file = (await up.json()) as { id: string; name: string; size: number; type: string };
+    assert.equal((await call("POST", "/api/send", { to: "earlybird@cumuluscloud.app", subject: "With a file", body: ".", attachments: [file] })).status, 200);
+    const inUse = async (id: string) => ((await pool.query("SELECT public.cid_read($1::jsonb) AS r", [JSON.stringify([{ op: "mailAttachmentInUse", id }])])).rows[0].r as boolean[])[0];
+    assert.equal(await inUse(file.id), true);
+    assert.equal(await inUse(`u/${cid}/00000000-0000-4000-8000-000000000000`), false);
+    const sentCopy = (await pool.query("SELECT id FROM cumulus_rows.mail_messages WHERE cid = $1 AND data->>'subject' = 'With a file'", [cid])).rows[0].id;
+    await call("POST", "/api/move", { id: sentCopy, folder: "trash" });
+    assert.equal((await call("POST", "/api/remove", { id: sentCopy })).status, 200);
+    assert.equal(await inUse(file.id), true, "earlybird's copy still has it, so it stays");
   });
   it("after the first requests: each document was claimed once, and what was there before is in the rows", async () => {
     const claims = (await pool.query("SELECT product, copied FROM cumulus_rows.claims ORDER BY product")).rows;

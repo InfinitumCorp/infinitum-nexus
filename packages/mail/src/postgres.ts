@@ -189,6 +189,22 @@ export class PgMailRepository implements MailRepository {
     this.#seen.set(box, after);
   }
 
+  /**
+   * Whether other mail still has this file attached. With a tunnel, attachments are sealed in the rows
+   * and can't be searched: the answer is always "in use", so files are kept.
+   */
+  async attachmentInUse(id: string): Promise<boolean> {
+    if (this.#tunnel) return true;
+    const probe = JSON.stringify([{ id }]);
+    const { rows } = await this.#db.query(
+      `SELECT EXISTS (SELECT 1 FROM ${this.#s}.mail_messages WHERE data->'attachments' @> $1::jsonb)
+           OR EXISTS (SELECT 1 FROM ${this.#s}.mail_mailboxes b, jsonb_array_elements(coalesce(b.data->'messages', '[]')) m WHERE m->'attachments' @> $1::jsonb)
+           OR EXISTS (SELECT 1 FROM ${this.#s}.mail_outbound WHERE status IN ('queued', 'sending') AND data->'attachments' @> $1::jsonb) AS used`,
+      [probe],
+    );
+    return rows[0].used === true;
+  }
+
   /** Without reading or locking the mailbox (every page's account menu asks). */
   async hasMailbox(cid: string): Promise<boolean> {
     const { rows } = await this.#db.query(`SELECT 1 FROM ${this.#s}.mail_mailboxes WHERE cid = $1`, [cid]);

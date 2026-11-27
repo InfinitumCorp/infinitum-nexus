@@ -17,8 +17,10 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, chmodSync } from "n
 import { join } from "node:path";
 import { Ledger, FileStore, generateSigner, signerFromPrivateKey } from "@infinitum/firmament";
 import { cookieDomainForHost, readCumulusDomain, socialFromEnv, upstreamIssuerFromEnv } from "@infinitum/cid";
-import { createCumulus, emptyCumulusStores, loadCumulusStores, loadOrCreateMasterKey, saveCumulusStores } from "@infinitum/cumulus";
+import { createCumulus, emptyCumulusStores, loadCumulusStores, loadOrCreateMasterKey, loadSnapshot, saveCumulusStores, saveSnapshot } from "@infinitum/cumulus";
 import { createMailApp } from "./app.ts";
+import { diskFileStore } from "./files.ts";
+import { WorkspaceStore } from "./workspace.ts";
 
 const port = Number(process.env.PORT ?? 3010);
 const cumulus = readCumulusDomain();
@@ -47,15 +49,25 @@ const masterKey = loadOrCreateMasterKey(dataDir);
 const suite = createCumulus({ labyrinth: labyrinthFromEnvironment(process.env, process.env.LBRNTH_SNAPSHOT_FILE ?? join(dataDir, "labyrinth.json")), ledger, signer, rpId: new URL(origin).hostname, origins: [origin], stores, social: { providers: social }, mailOrigin: origin, masterKey, upstreamIssuer: upstreamIssuerFromEnv(process.env) });
 const backfilled = await suite.provisionAll();
 
+// Cumulus://Drive here: its metadata in workspace.json, file contents (and mail attachments) under files/.
+const workspacePath = join(dataDir, "workspace.json");
+const workspaceStore = existsSync(workspacePath) ? loadSnapshot(workspacePath, new WorkspaceStore()) : new WorkspaceStore();
+const save = () => {
+  saveCumulusStores(dataDir, stores, { tunnel: suite.tunnel });
+  saveSnapshot(workspacePath, workspaceStore);
+};
+
 const app = createMailApp({
   suite,
+  files: diskFileStore(join(dataDir, "files")),
+  workspaceStore,
   publicDir: join(import.meta.dirname, "..", "public"),
   origin,
   secureCookies: origin.startsWith("https://"),
   cookieDomain: cookieDomainForHost(new URL(origin).hostname, cumulus.cookieDomain),
-  onChange: () => saveCumulusStores(dataDir, stores, { tunnel: suite.tunnel }),
+  onChange: save,
 });
-if (backfilled) saveCumulusStores(dataDir, stores, { tunnel: suite.tunnel });
+if (backfilled) save();
 
 app.server().listen(port, () => {
   console.log(`Cumulus://Mail listening on ${origin} (ledger: ${verified.length} verified entries, mailboxes: ${stores.mail.mailboxes.size})`);

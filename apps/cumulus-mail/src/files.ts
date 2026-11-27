@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { mkdirSync, readFileSync, rmSync, writeFileSync, renameSync, existsSync } from "node:fs";
+import { join } from "node:path";
 
 /**
  * Where attachment contents live. Messages only carry a file's key, name, size and type; the
@@ -60,6 +62,34 @@ export function r2FileStore(bucket: R2BucketLike): FileStore {
     },
     async delete(key) {
       await bucket.delete?.(key);
+    },
+  };
+}
+
+/**
+ * Files on local disk, for the single-server Mail (src/server.ts). Each key becomes one flat file name
+ * (URL-encoded, so a key can never reach outside `dir`), with its content type beside it.
+ */
+export function diskFileStore(dir: string): FileStore {
+  mkdirSync(dir, { recursive: true });
+  const path = (key: string) => join(dir, encodeURIComponent(key));
+  return {
+    async put(key, data, type) {
+      const p = path(key);
+      writeFileSync(`${p}.tmp`, data);
+      renameSync(`${p}.tmp`, p);
+      writeFileSync(`${p}.type`, type);
+    },
+    async get(key) {
+      const p = path(key);
+      if (!existsSync(p)) return null;
+      const type = existsSync(`${p}.type`) ? readFileSync(`${p}.type`, "utf8") : "application/octet-stream";
+      return { data: new Uint8Array(readFileSync(p)), type };
+    },
+    async delete(key) {
+      const p = path(key);
+      rmSync(p, { force: true });
+      rmSync(`${p}.type`, { force: true });
     },
   };
 }

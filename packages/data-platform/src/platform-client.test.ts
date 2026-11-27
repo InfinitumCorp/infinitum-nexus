@@ -122,6 +122,20 @@ test("searchAllEvents follows page tokens", async () => {
   assert.equal(JSON.parse(calls[1].body!).pageToken, "p2");
 });
 
+test("quality runs and release budget", async () => {
+  const run = { dataset: "spectre.deal", checkedAt: "2026-11-27T10:00:00Z", rows: 10, ok: true,
+    metrics: { "completeness:amount": 1 }, results: [] };
+  const budget = { dataset: "spectre.deal", totalEpsilon: 10, spentEpsilon: 2.5, remainingEpsilon: 7.5, maxEpsilonPerRelease: 1 };
+  const { client, calls } = scripted([reply(200, { runs: [run] }), reply(200, budget)]);
+  assert.deepEqual(await client.getQualityRuns("spectre.deal"), [run]);
+  assert.deepEqual(await client.getReleaseBudget("spectre.deal"), budget);
+  assert.deepEqual(calls.map((c) => `${c.method} ${new URL(c.url).pathname}`), [
+    "GET /api/v1/quality/datasets/spectre.deal/runs",
+    "GET /api/v1/releases/datasets/spectre.deal/budget",
+  ]);
+  assert.ok(calls.every((c) => c.body === undefined));
+});
+
 test("options are checked", () => {
   assert.throws(() => new PlatformClient({ baseUrl: "http://data-api.example.com", productToken: TOKEN }), /https/);
   assert.throws(() => new PlatformClient({ baseUrl: "https://x.example", productToken: "short" }), /token/);
@@ -142,7 +156,7 @@ test("every client path is an endpoint declared in conjure/platform.yml", () => 
   const used = [...src.matchAll(/this\.call\(\s*"(\w+)",\s*[`"]([^`"]+)[`"]/g)].map(
     ([, method, path]) => `${method} ${path.replace(/\$\{enc\((\w+)(?:\.\w+)?\)\}/g, (_m, v: string) => `{${v === "spec" ? "name" : v}}`)}`,
   );
-  assert.ok(used.length >= 7);
+  assert.ok(used.length >= 9);
   for (const u of used) assert.ok(declared.has(u), `${u} is not declared in platform.yml`);
 });
 

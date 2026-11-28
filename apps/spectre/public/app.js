@@ -446,8 +446,7 @@ async function renderToday() {
     toast("Running actions…");
     try {
       const r = await api("POST", "/api/execution/run", {});
-      toast("Actions executed");
-      console.log(r);
+      toast(!r.pending ? "No AI actions to run right now" : r.logged ? `Logged ${r.logged} AI action${r.logged === 1 ? "" : "s"} on your deals` : "AI actions already logged today");
       renderToday();
     } catch (e) { toast(e.message); }
   });

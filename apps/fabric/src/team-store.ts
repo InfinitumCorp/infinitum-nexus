@@ -217,6 +217,13 @@ export class TeamStore {
         created_by TEXT NOT NULL REFERENCES users(sub),
         created_at TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS team_drafts (
+        sub TEXT NOT NULL REFERENCES users(sub),
+        channel_id TEXT NOT NULL REFERENCES team_channels(id),
+        ciphertext TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (sub, channel_id)
+      );
       CREATE TABLE IF NOT EXISTS team_scheduled (
         id TEXT PRIMARY KEY,
         channel_id TEXT NOT NULL REFERENCES team_channels(id),

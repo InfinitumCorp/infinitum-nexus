@@ -789,3 +789,49 @@ test("announcement channels: only admins and the creator post; thread replies op
     t.close();
   }
 });
+
+test("drafts: saved per person and channel, sealed, cleared by sending", () => {
+  const t = setup();
+  try {
+    const ws = t.team.createWorkspace(t.alice, "Acme");
+    t.team.joinWorkspace(t.bob, ws.inviteCode);
+    const general = t.team.sidebar(t.alice, ws.id).channels.find((c) => c.name === "general")!;
+    const secret = t.team.createChannel(t.alice, ws.id, { name: "secret", private: true });
+
+    const saved = t.team.saveDraft(t.alice, general.id, { text: "half a thought about the launch" })!;
+    assert.equal(saved.text, "half a thought about the launch");
+    t.team.saveDraft(t.alice, secret.id, { text: "private draft" });
+    assert.deepEqual(t.team.drafts(t.alice, ws.id).map((d) => d.text).sort(), ["half a thought about the launch", "private draft"]);
+    assert.equal(t.team.sidebar(t.alice, ws.id).drafts, 2);
+    assert.deepEqual(t.team.drafts(t.bob, ws.id), [], "drafts are personal");
+    const raw = t.store.database.prepare("SELECT ciphertext FROM team_drafts").all() as { ciphertext: string }[];
+    assert.ok(raw.every((r) => !r.ciphertext.includes("launch")), "drafts are sealed at rest");
+    assert.ok(t.events.some((e) => e.event.type === "drafts" && e.subs.length === 1 && e.subs[0] === t.alice.sub));
+
+    // Saving again replaces it; a thread reply leaves it; sending in the channel uses it up.
+    t.team.saveDraft(t.alice, general.id, { text: "the launch is Friday" });
+    assert.equal(t.team.drafts(t.alice, ws.id).find((d) => d.channel.id === general.id)!.text, "the launch is Friday");
+    const parent = t.team.send(t.bob, general.id, { text: "question?" }).message!;
+    t.team.send(t.alice, general.id, { text: "a reply", parentId: parent.id });
+    assert.equal(t.team.sidebar(t.alice, ws.id).drafts, 2);
+    t.team.send(t.alice, general.id, { text: "the launch is Friday" });
+    assert.deepEqual(t.team.drafts(t.alice, ws.id).map((d) => d.channel.id), [secret.id]);
+
+    // Empty text deletes; you can only draft where you are a member.
+    assert.equal(t.team.saveDraft(t.alice, secret.id, { text: "   " }), null);
+    assert.equal(t.team.sidebar(t.alice, ws.id).drafts, 0);
+    assert.throws(() => t.team.saveDraft(t.bob, secret.id, { text: "hi" }), status(404));
+    assert.throws(() => t.team.saveDraft(t.alice, general.id, { text: "x".repeat(4001) }), status(400));
+    assert.throws(() => t.team.saveDraft(t.alice, general.id, { text: 5 }), status(400));
+
+    // Leaving a channel hides its draft.
+    const ideas = t.team.createChannel(t.alice, ws.id, { name: "ideas" });
+    t.team.joinChannel(t.bob, ideas.id);
+    t.team.saveDraft(t.bob, ideas.id, { text: "bob's draft" });
+    assert.equal(t.team.drafts(t.bob, ws.id).length, 1);
+    t.team.leaveChannel(t.bob, ideas.id);
+    assert.deepEqual(t.team.drafts(t.bob, ws.id), []);
+  } finally {
+    t.close();
+  }
+});

@@ -163,6 +163,20 @@ export const ID_CLIENTS: Record<string, IdClient> = {
     app: "spectre",
     origins: ["https://spectre.infinitumcorporation.ai"],
   },
+  // [HRVST] Russia (Yandex Cloud, hrvst-russia, InfinitumCorp/hrvst-ru). Russian contributors sign in
+  // at ru-id.cumuluscloud.app and their data stays on that server. A public product: https only.
+  hrvst: {
+    name: "[HRVST]",
+    app: "hrvst",
+    origins: ["https://ru-hrvst.infinitumcorporation.ai"],
+  },
+  // Zerkalo Russia (Yandex Cloud, zerkalo-russia, InfinitumCorp/zerkalo-ru): the web service runs
+  // scenarios on a local model on that server. A public product: https only.
+  zerkalo: {
+    name: "Zerkalo",
+    app: "zerkalo",
+    origins: ["https://ru-zerkalo.infinitumcorporation.ai"],
+  },
   // developer.infinitumcorporation.ai: where Infinitum developers sign in.
   developer: {
     name: "Infinitum Developer",

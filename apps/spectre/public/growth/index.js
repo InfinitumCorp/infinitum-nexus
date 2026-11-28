@@ -591,10 +591,140 @@ async function askForReviews(settings) {
   S.$("#pick-none").onclick = () => box.querySelectorAll("input").forEach((i) => { i.checked = false; });
 }
 
+/* ---------------- Invoices ---------------- */
+
+const fmtMoney = (cents, cur) => { try { return new Intl.NumberFormat(undefined, { style: "currency", currency: cur }).format(cents / 100); } catch { return `${(cents / 100).toFixed(2)} ${cur}`; } };
+const CURS = ["USD", "EUR", "GBP", "RUB", "CAD", "AUD", "CHF", "JPY", "CNY", "INR", "AED", "SGD", "BRL", "MXN", "ZAR", "SEK", "NOK", "DKK", "PLN", "TRY", "KZT"];
+const invStatus = (i) => i.overdue ? `<span class="pill high">overdue</span>` : `<span class="pill ${i.status === "paid" ? "low" : i.status === "void" ? "high" : ""}">${esc(i.status)}</span>`;
+
+async function renderInvoices() {
+  const id = S.route().id;
+  if (id) return renderInvoice(id);
+  const d = await api("GET", "/api/crm/invoices");
+  const s = d.settings;
+  main().innerHTML = `
+    <div class="page">
+      <div class="page-head"><h1>Invoices</h1><button class="btn primary" id="new-inv">New invoice</button></div>
+      <p class="muted">Bill customers with a link they can open, print and pay. Payments go through your own payment page (for example a Stripe Payment Link); +SPCTR™ never handles the money. Mark an invoice paid when it arrives.</p>
+      ${Object.keys(d.totals).length ? `<div class="stats">${Object.entries(d.totals).flatMap(([cur, t]) => [["Outstanding", t.outstandingCents], ["Overdue", t.overdueCents], ["Paid", t.paidCents]]
+        .map(([l, v]) => `<div class="stat"><div class="num">${fmtMoney(v, cur)}</div><div class="faint small">${l}${Object.keys(d.totals).length > 1 ? ` · ${cur}` : ""}</div></div>`)).join("")}</div>` : ""}
+      <div class="section">${d.invoices.length ? `<div class="list">${d.invoices.map((i) => `
+        <a class="item" href="#/invoices/${esc(i.id)}">
+          <div class="main"><div class="title">${esc(i.number)} · ${esc(i.name)} ${invStatus(i)}</div>
+          <div class="sub">Due ${date(i.dueDate + "T00:00:00Z")}${i.viewedAt ? " · viewed" : ""}${i.paidAt ? ` · paid ${ago(i.paidAt)}` : ""}</div></div>
+          <div class="nowrap">${fmtMoney(i.totalCents, i.currency)}</div>
+        </a>`).join("")}</div>` : `<div class="empty">No invoices yet.</div>`}</div>
+      <div class="section"><h2>Invoice settings</h2>
+        <form id="inv-settings">
+          <label class="field">From (your business name, address, tax ID)<textarea class="input" name="from" rows="3">${esc(s.from)}</textarea></label>
+          <div class="grid2">
+            <label class="field">Default currency<select class="input" name="currency">${CURS.map((c) => `<option ${c === s.currency ? "selected" : ""}>${c}</option>`).join("")}</select></label>
+            <label class="field">Default payment link<input class="input" name="paymentUrl" value="${esc(s.paymentUrl ?? "")}" placeholder="https://buy.stripe.com/…"></label>
+          </div>
+          <button class="btn">Save</button>
+        </form>
+      </div>
+    </div>`;
+  const f = S.$("#inv-settings");
+  f.onsubmit = (e) => { e.preventDefault(); act(async () => { await api("PUT", "/api/crm/invoices/settings", { from: f.from.value, currency: f.currency.value, paymentUrl: f.paymentUrl.value || undefined }); renderInvoices(); }, "Saved"); };
+  S.$("#new-inv").onclick = () => invoiceEditor(undefined, s);
+}
+
+function lineRow(l = { description: "", quantity: 1, unitCents: 0 }) {
+  return `<div class="line-row"><input class="input small" name="description" placeholder="Description" value="${esc(l.description)}" required>
+    <input class="input small" name="quantity" type="number" min="0.01" step="0.01" value="${esc(l.quantity)}" aria-label="Quantity">
+    <input class="input small" name="price" type="number" min="0" step="0.01" value="${l.unitCents ? (l.unitCents / 100).toFixed(2) : ""}" placeholder="Price" aria-label="Unit price" required>
+    <button type="button" class="btn ghost small" data-remove aria-label="Remove">✕</button></div>`;
+}
+
+async function invoiceEditor(existing, settings) {
+  const [people, deals] = await Promise.all([contacts(), api("GET", "/api/deals").then((r) => r.deals ?? []).catch(() => [])]);
+  settings ??= (await api("GET", "/api/crm/invoices")).settings;
+  const cur = existing?.currency ?? settings.currency;
+  S.modal(`<h2>${existing ? `Edit ${esc(existing.number)}` : "New invoice"}</h2>
+    <div class="grid2">
+      <label class="field">Bill to<select class="input" name="contactId" required>${people.map((c) => `<option value="${esc(c.id)}" ${c.id === existing?.contactId ? "selected" : ""}>${esc(c.name)}</option>`).join("")}</select></label>
+      <label class="field">Deal (optional)<select class="input" name="dealId"><option value="">None</option>${deals.map((d) => `<option value="${esc(d.id)}" ${d.id === existing?.dealId ? "selected" : ""}>${esc(d.name)}${d.company ? ` · ${esc(d.company)}` : ""}</option>`).join("")}</select></label>
+    </div>
+    <div class="field">Lines<div id="line-rows">${(existing?.items ?? [undefined]).map(lineRow).join("")}</div><button type="button" class="btn small" id="add-line">Add line</button></div>
+    <div class="grid2">
+      <label class="field">Currency<select class="input" name="currency">${CURS.map((c) => `<option ${c === cur ? "selected" : ""}>${c}</option>`).join("")}</select></label>
+      <label class="field">Tax %<input class="input" type="number" name="taxRate" min="0" max="100" step="0.01" value="${existing?.taxRate ?? 0}"></label>
+      <label class="field">Due date<input class="input" type="date" name="dueDate" value="${esc(existing?.dueDate ?? new Date(Date.now() + 14 * 864e5).toISOString().slice(0, 10))}"></label>
+      <label class="field">Payment link<input class="input" name="paymentUrl" value="${esc(existing?.paymentUrl ?? settings.paymentUrl ?? "")}" placeholder="https://buy.stripe.com/…"></label>
+    </div>
+    <label class="field">Notes<textarea class="input" name="notes" rows="2" placeholder="Payment terms, bank details…">${esc(existing?.notes ?? "")}</textarea></label>
+    <p class="faint small" id="inv-total"></p>`, async (f) => {
+    const items = [...document.querySelectorAll("#line-rows .line-row")].map((r) => ({
+      description: r.querySelector("[name=description]").value, quantity: Number(r.querySelector("[name=quantity]").value || 1),
+      unitCents: Math.round(Number(r.querySelector("[name=price]").value || 0) * 100),
+    }));
+    const body = { contactId: f.get("contactId"), dealId: f.get("dealId") || undefined, items, currency: f.get("currency"), taxRate: Number(f.get("taxRate") || 0),
+      dueDate: f.get("dueDate") || undefined, paymentUrl: f.get("paymentUrl") || undefined, notes: f.get("notes") || undefined };
+    const saved = existing ? await api("PATCH", `/api/crm/invoices/${existing.id}`, body) : await api("POST", "/api/crm/invoices", body);
+    toast(existing ? "Invoice saved" : `${saved.number} created as a draft`);
+    if (location.hash === `#/invoices/${saved.id}`) renderInvoices(); else location.hash = `#/invoices/${saved.id}`;
+  });
+  const form = S.$("#modal-form");
+  const rows = S.$("#line-rows");
+  const total = () => {
+    const sub = [...rows.querySelectorAll(".line-row")].reduce((s, r) => s + Math.round(Number(r.querySelector("[name=quantity]").value || 0) * Math.round(Number(r.querySelector("[name=price]").value || 0) * 100)), 0);
+    const tax = Math.round((sub * Number(form.taxRate.value || 0)) / 100);
+    S.$("#inv-total").textContent = `Subtotal ${fmtMoney(sub, form.currency.value)}${tax ? ` · tax ${fmtMoney(tax, form.currency.value)}` : ""} · total ${fmtMoney(sub + tax, form.currency.value)}`;
+  };
+  const wire = () => rows.querySelectorAll(".line-row").forEach((r) => { r.querySelector("[data-remove]").onclick = () => { if (rows.children.length > 1) r.remove(); total(); }; });
+  // The modal form is reused by later dialogs: drop this listener once the editor is gone.
+  form.addEventListener("input", function onInput() { if (!rows.isConnected) return form.removeEventListener("input", onInput); total(); });
+  S.$("#add-line").onclick = () => { rows.insertAdjacentHTML("beforeend", lineRow()); wire(); };
+  wire();
+  total();
+}
+
+async function renderInvoice(id) {
+  const inv = await api("GET", `/api/crm/invoices/${encodeURIComponent(id)}`);
+  const people = new Map((await contacts().catch(() => [])).map((c) => [c.id, c.name]));
+  const m = (c) => fmtMoney(c, inv.currency);
+  const overdue = inv.status === "sent" && inv.dueDate < new Date().toISOString().slice(0, 10);
+  main().innerHTML = `
+    <div class="page">
+      <div class="page-head"><h1>${esc(inv.number)} ${invStatus({ ...inv, overdue })}</h1><div class="row">
+        ${inv.status === "draft" ? `<button class="btn" id="edit">Edit</button>` : ""}
+        ${inv.status === "draft" || inv.status === "sent" ? `<button class="btn" id="void">Void</button>` : ""}
+        ${inv.status === "sent" ? `<button class="btn" id="copy-link">Copy customer link</button><button class="btn" id="resend">Send again</button><button class="btn primary" id="paid">Mark paid</button>` : ""}
+        ${inv.status === "draft" ? `<button class="btn primary" id="send">Send</button>` : ""}</div></div>
+      <a class="faint small" href="#/invoices">‹ All invoices</a>
+      <p class="muted">To ${esc(people.get(inv.contactId) ?? "Removed")} · due ${date(inv.dueDate + "T00:00:00Z")}${inv.sentAt ? ` · sent ${ago(inv.sentAt)}` : ""}${inv.viewedAt ? ` · viewed ${ago(inv.viewedAt)}` : ""}${inv.paidAt ? ` · paid ${ago(inv.paidAt)}` : ""}</p>
+      <div class="table-wrap"><table class="simple"><thead><tr><th>Description</th><th class="num">Qty</th><th class="num">Price</th><th class="num">Amount</th></tr></thead>
+        <tbody>${inv.items.map((i) => `<tr><td>${esc(i.description)}</td><td class="num">${esc(i.quantity)}</td><td class="num">${m(i.unitCents)}</td><td class="num">${m(Math.round(i.quantity * i.unitCents))}</td></tr>`).join("")}
+        <tr><td colspan="3">Subtotal</td><td class="num">${m(inv.subtotalCents)}</td></tr>
+        ${inv.taxRate ? `<tr><td colspan="3">Tax (${esc(inv.taxRate)}%)</td><td class="num">${m(inv.taxCents)}</td></tr>` : ""}
+        <tr><td colspan="3"><b>Total</b></td><td class="num"><b>${m(inv.totalCents)}</b></td></tr></tbody></table></div>
+      ${inv.notes ? `<p class="muted pre">${esc(inv.notes)}</p>` : ""}
+      <p class="faint small">${inv.paymentUrl ? `Pay button opens ${esc(new URL(inv.paymentUrl).host)}.` : "No payment link: the customer sees the invoice without a Pay button."}</p>
+    </div>`;
+  const send = (again) => S.modal(`<h2>${again ? "Send again" : `Send ${esc(inv.number)}`}</h2>
+    <label class="field">Send by<select class="input" name="channel"><option value="email">Email</option><option value="sms">SMS</option></select></label>
+    <p class="faint small">The customer gets a private link to view, print and pay.</p>`, async (f) => {
+    const r = await api("POST", `/api/crm/invoices/${inv.id}/send`, { channel: f.get("channel") });
+    toast(r.delivery === "sent" ? "Invoice sent" : r.delivery === "draft" ? "Saved as a draft message. Copy the customer link to share it." : `Not sent: ${r.error || "failed"}`);
+    renderInvoices();
+  });
+  S.$("#send")?.addEventListener("click", () => send(false));
+  S.$("#resend")?.addEventListener("click", () => send(true));
+  S.$("#edit")?.addEventListener("click", () => invoiceEditor(inv));
+  S.$("#paid")?.addEventListener("click", () => { if (confirm(`Mark ${inv.number} paid (${m(inv.totalCents)})?`)) act(async () => { await api("POST", `/api/crm/invoices/${inv.id}/status`, { status: "paid" }); renderInvoices(); }, "Marked paid"); });
+  S.$("#void")?.addEventListener("click", () => { if (confirm(`Void ${inv.number}? The customer link will show it as void.`)) act(async () => { await api("POST", `/api/crm/invoices/${inv.id}/status`, { status: "void" }); renderInvoices(); }, "Invoice voided"); });
+  S.$("#copy-link")?.addEventListener("click", () => act(async () => {
+    const { url } = await api("GET", `/api/crm/invoices/${inv.id}/link`);
+    try { await navigator.clipboard.writeText(url); toast("Link copied"); } catch { prompt("Customer link", url); }
+  }));
+}
+
 S.view("inbox", renderInbox);
 S.view("forms", renderForms);
 S.view("calendars", renderCalendars);
 S.view("automations", renderAutomations);
 S.view("campaigns", renderCampaigns);
 S.view("reputation", renderReputation);
+S.view("invoices", renderInvoices);
 updateInboxBadge();

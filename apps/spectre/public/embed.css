@@ -36,3 +36,21 @@ button.ghost { background: transparent; color: var(--text); border: 1px solid va
 .star:focus-visible { outline: 2px solid var(--text); }
 [hidden] { display: none !important; }
 .btn-link { display: inline-block; background: var(--brand-accent); color: #fff; text-decoration: none; padding: 12px 22px; }
+/* invoice */
+main.invoice-page { max-width: 760px; }
+.inv-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 20px; }
+.paid, .void { border: 2px solid currentColor; padding: 4px 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; }
+.paid { color: #2e7d32; } .void { color: var(--bad); }
+.parties { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 24px; }
+.pre { white-space: pre-line; }
+.small { font-size: 12px; }
+.lines { width: 100%; border-collapse: collapse; margin-bottom: 18px; font-size: 14px; }
+.lines th { text-align: left; font-weight: 500; color: var(--muted); border-bottom: 1px solid var(--line); padding: 8px 6px; }
+.lines td { padding: 8px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.lines .num { text-align: right; white-space: nowrap; }
+.lines tfoot td { border-bottom: 0; padding: 4px 6px; }
+.lines tfoot tr.total td { font-weight: 600; font-size: 16px; border-top: 2px solid var(--text); padding-top: 8px; }
+.notes { color: var(--muted); }
+.actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
+@media (max-width: 520px) { .parties { grid-template-columns: 1fr; } .lines { font-size: 13px; } }
+@media print { .actions, .foot { display: none; } main.invoice-page { padding: 0; } }

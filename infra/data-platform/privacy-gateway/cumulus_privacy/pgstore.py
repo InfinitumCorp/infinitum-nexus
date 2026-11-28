@@ -280,6 +280,24 @@ class PostgresDocumentStore:
         with _connect(self.dsn) as c:
             return c.execute("delete from data_platform.documents where expires_at <= now()").rowcount
 
+    def count(self, product: str) -> int:
+        with _connect(self.dsn) as c:
+            return int(c.execute("select count(*) from data_platform.documents where product = %s",
+                                 (product,)).fetchone()[0])
+
+    def existing(self, product: str, keys: list[tuple[str, str, str]]) -> set[tuple[str, str, str]]:
+        if not keys:
+            return set()
+        cols, tenants, ids = (list(x) for x in zip(*keys))
+        with _connect(self.dsn) as c:
+            rows = c.execute(
+                """select collection, tenant, document_id from data_platform.documents
+                   where product = %s and (collection, tenant, document_id) in
+                         (select * from unnest(%s::text[], %s::text[], %s::text[]))""",
+                (product, cols, tenants, ids),
+            ).fetchall()
+        return {tuple(r) for r in rows}
+
 
 class PostgresQualityLog:
     """Quality runs (numbers and check names only) in data_platform.quality_runs. Runs older

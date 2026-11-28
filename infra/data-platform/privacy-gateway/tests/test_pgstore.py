@@ -238,3 +238,25 @@ def test_document_expiry_in_postgres(clean, redactor):
     docs.put("spectre", "playbooks", "keep", {**base, "title": "Keep"})  # no expiresAt: kept for good
     with psycopg.connect(ADMIN, autocommit=True) as c:
         assert c.execute("select expires_at from data_platform.documents").fetchall() == [(None,)]
+
+
+def test_document_quota_lookups_in_postgres(clean, redactor):
+    from cumulus_privacy.documents import Documents
+    from cumulus_privacy.pgstore import PostgresDocumentStore
+
+    with psycopg.connect(ADMIN, autocommit=True) as c:
+        c.execute("truncate data_platform.documents")
+    store = PostgresDocumentStore(clean)
+    docs = Documents(redactor, store, max_per_product=2)
+    base = {"tenant": "acme", "updatedAt": "2026-11-20T10:00:00Z", "title": "T", "body": "b"}
+    docs.put("spectre", "playbooks", "a", base)
+    docs.put("spectre", "playbooks", "b", {**base, "tenant": "globex"})
+    docs.put("cumulus-mail", "playbooks", "a", base)
+    assert store.count("spectre") == 2 and store.count("cumulus-mail") == 1
+    assert store.existing("spectre", [("playbooks", "acme", "a"), ("playbooks", "acme", "b"),
+                                      ("playbooks", "globex", "b")]) == {("playbooks", "acme", "a"), ("playbooks", "globex", "b")}
+    assert store.existing("spectre", []) == set()
+    with pytest.raises(PlatformError) as e:
+        docs.put("spectre", "playbooks", "c", base)
+    assert e.value.name == "DocumentQuotaReached"
+    docs.put("spectre", "playbooks", "a", {**base, "title": "T2"})  # replacing is fine when full

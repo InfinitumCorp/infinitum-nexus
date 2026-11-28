@@ -368,7 +368,9 @@ def main() -> None:
         searcher = Searcher(index)
         releases = StoredReleases(catalog, index, budget)
         if doc_store is not None:
-            documents = Documents(redactor, doc_store, limits)
+            # A cap per product, so one product can't fill the free database for the others.
+            documents = Documents(redactor, doc_store, limits, max_per_product=int(
+                os.environ.get("PLATFORM_MAX_DOCUMENTS_PER_PRODUCT", "20000" if dsn else "0")))
     else:
         catalog = None
     if dsn or doc_store is not None:  # stores without purge_expired are skipped

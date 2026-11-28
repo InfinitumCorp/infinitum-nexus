@@ -361,3 +361,25 @@ def test_daily_purge_covers_events_and_documents(capsys):
     assert "purge of events failed: RuntimeError" in err and "removed 3 documents" in err
     purge_once(Store(2), None)
     assert "removed 2 events" in capsys.readouterr().err
+
+
+def test_quota_per_product_allows_replacing_but_not_growing(redactor):
+    docs = Documents(redactor, MemoryDocumentStore(), max_per_product=3)
+    assert "DocumentQuotaReached" in PLATFORM["types"]["definitions"]["errors"]
+    for i in range(2):
+        docs.put("spectre", "playbooks", f"d{i}", doc())
+    docs.put("cumulus-mail", "notes", "m0", doc())  # other products don't count
+    assert docs.put_many("spectre", "playbooks", {"documents": [{**doc(), "documentId": "d0"},
+                                                                {**doc(), "documentId": "d2"}]})["created"] == 1
+    with pytest.raises(PlatformError) as e:
+        docs.put("spectre", "playbooks", "d3", doc())
+    assert (e.value.status, e.value.name) == (409, "DocumentQuotaReached")
+    assert e.value.safe_args == {"product": "spectre", "limit": 3}
+    with pytest.raises(PlatformError):  # a batch that would grow is refused whole
+        docs.put_many("spectre", "playbooks", {"documents": [{**doc(), "documentId": "d1"},
+                                                             {**doc(), "documentId": "d9"}]})
+    assert docs.store.count("spectre") == 3 and ("spectre", "playbooks", "acme", "d9") not in docs.store.docs
+    docs.put("spectre", "playbooks", "d1", doc(title="Renewal playbook v2"))  # replacing still works
+    docs.remove("spectre", "playbooks", "d1", {"tenant": "acme"})
+    docs.put("spectre", "playbooks", "d3", doc())  # room again
+    assert Documents(redactor, docs.store).max_per_product == 0  # no cap unless configured

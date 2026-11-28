@@ -15,6 +15,11 @@ Visibility inside a tenant:
 Right to erasure: ``erase`` deletes the documents a person owns and removes them from every
 viewer list, so no pseudonym of theirs stays behind.
 
+Quota: with ``max_per_product`` set (``PLATFORM_MAX_DOCUMENTS_PER_PRODUCT``), a put that would
+take a product over that many documents is refused with 409 ``DocumentQuotaReached``. Replacing a
+document the product already has is always allowed, so a full product can still keep its
+documents current. This keeps one product from filling the free database for all of them.
+
 Expiry: a document sent with ``expiresAt`` stops matching searches at that time, and the
 gateway's daily retention purge deletes it (``purge_expired``). It must lie in the future and at
 most ``MAX_EXPIRY_DAYS`` ahead, so a typo can't keep personal data for a century.
@@ -65,6 +70,12 @@ class DocumentStore(Protocol):
     def purge_expired(self) -> int:
         """Delete documents whose expiresAt has passed; return how many."""
 
+    def count(self, product: str) -> int:
+        """How many documents the product has stored."""
+
+    def existing(self, product: str, keys: list[tuple[str, str, str]]) -> set[tuple[str, str, str]]:
+        """Which of these (collection, tenant, documentId) the product already has."""
+
 
 def _tenant(v: Any) -> str:
     if not isinstance(v, str) or not TENANT.match(v):
@@ -85,8 +96,23 @@ class Documents:
     events, so a put is refused once the storage guard reports full; remove and erasure still
     work, since they free space."""
 
-    def __init__(self, redactor: Any, store: Any, limits: Any = None) -> None:
+    def __init__(self, redactor: Any, store: Any, limits: Any = None, max_per_product: int = 0) -> None:
         self.redactor, self.store, self.limits = redactor, store, limits
+        self.max_per_product = max_per_product
+
+    def _quota(self, caller: str, docs: list[dict[str, Any]]) -> None:
+        if self.max_per_product <= 0:
+            return
+        have = self.store.count(caller)
+        if have + len(docs) <= self.max_per_product:
+            return
+        keys = [(d["collection"], d["tenant"], d["documentId"]) for d in docs]
+        new = len(keys) - len(self.store.existing(caller, keys))
+        if new and have + new > self.max_per_product:
+            raise PlatformError(409, "DocumentQuotaReached",
+                                f"the product has {have} of its {self.max_per_product} documents; remove some or "
+                                f"let them expire first",
+                                {"product": caller, "limit": self.max_per_product})
 
     def _pseudonym(self, cid: str) -> str:
         return self.redactor.pseudonym("cid", cid.strip(), Destination.ANALYTICS)
@@ -127,7 +153,9 @@ class Documents:
     def put(self, caller: str, collection: str, document_id: str, b: Mapping[str, Any]) -> dict[str, Any]:
         self._key(caller, collection, document_id)
         self._guard()
-        self.store.upsert(self._prepare(caller, collection, document_id, b))
+        doc = self._prepare(caller, collection, document_id, b)
+        self._quota(caller, [doc])
+        self.store.upsert(doc)
         return {"collection": collection, "documentId": document_id}
 
     def put_many(self, caller: str, collection: str, b: Mapping[str, Any]) -> dict[str, Any]:
@@ -150,6 +178,7 @@ class Documents:
                 prepared.append(self._prepare(caller, collection, d["documentId"], d))
             except PlatformError as e:
                 raise _bad(f"documents[{i}]: {e.message}") from e
+        self._quota(caller, prepared)
         created = sum(1 for doc in prepared if self.store.upsert(doc))
         return {"collection": collection, "stored": len(prepared), "created": created}
 
@@ -303,6 +332,14 @@ class MemoryDocumentStore:
                 del self.docs[k]
         return len(gone)
 
+    def count(self, product: str) -> int:
+        with self._lock:
+            return sum(1 for k in self.docs if k[0] == product)
+
+    def existing(self, product: str, keys: list[tuple[str, str, str]]) -> set[tuple[str, str, str]]:
+        with self._lock:
+            return {k for k in keys if (product, *k) in self.docs}
+
 
 def _hit(d: Mapping[str, Any], snippet: str) -> dict[str, Any]:
     updated = d["updatedAt"]
@@ -433,3 +470,16 @@ class OpenSearchDocumentStore:
         if status >= 300 or out.get("failures"):
             raise self._fail("purge", status)
         return int(out.get("deleted", 0))
+
+    def count(self, product: str) -> int:
+        status, out = self._call("POST", f"/{self.index}/_count", {"query": {"term": {"product": product}}})
+        if status >= 300:
+            raise self._fail("count", status)
+        return int(out.get("count", 0))
+
+    def existing(self, product: str, keys: list[tuple[str, str, str]]) -> set[tuple[str, str, str]]:
+        ids = {self.doc_id(product, *k): k for k in keys}
+        status, out = self._call("POST", f"/{self.index}/_mget", {"ids": list(ids), "_source": False})
+        if status >= 300:
+            raise self._fail("lookup", status)
+        return {ids[d["_id"]] for d in out.get("docs", []) if d.get("found") and d.get("_id") in ids}

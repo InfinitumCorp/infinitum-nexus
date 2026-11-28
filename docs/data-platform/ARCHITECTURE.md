@@ -219,7 +219,10 @@ with the same query DSL, so we use it.
 Conjure `DocumentService`). Products also index their own documents: help articles, playbooks
 and notes. A document is keyed by product, collection, tenant and document ID. On the free tier
 it lives in `data_platform.documents`, using Postgres full-text search with the title weighted
-above the body and `websearch_to_tsquery` syntax. The rules:
+above the body and `websearch_to_tsquery` syntax. On the full stack it lives in the OpenSearch
+index `cumulus-documents` (strict mapping in `search/documents-index.json`, title weighted twice,
+`simple_query_string` with AND between words). There the document ID is a hash of the four keys,
+so a write or delete can only reach the caller's own document. The rules are the same on both:
 
 - Every search is scoped to the calling product and one tenant. A product's token never reads
   another product's documents.

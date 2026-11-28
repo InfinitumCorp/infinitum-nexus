@@ -14,4 +14,10 @@ if ! curl -fs "$OS/_alias/cumulus-events-write" >/dev/null; then
     -d '{"aliases":{"cumulus-events-write":{"is_write_index":true}}}'
   echo
 fi
+# Product documents (documents.py): one index, strict mapping. People are pseudonyms only.
+if ! curl -fs "$OS/cumulus-documents" >/dev/null; then
+  curl -fsS -X PUT "$OS/cumulus-documents" -H 'Content-Type: application/json' \
+    --data-binary "@$DIR/documents-index.json"
+  echo
+fi
 echo "search bootstrap done"

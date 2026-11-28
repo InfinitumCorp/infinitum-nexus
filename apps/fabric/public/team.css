@@ -151,6 +151,12 @@
 .t-tile.on-camera video { opacity: 1; }
 .t-tile.on-camera .t-tile-initial { visibility: hidden; }
 .t-tile-initial { font-size: 28px; font-weight: 700; }
+.t-tile.hand { outline: 2px solid var(--accent); outline-offset: -2px; }
+.t-tile-react { position: absolute; bottom: 20%; left: 50%; font-size: 32px; transform: translateX(-50%); animation: t-float 2.5s ease-out forwards; pointer-events: none; }
+@keyframes t-float { from { opacity: 1; transform: translate(-50%, 0); } to { opacity: 0; transform: translate(-50%, -120%); } }
+@media (prefers-reduced-motion: reduce) { .t-tile-react { animation: none; } }
+.t-huddle-reacts { display: inline-flex; gap: 2px; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .t-tile-name { position: absolute; left: 6px; bottom: 4px; right: 6px; font-size: 12px; text-shadow: 0 1px 2px #000; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .t-huddle-leave { border-color: #b42318; color: #b42318; }
 @media (max-width: 900px) { .t-huddle { left: 16px; right: 16px; width: auto; } }

@@ -181,6 +181,7 @@ export function teamRoutes(): Route[] {
     r("POST", `/channels/${ID}/huddle/join`, ({ team, me, params }) => team.joinHuddle(me, params[0]!)),
     r("POST", `/channels/${ID}/huddle/leave`, ({ team, me, params }) => team.leaveHuddle(me, params[0]!)),
     r("PUT", `/channels/${ID}/huddle`, ({ team, me, params, body }) => team.updateHuddle(me, params[0]!, body)),
+    r("POST", `/channels/${ID}/huddle/react`, ({ team, me, params, body }) => team.reactHuddle(me, params[0]!, body.emoji), { bucket: { name: "huddle-react", max: 240 } }),
     r("POST", `/channels/${ID}/huddle/signal`, ({ team, me, params, body }) => team.signalHuddle(me, params[0]!, body), { bucket: { name: "signal", max: 1200 } }),
     r("POST", `/channels/${ID}/polls`, ({ team, me, params, body }) => team.createPoll(me, params[0]!, body), { status: 201 }),
     r("POST", `/channels/${ID}/schedule`, ({ team, me, params, body }) => team.schedule(me, params[0]!, body), { status: 201 }),

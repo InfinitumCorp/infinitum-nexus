@@ -55,6 +55,8 @@ export const TEAM_LIMITS = {
   tasks: 500,
   taskTitle: 300,
   taskNotes: 4_000,
+  /** The shortest gap between one person's emoji reactions in a huddle. */
+  huddleReactionMs: 300,
   /** Message retention, when an owner turns it on: the shortest and longest allowed, in days. */
   retentionMinDays: 7,
   retentionMaxDays: 3650,
@@ -156,10 +158,10 @@ export interface ChannelView {
   huddle: { people: number; startedAt: string } | null;
 }
 
-export interface HuddlePerson { sub: string; username: string; displayName: string; muted: boolean; video: boolean; screen: boolean; joinedAt: string }
+export interface HuddlePerson { sub: string; username: string; displayName: string; muted: boolean; video: boolean; screen: boolean; hand: boolean; joinedAt: string }
 export interface HuddleView { channelId: string; startedAt: string; startedBy: string; people: HuddlePerson[]; iceServers: IceServer[] }
 export interface IceServer { urls: string | string[]; username?: string; credential?: string }
-interface Huddle { channelId: string; workspaceId: string; startedAt: string; startedBy: string; people: Map<string, { joinedAt: string; muted: boolean; video: boolean; screen: boolean }> }
+interface Huddle { channelId: string; workspaceId: string; startedAt: string; startedBy: string; people: Map<string, { joinedAt: string; muted: boolean; video: boolean; screen: boolean; hand: boolean }> }
 
 export interface ReactionView { emoji: string; count: number; subs: string[]; mine: boolean }
 export interface FileView { id: string; name: string; mime: string; size: number; createdAt: string; channelId: string; uploader: string }
@@ -241,6 +243,8 @@ export class TeamService {
   private readonly lastSeen = new Map<string, number>();
   private readonly connected = new Map<string, number>();
   private readonly huddles = new Map<string, Huddle>();
+  /** When each person last sent a huddle reaction, by channel and sub, to keep them from flooding a call. */
+  private readonly huddleReactedAt = new Map<string, number>();
   private readonly iceServers: IceServer[];
   private lastStamp = 0;
 
@@ -1828,7 +1832,7 @@ export class TeamService {
       this.huddles.set(channelId, h);
       this.system(channel, me.sub, "started a huddle");
     }
-    if (!h.people.has(me.sub)) h.people.set(me.sub, { joinedAt: now, muted: false, video: false, screen: false });
+    if (!h.people.has(me.sub)) h.people.set(me.sub, { joinedAt: now, muted: false, video: false, screen: false, hand: false });
     this.publishHuddle(h, me.sub, "joined");
     return this.huddleView(h);
   }
@@ -1839,14 +1843,24 @@ export class TeamService {
     this.endIfEmpty(h, me.sub);
   }
 
-  /** Tell the others whether you are muted, on camera or sharing your screen. */
-  updateHuddle(me: FabricIdentity, channelId: string, input: { muted?: unknown; video?: unknown; screen?: unknown }): HuddleView {
+  /**
+   * Tell the others whether you are muted, on camera, sharing your screen or have your hand raised.
+   * `lower` lowers someone else's hand; the person who started the huddle can do that, like a host.
+   */
+  updateHuddle(me: FabricIdentity, channelId: string, input: { muted?: unknown; video?: unknown; screen?: unknown; hand?: unknown; lower?: unknown }): HuddleView {
     const h = this.huddles.get(channelId);
     const p = h?.people.get(me.sub);
     if (!h || !p) throw fail(404, "you are not in this huddle");
     if (typeof input.muted === "boolean") p.muted = input.muted;
     if (typeof input.video === "boolean") p.video = input.video;
     if (typeof input.screen === "boolean") p.screen = input.screen;
+    if (typeof input.hand === "boolean") p.hand = input.hand;
+    if (input.lower !== undefined) {
+      const other = typeof input.lower === "string" ? h.people.get(input.lower) : undefined;
+      if (!other) throw fail(404, "that person is not in this huddle");
+      if (h.startedBy !== me.sub && input.lower !== me.sub) throw fail(403, "only the person who started the huddle can lower someone's hand");
+      other.hand = false;
+    }
     this.publishHuddle(h, me.sub, "updated");
     return this.huddleView(h);
   }
@@ -1874,6 +1888,18 @@ export class TeamService {
     });
   }
 
+  /** Send a quick emoji reaction to everyone in the huddle. Nothing is stored. */
+  reactHuddle(me: FabricIdentity, channelId: string, emoji: unknown): void {
+    const h = this.huddles.get(channelId);
+    if (!h || !h.people.has(me.sub)) throw fail(404, "you are not in this huddle");
+    const e = emojiOf(emoji);
+    const key = `${channelId}:${me.sub}`;
+    const now = this.clock().getTime();
+    if (now - (this.huddleReactedAt.get(key) ?? -Infinity) < TEAM_LIMITS.huddleReactionMs) throw fail(429, "slow down");
+    this.huddleReactedAt.set(key, now);
+    this.publish([...h.people.keys()], { type: "huddle-reaction", workspaceId: h.workspaceId, channelId, from: me.sub, emoji: e });
+  }
+
   private leaveAllHuddles(sub: string): void {
     for (const h of [...this.huddles.values()]) if (h.people.delete(sub)) this.endIfEmpty(h, sub);
   }
@@ -1884,6 +1910,7 @@ export class TeamService {
       return;
     }
     this.huddles.delete(h.channelId);
+    for (const key of this.huddleReactedAt.keys()) if (key.startsWith(`${h.channelId}:`)) this.huddleReactedAt.delete(key);
     const minutes = Math.max(1, Math.round((this.clock().getTime() - Date.parse(h.startedAt)) / 60_000));
     try {
       this.system(this.channel(h.channelId), sub, `ended the huddle after ${minutes} ${minutes === 1 ? "minute" : "minutes"}`);

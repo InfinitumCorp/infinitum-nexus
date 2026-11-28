@@ -15,7 +15,8 @@
     "backfill": "node --experimental-strip-types src/backfill-cli.ts"
   },
   "dependencies": {
-    "@infinitum/firmament": "workspace:*"
+    "@infinitum/firmament": "workspace:*",
+    "@infinitum/geo-dat": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^7.0.2",

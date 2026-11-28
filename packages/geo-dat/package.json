@@ -1,0 +1,26 @@
+{
+  "name": "@infinitum/geo-dat",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Opt-in v2fly geoip and geosite loader. Default off. The .dat files are downloaded by scripts/fetch-geo-dat.mjs and are not stored in git.",
+  "engines": { "node": ">=22.18" },
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "default": "./src/index.js"
+    },
+    "./node": {
+      "types": "./src/node.d.ts",
+      "default": "./src/node.js"
+    }
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.9.0"
+  }
+}

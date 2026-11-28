@@ -19,7 +19,8 @@
     "@infinitum/cid": "workspace:*",
     "@infinitum/firmament": "workspace:*",
     "@infinitum/lbrnth-client": "workspace:*",
-    "pg": "^8.23.1"
+    "pg": "^8.23.1",
+    "@infinitum/geo-dat": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^7.0.2",

@@ -30,7 +30,10 @@ import { smtpConfigFromEnv, smtpSender } from "./smtp.ts";
 import { diskFileStore } from "./files.ts";
 import { WorkspaceStore } from "./workspace.ts";
 
+import { loadGeoRouting } from "./geo-config.ts";
+
 const port = Number(process.env.PORT ?? 3010);
+loadGeoRouting(process.env.MAIL_DATA_DIR ?? join(import.meta.dirname, "..", "data"));
 const cumulus = readCumulusDomain();
 const origin = (process.env.MAIL_ORIGIN ?? `http://localhost:${port}`).replace(/\/$/, "");
 const dataDir = process.env.MAIL_DATA_DIR ?? join(import.meta.dirname, "..", "data");

@@ -17,12 +17,16 @@ type Input struct {
 	TunnelDevice    string
 	TunnelAddress   netip.Prefix
 	DNS             []netip.Addr
+	// GeoExclude is opt-in. When it is false, Excluded is ignored.
+	GeoExclude bool
+	Excluded   []netip.Prefix
 }
 
 type Plan struct {
 	EndpointRoute []string
 	Address       []string
 	DefaultRoute  []string
+	DirectRoutes  [][]string
 	DNSInTunnel   bool
 }
 
@@ -45,12 +49,31 @@ func Build(in Input) (Plan, error) {
 			return Plan{}, errors.New("DNS is not inside the tunnel")
 		}
 	}
+	if in.GeoExclude {
+		for _, prefix := range in.Excluded {
+			for _, dns := range in.DNS {
+				if prefix.Contains(dns) {
+					return Plan{}, errors.New("geo exclusion would move DNS out of the tunnel")
+				}
+			}
+		}
+	}
 	endpoint := in.Endpoint.String()
 	plan := Plan{
 		EndpointRoute: []string{"ip", "route", "replace", endpoint + "/32", "via", in.PhysicalGateway.String(), "dev", in.PhysicalDevice},
 		Address:       []string{"ip", "address", "replace", in.TunnelAddress.String(), "dev", in.TunnelDevice},
 		DefaultRoute:  []string{"ip", "route", "replace", "default", "dev", in.TunnelDevice, "metric", "10"},
 		DNSInTunnel:   true,
+	}
+	if in.GeoExclude {
+		for _, prefix := range in.Excluded {
+			if !prefix.IsValid() {
+				continue
+			}
+			plan.DirectRoutes = append(plan.DirectRoutes, []string{
+				"ip", "route", "replace", prefix.Masked().String(), "via", in.PhysicalGateway.String(), "dev", in.PhysicalDevice,
+			})
+		}
 	}
 	if strings.Contains(strings.Join(plan.EndpointRoute, " "), in.TunnelDevice) {
 		return Plan{}, errors.New("endpoint route must stay on the physical device")

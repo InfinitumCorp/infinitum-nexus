@@ -12,6 +12,8 @@ import (
 	"strings"
 
 	"github.com/InfinitumCorp/infinitum-nexus/apps/veil-desktop/internal/app"
+	"github.com/InfinitumCorp/infinitum-nexus/apps/veil-desktop/internal/geo"
+	"github.com/InfinitumCorp/infinitum-nexus/apps/veil-desktop/internal/geosetting"
 	"github.com/InfinitumCorp/infinitum-nexus/apps/veil-desktop/internal/policy"
 	"github.com/InfinitumCorp/infinitum-nexus/apps/veil-desktop/internal/routeplan"
 	"github.com/InfinitumCorp/infinitum-nexus/apps/veil-desktop/internal/tor"
@@ -52,10 +54,17 @@ func (l *Linux) ApplyVeil(ctx context.Context, cfg wgconfig.Config) (app.Result,
 	}
 	l.engine = eng
 	l.endpoint = endpoint
-	plan, err := routeplan.Build(routeplan.Input{
+	input := routeplan.Input{
 		Endpoint: endpoint, EndpointPort: port, PhysicalGateway: gateway, PhysicalDevice: device,
 		TunnelDevice: eng.Name(), TunnelAddress: cfg.Address, DNS: cfg.DNS,
-	})
+	}
+	configPath, _ := geosetting.DefaultPath()
+	prefixes := geo.ActivePrefixes(configPath, geo.DefaultDatPath())
+	if len(prefixes) > 0 {
+		input.GeoExclude = true
+		input.Excluded = prefixes
+	}
+	plan, err := routeplan.Build(input)
 	if err != nil {
 		_ = l.Clear(ctx)
 		return app.Result{}, err
@@ -75,6 +84,7 @@ func (l *Linux) ApplyVeil(ctx context.Context, cfg wgconfig.Config) (app.Result,
 	state := policy.State{
 		Mode: policy.ModeVeil, TunnelUp: true, TunnelIface: eng.Name(),
 		Endpoint: netip.AddrPortFrom(endpoint, port), TunnelDNS: cfg.DNS,
+		GeoExclude: len(prefixes) > 0, ExcludedPrefixes: prefixes,
 	}
 	if err := applyNft(ctx, policy.RenderNft(state)); err != nil {
 		_ = l.Clear(ctx)
@@ -83,6 +93,12 @@ func (l *Linux) ApplyVeil(ctx context.Context, cfg wgconfig.Config) (app.Result,
 	if err := run(ctx, plan.DefaultRoute[0], plan.DefaultRoute[1:]...); err != nil {
 		_ = l.Clear(ctx)
 		return app.Result{}, err
+	}
+	for _, route := range plan.DirectRoutes {
+		if err := run(ctx, route[0], route[1:]...); err != nil {
+			_ = l.Clear(ctx)
+			return app.Result{}, err
+		}
 	}
 	enforcement := "nft-fail-closed"
 	if err := setDNS(ctx, eng.Name(), cfg.DNS); err != nil {

@@ -82,6 +82,30 @@ func TestCaptureRoutesAreFullTunnel(t *testing.T) {
 	}
 }
 
+func TestGeoExclusionsStayOffUnlessEnabled(t *testing.T) {
+	garbage := []byte{0xff, 0x00}
+	dns := []netip.Addr{netip.MustParseAddr("10.77.0.1")}
+	capture, direct, err := CaptureWithExclusions(false, garbage, []string{"ZZ"}, dns)
+	if err != nil || len(direct) != 0 || capture[0].String() != "0.0.0.0/0" || capture[1].String() != "::/0" {
+		t.Fatalf("disabled capture = %v direct %v err %v", capture, direct, err)
+	}
+	dat := testGeoIP("ZZ", []byte{203, 0, 113, 0}, 24)
+	capture, direct, err = CaptureWithExclusions(true, dat, []string{"ZZ"}, dns)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(direct) != 1 || direct[0].String() != "203.0.113.0/24" {
+		t.Fatalf("direct = %v", direct)
+	}
+	if capture[0].String() == "0.0.0.0/0" {
+		t.Fatal("enabled exclusion left the default IPv4 route in place")
+	}
+	capture, direct, err = CaptureWithExclusions(true, dat, []string{"ZZ"}, []netip.Addr{netip.MustParseAddr("203.0.113.1")})
+	if err == nil || len(direct) != 0 || capture[0].String() != "0.0.0.0/0" {
+		t.Fatalf("dns exclusion capture = %v direct %v err %v", capture, direct, err)
+	}
+}
+
 func TestProductDomainIsMetadataNotAnEndpoint(t *testing.T) {
 	product := VPNProduct()
 	if product.Domain != "infinitumveilvpn.app" || product.Host != "Cloudflare" {
@@ -124,6 +148,14 @@ func TestRedactRemovesPrivateKey(t *testing.T) {
 	if strings.Contains(line, secret) || !strings.Contains(line, "[redacted]") {
 		t.Fatalf("redacted line = %q", line)
 	}
+}
+
+func testGeoIP(code string, ip []byte, bits int) []byte {
+	cidr := append(append([]byte{0x0a, byte(len(ip))}, ip...), 0x10, byte(bits))
+	body := append([]byte{0x0a, byte(len(code))}, []byte(code)...)
+	body = append(body, 0x12, byte(len(cidr)))
+	body = append(body, cidr...)
+	return append(append([]byte{0x0a, byte(len(body))}, body...), []byte{}...)
 }
 
 func tunPacket() []byte {

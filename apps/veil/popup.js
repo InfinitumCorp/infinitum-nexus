@@ -175,6 +175,7 @@ function renderProtection() {
   $("count-stripped").textContent = String(p.stripped);
   $("shield-host").textContent = p.host;
   $("blocking").checked = p.blockingEnabled;
+  $("geo-routing").checked = p.geoRoutingEnabled === true;
   $("statement").textContent = p.statement;
   const problems = p.issues.length + p.downloads.length;
   $("shield-title").textContent = problems ? "Needs attention" : p.blockingEnabled ? "Protected" : "Blocking is off";
@@ -219,6 +220,9 @@ async function loadProtection() {
 
 $("blocking").onchange = async () => {
   try { await send("setBlocking", { enabled: $("blocking").checked }); await loadProtection(); } catch (err) { say(err.message); }
+};
+$("geo-routing").onchange = async () => {
+  try { await send("setGeoRouting", { enabled: $("geo-routing").checked }); await loadProtection(); } catch (err) { say(err.message); }
 };
 
 // ---------- Passwords ----------

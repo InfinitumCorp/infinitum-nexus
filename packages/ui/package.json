@@ -14,5 +14,8 @@
   "scripts": {
     "sync": "node scripts/sync.mjs",
     "test": "node --test --experimental-strip-types $(find src -name \"*.test.ts\" 2>/dev/null || true)"
+  },
+  "dependencies": {
+    "@infinitum/geo-dat": "workspace:*"
   }
 }

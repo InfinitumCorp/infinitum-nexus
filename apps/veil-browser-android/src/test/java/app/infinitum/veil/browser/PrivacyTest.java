@@ -70,6 +70,9 @@ public final class PrivacyTest {
         Matcher h = Pattern.compile("\"([^\"]+)\"").matcher(list.group(1));
         while (h.find()) blFromJs.add(h.group(1));
         eq("blocklist matches apps/veil/lib/blocklist.js", blFromJs, new HashSet<>(Blocklist.HOSTS));
+        eq("geosite extra adds a host", true, Blocklist.matchesExtra("a.tracker.example", java.util.List.of("tracker.example")));
+        eq("geosite extra does not replace the curated list", false, Blocklist.isBlocked("tracker.example"));
+        eq("onion is never a geosite bypass", java.util.List.of("direct.example"), Blocklist.bypassHosts(java.util.List.of("hidden.onion", "direct.example")));
 
         System.out.println(failures == 0 ? "\nall passed" : "\n" + failures + " failed");
         System.exit(failures == 0 ? 0 : 1);

@@ -26,7 +26,8 @@
     "@infinitum/metatron": "workspace:*",
     "@infinitum/scalus": "workspace:*",
     "@infinitum/veil": "workspace:*",
-    "pg": "^8.23.1"
+    "pg": "^8.23.1",
+    "@infinitum/geo-dat": "workspace:*"
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.5.17",

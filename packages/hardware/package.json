@@ -13,7 +13,8 @@
   },
   "dependencies": {
     "@infinitum/lbrnth-client": "workspace:*",
-    "@infinitum/sense": "workspace:*"
+    "@infinitum/sense": "workspace:*",
+    "@infinitum/geo-dat": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^7.0.2",

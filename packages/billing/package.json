@@ -16,5 +16,8 @@
   "devDependencies": {
     "typescript": "^7.0.2",
     "@types/node": "^26.6.6"
+  },
+  "dependencies": {
+    "@infinitum/geo-dat": "workspace:*"
   }
 }

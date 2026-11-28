@@ -18,7 +18,10 @@ import { join } from "node:path";
 import { ConsentRequiredError, DataExchange } from "@infinitum/data-exchange";
 import { FileStore, Ledger, generateSigner } from "@infinitum/firmament";
 
+import { loadGeoRouting } from "./geo-config.ts";
+
 const dataDir = process.env.DATA_DIR ?? join(import.meta.dirname, "..", "data");
+loadGeoRouting(dataDir);
 const ledger = new Ledger(new FileStore(join(dataDir, "firmament.jsonl")));
 const signer = generateSigner();
 ledger.authorize(signer.publicKey);

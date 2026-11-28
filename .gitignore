@@ -8,6 +8,8 @@ packages/contracts/artifacts
 packages/contracts/cache
 packages/contracts/typechain-types
 data/
+# v2fly geoip.dat and geosite.dat from scripts/fetch-geo-dat.mjs
+data/geo/
 apps/spectre/screenshots/
 .vercel/
 *.key

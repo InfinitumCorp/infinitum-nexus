@@ -23,7 +23,10 @@ import { FabricStore } from "./store.ts";
 import { TeamHub } from "./team-http.ts";
 import { TeamService, parseIceServers } from "./team.ts";
 
+import { loadGeoRouting } from "./geo-config.ts";
+
 const config = loadConfig(process.env);
+loadGeoRouting(config.dataDir);
 mkdirSync(config.dataDir, { recursive: true });
 const masterKey = loadMasterKey(config.dataDir);
 const store = new FabricStore(config.databasePath);

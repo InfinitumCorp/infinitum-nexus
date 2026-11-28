@@ -9,6 +9,7 @@ import android.net.VpnService;
 import android.os.Bundle;
 import android.os.IBinder;
 import android.widget.Button;
+import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.TextView;
 
@@ -47,6 +48,10 @@ public final class MainActivity extends Activity {
         publicView = findViewById(R.id.peer_public);
         privateView = findViewById(R.id.private_key);
         statusView.setText(describe("down"));
+        CheckBox geo = findViewById(R.id.geo_routing);
+        geo.setChecked(getSharedPreferences("veil", MODE_PRIVATE).getBoolean("geo_routing", false));
+        geo.setOnCheckedChangeListener((button, checked) ->
+                getSharedPreferences("veil", MODE_PRIVATE).edit().putBoolean("geo_routing", checked).apply());
         Button connect = findViewById(R.id.connect);
         connect.setOnClickListener(v -> requestConsent(this::connectOperator));
         Button disconnect = findViewById(R.id.disconnect);

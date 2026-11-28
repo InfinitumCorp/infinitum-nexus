@@ -95,6 +95,13 @@
             android:saveEnabled="false"
             android:textColor="#1A1A1A" />
 
+        <CheckBox
+            android:id="@+id/geo_routing"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/geo_routing"
+            android:textColor="#1A1A1A" />
+
         <Button
             android:id="@+id/connect"
             android:layout_width="match_parent"

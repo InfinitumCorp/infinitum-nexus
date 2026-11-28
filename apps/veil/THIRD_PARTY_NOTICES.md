@@ -95,6 +95,55 @@ SOFTWARE.
 - **Download check** (`lib/downloads.js`) and **personal-data form check**
   (`lib/content-pii.js`): pattern rules written for VEIL.
 
+## Optional geo routing data (not stored in git)
+
+VEIL can add v2fly geosite categories to the curated blocklist, and can bypass
+extra site names on the CID-entitled exit. Both are off until the geo routing
+switch is turned on. `.onion` names are never bypassed. The `.dat` files are
+downloaded by `scripts/fetch-geo-dat.mjs` into `data/geo/` and checked against
+the publisher's `.sha256sum` assets. They are not copied into this repository.
+
+### geoip.dat
+
+- Source: https://github.com/v2fly/geoip release `202611080027`, asset `geoip.dat`.
+- SHA-256: `eedb24b3b9fcba27e06b92c0428dab90d9496083091ae4cf39e11387fd99d0e2`.
+- License: CC-BY-SA-4.0. https://creativecommons.org/licenses/by-sa/4.0/
+- Changes to the dataset stay under that license. This repository does not
+  ship a modified copy.
+
+### geosite.dat
+
+- Source: https://github.com/v2fly/domain-list-community release `20261108011013`,
+  asset `dlc.dat`, saved as `geosite.dat`.
+- SHA-256: `dc4192dd1b644a38276ed06136d26e729fa674d25785adb38c87e040e92376b2`.
+- License: MIT. Copyright (c) 2018-2019 V2Ray.
+
+```
+MIT License
+
+Copyright (c) 2018-2019 V2Ray
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+Loyalsoldier and sing-box geo databases are not used.
+
 ## Considered and not used
 
 - **Magika** (Google, Apache-2.0) for file-type detection, and **privacy-filter**

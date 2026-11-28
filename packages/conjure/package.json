@@ -15,7 +15,8 @@
     "@infinitum/ai": "workspace:*",
     "@infinitum/scalus": "workspace:*",
     "@infinitum/lbrnth-client": "workspace:*",
-    "@infinitum/metatron": "workspace:*"
+    "@infinitum/metatron": "workspace:*",
+    "@infinitum/geo-dat": "workspace:*"
   },
   "scripts": {
     "typecheck": "tsc -p . --noEmit",

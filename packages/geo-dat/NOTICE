@@ -1,0 +1,17 @@
+Opt-in v2fly geo routing data.
+
+geoip.dat
+  project: https://github.com/v2fly/geoip
+  release: 202611080027
+  SHA-256: eedb24b3b9fcba27e06b92c0428dab90d9496083091ae4cf39e11387fd99d0e2
+  license: CC-BY-SA-4.0 (https://creativecommons.org/licenses/by-sa/4.0/)
+
+geosite.dat (downloaded from the dlc.dat asset)
+  project: https://github.com/v2fly/domain-list-community
+  release: 20261108011013
+  SHA-256: dc4192dd1b644a38276ed06136d26e729fa674d25785adb38c87e040e92376b2
+  license: MIT, Copyright (c) 2018-2019 V2Ray
+
+scripts/fetch-geo-dat.mjs checks both files against the publisher's
+.sha256sum assets. The binaries are not stored in git.
+Loyalsoldier and sing-box datasets are not used.

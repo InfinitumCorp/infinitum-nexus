@@ -24,7 +24,8 @@
     "@infinitum/mail": "workspace:*",
     "@infinitum/scalus": "workspace:*",
     "postal-mime": "4.2.1",
-    "pg": "^8.23.1"
+    "pg": "^8.23.1",
+    "@infinitum/geo-dat": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",

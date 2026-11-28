@@ -20,6 +20,9 @@ import { Ledger, MemoryStore } from "@infinitum/firmament";
 import { registerDefaultInstruments } from "@infinitum/architect/perform";
 import { loadConfig } from "./config.ts";
 import { createHandler } from "./http.ts";
+import { loadGeoRouting } from "./geo-config.ts";
+
+loadGeoRouting(process.env.DATA_DIR ?? "data");
 
 const config = loadConfig(process.env);
 const moduleDir = dirname(fileURLToPath(import.meta.url));

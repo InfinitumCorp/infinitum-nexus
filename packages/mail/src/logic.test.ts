@@ -4,13 +4,13 @@ import { MAIL_DOMAIN } from "@infinitum/cid";
 import { applyRules, inBox, isCumulus, isSnoozed, listThreads, planDelivery, tomorrowMorning, withSignature } from "./logic.ts";
 import { ME, SEED_MESSAGES, type MailMessage } from "./model.ts";
 
-test("only the configured Cumulus domain stays inside", () => {
+test("only the configured Cumulus domain stays inside", async () => {
   assert.equal(isCumulus(`alex@${MAIL_DOMAIN}`), true);
   assert.equal(isCumulus("alex@cumulusmail.cloud"), false);
   assert.equal(isCumulus("alex@*.cumuluscloud.app"), false);
 });
 
-test("Cumulus recipients stay inside and everyone else is outbound", () => {
+test("Cumulus recipients stay inside and everyone else is outbound", async () => {
   const hops = planDelivery([
     { name: "Leah", email: "leah@cumuluscloud.app" },
     { name: "Priya", email: "priya.shah@vyral.example" },
@@ -21,7 +21,7 @@ test("Cumulus recipients stay inside and everyone else is outbound", () => {
   assert.equal(hops[1]?.status, "outbound");
 });
 
-test("from: finds a sender and has:file finds an attachment", () => {
+test("from: finds a sender and has:file finds an attachment", async () => {
   const withFile: MailMessage = {
     ...SEED_MESSAGES[0]!,
     id: "file-1",
@@ -35,7 +35,7 @@ test("from: finds a sender and has:file finds an attachment", () => {
   assert.equal(ME.email.endsWith("@cumuluscloud.app"), true);
 });
 
-test("a search term can match a different message in the same thread", () => {
+test("a search term can match a different message in the same thread", async () => {
   const first: MailMessage = {
     ...SEED_MESSAGES[0]!,
     id: "t-1",
@@ -58,7 +58,7 @@ test("a search term can match a different message in the same thread", () => {
   assert.equal(rows.some((row) => row.threadId === "th-split"), true);
 });
 
-test("a snoozed note leaves the inbox and an outside send sits in the outbox", () => {
+test("a snoozed note leaves the inbox and an outside send sits in the outbox", async () => {
   const message = { ...SEED_MESSAGES[0]!, snoozeUntil: "2099-01-01T00:00:00.000Z" };
   assert.equal(isSnoozed(message, Date.parse("2026-11-05T00:00:00.000Z")), true);
   assert.equal(inBox(message, "inbox", Date.parse("2026-11-05T00:00:00.000Z")), false);
@@ -74,7 +74,7 @@ test("a snoozed note leaves the inbox and an outside send sits in the outbox", (
   assert.equal(tomorrowMorning(new Date("2026-11-05T22:00:00.000Z")), "2026-11-06T08:00:00.000Z");
 });
 
-test("rules archive a match and the signature stays above a quote", () => {
+test("rules archive a match and the signature stays above a quote", async () => {
   const message = applyRules(SEED_MESSAGES.find((item) => item.from.email.includes("vyral"))!, [
     { id: "r1", from: "vyral", action: "archive" },
   ]);

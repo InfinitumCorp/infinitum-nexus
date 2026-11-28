@@ -16,6 +16,7 @@ import { fetchBridges, fetchSession, postConnect, postDisconnect, VeilApiError }
 import { BLOCKED_HOSTS, GEO_RULE_ID, blocklistRules, ruleCategory } from "./lib/blocklist.js";
 import { blocklistWithGeo, bypassForRoute, extraGeoHosts } from "./lib/geo-dat.js";
 import { assessError, assessRedirect, assessUrl, mergeIssues } from "./lib/safety.js";
+import { assessRegionBlock } from "./lib/region.js";
 import { assessDownload } from "./lib/downloads.js";
 import { generateFor } from "./lib/passgen.js";
 import { check as checkPassword, protect, publicView, trust } from "./lib/password-guard.js";
@@ -398,12 +399,32 @@ async function blockedOnTab(tabId, since) {
   return { blocked, byCategory };
 }
 
+/** Same page, only the query or fragment changed (our own tracking-parameter strip, or an in-page URL update). */
+function samePage(a, b) {
+  try {
+    const x = new URL(a);
+    const y = new URL(b);
+    return x.origin === y.origin && x.pathname === y.pathname;
+  } catch {
+    return false;
+  }
+}
+
 function onNavigate(tabId, url) {
   const prev = tabs.get(tabId);
   const pending = (prev?.pending ?? []).filter((p) => Date.now() - p.at < 10_000).map((p) => p.issue);
   let host = "";
   try { host = new URL(url).hostname; } catch {}
-  tabs.set(tabId, { host, url, since: Date.now(), stripped: 0, issues: mergeIssues(assessUrl(url), pending), pending: [] });
+  // Keep this page's counters when only its query changed: stripping tracking parameters rewrites the
+  // URL after the page has loaded, and must not zero the trackers already blocked on it.
+  const keep = prev && samePage(prev.url, url);
+  tabs.set(tabId, {
+    host, url,
+    since: keep ? prev.since : Date.now(),
+    stripped: keep ? prev.stripped : 0,
+    issues: mergeIssues(assessUrl(url), pending),
+    pending: [],
+  });
   return flagTab(tabId);
 }
 
@@ -416,7 +437,7 @@ chrome.webRequest?.onBeforeRedirect?.addListener?.((d) => {
   if (issue && d.tabId >= 0) tabEntry(d.tabId).pending.push({ at: Date.now(), issue });
 }, { urls: ["<all_urls>"], types: ["main_frame"] });
 chrome.webRequest?.onErrorOccurred?.addListener?.((d) => {
-  const issue = assessError(d.url, d.error);
+  const issue = assessError(d.url, d.error) ?? assessRegionBlock(d.url, d.error, route.mode);
   if (!issue || d.tabId < 0) return;
   const entry = tabEntry(d.tabId);
   entry.issues = mergeIssues(entry.issues, [issue]);

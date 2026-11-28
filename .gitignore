@@ -13,6 +13,7 @@ data/geo/
 apps/spectre/screenshots/
 .vercel/
 *.key
+oidc-signing-key.jwk
 
 # Android build output
 apps/cumulus-mail/android/build/

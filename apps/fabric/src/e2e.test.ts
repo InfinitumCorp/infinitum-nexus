@@ -106,6 +106,128 @@ test("starts the server and runs login, conversation, send, and receive", async 
   }
 });
 
+test("team chat over HTTP: workspace, channel, thread, reaction, file, search and live events", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "fabric-team-e2e-"));
+  const idpPort = await freePort();
+  const appPort = await freePort();
+  const idp = await startTestIdp(idpPort, "fabric");
+  const origin = `http://127.0.0.1:${appPort}`;
+  const phrase = `team-phrase-${randomBytes(8).toString("hex")}`;
+  const env = childEnv({
+    PORT: String(appPort),
+    FABRIC_BIND: "127.0.0.1",
+    FABRIC_PUBLIC_ORIGIN: origin,
+    FABRIC_JWT_ISSUER: idp.issuer,
+    FABRIC_OIDC_CLIENT_ID: "fabric",
+    FABRIC_DATA_DIR: dir,
+    FABRIC_MASTER_KEY: randomBytes(32).toString("base64"),
+  });
+  let child: ChildProcess | undefined;
+  try {
+    child = await startServer(env);
+    const page = await (await fetch(`${origin}/team`)).text();
+    assert.match(page, /Sign in with Cumulus ID/);
+    assert.match(page, /Create a Cumulus ID/);
+    assert.equal((await fetch(`${origin}/team.js`)).status, 200);
+    // Huddles may use the camera and microphone on the Teams page, and nowhere else.
+    assert.match((await fetch(`${origin}/team`)).headers.get("permissions-policy") ?? "", /camera=\(self\), microphone=\(self\), display-capture=\(self\)/);
+    assert.match((await fetch(`${origin}/`)).headers.get("permissions-policy") ?? "", /camera=\(\), microphone=\(\)/);
+    assert.equal((await fetch(`${origin}/api/team/workspaces`)).status, 401);
+    const register = await fetch(`${origin}/api/auth/login?register=1&return=/team`, { redirect: "manual" });
+    assert.match(register.headers.get("location") ?? "", /\/protocol\/openid-connect\/registrations\?/);
+
+    const alice = new FabricClient(origin);
+    const bob = new FabricClient(origin);
+    await alice.login("alice");
+    await bob.login("bob");
+    const ws = await alice.api("POST", "/api/team/workspaces", { name: "Acme" });
+    await bob.api("POST", "/api/team/join", { code: ws.inviteCode });
+    const bar = await bob.api("GET", `/api/team/workspaces/${ws.id}`);
+    const general = bar.channels.find((c: { name: string }) => c.name === "general");
+    assert.ok(general);
+
+    const events = await bob.raw("/api/team/events");
+    assert.equal(events.headers.get("content-type"), "text/event-stream; charset=utf-8");
+    const reader = events.body!.getReader();
+    const seen: string[] = [];
+    const pump = (async () => {
+      const decoder = new TextDecoder();
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        seen.push(decoder.decode(value));
+      }
+    })().catch(() => {});
+
+    const sent = await alice.api("POST", `/api/team/channels/${general.id}/messages`, { text: `${phrase} @bob` });
+    assert.deepEqual(sent.message.mentions.length, 1);
+    await alice.api("POST", `/api/team/channels/${general.id}/messages`, { text: "reply", parentId: sent.message.id });
+    await bob.api("POST", `/api/team/messages/${sent.message.id}/reactions`, { emoji: "🎉" });
+    const thread = await bob.api("GET", `/api/team/messages/${sent.message.id}/thread`);
+    assert.equal(thread.replies.length, 1);
+    assert.equal(thread.parent.reactions[0].emoji, "🎉");
+
+    const file = await alice.api("POST", `/api/team/channels/${general.id}/files`, { name: "notes.txt", mime: "text/plain", data: Buffer.from("file body").toString("base64") });
+    await alice.api("POST", `/api/team/channels/${general.id}/messages`, { text: "see file", fileIds: [file.id] });
+    const download = await bob.raw(`/api/team/files/${file.id}`);
+    assert.equal(download.status, 200);
+    assert.match(download.headers.get("content-disposition") ?? "", /attachment/);
+    assert.equal(await download.text(), "file body");
+    assert.match((await bob.raw(`/api/team/files/${file.id}?inline=1`)).headers.get("content-disposition") ?? "", /attachment/, "text files never play inline");
+    // Voice clips play inline in an <audio> element, still sandboxed.
+    const clip = await alice.api("POST", `/api/team/channels/${general.id}/files`, { name: "Voice clip 0:03.webm", mime: "audio/webm", data: Buffer.from([0x1a, 0x45, 0xdf, 0xa3, 1, 2, 3]).toString("base64") });
+    await alice.api("POST", `/api/team/channels/${general.id}/messages`, { text: "", fileIds: [clip.id] });
+    const played = await bob.raw(`/api/team/files/${clip.id}?inline=1`);
+    assert.equal(played.headers.get("content-type"), "audio/webm");
+    assert.match(played.headers.get("content-disposition") ?? "", /^inline/);
+    assert.match(played.headers.get("content-security-policy") ?? "", /sandbox/);
+
+    // An incoming webhook works with no session and no Origin; a wrong token is a plain 404.
+    const hook = await alice.api("POST", `/api/team/channels/${general.id}/webhooks`, { name: "CI" });
+    const hooked = await fetch(`${origin}${hook.path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "build passed" }) });
+    assert.equal(hooked.status, 200);
+    const hookMessage = await bob.api("GET", `/api/team/messages/${(await hooked.json()).messageId}`);
+    assert.equal(hookMessage.app.name, "CI");
+    const wrongToken = await fetch(`${origin}${hook.path.slice(0, -4)}AAAA`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "x" }) });
+    assert.equal(wrongToken.status, 404);
+
+    // Workspace export: a JSON download for admins only.
+    const exported = await alice.raw(`/api/team/workspaces/${ws.id}/export`);
+    assert.equal(exported.status, 200);
+    assert.match(exported.headers.get("content-disposition") ?? "", /^attachment; filename="acme-export-\d{4}-\d{2}-\d{2}\.json"$/);
+    assert.equal((await exported.json()).format, "fabric-teams-export/1");
+    assert.equal((await bob.raw(`/api/team/workspaces/${ws.id}/export`)).status, 403);
+
+    const found = await bob.api("GET", `/api/team/workspaces/${ws.id}/search?q=${encodeURIComponent(phrase)}`);
+    assert.equal(found.messages.length, 1);
+    const help = await bob.api("POST", `/api/team/channels/${general.id}/messages`, { text: "/help" });
+    assert.match(help.ephemeral, /remind/);
+
+    const forged = await fetch(`${origin}/api/team/workspaces`, { method: "POST", headers: { "content-type": "application/json", origin: "https://evil.example" }, body: "{}" });
+    assert.equal(forged.status, 401);
+
+    await new Promise((r) => setTimeout(r, 200));
+    const stream = seen.join("");
+    assert.match(stream, /"type":"message"/);
+    assert.match(stream, /"type":"reaction"/);
+    assert.equal(stream.includes(phrase), false, "live events carry ids, not text");
+    await reader.cancel();
+    await pump;
+
+    if (!child) throw new Error("server missing");
+    await stop(child);
+    child = undefined;
+    for (const suffix of ["", "-wal", "-shm"]) {
+      const f = join(dir, "fabric.sqlite") + suffix;
+      if (existsSync(f)) assert.equal(readFileSync(f).includes(phrase), false, suffix || "db");
+    }
+  } finally {
+    if (child) await stop(child);
+    await idp.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 function childEnv(extra: Record<string, string>): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env, ...extra };
   for (const key of Object.keys(env)) {
@@ -129,7 +251,9 @@ function startServer(env: NodeJS.ProcessEnv): Promise<ChildProcess> {
       settled = true;
       child.kill("SIGKILL");
       reject(new Error(`server did not listen\n${out}\n${err}`));
-    }, 10_000);
+      // CI runs every package's tests at once; a cold start (type stripping, first imports) can take
+      // well over 10 seconds there, and the server printed nothing because it was still starting.
+    }, 30_000);
     child.stdout?.on("data", (chunk: Buffer) => {
       out += chunk.toString();
       if (!settled && /FABRIC\+\+ listening on http:\/\/\S+/.test(out)) {

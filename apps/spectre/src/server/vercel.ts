@@ -1,12 +1,13 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { Ledger, signerFromPrivateKey } from "@infinitum/firmament";
-import { socialFromEnv } from "@infinitum/cid";
+import { cidSecretKeyForHost, socialFromEnv } from "@infinitum/cid";
 import { createCumulus, emptyCumulusStores } from "@infinitum/cumulus";
 import { SpectreCRM, emptyStore } from "../core/crm.ts";
 import { createApp } from "./app.ts";
 import { aiConfigFromEnv } from "./ai.ts";
 import { providersFromEnv } from "../core/messaging.ts";
-import { RemoteState, HttpGateway } from "./remote.ts";
+import { RemoteState, HttpGateway, type NexusGateway } from "./remote.ts";
+import { cidStorageFromEnv, suiteDocuments } from "./cid-store.ts";
 
 /**
  * +SPCTR on Vercel (serverless). All data lives in Supabase behind the private
@@ -14,15 +15,41 @@ import { RemoteState, HttpGateway } from "./remote.ts";
  *
  * Required environment variables:
  *   SPECTRE_ORIGIN         public URL, e.g. https://spectre.example.com (passkeys are bound to it)
+ *   SPECTRE_EXTRA_ORIGINS  optional, comma-separated mirrors under the SPECTRE_ORIGIN host, e.g.
+ *                          https://ru.id.cumuluscloud.app (CloudFront, for networks that throttle
+ *                          Cloudflare); passkeys work on them because they share its rpId
  *   FIRMAMENT_SIGNER_KEY   base64 PKCS#8 Ed25519 key that signs ledger entries (keep secret)
  *   NEXUS_STORE_URL        https://<project>.supabase.co/functions/v1/nexus-store
  *   NEXUS_STORE_KEY        gateway key; its SHA-256 is listed in nexus_gateway_keys
- * Optional: OMNIROUTE_API_KEY (or another open-model host), USE_METATRON, CUMULUS_ROOT_DOMAIN, CUMULUS_ID_HOST,
+ * Optional: the Workers AI binding `AI` (free tier, tried first on the Worker), OMNIROUTE_API_KEY
+ * or OMNIROUTE_BASE_URL (fallback), USE_METATRON, CUMULUS_ROOT_DOMAIN, CUMULUS_ID_HOST,
  * CUMULUS_KEYCLOAK_REALM, CUMULUS_CLOUD_HOST, CUMULUS_MAIL_HOST, CUMULUS_MAIL_ORIGIN,
- * and the social sign-in variables (see main.ts).
+ * and the social sign-in variables (see main.ts). CID_OIDC_SIGNING_KEY is optional; when it is
+ * unset, OpenID Connect stays off and sign-in still works. See docs/cumulus-id.md.
+ * CUMULUS_STORE=postgres (+ CID_DATABASE_URL) keeps Cumulus://ID in Postgres rows instead of the
+ * `cid` document; see cid-store.ts. Authenticator-app seeds are sealed at rest with CID_SECRET_KEY, or
+ * by default with a key derived from FIRMAMENT_SIGNER_KEY (see cidSecretKeyForHost).
  */
 
 process.env.USE_METATRON ??= "1";
+
+/** import.meta.url is not a URL inside a Workers bundle; static files never come from here there. */
+function publicDir(): string {
+  try {
+    return new URL("./public/", import.meta.url).pathname;
+  } catch {
+    return "/public/";
+  }
+}
+
+let gatewayOverride: NexusGateway | undefined;
+/**
+ * Keep state somewhere other than the nexus-store function (the Cloudflare Worker passes a
+ * Durable Object). Call before the first request. NEXUS_STORE_URL/KEY are then not needed.
+ */
+export function useGateway(gateway: NexusGateway) {
+  gatewayOverride = gateway;
+}
 
 function required(name: string): string {
   const v = process.env[name];
@@ -30,24 +57,38 @@ function required(name: string): string {
   return v;
 }
 
+/** Parses SPECTRE_EXTRA_ORIGINS. Each mirror must be a subdomain of the rpId host, or its passkeys would not work. */
+export function extraOrigins(value: string | undefined, rpId: string): string[] {
+  return (value ?? "")
+    .split(",")
+    .map((o) => o.trim().replace(/\/$/, ""))
+    .filter(Boolean)
+    .map((o) => {
+      if (!new URL(o).hostname.endsWith(`.${rpId}`)) throw new Error(`SPECTRE_EXTRA_ORIGINS: ${o} is not under ${rpId}`);
+      return o;
+    });
+}
+
 function build() {
   const origin = required("SPECTRE_ORIGIN").replace(/\/$/, "");
+  const rpId = new URL(origin).hostname;
+  const origins = [origin, ...extraOrigins(process.env.SPECTRE_EXTRA_ORIGINS, rpId)];
   const signer = signerFromPrivateKey(required("FIRMAMENT_SIGNER_KEY"));
   const cumulusStores = emptyCumulusStores();
   const spectreStore = emptyStore();
-  // The CID, Mail, Wallet and quota docs are shared by every hosted Infinitum product,
-  // so an account made here has the same mailbox and wallet in Cumulus://Mail.
-  const state = new RemoteState(new HttpGateway(required("NEXUS_STORE_URL"), required("NEXUS_STORE_KEY")), {
-    cid: cumulusStores.cid,
-    spectre: spectreStore,
-    "cumulus-mail": cumulusStores.mail,
-    "firm-wallet": cumulusStores.wallet,
-    "cumulus-quota": cumulusStores.quota,
-    "cumulus-suite": cumulusStores.suite,
-  });
+  // The CID, Mail, Wallet and quota data are shared by every hosted Infinitum product (as documents, or
+  // as rows), so an account made here has the same mailbox and wallet in Cumulus://Mail.
+  const gateway = gatewayOverride ?? new HttpGateway(required("NEXUS_STORE_URL"), required("NEXUS_STORE_KEY"));
+  const cidStorage = cidStorageFromEnv(process.env, gateway);
+  // CUMULUS_ROWS=mail,wallet,quota keeps those as rows here too (the same rows Mail uses), so their
+  // documents aren't loaded or saved. Drive isn't served here.
+  if (cidStorage.products.includes("drive")) throw new Error("CUMULUS_ROWS=drive is for the Mail app (Cumulus://Drive isn't served by +SPCTR)");
+  const state = new RemoteState(gateway, { ...suiteDocuments(cidStorage, cumulusStores), spectre: spectreStore });
+  if (cidStorage.participant) state.participants.push(cidStorage.participant);
+  if (cidStorage.rows) state.rows = cidStorage.rows;
   const ledger = new Ledger(state.ledgerStore, { authorizedSigners: [signer.publicKey] });
   const suite = createCumulus({
-    ledger, signer, rpId: new URL(origin).hostname, origins: [origin], stores: cumulusStores,
+    ledger, signer, rpId, origins, stores: cumulusStores, repository: cidStorage.repository, repositories: cidStorage.repositories, secretKey: cidSecretKeyForHost(),
     social: { providers: socialFromEnv() }, mailOrigin: process.env.CUMULUS_MAIL_ORIGIN,
   });
   const cid = suite.cid;
@@ -70,9 +111,10 @@ function build() {
     suite,
     crm,
     ai: aiConfigFromEnv(),
-    publicDir: new URL("./public/", import.meta.url).pathname, // static files are served by Vercel's CDN
+    publicDir: publicDir(), // static files are served by the CDN (Vercel) or Workers static assets
     secureCookies: origin.startsWith("https://"),
     origin,
+    mirrorOrigins: origins.slice(1),
     providers: providersFromEnv(),
     cronSecret: process.env.CRON_SECRET,
     twilioAuthToken: process.env.TWILIO_AUTH_TOKEN,

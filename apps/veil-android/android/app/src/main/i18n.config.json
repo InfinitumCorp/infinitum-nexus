@@ -1,0 +1,13 @@
+{
+ "context": "VEIL</> Android VPN lab app: connect a WireGuard tunnel to an operator-provided peer. Precise technical wording.",
+ "keep": [
+  "VEIL",
+  "IPv4",
+  "IPv6",
+  "DNS",
+  "0.0.0.0/0",
+  "::/0",
+  "infinitumveilvpn.app",
+  "WireGuard"
+ ]
+}

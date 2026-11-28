@@ -5,6 +5,7 @@
  *   GET  /            the SCALVS app (HTML). JSON index still requires a token.
  *   GET  /app.js
  *   GET  /app.css
+ *   GET  /firm-suite.js, /firm-suite.css   (FIRM Suite embed, public)
  *   GET  /v1/agents
  *   POST /v1/agents
  *   GET  /v1/teams
@@ -30,7 +31,9 @@ import { sharedRouter } from "@infinitum/ai";
 import { LlmError, runLlmAgent, type LlmTool } from "./llm.ts";
 import { FirmamentVault } from "./memory-firmament.ts";
 import { Team } from "./team.ts";
-import { defaultTools } from "./tools.ts";
+import { defaultTools, searchFromProcessEnv } from "./tools.ts";
+import type { Search } from "@infinitum/ai/search";
+import { createHash } from "node:crypto";
 
 const BODY_LIMIT = 1_000_000;
 const TEXT_LIMIT = 16_000;
@@ -41,6 +44,8 @@ const publicDir = join(dirname(fileURLToPath(import.meta.url)), "..", "public");
 const indexHtml = readFileSync(join(publicDir, "index.html"), "utf8");
 const appJs = readFileSync(join(publicDir, "app.js"), "utf8");
 const appCss = readFileSync(join(publicDir, "app.css"), "utf8");
+const firmSuiteJs = readFileSync(join(publicDir, "firm-suite.js"), "utf8");
+const firmSuiteCss = readFileSync(join(publicDir, "firm-suite.css"), "utf8");
 
 interface SavedAgent {
   id: string;
@@ -63,6 +68,8 @@ export interface ScalvsServerOptions {
   /** Discovery and JWKS fetch. Tests pass a fake so the issuer is never called. */
   fetchImpl?: typeof fetch;
   now?: () => Date;
+  /** Infinitum Search for POST /v1/search. Defaults to the environment's engines; null turns it off. */
+  search?: Search | null;
 }
 
 class HttpError extends Error {
@@ -82,8 +89,10 @@ export function createScalvsServer(options: ScalvsServerOptions) {
   const agents = new Map<string, SavedAgent>();
   const teams = new Map<string, SavedTeam>();
 
+  const search = options.search === undefined ? searchFromProcessEnv() : options.search;
+  const searchTimes = new Map<string, number[]>();
   return createServer((req, res) => {
-    void handle(req, res, { origin, vault, auth, agents, teams }).catch((err: unknown) => {
+    void handle(req, res, { origin, vault, auth, agents, teams, search, searchTimes }).catch((err: unknown) => {
       if (!res.headersSent) send(res, 500, { error: "internal error" }, origin);
       console.error(JSON.stringify({ event: "error", message: err instanceof Error ? err.message : "error" }));
     });
@@ -99,6 +108,8 @@ async function handle(
     auth: CumulusAuth;
     agents: Map<string, SavedAgent>;
     teams: Map<string, SavedTeam>;
+    search: Search | null;
+    searchTimes: Map<string, number[]>;
   },
 ) {
   const { origin, vault } = deps;
@@ -107,6 +118,8 @@ async function handle(
     const publicApp = req.method === "GET" && (
       url.pathname === "/app.js"
       || url.pathname === "/app.css"
+      || url.pathname === "/firm-suite.js"
+      || url.pathname === "/firm-suite.css"
       || (url.pathname === "/" && wantsHtml(req))
     );
     if (!(req.method === "GET" && url.pathname === "/health") && !publicApp) {
@@ -149,6 +162,14 @@ async function handle(
       send(res, 200, appCss, origin, "text/css; charset=utf-8");
       return;
     }
+    if (url.pathname === "/firm-suite.js" && req.method === "GET") {
+      send(res, 200, firmSuiteJs, origin, "text/javascript; charset=utf-8");
+      return;
+    }
+    if (url.pathname === "/firm-suite.css" && req.method === "GET") {
+      send(res, 200, firmSuiteCss, origin, "text/css; charset=utf-8");
+      return;
+    }
 
     if (url.pathname === "/v1/agents" && req.method === "GET") {
       send(res, 200, [...deps.agents.values()], origin);
@@ -172,6 +193,29 @@ async function handle(
       if (deps.teams.has(team.id)) throw new HttpError(409, "team already exists");
       deps.teams.set(team.id, team);
       send(res, 201, team, origin);
+      return;
+    }
+
+    // Infinitum Search: a short answer with numbered citations [n] and its sources, Perplexity-style.
+    if (url.pathname === "/v1/search") {
+      if (req.method === "GET") {
+        send(res, 200, { connected: Boolean(deps.search), engines: deps.search?.engines ?? [], answers: Boolean(deps.search?.answers) }, origin);
+        return;
+      }
+      if (req.method !== "POST") throw new HttpError(405, "method not allowed", { allow: "GET, POST" });
+      if (!deps.search) throw new HttpError(503, "Search isn't connected. Set SEARXNG_URL, YANDEX_SEARCH_API_KEY + YANDEX_FOLDER_ID, or BRAVE_SEARCH_API_KEY.");
+      const body = asRecord(await readJson(req));
+      const query = requireText(body.query, "query").slice(0, 1000);
+      // 12 searches a minute per signed-in session (keyed by a hash of its bearer token).
+      const who = createHash("sha256").update(String(req.headers.authorization ?? "")).digest("hex");
+      const now = Date.now();
+      const times = (deps.searchTimes.get(who) ?? []).filter((t) => now - t < 60_000);
+      if (times.length >= 12) throw new HttpError(429, "Too many searches. Try again in a minute.", { "retry-after": "60" });
+      times.push(now);
+      deps.searchTimes.set(who, times);
+      if (deps.searchTimes.size > 10_000) deps.searchTimes.clear();
+      const r = await deps.search.ask(query);
+      send(res, 200, { query: r.query, answer: r.answer, cited: r.cited, sources: r.sources, engine: r.engine, read: r.read }, origin);
       return;
     }
 

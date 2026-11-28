@@ -1,0 +1,618 @@
+# Product <-> data platform contracts: collecting events, registering datasets in the
+# catalog, and searching authorized events. Products call these with a service token
+# issued per product; the acting person is identified by their Cumulus ID (cid) inside
+# the request, never by a separate login.
+types:
+  definitions:
+    default-package: app.infinitum.cumulus.data.platform
+    objects:
+      ProductId:
+        docs: Product slug, e.g. spectre, cumulus-mail, fabric, architect.
+        alias: string
+      TenantId:
+        alias: string
+      Cid:
+        docs: Cumulus ID of the person the event is about. Pseudonymized before analytics.
+        alias: string
+
+      Consent:
+        values:
+          - value: ESSENTIAL
+            docs: Needed to run the service. Never used for analytics or AI training.
+          - value: ANALYTICS
+          - value: AI_IMPROVEMENT
+          - value: EXCHANGE
+            docs: The tenant opted in to sharing aggregates through the Data Exchange.
+      Region:
+        docs: Where the record must be stored. EU data stays in Ireland; RU data stays in Yandex Cloud.
+        values: [EU, US, RU]
+
+      EventEnvelope:
+        fields:
+          eventId:
+            type: uuid
+            docs: Idempotency key. A repeated eventId is accepted once.
+          product: ProductId
+          tenant: TenantId
+          cid: optional<Cid>
+          eventType:
+            type: string
+            docs: Dotted name registered in the catalog, e.g. spectre.deal.stage_changed.
+          schemaVersion: integer
+          occurredAt: datetime
+          region: Region
+          consent: set<Consent>
+          objectType: optional<string>
+          objectId: optional<string>
+          payload:
+            type: map<string, any>
+            docs: Must match the registered schema. Free-text fields are redacted before analytics.
+      IngestRequest:
+        fields:
+          events: list<EventEnvelope>
+      IngestResponse:
+        fields:
+          accepted: integer
+          duplicates: integer
+          rejected: list<EventRejection>
+      EventRejection:
+        fields:
+          eventId: uuid
+          reason: string
+
+      Classification:
+        values: [PUBLIC, INTERNAL, CONFIDENTIAL, PERSONAL, SPECIAL_CATEGORY]
+      FieldSpec:
+        fields:
+          name: string
+          type: string
+          classification: Classification
+          rule:
+            type: string
+            docs: KEEP, TEXT, PSEUDONYMIZE or DROP (privacy FieldRule), applied on every export.
+          description: optional<string>
+      DatasetSpec:
+        docs: Registered in DataHub as a dataset with owners, glossary terms, tags and lineage.
+        fields:
+          name:
+            type: string
+            docs: product.entity, e.g. spectre.deals.
+          product: ProductId
+          owners:
+            type: list<string>
+            docs: Owner CIDs or team names.
+          description: string
+          fields: list<FieldSpec>
+          upstream:
+            type: list<string>
+            docs: Names of datasets this one is derived from (lineage).
+          retentionDays: integer
+          region: Region
+          glossaryTerms: list<string>
+          quality:
+            type: optional<list<DatasetCheck>>
+            docs: Deequ-style checks. Per-event checks reject failing events; batch checks are measured into quality runs.
+      DatasetCheck:
+        docs: >-
+          completeness (min 1.0 = required field, enforced per event; below 1.0 = measured per
+          batch), range and allowed_values (enforced), freshness on occurredAt or a datetime
+          field (enforced), uniqueness over columns and anomaly on a metric (measured).
+        fields:
+          kind: string
+          column: optional<string>
+          columns: optional<list<string>>
+          min: optional<double>
+          max: optional<double>
+          values: optional<list<any>>
+          maxAgeHours: optional<double>
+          metric:
+            type: optional<string>
+            docs: For anomaly, e.g. size or completeness:amount.
+          maxRelativeChange: optional<double>
+      DatasetCheckResult:
+        fields:
+          kind: string
+          target: string
+          ok: boolean
+          metric: double
+          message: string
+      QualityRun:
+        docs: One ingest batch's measured checks. Numbers and check names only, never event values.
+        fields:
+          dataset: string
+          checkedAt: datetime
+          rows: integer
+          ok: boolean
+          metrics: map<string, double>
+          results: list<DatasetCheckResult>
+      QualityRunsResponse:
+        fields:
+          runs: list<QualityRun>
+      DatasetRef:
+        fields:
+          name: string
+          urn:
+            type: string
+            docs: DataHub URN, e.g. urn:li:dataset:(urn:li:dataPlatform:cumulus,spectre.deals,PROD).
+
+      SearchQuery:
+        fields:
+          tenant: TenantId
+          product: optional<ProductId>
+          eventType: optional<string>
+          objectType: optional<string>
+          objectId: optional<string>
+          from: datetime
+          to: datetime
+          text: optional<string>
+          pageSize: optional<integer>
+          pageToken: optional<string>
+      SearchHit:
+        fields:
+          eventId: uuid
+          product: ProductId
+          eventType: string
+          occurredAt: datetime
+          objectType: optional<string>
+          objectId: optional<string>
+          payload:
+            type: map<string, any>
+            docs: Redacted for the caller's role.
+      SearchResponse:
+        fields:
+          hits: list<SearchHit>
+          nextPageToken: optional<string>
+
+      ErasureRequest:
+        fields:
+          cid:
+            type: Cid
+            docs: The raw Cumulus ID. The gateway pseudonymizes it the same way as at collection; it is never stored or logged.
+      ErasureResponse:
+        fields:
+          deleted:
+            type: integer
+            docs: Events and owned documents deleted. 0 when there were none; repeating the call is safe.
+
+      ReleaseMetric:
+        values:
+          - value: COUNT
+            docs: Distinct people (Cumulus ID pseudonyms) per group.
+          - value: SUM
+            docs: Sum of valueField per group, each person's total clamped to [lower, upper].
+      StoredReleaseRequest:
+        docs: >-
+          A differentially private aggregate over the caller's stored events of one dataset.
+          Only events with a Cumulus ID and ANALYTICS or EXCHANGE consent are counted.
+        fields:
+          from: datetime
+          to:
+            type: datetime
+            docs: Exclusive. The window is at most 366 days.
+          metric: ReleaseMetric
+          groupBy:
+            type: string
+            docs: A payload field with rule KEEP that is not PERSONAL or SPECIAL_CATEGORY.
+          publicGroups:
+            type: list<string>
+            docs: The group values to release, chosen without looking at the data (at most 200).
+          valueField:
+            type: optional<string>
+            docs: Numeric KEEP field to sum. Required for SUM.
+          lower: optional<double>
+          upper: optional<double>
+          epsilon:
+            type: double
+            docs: Charged to the dataset's privacy budget before any noise is drawn. At most 1.0 per release.
+          maxPartitions:
+            type: optional<integer>
+            docs: Groups one person may count in (1 to 10, default 1).
+          suppressBelow:
+            type: optional<double>
+            docs: Noisy groups under this value are listed in suppressed instead of groups.
+      PrivacyBudgetStatus:
+        fields:
+          dataset: string
+          totalEpsilon:
+            type: double
+            docs: PRIVACY_TOTAL_EPSILON, the lifetime budget of every dataset.
+          spentEpsilon: double
+          remainingEpsilon: double
+          maxEpsilonPerRelease: double
+      StoredReleaseResponse:
+        fields:
+          dataset: string
+          metric: ReleaseMetric
+          from: datetime
+          to: datetime
+          epsilon: double
+          groups: map<string, double>
+          suppressed: list<string>
+          remainingEpsilon: double
+
+      GuestTokenRequest:
+        fields:
+          tenant:
+            type: TenantId
+            docs: Every chart in the dashboard is filtered to this tenant (and the calling product).
+          cid:
+            type: Cid
+            docs: The signed-in viewer's Cumulus ID. Superset sees only its pseudonym.
+      GuestTokenResponse:
+        fields:
+          token:
+            type: string
+            docs: Pass to the Superset embedded SDK (fetchGuestToken). Short-lived; ask again when it expires.
+          expiresAt: datetime
+
+      DocumentUpsert:
+        docs: Title and body are redacted (Presidio) before storage; search runs on the redacted text.
+        fields:
+          tenant: TenantId
+          title:
+            type: string
+            docs: At most 300 characters.
+          body:
+            type: string
+            docs: Plain text, at most 200,000 characters.
+          url:
+            type: optional<string>
+            docs: An https:// link back to the document in the product.
+          labels:
+            type: optional<list<string>>
+            docs: At most 20 lower-case labels to filter on.
+          ownerCid:
+            type: optional<Cid>
+            docs: The person the document belongs to. Stored as a pseudonym; used for erasure and visibility.
+          viewers:
+            type: optional<list<Cid>>
+            docs: >-
+              If set, only these people (and the owner) find the document. If not set, everyone
+              searching the tenant does. At most 500.
+          updatedAt: datetime
+          expiresAt:
+            type: optional<datetime>
+            docs: >-
+              When to forget the document: it stops matching searches then, and the daily
+              retention purge deletes it. In the future, at most 3650 days ahead.
+      DocumentRef:
+        fields:
+          collection: string
+          documentId: string
+      DocumentRemoveRequest:
+        fields:
+          tenant: TenantId
+      DocumentBatchItem:
+        docs: One document of a batch; the fields of DocumentUpsert plus its documentId.
+        fields:
+          documentId: string
+          tenant: TenantId
+          title: string
+          body: string
+          url: optional<string>
+          labels: optional<list<string>>
+          ownerCid: optional<Cid>
+          viewers: optional<list<Cid>>
+          updatedAt: datetime
+          expiresAt: optional<datetime>
+      DocumentBatch:
+        fields:
+          documents:
+            type: list<DocumentBatchItem>
+            docs: 1 to 100 documents, each documentId once. All are validated before any is stored.
+      DocumentBatchResponse:
+        fields:
+          collection: string
+          stored: integer
+          created:
+            type: integer
+            docs: How many of the stored documents were new.
+      DocumentRemoveResponse:
+        fields:
+          deleted:
+            type: integer
+            docs: 1 if the document existed, else 0. Repeating the call is safe.
+      DocumentQuery:
+        fields:
+          tenant: TenantId
+          text:
+            type: string
+            docs: Web-search syntax ("exact phrase", -excluded). At most 500 characters.
+          collections: optional<list<string>>
+          labels:
+            type: optional<list<string>>
+            docs: Every label must be on the document.
+          viewer:
+            type: optional<Cid>
+            docs: The person searching. Without it, only documents with no viewers list are found.
+          pageSize:
+            type: optional<integer>
+            docs: 1 to 50, default 20.
+      DocumentHit:
+        fields:
+          collection: string
+          documentId: string
+          title: string
+          snippet: string
+          url: optional<string>
+          labels: list<string>
+          updatedAt: datetime
+      DocumentSearchResponse:
+        fields:
+          hits:
+            type: list<DocumentHit>
+            docs: Best match first.
+      DocumentUsage:
+        fields:
+          documents:
+            type: integer
+            docs: Documents this product has stored, in every collection and tenant.
+          limit:
+            type: optional<integer>
+            docs: PLATFORM_MAX_DOCUMENTS_PER_PRODUCT, or absent when there is no cap.
+
+    errors:
+      SchemaMismatch:
+        namespace: DataPlatform
+        code: INVALID_ARGUMENT
+        safe-args:
+          eventType: string
+      DatasetNotFound:
+        namespace: DataPlatform
+        code: NOT_FOUND
+        safe-args:
+          name: string
+      TenantNotAuthorized:
+        namespace: DataPlatform
+        code: PERMISSION_DENIED
+        docs: A product may only touch its own datasets and events. Military and defense products are excluded.
+      InvalidArgument:
+        namespace: DataPlatform
+        code: INVALID_ARGUMENT
+      CatalogUnavailable:
+        namespace: DataPlatform
+        code: INTERNAL
+        docs: The spec was saved, but DataHub did not accept it. Repeat the PUT; it is idempotent.
+      SearchUnavailable:
+        namespace: DataPlatform
+        code: INTERNAL
+      NotConfigured:
+        namespace: DataPlatform
+        code: INTERNAL
+        docs: The gateway runs without PLATFORM_PRODUCT_TOKENS, so these services are off.
+      QualityCheckFailed:
+        namespace: DataPlatform
+        code: INVALID_ARGUMENT
+        docs: Reported per event in IngestResponse.rejected; the event was not stored.
+        safe-args:
+          eventType: string
+      StorageQuotaReached:
+        namespace: DataPlatform
+        code: INTERNAL
+        docs: >-
+          HTTP 503 with Retry-After. The event store reached PLATFORM_STORAGE_LIMIT_MB (450 MB by
+          default on the Supabase free plan). Keep the events and send them again later. Document
+          puts are refused the same way; removing documents and erasure still work.
+      DocumentQuotaReached:
+        namespace: DataPlatform
+        code: CONFLICT
+        docs: >-
+          HTTP 409. The put would take the product over PLATFORM_MAX_DOCUMENTS_PER_PRODUCT (20,000
+          by default on the free tier). Replacing documents the product already has still works;
+          remove documents or let them expire to make room. Nothing in the request was stored.
+        safe-args:
+          product: ProductId
+          limit: integer
+      IngestQuotaExceeded:
+        namespace: DataPlatform
+        code: CUSTOM_CLIENT
+        docs: HTTP 429 with Retry-After (seconds to the next UTC day). The product used its PLATFORM_DAILY_EVENT_QUOTA.
+        safe-args:
+          product: ProductId
+      PrivacyBudgetExceeded:
+        namespace: DataPlatform
+        code: CONFLICT
+        docs: The dataset has less epsilon left than the release asks for. Nothing was charged.
+        safe-args:
+          name: string
+      DpLibraryUnavailable:
+        namespace: DataPlatform
+        code: INTERNAL
+        docs: The gateway runs without Google's DP library (python-dp); run it in the Linux container.
+
+      DashboardNotFound:
+        namespace: DataPlatform
+        code: NOT_FOUND
+        docs: The dashboard is not registered for embedding in the calling product (PLATFORM_EMBED_DASHBOARDS).
+        safe-args:
+          dashboardId: string
+
+services:
+  CollectionService:
+    name: Collection Service
+    package: app.infinitum.cumulus.data.platform
+    base-path: /api/v1/collect
+    default-auth: header
+    docs: Products send events here. Each event is checked against its registered schema and consent before storage.
+    endpoints:
+      ingest:
+        http: POST /events
+        args:
+          request:
+            type: IngestRequest
+            param-type: body
+        returns: IngestResponse
+
+  CatalogService:
+    name: Catalog Service
+    package: app.infinitum.cumulus.data.platform
+    base-path: /api/v1/catalog
+    default-auth: header
+    docs: Dataset inventory, ownership, classification and lineage, stored in DataHub.
+    endpoints:
+      registerDataset:
+        http: PUT /datasets/{name}
+        args:
+          name: string
+          spec:
+            type: DatasetSpec
+            param-type: body
+        returns: DatasetRef
+      getDataset:
+        http: GET /datasets/{name}
+        args:
+          name: string
+        returns: DatasetSpec
+
+  SearchService:
+    name: Search Service
+    package: app.infinitum.cumulus.data.platform
+    base-path: /api/v1/search
+    default-auth: header
+    docs: Search authorized events by time, product, tenant and object, backed by Postgres full-text search (free tier) or OpenSearch.
+    endpoints:
+      search:
+        http: POST /events
+        args:
+          query:
+            type: SearchQuery
+            param-type: body
+        returns: SearchResponse
+
+  ErasureService:
+    name: Erasure Service
+    package: app.infinitum.cumulus.data.platform
+    base-path: /api/v1/erasure
+    default-auth: header
+    docs: >-
+      Right to erasure (GDPR Art. 17). Deletes stored events about one person, matched by the
+      pseudonym of their Cumulus ID. Idempotent.
+    endpoints:
+      eraseSubject:
+        http: POST /subjects
+        docs: With a product token. Deletes the calling product's events about this person, in every tenant.
+        args:
+          request:
+            type: ErasureRequest
+            param-type: body
+        returns: ErasureResponse
+      eraseSubjectEverywhere:
+        http: POST /subjects/all-products
+        docs: >-
+          With the pipeline token (PRIVACY_GATEWAY_TOKEN). Deletes the person's events from every
+          product, for when they delete their Cumulus ID.
+        args:
+          request:
+            type: ErasureRequest
+            param-type: body
+        returns: ErasureResponse
+
+  QualityService:
+    name: Quality Service
+    package: app.infinitum.cumulus.data.platform
+    base-path: /api/v1/quality
+    default-auth: header
+    docs: Data-quality runs measured at ingest for a product's own datasets.
+    endpoints:
+      getRuns:
+        http: GET /datasets/{name}/runs
+        docs: The 30 newest runs, newest first.
+        args:
+          name: string
+        returns: QualityRunsResponse
+
+  ReleaseService:
+    name: Release Service
+    package: app.infinitum.cumulus.data.platform
+    base-path: /api/v1/releases
+    default-auth: header
+    docs: >-
+      Differentially private statistics over a product's own stored events, for figures that
+      leave the tenant: Data Exchange samples, public statistics and benchmark reports.
+    endpoints:
+      releaseDataset:
+        http: POST /datasets/{name}
+        args:
+          name: string
+          request:
+            type: StoredReleaseRequest
+            param-type: body
+        returns: StoredReleaseResponse
+      getBudget:
+        http: GET /datasets/{name}/budget
+        docs: How much epsilon the dataset has left. Reading it spends nothing.
+        args:
+          name: string
+        returns: PrivacyBudgetStatus
+
+  EmbedService:
+    name: Embed Service
+    package: app.infinitum.cumulus.data.platform
+    base-path: /api/v1/embed
+    default-auth: header
+    docs: >-
+      Superset guest tokens for dashboards embedded in a product. The product signs its user in
+      with Cumulus ID first; viewers never see a Superset login.
+    endpoints:
+      createGuestToken:
+        http: POST /dashboards/{dashboardId}/guest-token
+        args:
+          dashboardId: string
+          request:
+            type: GuestTokenRequest
+            param-type: body
+        returns: GuestTokenResponse
+
+  DocumentService:
+    name: Document Service
+    package: app.infinitum.cumulus.data.platform
+    base-path: /api/v1/documents
+    default-auth: header
+    docs: >-
+      Tenant-scoped full-text search over a product's documents, on Postgres full-text search
+      (free tier). Personal data in titles and bodies is redacted before storage.
+    endpoints:
+      putDocument:
+        http: PUT /collections/{collection}/documents/{documentId}
+        docs: >-
+          Insert or replace. 503 StorageQuotaReached with Retry-After when the data store is full;
+          409 DocumentQuotaReached when a new document would take the product over its cap.
+        args:
+          collection: string
+          documentId: string
+          document:
+            type: DocumentUpsert
+            param-type: body
+        returns: DocumentRef
+      putDocuments:
+        http: POST /collections/{collection}/batch
+        docs: >-
+          Insert or replace up to 100 documents of one collection in one call. A bad document
+          rejects the batch (InvalidArgument names its position); nothing is stored then.
+          503 StorageQuotaReached when the data store is full.
+        args:
+          collection: string
+          batch:
+            type: DocumentBatch
+            param-type: body
+        returns: DocumentBatchResponse
+      removeDocument:
+        http: POST /collections/{collection}/documents/{documentId}/remove
+        args:
+          collection: string
+          documentId: string
+          request:
+            type: DocumentRemoveRequest
+            param-type: body
+        returns: DocumentRemoveResponse
+      searchDocuments:
+        http: POST /search
+        args:
+          query:
+            type: DocumentQuery
+            param-type: body
+        returns: DocumentSearchResponse
+      getDocumentUsage:
+        http: GET /usage
+        docs: How close the calling product is to its document cap. Reading it changes nothing.
+        returns: DocumentUsage

@@ -59,24 +59,42 @@ export interface RevenueClientOptions {
   apiKey?: string;
   baseUrl?: string;
   fetch?: Fetch;
+  /**
+   * Server-side partner key (the revenue Worker's CID_PARTNER_KEY). With it, the hub acts for a
+   * Cumulus ID through the revenue API's own Cumulus ID mapping (`asCid`): one billing org per person,
+   * shared with product apps. Never send it to a browser.
+   */
+  cidPartnerKey?: string;
+  /** Extra headers on every request (used by asCid). */
+  headers?: Record<string, string>;
 }
 
 export class RevenueClient {
   readonly baseUrl: string;
   private readonly apiKey?: string;
   private readonly fetchFn: Fetch;
+  readonly cidPartnerKey?: string;
+  private readonly headers: Record<string, string>;
 
   constructor(opts: RevenueClientOptions = {}) {
     this.baseUrl = (opts.baseUrl ?? REVENUE_API_URL).replace(/\/+$/, "");
     this.apiKey = opts.apiKey;
     this.fetchFn = opts.fetch ?? ((i, init) => globalThis.fetch(i, init));
+    this.cidPartnerKey = opts.cidPartnerKey && opts.cidPartnerKey.length >= 32 ? opts.cidPartnerKey : undefined;
+    this.headers = opts.headers ?? {};
   }
 
   /** The same client acting for another org. */
-  withApiKey(apiKey: string) { return new RevenueClient({ apiKey, baseUrl: this.baseUrl, fetch: this.fetchFn }); }
+  withApiKey(apiKey: string) { return new RevenueClient({ apiKey, baseUrl: this.baseUrl, fetch: this.fetchFn, cidPartnerKey: this.cidPartnerKey }); }
 
-  private async req<T>(method: string, path: string, body?: unknown): Promise<T> {
-    const headers: Record<string, string> = {};
+  /** The same client acting for one Cumulus ID (needs cidPartnerKey). */
+  asCid(cid: string) {
+    if (!this.cidPartnerKey) throw new Error("asCid needs cidPartnerKey");
+    return new RevenueClient({ apiKey: this.cidPartnerKey, baseUrl: this.baseUrl, fetch: this.fetchFn, cidPartnerKey: this.cidPartnerKey, headers: { "x-cumulus-id": cid } });
+  }
+
+  private async req<T>(method: string, path: string, body?: unknown, extra: Record<string, string> = {}): Promise<T> {
+    const headers: Record<string, string> = { ...this.headers, ...extra };
     if (body !== undefined) headers["content-type"] = "application/json";
     if (this.apiKey) headers.authorization = `Bearer ${this.apiKey}`;
     const res = await this.fetchFn(`${this.baseUrl}${path}`, {
@@ -100,6 +118,17 @@ export class RevenueClient {
   }
 
   entitlements() { return this.req<Entitlements>("GET", "/v1/me/entitlements"); }
+
+  /** Hand this org (bound by its API key) to a Cumulus ID, so the revenue API's mapping finds it. */
+  linkCid(cid: string) {
+    if (!this.cidPartnerKey) throw new Error("linkCid needs cidPartnerKey");
+    return this.req<{ linked: boolean; orgId: string }>("POST", "/v1/me/cid-link", undefined, { "x-cid-partner-key": this.cidPartnerKey, "x-cumulus-id": cid });
+  }
+
+  /** Rename the org or switch it between individual and business (needed before business-only plans). */
+  updateOrg(input: { name?: string; kind?: "individual" | "business" }) {
+    return this.req<{ id: string; name: string; kind: OrgKind }>("POST", "/v1/me/org", input);
+  }
 
   /** Stripe Checkout for a subscription. `returnUrl` must be on an Infinitum product domain. */
   subscriptionCheckout(input: { planId: string; quantity?: number; returnUrl?: string }) {

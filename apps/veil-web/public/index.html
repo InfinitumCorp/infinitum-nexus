@@ -10,6 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icons/icon-192.png" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <link rel="stylesheet" href="firm-suite.css" />
   <style>
     /* Standard Infinitum White, as on VEIL Phase I's start page (veil-chrome/src/shared/veil.css):
        white, quiet, Helvetica Neue at a regular weight, one coloured dot beside "Anonymous". */
@@ -34,13 +35,11 @@
     .brand sup { font-size: .5em; letter-spacing: 0; margin-left: 1px; align-self: flex-start; margin-top: 15px; }
     .spacer { flex: 1; }
     .top-links { display: flex; align-items: center; gap: 22px; }
-    .nav-link, .signin { position: relative; padding: 8px 0; font-size: 13px; color: var(--ink); text-decoration: none; white-space: nowrap; background: none; border: 0; }
-    .nav-link::after, .signin::after, .app-link::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: var(--ink); transform: scaleX(0); transition: transform .15s ease; }
+    .nav-link { position: relative; padding: 8px 0; font-size: 13px; color: var(--ink); text-decoration: none; white-space: nowrap; background: none; border: 0; }
+    .nav-link::after, .app-link::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: var(--ink); transform: scaleX(0); transition: transform .15s ease; }
     .nav-link:hover::after, .nav-link:focus-visible::after, .nav-link[aria-expanded="true"]::after,
-    .signin:hover::after, .signin:focus-visible::after { transform: scaleX(1); }
     .apps-menu { position: relative; }
     .apps-panel { position: absolute; top: 40px; left: -12px; z-index: 10; width: 300px; display: flex; flex-direction: column; padding: 8px; background: #fff; border: 1px solid var(--rule); border-radius: 4px; box-shadow: 0 8px 28px rgba(17, 24, 32, .12); }
-    .signin-panel { left: auto; right: -12px; width: 260px; }
     .menu-app { display: flex; flex-direction: column; gap: 1px; padding: 9px 12px; border-radius: 3px; text-decoration: none; }
     .menu-app:hover, .menu-app:focus-visible { background: var(--hover); }
     .menu-app-name { font-size: 14px; }
@@ -65,6 +64,7 @@
 
     /* Panels that open under the bookmarks */
     .panel { margin-top: 20px; padding: 16px; border: 1px solid var(--rule); border-radius: 2px; font-size: 13px; }
+    firm-suite.firm { margin-top: 20px; }
     .panel h2 { font-size: 14px; font-weight: 400; margin: 0 0 6px; }
     .panel p { margin: 0 0 10px; color: var(--ink-quiet); }
     .panel p:last-child { margin-bottom: 0; }
@@ -76,6 +76,8 @@
     .app-link:hover::after, .app-link:focus-visible::after { transform: scaleX(1); }
     footer { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 6px 16px; margin: 0 14px; padding: 14px 0 max(14px, env(safe-area-inset-bottom, 0px)); border-top: 1px solid var(--rule); font-size: 12px; }
     .quiet { color: var(--ink-quiet); }
+    .footer-left { display: inline-flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .footer-left .lang-switch { font-size: 12px; padding: 2px 4px; }
     .footer-right { display: inline-flex; align-items: center; gap: 18px; flex-wrap: wrap; }
     .footer-link { color: var(--ink); text-decoration: none; background: none; border: 0; padding: 0; font-size: 12px; }
     .footer-link:hover, .footer-link:focus-visible { text-decoration: underline; text-underline-offset: 3px; }
@@ -87,9 +89,11 @@
       .apps { gap: 2px 18px; }
       /* Phones: the footer stacks, centered under the app names */
       footer { flex-direction: column; align-items: center; text-align: center; gap: 8px; }
-      .footer-right { justify-content: center; gap: 8px 18px; }
+      .footer-left, .footer-right { justify-content: center; gap: 8px 18px; }
     }
   </style>
+  <link rel="stylesheet" href="i18n/i18n.css">
+  <script type="module" src="i18n/start.js"></script>
 </head>
 <body>
   <header class="topbar">
@@ -108,13 +112,7 @@
           <a class="menu-app" role="menuitem" href="https://infinitumcorporation.ai/products/scalus" rel="noreferrer"><span class="menu-app-name">SCALVS.ai™</span><span class="menu-app-summary">AI workforce platform</span></a>
         </div>
       </div>
-      <div class="apps-menu">
-        <button type="button" class="signin" id="signin" aria-haspopup="true" aria-expanded="false" aria-controls="signin-panel">Sign In</button>
-        <div class="apps-panel signin-panel" id="signin-panel" role="menu" aria-label="Sign in" hidden>
-          <a class="menu-app" role="menuitem" href="https://infinitumcorporation.ai/products/cumulus-id" rel="noreferrer"><span class="menu-app-name">Cumulus://ID™</span><span class="menu-app-summary">Your Infinitum account</span></a>
-          <a class="menu-app" role="menuitem" href="https://mail.cumuluscloud.app/" rel="noreferrer"><span class="menu-app-name">Cumulus://Mail™</span><span class="menu-app-summary">Sign in to your email</span></a>
-        </div>
-      </div>
+      <div class="account-bar" data-cumulus-bar data-create="false"></div>
     </nav>
   </header>
 
@@ -124,11 +122,12 @@
     </form>
 
     <div class="workspace-strip"><span class="workspace" id="mode-chip" title="No account, no history, nothing kept">Free forever</span></div>
+    <p class="status web-only" id="tor-status"><span class="status-line"><span class="dot"></span>Searches here are private, but a browser tab can't use Tor. VEIL for Android connects to Tor when you turn it on.</span></p>
 
 
     <nav class="bookmarks web-only" id="bookmarks" aria-label="Get VEIL">
-      <a class="bookmark" id="apk-link" href="downloads/veil-browser.apk" download>VEIL for Android</a>
-      <a class="bookmark" href="downloads/veil-extension.zip" download>VEIL for Chrome</a>
+      <a class="bookmark" href="/downloads/veil-browser.apk" download>Get VEIL for Android</a>
+      <a class="bookmark" href="/downloads/veil-extension.zip" download>Get VEIL for Chrome</a>
     </nav>
 
     <section class="panel" id="privacy" hidden>
@@ -137,6 +136,8 @@
       <p>The extension and the Android app block ad networks, trackers and data brokers by default, warn about unencrypted or look-alike sites, hold risky downloads and personal-data forms for a tap to confirm, and warn when a protected password is typed on the wrong site.</p>
       <p>$VEIL rewards are not income, an investment return or payment for visiting particular sites. $VEIL is not a share in Infinitum Corporation.</p>
     </section>
+
+    <firm-suite class="firm" product="veil" compact></firm-suite>
   </main>
 
   <nav class="apps" aria-label="Infinitum apps">
@@ -145,13 +146,18 @@
     <a class="app-link" data-panel href="https://infinitumfabric.app/" target="_blank" rel="noopener noreferrer">FABRIC++™</a>
   </nav>
   <footer>
-    <span>AI-powered. Blockchain-governed™.</span>
+    <span class="footer-left">
+      <span id="lang-switch"></span>
+      <span>AI-powered. Blockchain-governed™.</span>
+    </span>
     <span class="footer-right">
       <button type="button" class="footer-link" id="privacy-toggle" aria-expanded="false" aria-controls="privacy">Privacy</button>
       <span class="quiet">© 2026 Infinitum Corporation · <span id="build"></span></span>
     </span>
   </footer>
+  <script type="module" src="firm-suite.js"></script>
   <script src="lib/trackers.js"></script>
   <script src="app.js"></script>
+  <script src="cumulus-bar.js" data-client="veil" defer></script>
 </body>
 </html>

@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { mkdirSync, readFileSync, rmSync, writeFileSync, renameSync, existsSync } from "node:fs";
+import { join } from "node:path";
 
 /**
  * Where attachment contents live. Messages only carry a file's key, name, size and type; the
@@ -11,6 +13,8 @@ import { randomUUID } from "node:crypto";
 export interface FileStore {
   put(key: string, data: Uint8Array, type: string): Promise<void>;
   get(key: string): Promise<{ data: Uint8Array; type: string } | null>;
+  /** Removes a stored file (Drive's permanent delete). Missing keys are fine. */
+  delete?(key: string): Promise<void>;
 }
 
 /** Largest single file, matching the composer and Email Sending's 25 MiB message limit. */
@@ -34,12 +38,16 @@ export class MemoryFileStore implements FileStore {
   async get(key: string) {
     return this.files.get(key) ?? null;
   }
+  async delete(key: string) {
+    this.files.delete(key);
+  }
 }
 
 /** The parts of a Workers R2 bucket binding that Cumulus uses. */
 export interface R2BucketLike {
   put(key: string, value: Uint8Array, options?: { httpMetadata?: { contentType?: string } }): Promise<unknown>;
   get(key: string): Promise<{ arrayBuffer(): Promise<ArrayBuffer>; httpMetadata?: { contentType?: string } } | null>;
+  delete?(key: string): Promise<void>;
 }
 
 export function r2FileStore(bucket: R2BucketLike): FileStore {
@@ -51,6 +59,37 @@ export function r2FileStore(bucket: R2BucketLike): FileStore {
       const obj = await bucket.get(key);
       if (!obj) return null;
       return { data: new Uint8Array(await obj.arrayBuffer()), type: obj.httpMetadata?.contentType ?? "application/octet-stream" };
+    },
+    async delete(key) {
+      await bucket.delete?.(key);
+    },
+  };
+}
+
+/**
+ * Files on local disk, for the single-server Mail (src/server.ts). Each key becomes one flat file name
+ * (URL-encoded, so a key can never reach outside `dir`), with its content type beside it.
+ */
+export function diskFileStore(dir: string): FileStore {
+  mkdirSync(dir, { recursive: true });
+  const path = (key: string) => join(dir, encodeURIComponent(key));
+  return {
+    async put(key, data, type) {
+      const p = path(key);
+      writeFileSync(`${p}.tmp`, data);
+      renameSync(`${p}.tmp`, p);
+      writeFileSync(`${p}.type`, type);
+    },
+    async get(key) {
+      const p = path(key);
+      if (!existsSync(p)) return null;
+      const type = existsSync(`${p}.type`) ? readFileSync(`${p}.type`, "utf8") : "application/octet-stream";
+      return { data: new Uint8Array(readFileSync(p)), type };
+    },
+    async delete(key) {
+      const p = path(key);
+      rmSync(p, { force: true });
+      rmSync(`${p}.type`, { force: true });
     },
   };
 }

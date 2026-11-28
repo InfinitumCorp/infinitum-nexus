@@ -38,6 +38,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 
 header.top { position: sticky; top: 0; z-index: 20; background: color-mix(in srgb, var(--paper) 88%, transparent); backdrop-filter: saturate(1.4) blur(10px); border-bottom: 1px solid var(--line); }
 .bar { display: flex; align-items: center; justify-content: space-between; height: 60px; gap: 16px; }
+.bar-end { display: flex; align-items: center; gap: 12px; flex: none; }
 .wordmark { font-size: 17px; letter-spacing: -.03em; font-weight: 500; white-space: nowrap; }
 .wordmark .tm { font-size: .5em; vertical-align: super; }
 .mode { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; border: 1px solid var(--line); padding: 4px 8px; color: var(--ink-2); }

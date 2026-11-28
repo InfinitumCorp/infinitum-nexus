@@ -48,6 +48,11 @@ export class FabricStore {
     this.migrate();
   }
 
+  /** The open database, for the team-chat tables in team-store.ts. */
+  get database(): DatabaseSync {
+    return this.db;
+  }
+
   ping(): void {
     this.db.prepare("SELECT 1 AS ok").get();
   }

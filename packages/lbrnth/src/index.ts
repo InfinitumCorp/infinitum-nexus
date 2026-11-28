@@ -10,10 +10,16 @@ export type { LabyrinthProduct } from "@infinitum/lbrnth-client";
 export { createLabyrinthClient } from "./client.ts";
 export type { LabyrinthClientOptions, LabyrinthCommand, RepositoryInfo, ArtifactCommit, RepositoryRole, RepositoryMember, RepositoryAuditEntry, RepositorySession, EncodedArtifact, ArtifactChanges } from "./client.ts";
 export { serveNodeLabyrinth } from "./node.ts";
-export { proxyLabyrinthRequest } from "./proxy.ts";
+export { proxyLabyrinthRequest, useLabyrinthServiceBinding } from "./proxy.ts";
 export { labyrinthFromEnvironment } from "./configuration.ts";
 export { serveNodeLabyrinthProxy } from "./node-proxy.ts";
-export type { CidLabyrinthOptions } from "./auth.ts";
+export type { CidLabyrinthOptions, CidAuthority, DelegationGrant, DelegationStore } from "./auth.ts";
 
 export { serveNodeLabyrinthUI } from "./ui.ts";
 export { maintainLabyrinth } from "./operator.ts";
+export { PostgresStorage, LabyrinthStorageConflict } from "./postgres.ts";
+export type { SqlDatabase, SqlQueryable } from "./postgres.ts";
+export { LabyrinthHost, serveLabyrinthHost } from "./host.ts";
+export type { LabyrinthHostOptions, HostResponse } from "./host.ts";
+export { RemoteCidDirectory, LocalCidDirectory, CidDirectoryError } from "./directory.ts";
+export type { CidDirectory, DirectoryIdentity, DirectoryOrg, DirectorySession } from "./directory.ts";

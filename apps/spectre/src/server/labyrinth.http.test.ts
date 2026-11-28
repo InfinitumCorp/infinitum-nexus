@@ -44,7 +44,7 @@ test("Spectre deployment config stores an encrypted snapshot a restarted service
   try {
     const identity = await h.signUp("release-client");
     await h.suite.cid.createOrganization("Release", identity.cid);
-    const org = h.suite.cid.organizationMembership(identity.cid);
+    const org = await h.suite.cid.organizationMembership(identity.cid);
     assert.ok(org);
     env.LBRNTH_ENTITLED_ORGS = org.id;
     const command = (body: unknown) => h.call("POST", "/api/labyrinth", body, identity.cookie, { "x-labyrinth": "1" });
@@ -60,7 +60,7 @@ test("Spectre deployment config stores an encrypted snapshot a restarted service
     assert.equal(raw.includes("snapshot-secret"), false);
     assert.equal(raw.includes(env.LBRNTH_MASTER_KEY), false);
     const token = identity.cookie.slice("spctr_session=".length);
-    const restarted = new CidLabyrinth(h.suite.cid, labyrinthFromEnvironment(env, path)!);
+    const restarted = new CidLabyrinth(h.suite.cid.syncView(), labyrinthFromEnvironment(env, path)!);
     assert.equal(Buffer.from(restarted.forProduct(token, "spectre").load(created.body.id, saved.body.id, "deal.json")).toString(), "snapshot-secret");
     const afterRestore = readFileSync(path, "utf8");
     env.LBRNTH_ENTITLED_ORGS = "";

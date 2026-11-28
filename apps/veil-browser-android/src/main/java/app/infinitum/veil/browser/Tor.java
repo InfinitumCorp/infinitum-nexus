@@ -35,6 +35,16 @@ import org.json.JSONObject;
  * restarts with Tor Browser's built-in Snowflake, WebTunnel/obfs4 and meek bridges
  * (assets/tor/pt_config.json), carried by lyrebird (lib/<abi>/libLyrebird.so).
  * Once bridges connect, the next launch starts with them.
+ *
+ * To connect fast, VEIL races a second tor beside the first (its own data directory, warmed
+ * with a copy of the first one's directory cache, and its own ports) and keeps whichever
+ * reaches 100% first. The browser then follows the winner's SOCKS port (MainActivity sees
+ * socksPort change in onTorState).
+ * - A direct start races Snowflake from the first second. Where Tor is blocked, the direct
+ *   tor stalls at 10% while Snowflake is already connecting; on the stall VEIL adopts the
+ *   Snowflake tor as it is (adopt()) instead of starting bridges from zero.
+ * - A Snowflake start races a second Snowflake: its speed depends on which volunteer proxy it
+ *   draws, and the same bridge connects in 20 s or not at all in 3 minutes.
  */
 final class Tor {
     interface Listener {
@@ -44,8 +54,52 @@ final class Tor {
 
     static final Pattern BOOTSTRAP = Pattern.compile("Bootstrapped (\\d+)%(?: \\([^)]*\\))?:? ?(.*)");
     static final long DIRECT_STALL_MS = 20_000;
+    /**
+     * A bridge type with no handshake and no sign of life from its transport for this long is
+     * blocked here: try the next type. On a slow link Snowflake's broker alone can take 40 s.
+     */
+    static final long BRIDGE_CONNECT_MS = 90_000;
+    /** However busy its transport looks, a bridge type gets this long to reach a handshake. */
+    static final long BRIDGE_ATTEMPT_MAX_MS = 240_000;
+    /**
+     * Lyrebird messages (relayed by tor as 'Managed proxy "...": msg') that show Snowflake still
+     * working: asking the broker, getting a volunteer proxy, or moving on to another proxy.
+     */
+    /**
+     * Snowflake's broker answers within a few seconds or not at all: a request still unanswered
+     * after this long has hung, and a fresh start gets an answer at once. Retried at most
+     * BROKER_RETRIES times per bridge type before moving on.
+     */
+    static final long BROKER_WAIT_MS = 20_000;
+    static final int BROKER_RETRIES = 2;
+    static final Pattern PT_ACTIVITY = Pattern.compile("Managed proxy .*: (offer created|broker rendezvous peer received|trying a new proxy|connected)");
+    /**
+     * Bridges still short of CONN_DONE (10%) by now can't be reached at all: obfs4 bridges this
+     * network blocks fail within a second ("general SOCKS server failure") and keep retrying.
+     */
+    static final long BRIDGE_UNREACHABLE_MS = 20_000;
+    /** Bootstrap % once tor reached a bridge or relay (for snowflake/meek, the transport). */
+    static final int CONN_DONE = 10;
+    /** After a handshake, no progress and no data for this long counts as a stall. */
     static final long BRIDGE_STALL_MS = 120_000;
+    /**
+     * Bridge types, tried one at a time like Tor Browser: with all of them in one torrc, tor
+     * settles on whichever bridge answers first (often a blocked obfs4 one) and sits at 10%.
+     */
+    static final String[] TRANSPORTS = {"snowflake", "meek", "webtunnel", "obfs4"};
+    /** Bootstrap % at which a relay or bridge has completed a handshake: this way works here. */
+    static final int HANDSHAKE_DONE = 15;
+    /** Bytes Tor must read between stall checks to count as still downloading. */
+    static final long TRAFFIC_PROGRESS_BYTES = 16 * 1024;
+    static final long TRAFFIC_POLL_MS = 5_000;
     static final String PREFS = "tor";
+    /**
+     * Connection Assist (as in Tor Browser): once every built-in bridge type has stalled, VEIL
+     * asks the Tor Project's bridge service (Moat.java) for bridges that work in this country
+     * and tries them as one more bridge type, ASSIST. They are kept for ASSIST_MAX_AGE_MS.
+     */
+    static final String ASSIST = "assist";
+    static final long ASSIST_MAX_AGE_MS = 7L * 24 * 3600 * 1000;
 
     private static Tor instance;
 
@@ -54,8 +108,21 @@ final class Tor {
         return instance;
     }
 
-    final int socksPort = freePort();
-    final int controlPort = freePort();
+    /** The SOCKS and control ports of the tor in use; they change when the spare tor wins. */
+    volatile int socksPort = freePort();
+    volatile int controlPort = freePort();
+    /** The second Snowflake tor racing the first (see class comment), or null. */
+    private volatile Process spare;
+    private File spareDir;
+    private int spareSocks, spareControl;
+    /** The spare's bridge type (always a bridge type), and how far it has got. */
+    private volatile String spareKind;
+    private volatile int spareProgress;
+    private volatile String spareSummary = "";
+    /** The two data directories the racing tors take turns in; the winner's is kept. */
+    static final String[] DIRS = {"tor", "tor-b"};
+    /** Directory cache files copied to the spare so it starts warm (never the lock or cookie). */
+    static final String[] CACHE_FILES = {"cached-certs", "cached-microdesc-consensus", "cached-microdescs", "cached-microdescs.new", "state"};
     private final Handler main = new Handler(Looper.getMainLooper());
     private volatile Process process;
     private Context app;
@@ -66,8 +133,28 @@ final class Tor {
     volatile String error;
     /** True while running over bridges. */
     volatile boolean bridges;
+    /** The bridge type in use (one of TRANSPORTS), or null when direct. */
+    volatile String transport;
     private volatile long lastProgressAt;
+    /** When the current way was launched (for BRIDGE_ATTEMPT_MAX_MS). */
+    private volatile long attemptStartedAt;
+    /** When Snowflake asked its broker and is still waiting for an answer, else 0. */
+    private volatile long offerAt;
+    private int brokerRetries;
+    /** True once this connection attempt got past a handshake: keep that way from then on. */
+    private volatile boolean pathWorks;
+    /** True once a direct start stalled during this attempt: the network blocks Tor, stay on bridges. */
+    private boolean directBlocked;
+    /** Restarts before VEIL gives up and shows "Tor ✕": two rounds of every way. */
+    static final int MAX_ATTEMPTS = 8;
+    private long trafficSeen;
     private int attempts;
+    /** Bumped by every start, restart and stop; stale relaunches and stall checks compare against it. */
+    private int gen;
+    /** True between a restart's kill and its relaunch, when process is briefly null. */
+    private boolean restarting;
+    /** True once Connection Assist ran during this connection attempt. */
+    private boolean assisted;
 
     boolean ready() {
         return process != null && error == null && progress >= 100;
@@ -82,103 +169,473 @@ final class Tor {
         return app.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
     }
 
-    /** Start Tor the way that last worked here (direct, or bridges). */
+    /** Start Tor the way that last worked here (direct, or a bridge type). */
     synchronized void start(Context c) {
         app = c.getApplicationContext();
-        if (process != null) return;
+        if (process != null || restarting) return;
         attempts = 0;
-        launch(prefs().getBoolean("bridges", false));
+        brokerRetries = 0;
+        pathWorks = false;
+        directBlocked = false;
+        assisted = false;
+        java.util.List<String> avail = available();
+        String saved = prefs().getString("transport", null);
+        if (saved == null && prefs().getBoolean("bridges", false) && !avail.isEmpty()) saved = avail.get(0);
+        if (saved != null && !avail.contains(saved)) saved = avail.isEmpty() ? null : avail.get(0);
+        android.util.Log.i("VEIL-Tor", "VEIL: start (gen " + (gen + 1) + ")");
+        launch(saved, ++gen);
     }
 
-    private synchronized void launch(boolean useBridges) {
-        bridges = useBridges;
+    /** Starts tor directly (kind == null) or over one bridge type. */
+    private synchronized void launch(String kind, int g) {
+        if (g != gen) return; // stopped or superseded while a restart was waiting
+        restarting = false;
+        android.util.Log.i("VEIL-Tor", "VEIL: launch gen " + g + (kind == null ? " direct" : " with " + kind + " bridges"));
+        bridges = kind != null;
+        transport = kind;
         error = null;
         progress = 0;
-        summary = useBridges ? "Starting with bridges" : "Starting";
+        summary = kind == null ? "Starting" : "Starting with " + label(kind) + " bridges";
         lastProgressAt = SystemClock.elapsedRealtime();
+        attemptStartedAt = lastProgressAt;
+        offerAt = 0;
+        trafficSeen = 0;
         notifyListener();
         try {
-            dir = new File(app.getNoBackupFilesDir(), "tor");
-            if (!dir.isDirectory() && !dir.mkdirs()) throw new IOException("can't create " + dir);
-            String libs = app.getApplicationInfo().nativeLibraryDir;
-            StringBuilder conf = new StringBuilder()
-                .append("DataDirectory ").append(dir.getAbsolutePath()).append('\n')
-                .append("SocksPort 127.0.0.1:").append(socksPort).append('\n')
-                .append("ControlPort 127.0.0.1:").append(controlPort).append('\n')
-                .append("CookieAuthentication 1\n")
-                .append("CookieAuthFile ").append(new File(dir, "control_auth_cookie").getAbsolutePath()).append('\n')
-                .append("__OwningControllerProcess ").append(android.os.Process.myPid()).append('\n')
-                .append("ClientOnly 1\n")
-                .append("AvoidDiskWrites 1\n")
-                .append("Log notice stdout\n");
-            if (useBridges) conf.append(bridgeConfig(new File(libs, "libLyrebird.so").getAbsolutePath()));
-            File torrc = new File(dir, "torrc");
-            try (OutputStream o = new FileOutputStream(torrc)) {
-                o.write(conf.toString().getBytes(StandardCharsets.UTF_8));
-            }
-            ProcessBuilder pb = new ProcessBuilder(new File(libs, "libTor.so").getAbsolutePath(),
-                "-f", torrc.getAbsolutePath(), "--defaults-torrc", new File(dir, "torrc-defaults").getAbsolutePath(),
-                "--ignore-missing-torrc");
-            pb.directory(dir);
-            pb.redirectErrorStream(true);
-            Process p = pb.start();
+            dir = new File(app.getNoBackupFilesDir(), mainDirName());
+            Process p = startTor(dir, socksPort, controlPort, kind);
             process = p;
             Thread t = new Thread(() -> watch(p), "tor-log");
             t.setDaemon(true);
             t.start();
-            main.postDelayed(this::checkStall, 2_000);
+            main.postDelayed(() -> checkStall(g), 2_000);
+            Thread poll = new Thread(() -> pollTraffic(g), "tor-traffic");
+            poll.setDaemon(true);
+            poll.start();
         } catch (IOException | org.json.JSONException e) {
             process = null;
             fail("Tor couldn't start: " + e.getMessage());
+            return;
+        }
+        String race = raceWith(kind, available());
+        if (race != null) startSpare(race);
+    }
+
+    /**
+     * The bridge type to race beside a start of `kind`, or null: a direct start races Snowflake
+     * (so a network that blocks Tor costs no extra time), and a Snowflake start races a second
+     * Snowflake. Other bridge types run alone.
+     */
+    static String raceWith(String kind, java.util.List<String> available) {
+        if (!available.contains("snowflake")) return null;
+        return kind == null || "snowflake".equals(kind) ? "snowflake" : null;
+    }
+
+    /** The data directory the last winning tor used (DIRS[0] at first). */
+    private String mainDirName() {
+        String d = prefs().getString("dir", DIRS[0]);
+        return DIRS[1].equals(d) ? DIRS[1] : DIRS[0];
+    }
+
+    /** Writes a torrc in d and starts tor with it. */
+    private Process startTor(File d, int socks, int control, String kind) throws IOException, org.json.JSONException {
+        if (!d.isDirectory() && !d.mkdirs()) throw new IOException("can't create " + d);
+        String libs = app.getApplicationInfo().nativeLibraryDir;
+        StringBuilder conf = new StringBuilder()
+            .append("DataDirectory ").append(d.getAbsolutePath()).append('\n')
+            .append("SocksPort 127.0.0.1:").append(socks).append('\n')
+            .append("ControlPort 127.0.0.1:").append(control).append('\n')
+            .append("CookieAuthentication 1\n")
+            .append("CookieAuthFile ").append(new File(d, "control_auth_cookie").getAbsolutePath()).append('\n')
+            .append("__OwningControllerProcess ").append(android.os.Process.myPid()).append('\n')
+            .append("ClientOnly 1\n")
+            .append("AvoidDiskWrites 1\n")
+            .append("Log notice stdout\n");
+        if (kind != null) conf.append(bridgeConfig(new File(libs, "libLyrebird.so").getAbsolutePath(), kind));
+        File torrc = new File(d, "torrc");
+        try (OutputStream o = new FileOutputStream(torrc)) {
+            o.write(conf.toString().getBytes(StandardCharsets.UTF_8));
+        }
+        ProcessBuilder pb = new ProcessBuilder(new File(libs, "libTor.so").getAbsolutePath(),
+            "-f", torrc.getAbsolutePath(), "--defaults-torrc", new File(d, "torrc-defaults").getAbsolutePath(),
+            "--ignore-missing-torrc");
+        pb.directory(d);
+        pb.redirectErrorStream(true);
+        return pb.start();
+    }
+
+    /** Starts the second Snowflake tor in the other data directory, warmed with this one's cache. */
+    private synchronized void startSpare(String kind) {
+        stopSpare();
+        try {
+            File d = new File(app.getNoBackupFilesDir(), DIRS[0].equals(dir.getName()) ? DIRS[1] : DIRS[0]);
+            if (!d.isDirectory() && !d.mkdirs()) return;
+            for (String name : CACHE_FILES) copyIfNewer(new File(dir, name), new File(d, name));
+            int socks = freePort(), control = freePort();
+            Process sp = startTor(d, socks, control, kind);
+            spare = sp;
+            spareDir = d;
+            spareSocks = socks;
+            spareControl = control;
+            spareKind = kind;
+            spareProgress = 0;
+            spareSummary = "";
+            android.util.Log.i("VEIL-Tor", "VEIL: racing a " + kind + " tor beside the " + (bridges ? transport : "direct") + " one");
+            Thread t = new Thread(() -> watch(sp), "tor-spare-log");
+            t.setDaemon(true);
+            t.start();
+        } catch (IOException | org.json.JSONException e) {
+            android.util.Log.i("VEIL-Tor", "VEIL: no second tor: " + e.getMessage());
         }
     }
 
-    /** Tor Browser's built-in bridges: Snowflake first, then WebTunnel/obfs4, then meek. */
-    private String bridgeConfig(String lyrebird) throws IOException, org.json.JSONException {
-        JSONObject pt;
-        try (InputStream in = app.getAssets().open("tor/pt_config.json")) {
-            ByteArrayOutputStream b = new ByteArrayOutputStream();
-            byte[] buf = new byte[8192];
-            for (int n; (n = in.read(buf)) > 0; ) b.write(buf, 0, n);
-            pt = new JSONObject(b.toString("UTF-8"));
+    private synchronized void stopSpare() {
+        Process sp = spare;
+        spare = null;
+        if (sp != null) sp.destroy();
+    }
+
+    /** The spare reached 100% before the first tor: it becomes the tor in use. */
+    private synchronized void promote(Process sp) {
+        if (sp != spare || process == null || progress >= 100) { // too late: the first one won
+            if (sp == spare) stopSpare();
+            return;
         }
+        android.util.Log.i("VEIL-Tor", "VEIL: the racing " + spareKind + " tor won");
+        takeSpare();
+        gen++; // stale stall checks and traffic polls of the old tor stop
+        progress = 100;
+        summary = "Done";
+        pathWorks = true;
+        prefs().edit().putBoolean("bridges", bridges).putString("transport", transport).putString("dir", dir.getName()).apply();
+        notifyListener();
+    }
+
+    /** The racing tor becomes the tor in use; the old one is stopped. Caller holds the lock. */
+    private Process takeSpare() {
+        Process old = process;
+        process = spare; // set before destroying old, so its log thread doesn't report a failure
+        spare = null;
+        if (old != null) old.destroy();
+        dir = spareDir;
+        socksPort = spareSocks;
+        controlPort = spareControl;
+        bridges = true;
+        transport = spareKind;
+        return old;
+    }
+
+    /**
+     * The tor in use stalled (direct on a network that blocks Tor, or a Snowflake broker that
+     * didn't answer) while the racing tor is already connecting: carry on with that one from
+     * where it is, instead of starting over, and start a fresh racer beside it.
+     */
+    private synchronized void adopt() {
+        android.util.Log.i("VEIL-Tor", "VEIL: direct stalled, carrying on with the racing " + spareKind + " tor at " + spareProgress + "%");
+        Process old = takeSpare();
+        int g = ++gen;
+        long now = SystemClock.elapsedRealtime();
+        progress = spareProgress;
+        summary = spareSummary.isEmpty() ? "Connecting over " + label(transport) + " bridges" : spareSummary;
+        lastProgressAt = now;
+        attemptStartedAt = now;
+        offerAt = 0;
+        trafficSeen = 0;
+        pathWorks = progress >= HANDSHAKE_DONE;
+        prefs().edit().putBoolean("bridges", true).putString("transport", transport).putString("dir", dir.getName()).apply();
+        notifyListener();
+        if (progress >= 100) return;
+        main.postDelayed(() -> checkStall(g), 2_000);
+        Thread poll = new Thread(() -> pollTraffic(g), "tor-traffic");
+        poll.setDaemon(true);
+        poll.start();
+        String race = raceWith(transport, available());
+        if (race == null) return;
+        // The new racer reuses the stopped tor's data directory: wait until that tor has exited.
+        Thread t = new Thread(() -> {
+            if (old != null) try { old.waitFor(); } catch (InterruptedException e) { return; }
+            main.post(() -> {
+                synchronized (Tor.this) {
+                    if (g == gen && spare == null && progress < 100) startSpare(race);
+                }
+            });
+        }, "tor-reracer");
+        t.setDaemon(true);
+        t.start();
+    }
+
+    /** True while a racing tor is running and hasn't failed. */
+    private boolean spareAlive() {
+        Process sp = spare;
+        return sp != null && sp.isAlive();
+    }
+
+    static void copyIfNewer(File from, File to) {
+        if (!from.isFile() || (to.isFile() && to.lastModified() >= from.lastModified())) return;
+        File tmp = new File(to.getPath() + ".tmp");
+        try (InputStream in = new FileInputStream(from); OutputStream out = new FileOutputStream(tmp)) {
+            byte[] buf = new byte[64 * 1024];
+            for (int n; (n = in.read(buf)) > 0; ) out.write(buf, 0, n);
+        } catch (IOException e) {
+            tmp.delete();
+            return;
+        }
+        if (!tmp.renameTo(to)) tmp.delete();
+    }
+
+    private JSONObject ptConfig;
+
+    /** Tor Browser's built-in bridges (assets/tor/pt_config.json). */
+    private synchronized JSONObject ptConfig() throws IOException, org.json.JSONException {
+        if (ptConfig == null) {
+            try (InputStream in = app.getAssets().open("tor/pt_config.json")) {
+                ByteArrayOutputStream b = new ByteArrayOutputStream();
+                byte[] buf = new byte[8192];
+                for (int n; (n = in.read(buf)) > 0; ) b.write(buf, 0, n);
+                ptConfig = new JSONObject(b.toString("UTF-8"));
+            }
+        }
+        return ptConfig;
+    }
+
+    /** The bridge types this build has bridges for, in TRANSPORTS order. */
+    java.util.List<String> available() {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        try {
+            JSONObject all = ptConfig().getJSONObject("bridges");
+            for (String kind : TRANSPORTS) {
+                JSONArray lines = all.optJSONArray(kind);
+                if (lines != null && lines.length() > 0) out.add(kind);
+            }
+        } catch (IOException | org.json.JSONException ignored) {
+            // no bridges in this build: direct only
+        }
+        if (!assistBridges().isEmpty()) out.add(ASSIST);
+        return out;
+    }
+
+    /** torrc lines for one bridge type, carried by lyrebird. */
+    private String bridgeConfig(String lyrebird, String kind) throws IOException, org.json.JSONException {
         StringBuilder sb = new StringBuilder("UseBridges 1\n")
             .append("ClientTransportPlugin meek_lite,obfs4,webtunnel,snowflake exec ").append(lyrebird).append('\n');
-        JSONObject all = pt.getJSONObject("bridges");
-        for (String kind : new String[]{"snowflake", "webtunnel", "obfs4", "meek"}) {
-            JSONArray lines = all.optJSONArray(kind);
-            if (lines == null) continue;
-            for (int i = 0; i < lines.length(); i++) sb.append("Bridge ").append(lines.getString(i)).append('\n');
+        if (ASSIST.equals(kind)) {
+            for (String line : assistBridges()) sb.append("Bridge ").append(line).append('\n');
+            return sb.toString();
         }
+        JSONArray lines = ptConfig().getJSONObject("bridges").getJSONArray(kind);
+        for (int i = 0; i < lines.length(); i++) sb.append("Bridge ").append(lines.getString(i)).append('\n');
         return sb.toString();
     }
 
-    /** No bootstrap progress for a while: switch between direct and bridges. */
-    private void checkStall() {
-        if (process == null || error != null || progress >= 100) return;
-        long limit = bridges ? BRIDGE_STALL_MS : DIRECT_STALL_MS;
-        if (SystemClock.elapsedRealtime() - lastProgressAt < limit) {
-            main.postDelayed(this::checkStall, 2_000);
-            return;
-        }
-        if (++attempts > 3) {
-            stop();
-            fail(bridges ? "Tor couldn't connect, even over bridges. This network may block Tor." : "Tor couldn't connect.");
-            return;
-        }
-        restart(!bridges);
+    /** Bridges Moat gave us, if still fresh. */
+    private java.util.List<String> assistBridges() {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        if (System.currentTimeMillis() - prefs().getLong("assistAt", 0) > ASSIST_MAX_AGE_MS) return out;
+        for (String l : prefs().getString("assist", "").split("\n")) if (!l.trim().isEmpty()) out.add(l.trim());
+        return out;
     }
 
-    /** Restart Tor, over bridges or direct. */
-    void restart(boolean useBridges) {
+    /** Connection Assist: fetch bridges for this country from Moat, then start with them. */
+    private synchronized void assist() {
+        assisted = true;
+        stopSpare();
+        int g = ++gen;
+        Process old = process;
+        process = null;
+        restarting = true;
+        progress = 0;
+        summary = "Asking the Tor Project for bridges that work here";
+        notifyListener();
+        android.util.Log.i("VEIL-Tor", "VEIL: built-in bridges stalled, asking Moat (Connection Assist)");
         Thread t = new Thread(() -> {
-            Process old;
-            synchronized (this) { old = process; process = null; }
             if (old != null) {
                 old.destroy();
                 try { old.waitFor(); } catch (InterruptedException ignored) { }
             }
-            main.post(() -> launch(useBridges));
+            String lyrebird = new File(app.getApplicationInfo().nativeLibraryDir, "libLyrebird.so").getAbsolutePath();
+            try {
+                java.util.List<String> got = Moat.fetch(lyrebird, new File(app.getNoBackupFilesDir(), "moat"), country());
+                if (got.isEmpty()) throw new IOException("the Tor Project has no bridges for this network");
+                prefs().edit().putString("assist", String.join("\n", got)).putLong("assistAt", System.currentTimeMillis()).apply();
+                android.util.Log.i("VEIL-Tor", "Connection Assist: " + got.size() + " bridges (" + transports(got) + ")");
+                main.post(() -> launch(ASSIST, g));
+            } catch (Exception e) {
+                android.util.Log.i("VEIL-Tor", "Connection Assist failed: " + e);
+                // Moat is blocked here too: go back to the built-in bridges.
+                main.post(() -> {
+                    synchronized (Tor.this) {
+                        if (g != gen) return;
+                        java.util.List<String> avail = available();
+                        launch(avail.isEmpty() ? null : avail.get(0), g);
+                    }
+                });
+            }
+        }, "tor-assist");
+        t.setDaemon(true);
+        t.start();
+    }
+
+    /** Two-letter country of the mobile network or SIM, or null. */
+    private String country() {
+        try {
+            android.telephony.TelephonyManager tm = (android.telephony.TelephonyManager) app.getSystemService(Context.TELEPHONY_SERVICE);
+            String c = tm == null ? "" : tm.getNetworkCountryIso();
+            if ((c == null || c.isEmpty()) && tm != null) c = tm.getSimCountryIso();
+            return c != null && c.matches("[A-Za-z]{2}") ? c.toLowerCase(java.util.Locale.ROOT) : null;
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    static String transports(java.util.List<String> lines) {
+        java.util.TreeSet<String> kinds = new java.util.TreeSet<>();
+        for (String l : lines) kinds.add(l.split(" ", 2)[0]);
+        return String.join(", ", kinds);
+    }
+
+    static String label(String kind) {
+        switch (kind) {
+            case "snowflake": return "Snowflake";
+            case "webtunnel": return "WebTunnel";
+            case ASSIST: return "the Tor Project's";
+            default: return kind;
+        }
+    }
+
+    /** How long the current way may go without progress before VEIL tries the next one. */
+    static long stallLimit(boolean pathWorks, boolean bridges, int progress) {
+        if (pathWorks) return BRIDGE_STALL_MS;
+        if (!bridges) return DIRECT_STALL_MS;
+        return progress < CONN_DONE ? BRIDGE_UNREACHABLE_MS : BRIDGE_CONNECT_MS;
+    }
+
+    /**
+     * No progress for a while: try the next way. Progress means a higher bootstrap % or data
+     * still arriving (see pollTraffic): over meek the consensus download sits at 25% for
+     * minutes while bytes flow, and must not be cut off.
+     */
+    private synchronized void checkStall(int g) {
+        if (g != gen || process == null || error != null || progress >= 100) return;
+        long limit = stallLimit(pathWorks, bridges, progress);
+        long now = SystemClock.elapsedRealtime();
+        boolean overdue = bridges && !pathWorks && now - attemptStartedAt >= BRIDGE_ATTEMPT_MAX_MS;
+        if (bridges && !pathWorks && offerAt > 0 && now - offerAt >= BROKER_WAIT_MS && brokerRetries < BROKER_RETRIES) {
+            brokerRetries++;
+            android.util.Log.i("VEIL-Tor", "VEIL: no broker answer in " + (BROKER_WAIT_MS / 1000) + " s, asking again (" + brokerRetries + "/" + BROKER_RETRIES + ")");
+            // The racing tor asked its own broker: keep it instead of starting both over.
+            if (spareAlive()) adopt(); else restart(transport);
+            return;
+        }
+        if (now - lastProgressAt < limit && !overdue) {
+            main.postDelayed(() -> checkStall(g), 2_000);
+            return;
+        }
+        android.util.Log.i("VEIL-Tor", (overdue ? "VEIL: no handshake in " + (BRIDGE_ATTEMPT_MAX_MS / 1000) + " s " : "VEIL: no progress for " + (limit / 1000) + " s ") + (bridges ? "over " + transport + " bridges" : "direct") + " at " + progress + "%, attempt " + (attempts + 1));
+        if (!bridges && !pathWorks && spareAlive()) {
+            // This network blocks Tor, and the racing Snowflake tor has been connecting all along.
+            directBlocked = true;
+            brokerRetries = 0;
+            adopt();
+            return;
+        }
+        if (++attempts > MAX_ATTEMPTS) {
+            stop();
+            fail(bridges ? "Tor couldn't connect, even over bridges. This network may block Tor." : "Tor couldn't connect.");
+            return;
+        }
+        java.util.List<String> avail = available();
+        if (!bridges && !pathWorks) {
+            // A direct start that stalls (typically at 10%) means this network blocks Tor:
+            // don't try direct again this time, and start with bridges next time.
+            directBlocked = true;
+            if (!avail.isEmpty()) prefs().edit().putBoolean("bridges", true).putString("transport", avail.get(0)).apply();
+        }
+        brokerRetries = 0;
+        // Every built-in bridge type stalled: ask Moat for bridges for this network, once.
+        if (bridges && !pathWorks && !assisted && !avail.isEmpty() && transport.equals(avail.get(avail.size() - 1))) {
+            assist();
+            return;
+        }
+        restart(next(transport, pathWorks, directBlocked, avail));
+    }
+
+    /**
+     * The way to try after a stall. A way that got past a handshake works on this network,
+     * so retry it. Otherwise go down the bridge types; after the last, direct again unless
+     * direct already stalled, in which case start the bridge types over.
+     */
+    static String next(String current, boolean pathWorks, boolean directBlocked, java.util.List<String> available) {
+        if (pathWorks) return current;
+        if (available.isEmpty()) return null;
+        if (current == null) return available.get(0);
+        int i = available.indexOf(current);
+        if (i >= 0 && i + 1 < available.size()) return available.get(i + 1);
+        return directBlocked ? available.get(0) : null;
+    }
+
+    /** Counts bytes Tor reads (GETINFO traffic/read); steady downloading counts as progress. */
+    private void pollTraffic(int g) {
+        while (true) {
+            try { Thread.sleep(TRAFFIC_POLL_MS); } catch (InterruptedException e) { return; }
+            synchronized (this) {
+                if (g != gen || process == null || progress >= 100) return;
+            }
+            String v = control("GETINFO traffic/read", "250-traffic/read=");
+            if (v == null) continue;
+            long read;
+            try { read = Long.parseLong(v.trim()); } catch (NumberFormatException e) { continue; }
+            synchronized (this) {
+                if (g != gen) return;
+                if (read - trafficSeen >= TRAFFIC_PROGRESS_BYTES) {
+                    trafficSeen = read;
+                    lastProgressAt = SystemClock.elapsedRealtime();
+                }
+            }
+        }
+    }
+
+    /**
+     * Sends one command over the cookie-authenticated control port and returns the rest of
+     * the first reply line that starts with prefix, or null.
+     */
+    private String control(String command, String prefix) {
+        try (Socket s = new Socket()) {
+            s.connect(new InetSocketAddress(InetAddress.getLoopbackAddress(), controlPort), 3000);
+            s.setSoTimeout(5000);
+            byte[] cookie = readAll(new File(dir, "control_auth_cookie"));
+            OutputStream o = s.getOutputStream();
+            o.write(("AUTHENTICATE " + hex(cookie) + "\r\n" + command + "\r\nQUIT\r\n").getBytes(StandardCharsets.US_ASCII));
+            o.flush();
+            BufferedReader r = new BufferedReader(new InputStreamReader(s.getInputStream(), StandardCharsets.US_ASCII));
+            String found = null;
+            for (String line; (line = r.readLine()) != null; ) {
+                if (found == null && line.startsWith(prefix)) found = line.substring(prefix.length());
+            }
+            return found;
+        } catch (IOException e) {
+            return null; // control port not up yet, or tor restarting
+        }
+    }
+
+    /**
+     * Restart Tor, over bridges or direct. The old tor must be gone before the new one
+     * binds the same SOCKS and control ports, so the wait happens off the main thread.
+     */
+    private synchronized void restart(String kind) {
+        stopSpare();
+        int g = ++gen;
+        Process old = process;
+        process = null;
+        restarting = true;
+        progress = 0;
+        summary = kind == null ? "Trying a direct connection" : "Trying " + label(kind) + " bridges";
+        notifyListener();
+        Thread t = new Thread(() -> {
+            if (old != null) {
+                old.destroy();
+                try { old.waitFor(); } catch (InterruptedException ignored) { }
+            }
+            main.post(() -> launch(kind, g));
         }, "tor-restart");
         t.setDaemon(true);
         t.start();
@@ -189,14 +646,42 @@ final class Tor {
             String line;
             while ((line = r.readLine()) != null) {
                 android.util.Log.i("VEIL-Tor", line); // notice level, SafeLogging on: no destinations
+                if (process != p) {
+                    // The racing tor: note how far it got (adopt() carries on from there) and
+                    // take it once it's done. Anything else here is a replaced tor still
+                    // flushing its log: don't touch the new one's state.
+                    if (p == spare) {
+                        Matcher sm = BOOTSTRAP.matcher(line);
+                        if (sm.find()) {
+                            spareProgress = Math.max(spareProgress, Integer.parseInt(sm.group(1)));
+                            spareSummary = sm.group(2).trim();
+                        }
+                        if (line.contains("Bootstrapped 100%")) promote(p);
+                    }
+                    continue;
+                }
                 Matcher m = BOOTSTRAP.matcher(line);
                 if (m.find()) {
                     int pct = Integer.parseInt(m.group(1));
                     if (pct > progress) lastProgressAt = SystemClock.elapsedRealtime();
                     progress = pct;
                     summary = m.group(2).trim().isEmpty() ? "Connecting" : m.group(2).trim();
-                    if (pct >= 100) prefs().edit().putBoolean("bridges", bridges).apply();
+                    if (pct >= HANDSHAKE_DONE && !pathWorks) {
+                        // Remember the way that reached a relay now, not only at 100%, so the
+                        // next launch skips a direct start that stalls at 10% here.
+                        pathWorks = true;
+                        prefs().edit().putBoolean("bridges", bridges).putString("transport", transport).apply();
+                    }
+                    if (pct >= 100) {
+                        stopSpare(); // this one won the race
+                        prefs().edit().putString("dir", dir.getName()).apply();
+                    }
                     notifyListener();
+                } else if (bridges && !pathWorks && PT_ACTIVITY.matcher(line).find()) {
+                    long now = SystemClock.elapsedRealtime();
+                    lastProgressAt = now; // the transport is still working
+                    if (line.contains("offer created")) { if (offerAt == 0) offerAt = now; }
+                    else offerAt = 0;
                 } else if (line.contains("[err]")) {
                     summary = line.substring(line.indexOf("[err]") + 5).trim();
                 }
@@ -225,28 +710,65 @@ final class Tor {
         });
     }
 
+    /** The Tor Project's check API: answers whether a request arrived from a Tor exit. */
+    static final String CHECK_API = "https://check.torproject.org/api/ip";
+
+    interface CheckResult {
+        /** isTor is null when the check couldn't be completed. */
+        void onResult(Boolean isTor, String ip);
+    }
+
+    /**
+     * Confirms in the background that traffic leaves through Tor, without opening a page:
+     * asks CHECK_API over this tor's SOCKS port (the host name resolves inside Tor too).
+     */
+    void verify(CheckResult cb) {
+        Thread t = new Thread(() -> {
+            Boolean isTor = null;
+            String ip = null;
+            java.net.HttpURLConnection c = null;
+            try {
+                java.net.Proxy socks = new java.net.Proxy(java.net.Proxy.Type.SOCKS,
+                    InetSocketAddress.createUnresolved("127.0.0.1", socksPort));
+                c = (java.net.HttpURLConnection) new java.net.URL(CHECK_API).openConnection(socks);
+                c.setConnectTimeout(30_000);
+                c.setReadTimeout(30_000);
+                c.setUseCaches(false);
+                c.setRequestProperty("Accept", "application/json");
+                try (InputStream in = c.getInputStream()) {
+                    ByteArrayOutputStream b = new ByteArrayOutputStream();
+                    byte[] buf = new byte[4096];
+                    for (int n; (n = in.read(buf)) > 0; ) b.write(buf, 0, n);
+                    JSONObject o = new JSONObject(b.toString("UTF-8"));
+                    isTor = o.optBoolean("IsTor", false);
+                    ip = o.optString("IP", null);
+                }
+            } catch (IOException | org.json.JSONException e) {
+                android.util.Log.i("VEIL-Tor", "VEIL: Tor check failed: " + e.getClass().getSimpleName());
+            } finally {
+                if (c != null) c.disconnect();
+            }
+            Boolean r = isTor;
+            String a = ip;
+            main.post(() -> cb.onResult(r, a));
+        }, "tor-check");
+        t.setDaemon(true);
+        t.start();
+    }
+
     /** New circuits for new connections (SIGNAL NEWNYM over the cookie-authenticated control port). */
     void newIdentity() {
         if (!ready()) return;
-        Thread t = new Thread(() -> {
-            try (Socket s = new Socket()) {
-                s.connect(new InetSocketAddress(InetAddress.getLoopbackAddress(), controlPort), 3000);
-                s.setSoTimeout(5000);
-                byte[] cookie = readAll(new File(dir, "control_auth_cookie"));
-                OutputStream o = s.getOutputStream();
-                o.write(("AUTHENTICATE " + hex(cookie) + "\r\nSIGNAL NEWNYM\r\nQUIT\r\n").getBytes(StandardCharsets.US_ASCII));
-                o.flush();
-                BufferedReader r = new BufferedReader(new InputStreamReader(s.getInputStream(), StandardCharsets.US_ASCII));
-                while (r.readLine() != null) { /* 250 OK x3 */ }
-            } catch (IOException ignored) {
-                // Tor rate-limits NEWNYM; a missed one only means circuits are reused a little longer.
-            }
-        }, "tor-newnym");
+        // Tor rate-limits NEWNYM; a missed one only means circuits are reused a little longer.
+        Thread t = new Thread(() -> control("SIGNAL NEWNYM", "250"), "tor-newnym");
         t.setDaemon(true);
         t.start();
     }
 
     synchronized void stop() {
+        stopSpare();
+        gen++;
+        restarting = false;
         if (process != null) {
             Process p = process;
             process = null;

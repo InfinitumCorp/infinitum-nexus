@@ -2,7 +2,10 @@
  * Cumulus://ID Keycloak JWT verification.
  * Accepts RS256, ES256, and EdDSA. HMAC and "none" are rejected.
  */
-import { createPublicKey, verify, type JsonWebKey } from "node:crypto";
+import { createPublicKey, verify, type webcrypto } from "node:crypto";
+
+// @types/node 26 exposes JsonWebKey only under webcrypto.
+type JsonWebKey = webcrypto.JsonWebKey;
 
 export interface Jwk {
   kid?: string;

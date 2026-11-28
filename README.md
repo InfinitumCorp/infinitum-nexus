@@ -52,6 +52,10 @@ CID supports Continue with Google, Apple, Microsoft, GitHub and ChatGPT. Any pro
 
 Callback URL for each: `{SPECTRE_ORIGIN}/api/auth/oauth/{provider}/callback`. Data is stored in `apps/spectre/data/`.
 
+Amazon Cognito sign-in was removed on 2026-11-18. `COGNITO_*` variables are ignored.
+
+Sign in with Cumulus://ID for other products is issued at `id.cumuluscloud.app`. The first sign-in (passkey or Google) creates the cid. OpenID Connect (issuer `https://id.cumuluscloud.app/realms/cumulus`) stays off until `CID_OIDC_SIGNING_KEY` is set. Mail's `/api/id/*` routes stay as an alias for buttons that already point at `mail.cumuluscloud.app`. See [docs/cumulus-id.md](docs/cumulus-id.md).
+
 Coming next: AI account research the Spectre agent team, then `$FIRM` and product token contracts.
 
 ### Spectre AI endpoints (current)

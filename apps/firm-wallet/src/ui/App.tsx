@@ -18,6 +18,16 @@ const TABS = [
 ] as const;
 type Tab = (typeof TABS)[number][0];
 
+/** Loads the Cumulus://ID account bar (public/cumulus-bar.js, a vendored copy: the CSP allows only 'self'). */
+function loadAccountBar() {
+  if (document.getElementById("cumulus-bar-js")) return;
+  const s = document.createElement("script");
+  s.id = "cumulus-bar-js";
+  s.src = "/cumulus-bar.js";
+  s.dataset.client = "firm-wallet";
+  document.body.append(s);
+}
+
 function routeFromHash(): Tab {
   const name = location.hash.replace(/^#\//, "").split("?")[0] as Tab;
   return TABS.some(([t]) => t === name) ? name : "wallet";
@@ -42,13 +52,19 @@ export function App() {
     };
   }, []);
 
+  // The Cumulus://ID account bar in the header, once the header is on the page.
+  useEffect(() => { if (st.ready) loadAccountBar(); }, [st.ready]);
+
   if (!st.ready) return <div class="center"><p class="muted">Loading…</p></div>;
 
   const header = (
     <header class="top">
       <div class="wrap bar">
         <a class="wordmark" href="#/wallet" style={{ textDecoration: "none" }}>$FIRM Wallet<span class="tm">™</span></a>
-        {st.session && <span class={`mode ${st.prefs.mode === "mainnet" ? "live" : ""}`}>{st.prefs.mode === "mainnet" ? "Mainnet" : "Testnet"}</span>}
+        <div class="bar-end">
+          {st.session && <span class={`mode ${st.prefs.mode === "mainnet" ? "live" : ""}`}>{st.prefs.mode === "mainnet" ? "Mainnet" : "Testnet"}</span>}
+          <div data-cumulus-bar data-create="false" />
+        </div>
       </div>
       {st.session && !nexusReq && (
         <div class="wrap">

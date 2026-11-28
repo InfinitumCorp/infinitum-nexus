@@ -4,9 +4,13 @@ import { verifyIdToken, type IdTokenClaims } from "./oidc.ts";
 type JsonWebKey = webcrypto.JsonWebKey;
 
 /**
- * Social sign-in for Cumulus://ID: Google, Microsoft, Apple and Sign in with ChatGPT
+ * Social sign-in for Cumulus://ID: Google, Microsoft, Apple, Sign in with ChatGPT
  * (OpenID Connect) and GitHub (OAuth 2.0). Every flow uses the authorization-code grant
  * with PKCE, a single-use state and (for OIDC) a nonce bound into the ID token.
+ *
+ * Amazon Cognito sign-in was removed on 2026-11-18 (owner's direction). COGNITO_* settings
+ * are ignored. Cognito identities already linked to a cid stay on the account record but no
+ * longer sign anyone in.
  */
 
 export type SocialProviderId = "google" | "github" | "microsoft" | "apple" | "chatgpt";
@@ -137,7 +141,8 @@ export class SocialClient {
   private readonly discoveryCache = new Map<string, { authorization_endpoint: string; token_endpoint: string; jwks_uri: string; issuer: string }>();
 
   constructor(fetchImpl: typeof fetch = fetch) {
-    this.fetchImpl = fetchImpl;
+    // Call fetch as a plain function: Workers throw "Illegal invocation" when it runs with this = SocialClient.
+    this.fetchImpl = (input, init) => fetchImpl(input, init);
   }
 
   private async json<T>(url: string, init?: RequestInit): Promise<T> {
@@ -204,10 +209,11 @@ export class SocialClient {
       code_verifier: pending.codeVerifier,
     });
     const secret = spec.id === "apple" ? appleClientSecret(creds, now) : creds.clientSecret;
+    const headers: Record<string, string> = { "content-type": "application/x-www-form-urlencoded", accept: "application/json" };
     if (secret) form.set("client_secret", secret);
     const tokens = await this.json<{ id_token?: string; access_token?: string; error?: string; error_description?: string }>(ep.token, {
       method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json" },
+      headers,
       body: form.toString(),
     });
     if (tokens.error) throw new Error(`${spec.label}: ${tokens.error_description ?? tokens.error}`);

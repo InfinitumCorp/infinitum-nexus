@@ -36,7 +36,7 @@ firm-suite { display: block; }
 .firm-suite .fs-ticker { font-family: ui-monospace, Menlo, Consolas, monospace; }
 .firm-suite .fs-muted { color: var(--fs-ink-2); }
 .firm-suite .fs-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-.firm-suite .fs-btn { display: inline-flex; align-items: center; height: 36px; padding: 0 14px; border: 1px solid var(--fs-ink); color: var(--fs-ink); background: transparent; font-size: 13px; text-decoration: none; }
+.firm-suite .fs-btn { display: inline-flex; align-items: center; height: 36px; padding: 0 14px; border: 1px solid var(--fs-ink); color: var(--fs-ink); background: transparent; font: inherit; font-size: 13px; text-decoration: none; cursor: pointer; }
 .firm-suite .fs-btn:hover, .firm-suite .fs-btn.fs-solid { background: var(--fs-ink); color: var(--fs-paper); }
 .firm-suite .fs-btn.fs-solid:hover { background: transparent; color: var(--fs-ink); }
 .firm-suite.fs-compact { padding: 12px; gap: 8px; }

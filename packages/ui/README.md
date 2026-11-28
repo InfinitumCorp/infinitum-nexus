@@ -50,3 +50,11 @@ npx -y pnpm@10.28.0 --filter @infinitum/ui sync
 ```
 
 The test fails if any copy differs from `app-shell.css`. Standalone repos mirror the same file (for example `public/app-shell.css`); copy it from here rather than writing per-app styles. Load it before the app's own stylesheet.
+
+## Cumulus://ID account bar
+
+`cumulus-bar.js` is a vendored copy of `public/id/bar.js` from `InfinitumCorp/cumulus-id`, for apps
+whose CSP allows scripts only from `'self'`. `copies.json` (`barCopies`) lists where it is copied;
+`node scripts/sync.mjs` rewrites them and the tests fail if a copy drifts. To update it, copy the
+new file from `cumulus-id` over `cumulus-bar.js` and run the sync script.
+

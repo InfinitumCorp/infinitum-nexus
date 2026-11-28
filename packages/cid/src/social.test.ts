@@ -1,8 +1,9 @@
 import { describe, it } from "node:test";
+import { testRepository } from "./testing/copying-repository.ts";
 import assert from "node:assert/strict";
 import { generateKeyPairSync, sign, verify } from "node:crypto";
 import { Ledger, generateSigner } from "@infinitum/firmament";
-import { CidService, CidError, hotp, base32Decode, type SocialCredentials, type SocialProviderId } from "./index.ts";
+import { CidService, CidError, hotp, base32Decode, socialFromEnv, type SocialCredentials, type SocialProviderId } from "./index.ts";
 import { PROVIDERS, SocialClient, type PendingAuth } from "./social.ts";
 import { VirtualAuthenticator } from "./testing/virtual-authenticator.ts";
 
@@ -33,7 +34,15 @@ function fakeProviders() {
   };
   const codes = new Map<string, { provider: SocialProviderId; nonce: string; challenge: string; clientId: string }>();
   const posted: Record<string, URLSearchParams> = {};
+  const authHeaders: Record<string, string | undefined> = {};
+  const requested: string[] = [];
   const overrides: { issuer?: string; nonce?: string; aud?: string } = {};
+  const header = (init: RequestInit | undefined, name: string) => {
+    const headers = init?.headers;
+    if (!headers || headers instanceof Headers || Array.isArray(headers)) return undefined;
+    const key = Object.keys(headers).find((k) => k.toLowerCase() === name);
+    return key ? headers[key] : undefined;
+  };
   const enc = (o: unknown) => Buffer.from(JSON.stringify(o)).toString("base64url");
   const idToken = (claims: Record<string, unknown>) => {
     const body = `${enc({ alg: "RS256", kid: "test-key" })}.${enc(claims)}`;
@@ -42,6 +51,7 @@ function fakeProviders() {
   const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json" } });
 
   const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
+    requested.push(String(input));
     const url = new URL(String(input));
     if (url.pathname.endsWith("/.well-known/openid-configuration")) {
       return json({ issuer: CHATGPT_ISSUER, authorization_endpoint: `${CHATGPT_ISSUER}/authorize`, token_endpoint: `${CHATGPT_ISSUER}/token`, jwks_uri: `${CHATGPT_ISSUER}/jwks` });
@@ -57,6 +67,7 @@ function fakeProviders() {
     if (provider && init?.method === "POST") {
       const form = new URLSearchParams(String(init.body));
       posted[provider] = form;
+      authHeaders[provider] = header(init, "authorization");
       const grant = codes.get(form.get("code") ?? "");
       if (!grant || grant.provider !== provider) return json({ error: "invalid_grant" }, 400);
       // PKCE: the verifier must hash to the challenge sent at the start.
@@ -85,7 +96,7 @@ function fakeProviders() {
     codes.set(code, { provider, nonce: u.searchParams.get("nonce") ?? "", challenge: u.searchParams.get("code_challenge")!, clientId: u.searchParams.get("client_id")! });
     return { code, state: u.searchParams.get("state")!, url: u };
   };
-  return { fetchImpl, approve, posted, overrides, users };
+  return { fetchImpl, approve, posted, authHeaders, requested, overrides, users };
 }
 
 function setup(only?: SocialProviderId[]) {
@@ -102,7 +113,7 @@ function setup(only?: SocialProviderId[]) {
   let now = new Date();
   const signer = generateSigner();
   const ledger = new Ledger(undefined, { authorizedSigners: [signer.publicKey] });
-  const cid = new CidService({ ledger, signer, rpId: "infinitum.example", origins: ["https://infinitum.example"], clock: () => now, social: { providers, fetchImpl: fake.fetchImpl } });
+  const cid = new CidService({ ledger, signer, rpId: "infinitum.example", origins: ["https://infinitum.example"], clock: () => now, social: { providers, fetchImpl: fake.fetchImpl }, repository: testRepository() });
   return { cid, ledger, fake, applePublic: apple.publicKey, advance: (ms: number) => { now = new Date(now.getTime() + ms); }, now: () => now };
 }
 
@@ -116,6 +127,29 @@ const rejectsWith = (p: Promise<unknown>, code: string) =>
   assert.rejects(p, (e: unknown) => e instanceof CidError && e.code === code);
 
 describe("CID social sign-in", () => {
+  it("calls fetch as a plain function so Workers do not throw Illegal invocation", async () => {
+    let seen: unknown = "unset";
+    const fetchImpl = function (this: unknown, url: string | URL | Request) {
+      seen = this;
+      if (this !== undefined && this !== globalThis) throw new TypeError("Illegal invocation");
+      const path = new URL(String(url)).pathname;
+      const json = (d: unknown) => Promise.resolve(new Response(JSON.stringify(d), { status: 200, headers: { "content-type": "application/json" } }));
+      if (path === "/login/oauth/access_token") return json({ access_token: "gho_test" });
+      if (path === "/user") return json({ id: 7, login: "ada" });
+      if (path === "/user/emails") return json([]);
+      return Promise.resolve(new Response("no", { status: 404 }));
+    } as typeof fetch;
+    const client = new SocialClient(fetchImpl);
+    const pending: PendingAuth = {
+      state: "s", provider: "github", nonce: "n", codeVerifier: "v",
+      redirectUri: REDIRECT, expiresAt: Date.now() + 60_000,
+    };
+    const profile = await client.complete(PROVIDERS.github, { clientId: "id", clientSecret: "sec" }, pending, "code", new Date());
+    assert.equal(profile.subject, "7");
+    assert.equal(profile.usernameHint, "ada");
+    assert.equal(seen, undefined);
+  });
+
   it("accepts a discovery issuer with a trailing slash", async () => {
     const fake = fakeProviders();
     const client = new SocialClient(fake.fetchImpl);
@@ -157,7 +191,7 @@ describe("CID social sign-in", () => {
       assert.equal(first.session.method, `social:${provider}`);
       const again = await signInWith(cid, fake, provider);
       assert.ok(again.status === "ok" && !again.created && again.session.cid === first.session.cid);
-      assert.equal(cid.linkedIdentities(first.session.cid)[0].provider, provider);
+      assert.equal((await cid.linkedIdentities(first.session.cid))[0].provider, provider);
     });
   }
 
@@ -167,9 +201,9 @@ describe("CID social sign-in", () => {
     const g = await signInWith(cid, fake, "google");
     assert.ok(gh.status === "ok" && g.status === "ok");
     if (gh.status !== "ok" || g.status !== "ok") return;
-    assert.equal(cid.getAccount(gh.session.cid).username, "alexr");
-    assert.equal(cid.getAccount(g.session.cid).username, "alex");
-    assert.equal(cid.getAccount(g.session.cid).mailAddress, "alex@cumuluscloud.app");
+    assert.equal((await cid.getAccount(gh.session.cid)).username, "alexr");
+    assert.equal((await cid.getAccount(g.session.cid)).username, "alex");
+    assert.equal((await cid.getAccount(g.session.cid)).mailAddress, "alex@cumuluscloud.app");
   });
 
   it("sends Apple a valid ES256 client-secret JWT", async () => {
@@ -243,11 +277,34 @@ describe("CID social sign-in", () => {
     await rejectsWith(signInWith(cid, fake, "google", me.cid), "identity_in_use");
   });
 
+  it("linking another account at the same provider: the one before no longer signs in", async () => {
+    const { cid, fake } = setup(["google"]);
+    const me = await cid.createAccount({ username: "relink" });
+    assert.equal((await signInWith(cid, fake, "google", me.cid)).status, "linked");
+    // Link a different Google account in its place.
+    fake.users.google = { ...fake.users.google!, sub: "g-999", email: "alex.new@gmail.example" };
+    assert.equal((await signInWith(cid, fake, "google", me.cid)).status, "linked");
+    assert.deepEqual((await cid.linkedIdentities(me.cid)).map((i) => i.subject), ["g-999"]);
+    // The old Google account signs in to a new CID of its own, not to this one.
+    fake.users.google = { ...fake.users.google!, sub: "g-111" };
+    const old = await signInWith(cid, fake, "google");
+    assert.ok(old.status === "ok" && old.session.cid !== me.cid, "the replaced link doesn't open the account");
+  });
+
+  it("a link left behind before this fix no longer signs in", async () => {
+    const { cid, fake } = setup(["google"]);
+    const me = await cid.createAccount({ username: "stale" });
+    await cid.repo.setIdentity("google|g-111", me.cid); // the account doesn't list it
+    const res = await signInWith(cid, fake, "google");
+    assert.ok(res.status === "ok" && res.session.cid !== me.cid);
+    assert.notEqual(await cid.repo.cidForIdentity("google|g-111"), me.cid);
+  });
+
   it("still requires the authenticator-app code when multifactor is on", async () => {
     const { cid, fake, now } = setup(["google"]);
     const first = await signInWith(cid, fake, "google");
     if (first.status !== "ok") throw new Error();
-    const { secret } = cid.enrollTotp(first.session.cid);
+    const { secret } = await cid.enrollTotp(first.session.cid);
     const code = (d: Date) => hotp(base32Decode(secret), Math.floor(d.getTime() / 30_000));
     await cid.confirmTotp(first.session.cid, code(now()));
     const second = await signInWith(cid, fake, "google");
@@ -263,10 +320,10 @@ describe("CID social sign-in", () => {
     if (r.status !== "ok") throw new Error();
     await rejectsWith(cid.unlinkIdentity(r.session.cid, "google"), "last_key");
     const auth = new VirtualAuthenticator();
-    const opts = cid.startAuthenticatorRegistration(r.session.cid);
+    const opts = await cid.startAuthenticatorRegistration(r.session.cid);
     await cid.finishAuthenticatorRegistration(r.session.cid, auth.create({ challenge: opts.challenge, origin: "https://infinitum.example", rpId: "infinitum.example" }));
     await cid.unlinkIdentity(r.session.cid, "google");
-    assert.equal(cid.linkedIdentities(r.session.cid).length, 0);
+    assert.equal((await cid.linkedIdentities(r.session.cid)).length, 0);
   });
 
   it("keeps provider account IDs and emails off the ledger", async () => {
@@ -280,6 +337,43 @@ describe("CID social sign-in", () => {
   it("refuses unconfigured providers", async () => {
     const { cid } = setup(["google"]);
     await rejectsWith(cid.startSocialSignIn("github", REDIRECT), "provider_unavailable");
+    await rejectsWith(cid.startSocialSignIn("cognito", REDIRECT), "provider_unavailable");
     await rejectsWith(cid.startSocialSignIn("myspace", REDIRECT), "provider_unavailable");
+  });
+
+  it("keeps Google's authorization request and form client secret", async () => {
+    const { cid, fake } = setup(["google"]);
+    const { url } = await cid.startSocialSignIn("google", REDIRECT);
+    const u = new URL(url);
+    assert.equal(u.origin + u.pathname, "https://accounts.google.com/o/oauth2/v2/auth");
+    assert.equal(u.searchParams.get("prompt"), "select_account");
+    assert.equal(u.searchParams.get("client_id"), "google-client");
+    assert.equal(u.searchParams.get("scope"), "openid email profile");
+    await signInWith(cid, fake, "google");
+    assert.equal(fake.posted.google.get("client_secret"), "gs");
+    assert.equal(fake.authHeaders.google, undefined);
+  });
+
+});
+
+describe("Amazon Cognito sign-in is removed", () => {
+  const cognitoEnv = {
+    COGNITO_DOMAIN: "infinitum.auth.us-east-1.amazoncognito.com",
+    COGNITO_CLIENT_ID: "cognito-client",
+    COGNITO_CLIENT_SECRET: "cognito-secret",
+    COGNITO_REGION: "us-east-1",
+    COGNITO_USER_POOL_ID: "us-east-1_TestPool",
+  };
+
+  it("ignores every COGNITO_* setting and leaves the other providers as they are", () => {
+    assert.deepEqual(socialFromEnv(cognitoEnv), {});
+    const google = { GOOGLE_CLIENT_ID: "g-id", GOOGLE_CLIENT_SECRET: "g-secret" };
+    assert.deepEqual(socialFromEnv({ ...google, ...cognitoEnv }), { google: { clientId: "g-id", clientSecret: "g-secret" } });
+  });
+
+  it("has no Cognito provider to start a sign-in with", async () => {
+    assert.equal("cognito" in PROVIDERS, false);
+    const { cid } = setup();
+    await rejectsWith(cid.startSocialSignIn("cognito", REDIRECT), "provider_unavailable");
   });
 });

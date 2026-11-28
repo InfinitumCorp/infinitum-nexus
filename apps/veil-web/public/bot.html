@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>VEILBot</title>
+  <meta name="description" content="VEILBot is the web crawler behind VEIL search. What it does, and how to limit or block it." />
+  <meta name="theme-color" content="#ffffff" />
+  <meta name="referrer" content="no-referrer" />
+  <link rel="icon" href="icons/icon-192.png" />
+  <style>
+    :root {
+      --bg: #ffffff; --ink: #111820; --ink-quiet: #6b6b74; --rule: #e8e8ec; --code: #f3f3f5;
+      --focus: #1f5fd6; --link: #1a0dab;
+      --font: "Helvetica Neue", Helvetica, Arial, sans-serif;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+    @media (prefers-contrast: more) { :root { --ink-quiet: var(--ink); --rule: #9a9aa3; } }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.6 var(--font); }
+    main { max-width: 720px; margin: 0 auto; padding: 32px 16px 64px; }
+    .brand { font-weight: 700; font-size: 20px; color: var(--ink); text-decoration: none; }
+    h1 { font-size: 30px; line-height: 1.2; margin: 28px 0 8px; }
+    h2 { font-size: 19px; margin: 32px 0 8px; }
+    p, li { max-width: 65ch; }
+    .lede { color: var(--ink-quiet); font-size: 18px; margin-top: 0; }
+    a { color: var(--link); }
+    a:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+    code, pre { font-family: var(--mono); font-size: 14px; background: var(--code); border-radius: 6px; }
+    code { padding: 1px 5px; }
+    pre { padding: 12px 14px; overflow-x: auto; margin: 8px 0 16px; }
+    ul { padding-left: 20px; }
+    footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--rule); color: var(--ink-quiet); font-size: 14px; }
+  </style>
+</head>
+<body>
+  <main>
+    <a class="brand" href="./">VEIL&lt;/&gt;</a>
+    <h1>VEILBot</h1>
+    <p class="lede">VEILBot is the web crawler behind VEIL search, the private search in the VEIL browser. It reads public web pages so VEIL can find them without sending anyone to another search engine.</p>
+
+    <h2>How to recognise it</h2>
+    <p>Every request VEILBot makes carries this User-Agent:</p>
+    <pre>Mozilla/5.0 (compatible; VEILBot/1.0; +https://infinitumveil.app/bot)</pre>
+    <p>It runs on Cloudflare Workers, so its requests come from Cloudflare's network.</p>
+
+    <h2>What it does, and what it never does</h2>
+    <ul>
+      <li>It obeys <code>robots.txt</code> (RFC 9309), including <code>Crawl-delay</code>. It re-reads it at least once a day.</li>
+      <li>It asks one site for at most one page at a time, never more often than every 10 seconds, and backs off when a site answers 429 or 503.</li>
+      <li>It obeys <code>noindex</code> and <code>nofollow</code> in robots meta tags and the <code>X-Robots-Tag</code> header. A <code>noindex</code> page is removed from VEIL's index.</li>
+      <li>It reads public HTML pages only. It never logs in, never fills in forms, never solves CAPTCHAs, and never tries to get around a block.</li>
+      <li>It skips login, account, cart and checkout pages, and links that carry session tokens.</li>
+      <li>VEIL search shows a short snippet and links straight to your page. Searches are never logged.</li>
+    </ul>
+
+    <h2>How to limit or block it</h2>
+    <p>Block VEILBot from your whole site:</p>
+    <pre>User-agent: VEILBot
+Disallow: /</pre>
+    <p>Keep it out of part of your site, or slow it down:</p>
+    <pre>User-agent: VEILBot
+Disallow: /private/
+Crawl-delay: 30</pre>
+    <p>Keep one page out of VEIL search: <code>&lt;meta name="robots" content="noindex"&gt;</code>, or <code>&lt;meta name="veilbot" content="noindex"&gt;</code> for VEIL only.</p>
+    <p>Changes take effect within a day, when VEILBot next reads your <code>robots.txt</code>.</p>
+
+    <h2>Remove pages or report a problem</h2>
+    <p>To have pages removed from VEIL search right away, or to report VEILBot misbehaving, email <a href="mailto:veil@infinitum.corporation?subject=VEILBot">veil@infinitum.corporation</a> with your site's address. We act on removal requests as quickly as we can.</p>
+
+    <footer>VEILBot is run by Infinitum Corporation.</footer>
+  </main>
+</body>
+</html>

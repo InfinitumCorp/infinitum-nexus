@@ -4,10 +4,11 @@ Maps every product advertised on https://infinitumcorporation.ai/#products to cu
 
 **Note:** #THRONE is ignored and will not be built or referenced further.
 
-## Live deployments (2026-11-09)
+## Live deployments (2026-11-11)
 
 | Product | URL | What is deployed | Source |
 |---|---|---|---|
+| Cumulus://ID / +SPCTR™ | https://id.cumuluscloud.app | Sign in with Cumulus://ID for the product sites (passkeys, and Google when its secrets are set). The CRM is the same Worker. A newer build adds the free Workers AI binding for Ask Spectre; that build is not deployed until `wrangler deploy` runs. Payments and the $SPCTR token are off. Mirror: https://ru.id.cumuluscloud.app. The issuer moves to its own repo `InfinitumCorp/cumulus-id` at a cut-over a person runs (DEPLOY.md); +SPCTR then moves to https://spectre.infinitumcorporation.ai. | `apps/spectre` Worker `cumulus-id` |
 | SCALVS.ai | https://scalvs.app | Full web app: agents and CONJURE forecasts on Workers AI (no provider key), rate-limited API | InfinitumCorp/scalvs-ai (Worker `scalvs-ai`), not `packages/scalus` |
 | :\ARCHITECT\ | https://rchtch.app | Public site | InfinitumCorp/architect |
 | Firmament Network / FIRM Wallet | https://firmnetwork.app, https://firmwallet.app | Public sites | InfinitumCorp/firmament-launch |
@@ -28,21 +29,21 @@ Each public domain needs a "(public)" Cloudflare Access bypass app; the account-
 | Product | Advertised task | Status | Evidence | Next steps |
 |---------|-----------------|--------|----------|------------|
 | Firmament Network | Append-only hash-chained Ed25519 ledger. | Core logic | `packages/firmament` + real Merkle root anchoring + Anchor.sol + anchor client + deploy-anchor.ts | Deploy anchor. |
-| Cumulus://ID (CID) | One account for every product. | Core logic | `packages/cid` | Wire into remaining apps. |
+| Cumulus://ID (CID) | One account for every product. | Core logic. The issuer moves to `InfinitumCorp/cumulus-id` (same issuer, client ids and cids; accounts imported through `POST /api/id/export`). | `packages/cid` stays here as the in-process library +SPCTR uses until +SPCTR signs in as OpenID Connect client `spectre`. | Cut-over in DEPLOY.md; then +SPCTR as an OIDC client (docs/cumulus-id.md). New products integrate against `InfinitumCorp/cumulus-id`. |
 | **Data Exchange** | Opt-in data licensing, 85% rev-share to users, CDAT tokens. | Partial | `packages/data-exchange` (catalog, Firmament-backed consent, marketplace, revshare, **14 collectors covering all software products**) + `apps/data-exchange` HTTP API | Persist sales/licenses on Firmament; issue CDAT tokens; wire collectors into live product runtimes; production storage. |
 
 ## Core software products
 
 | Product | Advertised task | Status | Evidence | Next steps |
 |---------|-----------------|--------|----------|------------|
-| **+SPCTR™ (Spectre)** | AI intelligent CRM. | Partial | Full app.ts + METATRON (learned per-workspace model, GET /api/metatron and /api/metatron/backtest, model shown in Settings) + research ... | Typecheck, tests, deploy. SpectreCollector ready. |
+| **+SPCTR™ (Spectre)** | AI intelligent CRM. | Partial | Full `app.ts` on the live Cumulus://ID Worker. METATRON is default-on. Ask Spectre, research, and agents use the free Workers AI binding `AI`, then `OMNIROUTE_*`, then the not-connected message. ei·det·ic returns "not configured". Payments and the $SPCTR token are off. | Deploy `cumulus-id` with the command in DEPLOY.md. Do not turn payments or $SPCTR on in that deploy. |
 | **:\ARCHITECT\\** | Intent → Score → perform → verify. | Partial | Score, executor, autonomy | Deploy via Docker/Vercel. ArchitectCollector ready. |
 | **SCALVS.ai** | AI workforce platform. | Scaffolded | Agent + Context Vault + tools + Team + Architect evidence + Firmament vault + NEXT.md | See packages/scalus/NEXT.md. ScalusCollector ready. |
-| **METATRON** | Prediction + analytics. | Partial | Default scorer + learned logistic scorer (explainable odds-ratio factors) + time-ordered backtests (Brier, log loss, AUC, calibration) + series forecasters (naive, last-delta, damped Holt) with rolling-origin error (MAE, RMSE, sMAPE). Live in Spectre: learned model per workspace once 30+ closed deals (won and lost), retrained when closed deals change. | Stage learned from history (Deal.closedFrom) once deals close after this release; numeric features clamped to ±3σ. MetatronCollector ready. |
+| **METATRON** | Prediction + analytics. | Partial | Default scorer + learned logistic scorer (explainable odds-ratio factors) + time-ordered backtests (Brier, log loss, AUC, calibration). **"What if?" scenario engine**: Monte Carlo over JSON models with uncertain variables, per-step shocks, agent populations, interventions compared on common random numbers, event odds and tornado sensitivity, written in a safe formula language. Four templates: rate decision, supply delay, product adoption, cash runway. Auto-selected forecasts (naive, drift, Holt, Holt-Winters) with ranges from their own backtest errors. Anomalies, level shifts and a ranked "what changed" digest. Live in Spectre: learned model per workspace once 30+ closed deals; pipeline outlook (bookings range, target odds, stage what-if); `/api/metatron/*` routes and the METATRON¹⁰⁰ page. Saved scenarios per workspace (save, rename, run by id, delete; Firmament trail). | Standalone mttrn.app command center (outside Spectre). Feed signals from the other suite products (HRVST, VEIL, $FIRM Wallet). MetatronCollector ready. |
 | **HRVST** | Capture → privacy filter → Harvest Packet. | Scaffolded | Packet + privacy filter + licensing + Personal Silo | Production privacy model. HrvstCollector ready. |
-| **ei·det·ic** | Identity-intelligence (authorized use only). | Scaffolded | Service + Spectre integration | Production sources. Restricted. EideticCollector ready. |
+| **ei·det·ic** | Identity-intelligence (authorized use only). | Scaffolded | Service scaffold. Spectre's `eidetic.ts` returns "ei·det·ic is not configured" and does not report an empty match or a recorded consent. | An authorized source, still restricted. No source is connected. |
 | **FIRM + FIRM Wallet** | Ecosystem token, wallet, DEX. | Partial | EVM client + wallet signing + DEX + router calldata + contracts + deploy scripts + compile.sh + deploy-helper.md | See DEPLOY.md and packages/firm/scripts/deploy-helper.md. Compile and deploy. FirmCollector ready. |
-| **Project-specific tokens** | $HRVST, $ARCT, $SPCTR, $SCLV. | Scaffolded | tokens.ts + ProjectToken.sol + deploy.ts | Compile and deploy. TokensCollector ready. |
+| **Project-specific tokens** | $HRVST, $ARCT, $SPCTR, $SCLV. | Scaffolded | tokens.ts + ProjectToken.sol + deploy.ts. $SPCTR is not live in the +SPCTR Worker. | Compile and deploy when a token launch is requested. TokensCollector ready. |
 | **Cumulus://Cloud** | Storage, licensing, agent runtime, **Data Exchange** | Partial (exchange) | packages/cloud + packages/data-exchange + apps/data-exchange | Wire CumulusCollector; object store production; CDAT settlement. |
 | **Cumulus://Mail** | Free email on every CID, alex@cumuluscloud.app, encrypted at rest, end-to-end between Cumulus accounts, SCALVS briefs, Architect tasks, Drive files, snooze, rules, signature. | Core logic + inside-network delivery | `packages/mail` + `apps/cumulus-mail` | SMTP handoff for the outbox. SCALVS when `XAI_API_KEY` is set. |
 
@@ -77,12 +78,12 @@ These cannot be fully built as software. Data from these is excluded from public
 ## Immediate next build
 
 See **DEPLOY.md**, **apps/spectre/src/server/RESTORE-APP.md**, **packages/firm/scripts/deploy-helper.md**, **apps/architect/DEPLOY.md**, **apps/veil/NEXT.md**, and **packages/scalus/NEXT.md**.  
-- Spectre: full restore of `app.ts`, then deploy.  
+- Spectre: server is the full `app.ts`. Deploy the `cumulus-id` Worker with the command in DEPLOY.md. Workers AI is the free model path. Leave payments and $SPCTR off.  
 - Architect: deploy.  
 - FIRM: compile then deploy.  
 - METATRON enabled by default in Spectre.  
 - VEIL: real key management + deploy $VEIL claim.
-- **Data Exchange:** run `apps/data-exchange`; wire the 14 collectors into product runtimes; record sales as Firmament license/payment entries; issue CDAT tokens on Base.
+- **Data Exchange:** run `apps/data-exchange`; wire the 14 collectors into product runtimes; record sales as Firmament license/payment entries; issue CDAT tokens on Solana (all Infinitum tokens are Solana-only as of 9 Nov 2026).
 
 ## Acceptance criteria (for "performs as advertised")
 

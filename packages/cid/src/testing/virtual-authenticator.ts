@@ -68,7 +68,11 @@ export class VirtualAuthenticator {
     };
   }
 
-  get(opts: { credentialId: string; challenge: string; origin: string; rpIdOverride?: string; counterOverride?: number }): AssertionResponse {
+  /**
+   * @param opts.signatureEncoding  "der" (default) is what real authenticators send for ES256
+   *   (WebAuthn §6.5.6); "ieee-p1363" sends raw r||s, to test the compatibility path.
+   */
+  get(opts: { credentialId: string; challenge: string; origin: string; rpIdOverride?: string; counterOverride?: number; signatureEncoding?: "der" | "ieee-p1363" }): AssertionResponse {
     const cred = this.credentials.get(opts.credentialId);
     if (!cred) throw new Error("virtual authenticator: unknown credential");
     if (this.useCounter) cred.counter += 1;
@@ -79,7 +83,7 @@ export class VirtualAuthenticator {
     const data = Buffer.concat([authData, sha256(clientDataJSON)]);
     const signature = cred.alg === "EdDSA"
       ? sign(null, data, cred.privateKey)
-      : sign("sha256", data, { key: cred.privateKey, dsaEncoding: "ieee-p1363" });
+      : sign("sha256", data, { key: cred.privateKey, dsaEncoding: opts.signatureEncoding ?? "der" });
     return {
       credentialId: opts.credentialId,
       clientDataJSON: b64u(clientDataJSON),

@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { isE2E, listThreads, unreadInBox } from "./logic.ts";
 import { Mailbox } from "./mailbox.ts";
 
-test("seed inbox has four unread threads and keeps VYRAL starred", () => {
+test("seed inbox has four unread threads and keeps VYRAL starred", async () => {
   const mail = new Mailbox();
   assert.equal(unreadInBox(mail.messages, "inbox"), 4);
   const rows = listThreads(mail.messages, "inbox", "", false);
@@ -11,7 +11,7 @@ test("seed inbox has four unread threads and keeps VYRAL starred", () => {
   assert.equal(rows[0]?.starred, true);
 });
 
-test("mail inside Cumulus is end-to-end and mail to VYRAL is not", () => {
+test("mail inside Cumulus is end-to-end and mail to VYRAL is not", async () => {
   const mail = new Mailbox();
   const leah = mail.messages.find((message) => message.id === "m-leah-1");
   const priya = mail.messages.find((message) => message.id === "m-priya-1");
@@ -19,7 +19,7 @@ test("mail inside Cumulus is end-to-end and mail to VYRAL is not", () => {
   assert.ok(priya && !isE2E(priya));
 });
 
-test("sending drops the draft and files the note under sent", () => {
+test("sending drops the draft and files the note under sent", async () => {
   const mail = new Mailbox();
   const sent = mail.send({
     to: "leah@cumuluscloud.app",
@@ -34,7 +34,7 @@ test("sending drops the draft and files the note under sent", () => {
   assert.equal(mail.messages.find((message) => message.subject === "Notes received")?.delivery?.[0]?.status, "inside");
 });
 
-test("an external Cc is not labeled Personal", () => {
+test("an external Cc is not labeled Personal", async () => {
   const mail = new Mailbox();
   const sent = mail.send({
     to: "leah@cumuluscloud.app",
@@ -48,7 +48,7 @@ test("an external Cc is not labeled Personal", () => {
   assert.deepEqual(message?.delivery?.map((hop) => hop.status), ["inside", "outbound"]);
 });
 
-test("a bad address is refused", () => {
+test("a bad address is refused", async () => {
   const mail = new Mailbox();
   const sent = mail.send({ to: "not-an-email", subject: "Hi", body: "Hi" });
   assert.equal(sent.ok, false);

@@ -1,0 +1,1 @@
+export { redactFaces, faceIdentity, parseSafetyCommand } from "@infinitum/sense";

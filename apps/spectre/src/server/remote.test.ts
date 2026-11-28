@@ -1,9 +1,9 @@
-import { describe, it } from "node:test";
+import { describe, it, test } from "node:test";
 import assert from "node:assert/strict";
 import { Ledger, generateSigner } from "@infinitum/firmament";
 import { CidService, CidStore } from "@infinitum/cid";
 import { SpectreCRM, emptyStore } from "../core/crm.ts";
-import { RemoteState, MemoryGateway } from "./remote.ts";
+import { HttpGateway, RemoteState, MemoryGateway } from "./remote.ts";
 
 /** Two serverless instances sharing one database. */
 function instance(gateway: MemoryGateway, signer = generateSigner()) {
@@ -17,6 +17,20 @@ function instance(gateway: MemoryGateway, signer = generateSigner()) {
 }
 
 describe("Hosted state (serverless instances sharing Supabase)", () => {
+  it("calls fetch as a plain function so Workers do not throw Illegal invocation", async () => {
+    let seen: unknown = "unset";
+    const fetchImpl = function (this: unknown, _url: string | URL | Request, init?: RequestInit) {
+      seen = this;
+      if (this !== undefined && this !== globalThis) throw new TypeError("Illegal invocation");
+      const body = JSON.parse(String(init?.body));
+      assert.equal(body.op, "load");
+      return Promise.resolve(new Response(JSON.stringify({ entries: [], docs: [] }), { status: 200 }));
+    } as typeof fetch;
+    const gateway = new HttpGateway("https://store.example/nexus", "key", fetchImpl);
+    assert.deepEqual(await gateway.load(-1, {}), { entries: [], docs: [] });
+    assert.equal(seen, undefined);
+  });
+
   it("saves changes and lets another instance see them", async () => {
     const db = new MemoryGateway();
     const a = instance(db);
@@ -25,7 +39,7 @@ describe("Hosted state (serverless instances sharing Supabase)", () => {
     await a.state.transaction(() => a.crm.addCompany(account.cid, account.cid, { name: "Northwind" }));
 
     await b.state.transaction(async () => {
-      assert.equal(b.cid.getAccount(account.cid).username, "alex");
+      assert.equal((await b.cid.getAccount(account.cid)).username, "alex");
       assert.equal(b.crm.list("companies", account.cid)[0].name, "Northwind");
     });
     assert.equal(db.entries.length, 2);
@@ -100,6 +114,129 @@ describe("Hosted state (serverless instances sharing Supabase)", () => {
     assert.equal(a.crm.list("companies", acct.cid).length, 0);
   });
 
+  it("re-runs a request Postgres ended to break a deadlock, and saves nothing from the failed run", async () => {
+    const db = new MemoryGateway();
+    const a = instance(db);
+    const acct = await a.state.transaction(() => a.cid.createAccount({ username: "alex" }));
+    let runs = 0;
+    const result = await a.state.transaction(async () => {
+      runs++;
+      a.crm.addCompany(acct.cid, acct.cid, { name: `Run ${runs}` });
+      if (runs === 1) throw Object.assign(new Error("deadlock detected"), { code: "40P01" });
+      return "done";
+    });
+    assert.equal(result, "done");
+    assert.equal(runs, 2);
+    assert.deepEqual(a.crm.list("companies", acct.cid).map((c) => c.name), ["Run 2"], "the failed run's change was dropped");
+    assert.equal(a.state.stats.conflicts, 1);
+    // Any other error is the request's own and isn't re-run.
+    let other = 0;
+    await assert.rejects(a.state.transaction(async () => { other++; throw Object.assign(new Error("duplicate"), { code: "23505" }); }), /duplicate/);
+    assert.equal(other, 1);
+  });
+
+  it("a document loaded from Postgres (keys in jsonb order) isn't written back by requests that change nothing", async () => {
+    // jsonb keeps object keys in its own order (shorter keys first), not the order they were written.
+    const jsonbOrder = (v: unknown): unknown =>
+      Array.isArray(v) ? v.map(jsonbOrder)
+        : v && typeof v === "object" ? Object.fromEntries(Object.keys(v).sort((x, y) => x.length - y.length || (x < y ? -1 : 1)).map((k) => [k, jsonbOrder((v as Record<string, unknown>)[k])]))
+        : v;
+    const db = new MemoryGateway();
+    const load = db.load.bind(db);
+    db.load = async (since, versions) => {
+      const r = await load(since, versions);
+      return { ...r, docs: r.docs.map((d) => ({ ...d, data: jsonbOrder(d.data) as Record<string, unknown> })) };
+    };
+    const a = instance(db);
+    const acct = await a.state.transaction(() => a.cid.createAccount({ username: "jsonb" }));
+    const b = instance(db, a.signer);
+    let commits = 0;
+    const commit = db.commit.bind(db);
+    db.commit = async (...args) => { commits++; return commit(...args); };
+    for (let i = 0; i < 3; i++) {
+      await b.state.transaction(async () => (await b.cid.getAccount(acct.cid)).username);
+      await a.state.transaction(async () => (await a.cid.getAccount(acct.cid)).username);
+    }
+    assert.equal(commits, 0, "nothing changed, so nothing is written");
+    // A real change still is.
+    await b.state.transaction(() => b.cid.createAccount({ username: "jsonb2" }));
+    assert.equal(commits, 1);
+  });
+
+  it("after-commit steps run once the request is saved, never for a run that is re-run or rolled back", async () => {
+    const db = new MemoryGateway();
+    const a = instance(db);
+    const acct = await a.state.transaction(() => a.cid.createAccount({ username: "hooks" }));
+    const ran: string[] = [];
+    let runs = 0;
+    await a.state.transaction(async () => {
+      runs++;
+      a.state.afterCommit(async () => void ran.push(`run ${runs}`));
+      a.crm.addCompany(acct.cid, acct.cid, { name: `Run ${runs}` });
+      if (runs === 1) throw Object.assign(new Error("deadlock detected"), { code: "40P01" });
+    });
+    assert.deepEqual(ran, ["run 2"], "only the run that was saved");
+
+    // The store fails: nothing is saved, so nothing runs.
+    const down = instance(db);
+    down.state.participants.push({ begin: async () => {}, commit: async () => {}, rollback: async () => {} });
+    const commit = db.commit.bind(db);
+    db.commit = async () => { throw new Error("store unreachable"); };
+    await assert.rejects(down.state.transaction(async () => {
+      down.state.afterCommit(async () => void ran.push("never"));
+      down.crm.addCompany(acct.cid, acct.cid, { name: "Lost" });
+    }), /unreachable/);
+    db.commit = commit;
+    assert.deepEqual(ran, ["run 2"]);
+
+    // A refusal is still saved, so its steps run; a failing step doesn't fail the request.
+    await assert.rejects(a.state.transaction(async () => {
+      a.state.afterCommit(async () => { throw new Error("bucket down"); });
+      a.state.afterCommit(async () => void ran.push("after refusal"));
+      throw new Error("refused");
+    }), /refused/);
+    assert.deepEqual(ran, ["run 2", "after refusal"]);
+  });
+
+  it("a document this host doesn't keep is sent once, not with every request", async () => {
+    const db = new MemoryGateway();
+    db.docs.set("cid", { id: "cid", version: 3, data: { accounts: { __map: [] } } });
+    const crmStore = emptyStore();
+    const state = new RemoteState(db, { spectre: crmStore });
+    const sent: string[][] = [];
+    const load = db.load.bind(db);
+    db.load = async (since, versions) => {
+      const r = await load(since, versions);
+      sent.push(r.docs.map((d) => d.id));
+      return r;
+    };
+    for (let i = 0; i < 3; i++) await state.transaction(async () => undefined);
+    assert.deepEqual(sent, [["cid"], [], []]);
+  });
+
+  it("a store failure part way through a request saves nothing of it; a refusal still saves what it recorded", async () => {
+    const db = new MemoryGateway();
+    const a = instance(db);
+    const acct = await a.state.transaction(() => a.cid.createAccount({ username: "alex" }));
+    const { StoreError } = await import("./remote.ts");
+    for (const failure of [new StoreError("Data store error 502"), Object.assign(new Error("duplicate key"), { code: "23505" })]) {
+      await assert.rejects(a.state.transaction(async () => {
+        a.crm.addCompany(acct.cid, acct.cid, { name: "Half done" });
+        throw failure;
+      }));
+      assert.equal(a.crm.list("companies", acct.cid).length, 0, "rolled back in memory");
+      const fresh = instance(db, a.signer);
+      assert.equal(await fresh.state.transaction(async () => fresh.crm.list("companies", acct.cid).length), 0, "and not saved");
+    }
+    // A refusal (the request's own error, no store involved) keeps today's behavior: what it recorded is saved.
+    await assert.rejects(a.state.transaction(async () => {
+      a.crm.addCompany(acct.cid, acct.cid, { name: "Recorded" });
+      throw new Error("refused");
+    }), /refused/);
+    const fresh = instance(db, a.signer);
+    assert.equal(await fresh.state.transaction(async () => fresh.crm.list("companies", acct.cid).length), 1);
+  });
+
   it("doesn't write anything for read-only requests", async () => {
     const db = new MemoryGateway();
     const a = instance(db);
@@ -108,4 +245,31 @@ describe("Hosted state (serverless instances sharing Supabase)", () => {
     await a.state.transaction(async () => a.cid.socialProvidersEnabled());
     assert.equal(db.docs.get("cid")!.version, before);
   });
+});
+
+test("store metrics count transactions, conflicts and document bytes, with no content", async () => {
+  const { RemoteState, MemoryGateway } = await import("./remote.ts");
+  const gateway = new MemoryGateway();
+  const lines: string[] = [];
+  const a = new RemoteState(gateway, { cid: { accounts: new Map<string, string>() } });
+  const b = new RemoteState(gateway, { cid: { accounts: new Map<string, string>() } });
+  for (const s of [a, b]) { s.metricsLog = (l) => lines.push(l); s.metricsEvery = 2; }
+  const accountsOf = (s: InstanceType<typeof RemoteState>) => (s as unknown as { docs: { cid: { accounts: Map<string, string> } } }).docs.cid.accounts;
+  await a.transaction(async () => { accountsOf(a).set("cid_1", "secret-name-alex"); });
+  await a.transaction(async () => { accountsOf(a).set("cid_2", "sam"); });
+  // Another instance saves while b's request is running: b's commit conflicts once, then re-runs.
+  let raced = false;
+  await b.transaction(async () => {
+    accountsOf(b).set("cid_3", "kim");
+    if (!raced) { raced = true; const doc = gateway.docs.get("cid")!; gateway.docs.set("cid", { ...doc, version: doc.version + 1 }); }
+  });
+  assert.equal(a.stats.transactions, 2);
+  assert.equal(a.stats.commits, 2);
+  assert.equal(a.stats.docs.cid!.writes, 2);
+  assert.ok(a.stats.docs.cid!.maxBytes >= a.stats.docs.cid!.lastBytes && a.stats.docs.cid!.lastBytes > 0);
+  assert.equal(b.stats.conflicts, 1);
+  assert.equal(b.stats.exhausted, 0);
+  assert.ok(lines.some((l) => JSON.parse(l).reason === "conflict"));
+  assert.ok(lines.some((l) => JSON.parse(l).reason === "periodic"));
+  assert.ok(lines.every((l) => !l.includes("secret-name-alex")), "metrics never carry content");
 });

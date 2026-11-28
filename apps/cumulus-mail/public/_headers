@@ -1,0 +1,13 @@
+# Cloudflare static assets: the same headers the app sets on its own responses (src/app.ts handle()).
+/drive/*
+  Content-Security-Policy: default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'
+  X-Frame-Options: DENY
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: no-referrer
+  X-Robots-Tag: noindex, nofollow, noarchive, nosnippet
+
+# The sign-in button is loaded by other Infinitum sites.
+/id/*
+  X-Content-Type-Options: nosniff
+  Cross-Origin-Resource-Policy: cross-origin
+  Cache-Control: public, max-age=300

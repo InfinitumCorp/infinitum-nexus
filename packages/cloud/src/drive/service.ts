@@ -90,6 +90,19 @@ export interface Download {
   total: number;
 }
 
+/** What sweepOrphanBlobs found (and, unless dryRun, removed). */
+export interface OrphanSweep {
+  dryRun: boolean;
+  /** Objects old enough to check. */
+  scanned: number;
+  /** Object keys nothing in the database points at. */
+  orphans: string[];
+  /** Leftover temporary files from interrupted writes. */
+  temps: string[];
+  /** Objects plus temporary files actually removed (0 on a dry run). */
+  deleted: number;
+}
+
 export interface DriveServiceOptions {
   repo: DriveRepo;
   blobs: BlobStore;
@@ -458,6 +471,65 @@ export class DriveService {
     const upload = await this.repo.getUpload(ownerCid, uploadId);
     if (!upload || upload.status !== "open") throw new DriveError(404, "not_found", "No such upload");
     await this.releaseUpload(upload.ownerCid, upload.id, upload.declaredSize);
+  }
+
+  /**
+   * Remove bytes no file version or open upload points at: what a crash between writing the blob and
+   * committing the database leaves behind, plus putStream's leftover temporary files.
+   *
+   * Safe by construction: only objects older than `graceMs` are considered (a write in flight is
+   * always younger), each batch is checked against the database right before anything is deleted,
+   * and the driver lists only names it generated. `dryRun` (the default) reports without deleting.
+   */
+  async sweepOrphanBlobs(opts: { graceMs?: number; dryRun?: boolean; batchSize?: number } = {}): Promise<OrphanSweep> {
+    const graceMs = opts.graceMs ?? DAY_MS;
+    if (!Number.isFinite(graceMs) || graceMs < 60 * 60 * 1000) throw new DriveError(400, "grace_too_short", "The orphan sweep needs a grace period of at least one hour");
+    const dryRun = opts.dryRun ?? true;
+    const batchSize = Math.max(1, Math.min(opts.batchSize ?? 500, 5000));
+    if (!this.blobs.list) throw new DriveError(400, "sweep_unsupported", `The ${this.blobs.kind} driver can't list its objects`);
+    const cutoff = this.clock().getTime() - graceMs;
+    const result: OrphanSweep = { dryRun, scanned: 0, orphans: [], temps: [], deleted: 0 };
+
+    const flush = async (batch: string[]) => {
+      if (!batch.length) return;
+      const live = await this.repo.referencedStorageKeys(batch);
+      for (const key of batch) {
+        if (live.has(key)) continue;
+        result.orphans.push(key);
+        if (!dryRun) {
+          await this.blobs.delete(key);
+          result.deleted++;
+        }
+      }
+    };
+
+    let batch: string[] = [];
+    for await (const item of this.blobs.list()) {
+      if (item.modifiedAt.getTime() > cutoff) continue;
+      if (item.kind === "temp") {
+        result.temps.push(item.key);
+        if (!dryRun && this.blobs.deleteTemp) {
+          await this.blobs.deleteTemp(item.key);
+          result.deleted++;
+        }
+        continue;
+      }
+      result.scanned++;
+      batch.push(item.key);
+      if (batch.length >= batchSize) {
+        await flush(batch);
+        batch = [];
+      }
+    }
+    await flush(batch);
+    return result;
+  }
+
+  /** Give back quota held by uploads that crashed before their database commit. See DriveRepo.reconcileQuotas. */
+  async reconcileQuotas(opts: { graceMs?: number } = {}) {
+    const graceMs = opts.graceMs ?? DAY_MS;
+    if (!Number.isFinite(graceMs) || graceMs < 60 * 60 * 1000) throw new DriveError(400, "grace_too_short", "Quota reconciliation needs a grace period of at least one hour");
+    return this.repo.reconcileQuotas(new Date(this.clock().getTime() - graceMs));
   }
 
   async expireUploads(): Promise<number> {

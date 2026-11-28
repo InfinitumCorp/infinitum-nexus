@@ -1,10 +1,19 @@
 /**
- * Spectre's AI layer. Runs on open-weight models through @infinitum/ai: OmniRoute
- * first, then any configured open-model host, switching automatically when one
- * fails or stalls. Without a configured host, AI features say they're not
- * connected instead of pretending.
+ * Spectre's AI layer. On the Cloudflare Worker the free Workers AI binding is tried
+ * first. OmniRoute (OMNIROUTE_BASE_URL / OMNIROUTE_API_KEY) and any other host already
+ * configured in the environment are the fallback. With neither, AI features say they
+ * are not connected instead of pretending.
  */
-import { sharedRouter, type AiRouter } from "@infinitum/ai";
+import {
+  providersFromEnv,
+  routerFromEnv,
+  sharedRouter,
+  workersAiProvider,
+  type AiRouter,
+  type Provider,
+  type RouterOptions,
+  type WorkersAiBinding,
+} from "@infinitum/ai";
 
 export interface AiConfig {
   /** The open-model router. Tests inject a scripted one. */
@@ -19,8 +28,49 @@ export class AiNotConnected extends Error {
   }
 }
 
+/** Workers AI binding for this process. The Worker sets it before the first request. */
+let workersAi: WorkersAiBinding | undefined;
+
+/** Register the Worker's `AI` binding. Pass undefined to clear it (tests). */
+export function useWorkersAi(binding: WorkersAiBinding | undefined) {
+  workersAi = binding;
+}
+
+/** Prefer the free Workers AI binding, then whatever OMNIROUTE_* (and other hosts) the env already names. */
+function workersFirst(binding: WorkersAiBinding): Provider {
+  const provider = workersAiProvider(binding);
+  return {
+    ...provider,
+    tierModels: {
+      smart: provider.models["gpt-oss-120b"],
+      fast: provider.models["gpt-oss-20b"],
+    },
+  };
+}
+
+/**
+ * Router for Ask Spectre, research and agents.
+ * `binding` wins over the process-wide one so tests stay isolated.
+ */
+export function spectreAiRouter(
+  env: Record<string, string | undefined> = process.env,
+  binding: WorkersAiBinding | undefined = workersAi,
+  extra: Partial<RouterOptions> = {},
+): AiRouter {
+  const providers = [...(binding ? [workersFirst(binding)] : []), ...providersFromEnv(env)];
+  return routerFromEnv(env, { ...extra, providers });
+}
+
 export function aiConfigFromEnv(): AiConfig {
-  return { router: sharedRouter() };
+  if (!workersAi) return { router: sharedRouter() };
+  // Delegate so a later request can replace the binding without rebuilding the router.
+  const delegate: WorkersAiBinding = {
+    run: (model, input) => {
+      if (!workersAi) return Promise.reject(new Error("Workers AI binding is not configured"));
+      return workersAi.run(model, input);
+    },
+  };
+  return { router: spectreAiRouter(process.env, delegate) };
 }
 
 export function aiConnected(cfg: AiConfig): cfg is AiConfig & { router: AiRouter } {

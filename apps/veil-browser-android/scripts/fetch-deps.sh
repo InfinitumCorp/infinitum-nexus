@@ -10,7 +10,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 TOR_VERSION=16.0
-TOR_URL="https://dist.torproject.org/torbrowser/$TOR_VERSION"
+TOR_URL="https://archive.torproject.org/tor-package-archive/torbrowser/$TOR_VERSION" # dist.torproject.org drops old releases; the archive keeps them
 # Tor Browser ABI name, Android ABI, SHA-256 of tor-expert-bundle-android-<abi>-<version>.tar.gz
 TOR_BUNDLES="
 aarch64 arm64-v8a   bf8f4c63652fd7daa62288713c7fa512f244a5b972808f6251450e5fdfca9120

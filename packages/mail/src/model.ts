@@ -1,3 +1,4 @@
+import type { InboundAuth } from "./auth-results.ts";
 export const ME = {
   name: "Alex Reid",
   email: "alex@cumuluscloud.app",
@@ -57,6 +58,8 @@ export type MailMessage = {
   tunnel?: { verified: boolean; fingerprint: string };
   /** At rest only: content that couldn't be opened with this server's keys. */
   locked?: boolean;
+  /** Mail from outside Cumulus: what the receiving edge reported about the sender (SPF, DKIM, DMARC). */
+  auth?: InboundAuth;
 };
 
 export type MailPayment = {

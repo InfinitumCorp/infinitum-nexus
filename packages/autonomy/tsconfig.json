@@ -2,7 +2,8 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "paths": {
-      "@infinitum/hardware": ["../hardware/src/index.ts"]
+      "@infinitum/hardware": ["../hardware/src/index.ts"],
+      "@infinitum/sense": ["../sense/src/index.ts"]
     }
   },
   "include": ["src"]

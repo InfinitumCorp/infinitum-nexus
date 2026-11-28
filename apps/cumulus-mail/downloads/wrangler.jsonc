@@ -6,6 +6,8 @@
   "name": "cumulus-downloads",
   "main": "worker.js",
   "compatibility_date": "2026-11-01",
+  // Global users run on US servers (Ashburn, Virginia); Russia is served by the ru.* copies on Yandex Cloud.
+  "placement": { "region": "gcp:us-east4" },
   "assets": { "directory": "./public", "binding": "ASSETS", "not_found_handling": "404-page", "run_worker_first": ["/files/*", "/get/*"] },
   "r2_buckets": [{ "binding": "DOWNLOADS", "bucket_name": "cumulus-downloads" }],
   "routes": [{ "pattern": "downloads.cumuluscloud.app", "custom_domain": true }],

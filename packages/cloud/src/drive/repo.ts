@@ -184,6 +184,46 @@ export class DriveRepo {
     }
   }
 
+  /** The subset of `keys` that a file version or an open upload part still points at. */
+  async referencedStorageKeys(keys: string[]): Promise<Set<string>> {
+    if (!keys.length) return new Set();
+    const res = await this.pool.query<{ storage_key: string }>(
+      `SELECT storage_key FROM cloud_versions WHERE storage_key = ANY($1::text[])
+       UNION
+       SELECT storage_key FROM cloud_upload_parts WHERE storage_key = ANY($1::text[])`,
+      [keys],
+    );
+    return new Set(res.rows.map((r) => r.storage_key));
+  }
+
+  /**
+   * Give back quota that no file version or open upload accounts for (a crash between reserve and the
+   * database commit leaves it held). Only lowers used_bytes, and only for owners whose quota row hasn't
+   * changed since `idleBefore`: every reserve/release touches updated_at, so an upload in flight makes
+   * its owner ineligible, and a concurrent reserve re-checks this WHERE against the new row.
+   */
+  async reconcileQuotas(idleBefore: Date): Promise<{ ownerCid: string; before: number; after: number }[]> {
+    const res = await this.pool.query<{ owner_cid: string; before: string; after: string }>(
+      `WITH truth AS (
+         SELECT q.owner_cid,
+                COALESCE((SELECT SUM(v.size_bytes) FROM cloud_versions v WHERE v.owner_cid = q.owner_cid), 0)
+              + COALESCE((SELECT SUM(u.declared_size) FROM cloud_uploads u WHERE u.owner_cid = q.owner_cid AND u.status = 'open'), 0) AS total
+         FROM cloud_quotas q
+         WHERE q.updated_at < $1
+       ), old AS (
+         SELECT q.owner_cid, q.used_bytes FROM cloud_quotas q JOIN truth t USING (owner_cid) WHERE q.used_bytes > t.total
+       )
+       UPDATE cloud_quotas q
+       SET used_bytes = t.total, updated_at = now()
+       FROM truth t, old o
+       WHERE q.owner_cid = t.owner_cid AND o.owner_cid = q.owner_cid
+         AND q.updated_at < $1 AND q.used_bytes > t.total
+       RETURNING q.owner_cid, o.used_bytes AS before, q.used_bytes AS after`,
+      [idleBefore],
+    );
+    return res.rows.map((r) => ({ ownerCid: r.owner_cid, before: Number(r.before), after: Number(r.after) }));
+  }
+
   async ping(): Promise<void> {
     await this.pool.query("SELECT 1");
   }

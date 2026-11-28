@@ -22,17 +22,47 @@ export default defineConfig({
     name: "cumulus-mail",
     entrypoint: "./src/worker.ts",
     compatibilityDate: "2026-11-01",
+    // Global users run on US servers (Ashburn, Virginia); Russia is served by the ru.* copies on Yandex Cloud.
+    placement: { region: "gcp:us-east4" },
     compatibilityFlags: ["nodejs_compat"],
     domains: [host],
+    // The web app (public/: index.html, app.js, manifest, sw.js…) is served as static assets; the
+    // directory comes from wrangler.config.ts. Without this block a `cf deploy` uploads only the
+    // Worker code and / answers 404 (as happened on 2026-11-10). Same settings the wrangler
+    // deploys used: files first, then the Worker; no SPA fallback.
+    assets: { htmlHandling: "auto-trailing-slash", notFoundHandling: "none" },
     observability: { enabled: true },
     triggers: [triggers.scheduled({ schedule: "* * * * *" })], // send scheduled mail that is due
     env: {
       MAIL_ORIGIN: bindings.text(`https://${host}`),
-      // Mirror through AWS CloudFront for networks that throttle Cloudflare (Russian ISPs).
-      MAIL_EXTRA_ORIGINS: bindings.text(`https://ru.${host}`),
+      // Mirrors for networks that throttle Cloudflare (Russian ISPs): ru. is AWS (also throttled in
+      // Russia since 2026-11); ru2. is Firebase Hosting -> Cloud Run (mirror/), which gets through.
+      MAIL_EXTRA_ORIGINS: bindings.text(`https://ru.${host},https://ru2.${host}`),
+      // Cumulus://ID, Mail, FIRM Wallet, the storage quota and Drive metadata live as rows in Supabase,
+      // reached through nexus-store (apps/spectre/src/server/cid-store.ts, docs/plans/relational-storage.md).
+      // supabase/migrations 20261115 through 20261124 are applied and nexus-store is redeployed (2026-11-20).
+      // The first request claims the rows: each document is copied in once, under a lock (the ID rows
+      // already match the `cid` document, so that one is only recorded). Nothing else writes these
+      // documents: id.cumuluscloud.app keeps its own Durable Object, and +SPCTR isn't deployed on Vercel.
+      // Rollback: docs/plans/relational-storage.md ("Cutover runbook"), then set "document" and no rows.
+      // Mail here is unsealed (no master key), which the gateway path requires.
+      CUMULUS_STORE: bindings.text("gateway"),
+      CUMULUS_ROWS: bindings.text("mail,wallet,quota,drive"),
+      // Infinitum Search (POST /api/web-search) on VEIL's own engine; needs no key.
+      VEIL_SEARCH_URL: bindings.text("https://infinitumveil.app/api/search"),
       FIRMAMENT_SIGNER_KEY: bindings.secret(),
       NEXUS_STORE_URL: bindings.secret(),
       NEXUS_STORE_KEY: bindings.secret(),
+      // Already on the live Worker; declared here so a deploy keeps them.
+      EMAIL: bindings.sendEmail(),
+      MAIL_FILES: bindings.r2({ name: "cumulus-mail-files" }),
+      DOWNLOADS_SITE: bindings.worker({ worker: "cumulus-downloads" }),
+      // US Labyrinth (Worker lbrnth-host-us), reached Worker-to-Worker so Cloudflare Access never applies.
+      LBRNTH_US: bindings.worker({ worker: "lbrnth-host-us" }),
+      GOOGLE_CLIENT_ID: bindings.secret(),
+      GOOGLE_CLIENT_SECRET: bindings.secret(),
+      // Hosted Labyrinth relay target (https://<cloud-run-host>/api/labyrinth), set with wrangler secret put.
+      LBRNTH_ENDPOINT: bindings.secret(),
     },
   },
 });

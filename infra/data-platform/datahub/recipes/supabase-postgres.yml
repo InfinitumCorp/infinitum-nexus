@@ -1,0 +1,27 @@
+# Ingest schemas, ownership hints and table lineage from the Cumulus Postgres (Supabase,
+# eu-west-1) into DataHub. Metadata only: no rows are copied.
+#   datahub ingest -c infra/data-platform/datahub/recipes/supabase-postgres.yml
+# Credentials come from the environment. Use a read-only metadata role, never the owner role.
+source:
+  type: postgres
+  config:
+    host_port: ${CUMULUS_PG_HOST_PORT}
+    database: ${CUMULUS_PG_DATABASE}
+    username: ${CUMULUS_PG_METADATA_USER}
+    password: ${CUMULUS_PG_METADATA_PASSWORD}
+    platform_instance: cumulus-eu
+    env: PROD
+    schema_pattern:
+      deny: ["^pg_.*", "^information_schema$", "^auth$", "^storage$", "^vault$", "^extensions$"]
+    include_views: true
+    profiling:
+      enabled: false # profiling reads rows; keep off for tables holding personal data
+    stateful_ingestion:
+      enabled: true
+      remove_stale_metadata: true
+pipeline_name: cumulus-supabase-postgres
+sink:
+  type: datahub-rest
+  config:
+    server: ${DATAHUB_GMS_URL:-http://localhost:8080}
+    token: ${DATAHUB_GMS_TOKEN:-}

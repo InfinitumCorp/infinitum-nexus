@@ -31,7 +31,7 @@ export class LabyrinthError extends Error {
   constructor(code: LabyrinthError["code"], message: string) { super(message); this.code = code; }
 }
 export interface LabyrinthOptions {
-  /** Use cid.can.bind(cid). CID identity must come from a verified session, never request JSON. */
+  /** Use cid.syncView().can (synchronous; an async answer is treated as a refusal). CID identity must come from a verified session, never request JSON. */
   can(cid: string, product: "LBRNTH", scope: Scope): boolean;
   /** Trusted billing/plan authority, independent of CID user-consent grants. Deny by default. */
   entitled(orgId: string, product: "LBRNTH"): boolean;

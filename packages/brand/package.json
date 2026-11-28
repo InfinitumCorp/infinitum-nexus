@@ -1,7 +1,7 @@
 {
   "name": "@infinitum/brand",
   "version": "0.1.0",
-  "description": "Infinitum Corporation\u00ae brand: Helvetica Neue type, white palette and product wordmarks with \u2122, matching infinitum-corporation.vercel.app.",
+  "description": "Infinitum Corporation® brand: Helvetica Neue type, white palette and product wordmarks with ™, matching infinitum-corporation.vercel.app.",
   "type": "module",
   "private": true,
   "engines": {
@@ -16,8 +16,8 @@
     "test": "node --test --experimental-strip-types src/wordmarks.test.ts src/geo.test.ts"
   },
   "devDependencies": {
-    "typescript": "^5.9.0",
-    "@types/node": "^22.0.0"
+    "typescript": "^7.0.2",
+    "@types/node": "^26.6.6"
   },
   "dependencies": {
     "@infinitum/geo-dat": "workspace:*"

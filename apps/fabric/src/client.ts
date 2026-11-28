@@ -83,6 +83,23 @@ export class FabricClient {
     if (response.status !== 204) throw new Error(`logout failed: ${response.status}`);
   }
 
+  /** Signed-in JSON call to any API path. Returns the parsed body, or null for 204. */
+  async api<T = any>(method: string, path: string, body?: unknown): Promise<T> {
+    const init: RequestInit = { method };
+    if (body !== undefined) {
+      init.headers = { "content-type": "application/json" };
+      init.body = JSON.stringify(body);
+    }
+    const response = await this.send(new URL(path, this.origin), init);
+    if (response.status === 204) return null as T;
+    return this.json<T>(response);
+  }
+
+  /** Signed-in raw request, for downloads and event streams. */
+  async raw(path: string, init: RequestInit = {}): Promise<Response> {
+    return this.send(new URL(path, this.origin), init);
+  }
+
   /** Call an API path with a raw bearer token and no session cookie. */
   static async bearer(base: string, token: string, path: string, init: RequestInit = {}): Promise<Response> {
     const headers = new Headers(init.headers);

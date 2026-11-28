@@ -5,7 +5,7 @@
   "redirectURI": "cumulus://oauth/callback",
   "scopes": ["openid", "email", "profile"],
   "mailAPI": "https://mail.cumuluscloud.app",
-  "cloudAPI": "https://cloud.cumuluscloud.app",
-  "exchangeAPI": "https://cloud.cumuluscloud.app",
+  "cloudAPI": "https://drive.cumuluscloud.app",
+  "exchangeAPI": "https://drive.cumuluscloud.app",
   "downloadPage": "https://cumuluscloud.app"
 }

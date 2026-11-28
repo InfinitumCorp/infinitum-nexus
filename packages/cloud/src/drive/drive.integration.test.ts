@@ -246,7 +246,7 @@ describe("Cumulus://Cloud Drive against local PostgreSQL", {
       json: { expiresAt: new Date(now.getTime() + 60_000).toISOString() },
     })).share;
     assert.equal(typeof share.token, "string");
-    assert.equal(share.url, `https://cloud.cumuluscloud.app/v1/s/${share.token}`);
+    assert.equal(share.url, `https://drive.cumuluscloud.app/v1/s/${share.token}`);
     const fromMail = await call(plain.port, "GET", "/v1/health", { headers: { origin: "https://mail.cumuluscloud.app" } });
     assert.equal(fromMail.headers["access-control-allow-origin"], "https://mail.cumuluscloud.app");
     const strangerOrigin = await call(plain.port, "GET", "/v1/health", { headers: { origin: "https://evil.example" } });

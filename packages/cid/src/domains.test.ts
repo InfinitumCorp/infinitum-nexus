@@ -26,7 +26,7 @@ describe("Cumulus domain", () => {
     assert.equal(domains.rootDomain, CUMULUS_DOMAIN_DEFAULTS.rootDomain);
     assert.equal(domains.mailDomain, "cumuluscloud.app");
     assert.equal(domains.idHost, "id.cumuluscloud.app");
-    assert.equal(domains.cloudHost, "cloud.cumuluscloud.app");
+    assert.equal(domains.cloudHost, "drive.cumuluscloud.app");
     assert.equal(domains.mailHost, "mail.cumuluscloud.app");
     assert.equal(domains.realm, "cumulus");
     assert.deepEqual(cidIssuerMetadata(domains), {
@@ -36,7 +36,7 @@ describe("Cumulus domain", () => {
     });
     assert.deepEqual(domains.corsOrigins, [
       "https://id.cumuluscloud.app",
-      "https://cloud.cumuluscloud.app",
+      "https://drive.cumuluscloud.app",
       "https://mail.cumuluscloud.app",
       "https://mttrn.app",
     ]);
@@ -109,13 +109,13 @@ describe("exact CORS origins", () => {
     ]) {
       assert.equal(exactCorsOrigin(blocked, allowed), null, blocked);
     }
-    const headers = cumulusCorsHeaders("https://cloud.cumuluscloud.app", allowed);
-    assert.equal(headers["Access-Control-Allow-Origin"], "https://cloud.cumuluscloud.app");
+    const headers = cumulusCorsHeaders("https://drive.cumuluscloud.app", allowed);
+    assert.equal(headers["Access-Control-Allow-Origin"], "https://drive.cumuluscloud.app");
     assert.equal(JSON.stringify(headers).includes("*"), false);
     const denied = cumulusCorsHeaders("*", allowed);
     assert.equal(denied["Access-Control-Allow-Origin"], undefined);
     assert.equal(Object.values(denied).includes("*"), false);
-    assert.equal(cumulusCorsHeaders("https://cloud.cumuluscloud.app", ["*"])["Access-Control-Allow-Origin"], undefined);
+    assert.equal(cumulusCorsHeaders("https://drive.cumuluscloud.app", ["*"])["Access-Control-Allow-Origin"], undefined);
   });
 
   it("rejects wildcard and path origins in the allowlist", () => {

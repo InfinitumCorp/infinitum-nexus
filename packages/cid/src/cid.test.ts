@@ -47,7 +47,7 @@ describe("CID accounts", () => {
     assert.equal(cid.issuerMetadata().id_host, "id.cumuluscloud.app");
     assert.equal(cid.corsAllowOrigin(ORIGIN), ORIGIN);
     assert.equal(cid.corsAllowOrigin("*"), null);
-    assert.equal(cid.corsHeaders("https://cloud.cumuluscloud.app")["Access-Control-Allow-Origin"], "https://cloud.cumuluscloud.app");
+    assert.equal(cid.corsHeaders("https://drive.cumuluscloud.app")["Access-Control-Allow-Origin"], "https://drive.cumuluscloud.app");
     assert.equal(JSON.stringify(cid.corsHeaders("*")).includes("*"), false);
     assert.equal(a.handle, "@alex.veil");
     assert.equal(a.entitlements.storageGb, 15);

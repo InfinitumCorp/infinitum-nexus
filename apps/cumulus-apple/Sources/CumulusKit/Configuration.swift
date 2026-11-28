@@ -48,8 +48,8 @@ public struct CumulusConfiguration: Codable, Equatable, Sendable {
         redirectURI: URL(string: "cumulus://oauth/callback")!,
         scopes: ["openid", "email", "profile"],
         mailAPI: URL(string: "https://mail.cumuluscloud.app")!,
-        cloudAPI: URL(string: "https://cloud.cumuluscloud.app")!,
-        exchangeAPI: URL(string: "https://cloud.cumuluscloud.app")!,
+        cloudAPI: URL(string: "https://drive.cumuluscloud.app")!,
+        exchangeAPI: URL(string: "https://drive.cumuluscloud.app")!,
         downloadPage: URL(string: "https://cumuluscloud.app")!
     )
 

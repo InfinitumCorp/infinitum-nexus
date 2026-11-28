@@ -49,7 +49,7 @@ Cumulus://ID, Cumulus://Cloud and Cumulus://Mail share `cumuluscloud.app`
 | `CUMULUS_ROOT_DOMAIN` | `cumuluscloud.app` (mail addresses are `name@cumuluscloud.app`) |
 | `CUMULUS_ID_HOST` | `id.cumuluscloud.app` |
 | `CUMULUS_KEYCLOAK_REALM` | `cumulus` |
-| `CUMULUS_CLOUD_HOST` | `cloud.cumuluscloud.app` |
+| `CUMULUS_CLOUD_HOST` | `drive.cumuluscloud.app` |
 | `CUMULUS_MAIL_HOST` | `mail.cumuluscloud.app` |
 
 `labyrinth.corsHeaders(requestOrigin)` allows only the exact HTTPS origins of

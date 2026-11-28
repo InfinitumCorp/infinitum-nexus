@@ -22,7 +22,7 @@ Open http://localhost:3010 and sign in with a passkey.
 | `CUMULUS_ROOT_DOMAIN` | Mail-address domain, default `cumuluscloud.app` |
 | `CUMULUS_ID_HOST` | Cumulus://ID host, default `id.cumuluscloud.app`. Issuer is `https://id.cumuluscloud.app/realms/cumulus` |
 | `CUMULUS_KEYCLOAK_REALM` | Keycloak realm, default `cumulus`. JWKS is `https://id.cumuluscloud.app/realms/cumulus/protocol/openid-connect/certs` |
-| `CUMULUS_CLOUD_HOST` | Cumulus://Cloud host, default `cloud.cumuluscloud.app` |
+| `CUMULUS_CLOUD_HOST` | Cumulus://Cloud host, default `drive.cumuluscloud.app` |
 | `CUMULUS_MAIL_HOST` | Cumulus://Mail host, default `mail.cumuluscloud.app` |
 | `MAIL_DATA_DIR` | Where stores and the Firmament ledger live, default `./data` |
 | `OMNIROUTE_API_KEY` | Turns on SCALVS briefs and Clean suggestions on open-weight models (see `packages/ai` for backup hosts) |

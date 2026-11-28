@@ -30,11 +30,11 @@ Amazon Cognito sign-in was removed on 2026-11-18. A configuration whose issuer i
 | `CUMULUS_CLIENT_ID` | `cumulus-apple` |
 | `CUMULUS_REDIRECT_URI` | `cumulus://oauth/callback` |
 | `CUMULUS_MAIL_API` | `https://mail.cumuluscloud.app` |
-| `CUMULUS_CLOUD_API` | `https://cloud.cumuluscloud.app` |
-| `CUMULUS_EXCHANGE_API` | `https://cloud.cumuluscloud.app` |
+| `CUMULUS_CLOUD_API` | `https://drive.cumuluscloud.app` |
+| `CUMULUS_EXCHANGE_API` | `https://drive.cumuluscloud.app` |
 | `CUMULUS_DOWNLOAD_PAGE` | `https://cumuluscloud.app` |
 
-Mail calls send the access token as `Authorization: Bearer` and as the `cmail_session` cookie, plus `X-Cumulus: 1` on changes. Drive calls `https://cloud.cumuluscloud.app/v1`. Exchange calls `/v1/exchange/consents` and `/v1/exchange/licenses` on the exchange origin.
+Mail calls send the access token as `Authorization: Bearer` and as the `cmail_session` cookie, plus `X-Cumulus: 1` on changes. Drive calls `https://drive.cumuluscloud.app/v1`. Exchange calls `/v1/exchange/consents` and `/v1/exchange/licenses` on the exchange origin.
 
 ## Layout
 

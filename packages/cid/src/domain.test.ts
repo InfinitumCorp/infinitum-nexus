@@ -15,7 +15,7 @@ test("cumuluscloud.app is the default host for ID, Cloud, and Mail", () => {
   assert.equal(MAIL_DOMAIN, "cumuluscloud.app");
   assert.equal(domain.mailDomain, "cumuluscloud.app");
   assert.equal(domain.idOrigin, "https://id.cumuluscloud.app");
-  assert.equal(domain.cloudOrigin, "https://cloud.cumuluscloud.app");
+  assert.equal(domain.cloudOrigin, "https://drive.cumuluscloud.app");
   assert.equal(domain.mailOrigin, "https://mail.cumuluscloud.app");
   assert.equal(domain.issuer, CUMULUS_ISSUER);
   assert.equal(domain.issuer, "https://id.cumuluscloud.app");
@@ -33,14 +33,14 @@ test("environment variables override the cumuluscloud.app defaults", () => {
   });
   assert.equal(domain.domain, "example.com");
   assert.equal(domain.idHost, "login.example.com");
-  assert.equal(domain.cloudHost, "cloud.example.com");
+  assert.equal(domain.cloudHost, "drive.example.com");
   assert.equal(domain.cookieDomain, ".example.com");
   assert.equal(domain.issuer, "https://login.example.com");
 });
 
 test("the shared cookie domain is set only on cumuluscloud.app", () => {
   assert.equal(cookieDomainForHost("id.cumuluscloud.app"), ".cumuluscloud.app");
-  assert.equal(cookieDomainForHost("cloud.cumuluscloud.app"), ".cumuluscloud.app");
+  assert.equal(cookieDomainForHost("drive.cumuluscloud.app"), ".cumuluscloud.app");
   assert.equal(cookieDomainForHost("mail.cumuluscloud.app"), ".cumuluscloud.app");
   assert.equal(cookieDomainForHost("localhost"), undefined);
   assert.equal(cookieDomainForHost("127.0.0.1"), undefined);

@@ -309,7 +309,7 @@ test("CORS allows the exact Cumulus ID, Cloud and Mail origins", () => {
   error(() => new Labyrinth({ ...s.opts, corsOrigins: ["*"] }), "invalid");
   error(() => new Labyrinth({ ...s.opts, corsOrigins: ["https://*.cumuluscloud.app"] }), "invalid");
   const narrowed = new Labyrinth({ ...s.opts, corsOrigins: ["https://id.cumuluscloud.app"] });
-  assert.equal(narrowed.corsAllowOrigin("https://cloud.cumuluscloud.app"), null);
+  assert.equal(narrowed.corsAllowOrigin("https://drive.cumuluscloud.app"), null);
   assert.equal(narrowed.corsAllowOrigin("https://id.cumuluscloud.app"), "https://id.cumuluscloud.app");
 });
 

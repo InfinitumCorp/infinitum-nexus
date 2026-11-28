@@ -22,7 +22,7 @@ import { localCidStorage } from "./local-cid.ts";
  *   CUMULUS_KEYCLOAK_REALM Keycloak realm, default cumulus
  *                        issuer https://id.cumuluscloud.app/realms/cumulus
  *                        JWKS https://id.cumuluscloud.app/realms/cumulus/protocol/openid-connect/certs
- *   CUMULUS_CLOUD_HOST   Cumulus://Cloud, default cloud.cumuluscloud.app
+ *   CUMULUS_CLOUD_HOST   Cumulus://Cloud, default drive.cumuluscloud.app
  *   CUMULUS_MAIL_HOST    Cumulus://Mail, default mail.cumuluscloud.app
  *   CUMULUS_MAIL_ORIGIN  full mail URL in notices; default https://CUMULUS_MAIL_HOST
  *   SPECTRE_DATA_DIR     default ./data

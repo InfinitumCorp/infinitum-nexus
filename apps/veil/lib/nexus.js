@@ -27,7 +27,7 @@ export const DEFAULT_ORIGINS = Object.freeze({
 /** Production hosts. cumuluscloud.app is served by Cloudflare; local defaults stay on localhost. */
 export const PRODUCTION_ORIGINS = Object.freeze({
   cid: "https://id.cumuluscloud.app",
-  cloud: "https://cloud.cumuluscloud.app",
+  cloud: "https://drive.cumuluscloud.app",
   mail: "https://mail.cumuluscloud.app",
 });
 

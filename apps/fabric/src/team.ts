@@ -133,6 +133,13 @@ export interface ChannelView {
   sectionId: string | null;
   /** Your desktop notification setting for this channel, or null for the default (everything in conversations, mentions in channels). */
   notify: NotifyLevel | null;
+  /** "admins" when only owners, admins and the channel's creator can start new messages. */
+  posting: "everyone" | "admins";
+  /** With posting limited, whether everyone may still reply in threads. */
+  threadReplies: boolean;
+  /** Whether you may start a new message here, and reply in threads. */
+  canPost: boolean;
+  canReply: boolean;
   unread: number;
   mentions: number;
   lastReadAt: string | null;
@@ -542,8 +549,23 @@ export class TeamService {
     };
   }
 
-  updateChannel(me: FabricIdentity, channelId: string, input: { name?: unknown; topic?: unknown; purpose?: unknown }): ChannelView {
+  updateChannel(me: FabricIdentity, channelId: string, input: { name?: unknown; topic?: unknown; purpose?: unknown; posting?: unknown; threadReplies?: unknown }): ChannelView {
     const { channel, ws } = this.writable(me, channelId);
+    if (input.posting !== undefined || input.threadReplies !== undefined) {
+      if (channel.kind === "dm" || channel.kind === "group") throw fail(400, "conversations do not have posting settings");
+      if (!isAdmin(ws.role) && channel.createdBy !== me.sub) throw fail(403, "only the channel creator or an admin can change who can post");
+      const posting = input.posting === undefined ? (channel.posting === "admins" ? "admins" : "everyone") : input.posting;
+      if (posting !== "everyone" && posting !== "admins") throw fail(400, "posting must be everyone or admins");
+      const replies = typeof input.threadReplies === "boolean" ? input.threadReplies : channel.threadReplies !== 0;
+      const was = channel.posting === "admins" ? (channel.threadReplies !== 0 ? "admins+replies" : "admins") : "everyone";
+      const now = posting === "admins" ? (replies ? "admins+replies" : "admins") : "everyone";
+      this.store.run("UPDATE team_channels SET posting = ?, thread_replies = ? WHERE id = ?", posting === "admins" ? "admins" : null, replies ? 1 : 0, channelId);
+      if (was !== now) {
+        this.system(channel, me.sub, now === "everyone" ? "let everyone post in this channel"
+          : now === "admins" ? "limited posting in this channel to admins and the channel creator"
+          : "limited posting in this channel to admins and the channel creator; everyone can still reply in threads");
+      }
+    }
     if (input.name !== undefined) {
       if (channel.kind === "dm" || channel.kind === "group") throw fail(400, "conversations do not have names");
       if (!isAdmin(ws.role) && channel.createdBy !== me.sub) throw fail(403, "only the channel creator or an admin can rename it");
@@ -1142,6 +1164,7 @@ export class TeamService {
       if (parent.channelId !== channelId) throw fail(404, "not found");
       parentId = parent.parentId ?? parent.id;
     }
+    if (!this.mayPost(channel, me.sub, !!parentId)) throw fail(403, "only admins and the channel creator can post in this channel");
     if (this.store.count("SELECT COUNT(*) FROM team_scheduled WHERE sender = ?", me.sub) >= 100) throw fail(400, "you can schedule up to 100 messages");
     const id = randomUUID();
     const row: ScheduledRow = { id, channelId, sender: me.sub, ciphertext: seal(text, this.key(channel), messageAad(channelId, id)), parentId, sendAt, createdAt: this.stamp() };
@@ -1949,10 +1972,23 @@ export class TeamService {
 
   // ---------- internals ----------
 
+  /** Whether someone may post in a channel: new messages, or replies in a thread. */
+  private mayPost(channel: ChannelRow, sub: string, reply: boolean): boolean {
+    if (channel.posting !== "admins") return true;
+    if (reply && channel.threadReplies !== 0) return true;
+    if (channel.createdBy === sub) return true;
+    const member = this.store.one<MemberRow>("SELECT * FROM team_members WHERE workspace_id = ? AND sub = ?", channel.workspaceId, sub);
+    return !!member && isAdmin(member.role);
+  }
+
   private insertMessage(
     channel: ChannelRow, sender: string, text: string,
     opts: { id: string; parent: TeamMessageRow | null; alsoInChannel: boolean; fileIds: string[]; app?: { id: string; name: string }; extra?: (now: string) => void; sharedId?: string },
   ): { row: TeamMessageRow; notInChannel: string[] } {
+    // Every user message, app post, scheduled message and poll goes through here, so this one check covers them all.
+    if (!this.mayPost(channel, sender, !!opts.parent && !opts.alsoInChannel)) {
+      throw fail(403, opts.parent && channel.threadReplies !== 0 ? "only admins can send replies to the channel here" : "only admins and the channel creator can post in this channel");
+    }
     const now = this.stamp();
     const row: TeamMessageRow = {
       id: opts.id, channelId: channel.id, sender, ciphertext: seal(text, this.key(channel), messageAad(channel.id, opts.id)),
@@ -2240,6 +2276,8 @@ export class TeamService {
       archived: !!c.archivedAt, isDefault: !!c.isDefault, memberCount: subs.length, member: !!mine, muted: !!mine?.muted, starred: !!mine?.starred,
       sectionId: mine?.sectionId ?? null,
       notify: mine?.notify ?? null,
+      posting: c.posting === "admins" ? "admins" : "everyone", threadReplies: c.threadReplies !== 0,
+      canPost: !!mine && !c.archivedAt && this.mayPost(c, me.sub, false), canReply: !!mine && !c.archivedAt && this.mayPost(c, me.sub, true),
       unread, mentions, lastReadAt: lastRead, lastMessageAt: c.lastMessageAt,
       huddle: this.huddles.has(c.id) ? { people: this.huddles.get(c.id)!.people.size, startedAt: this.huddles.get(c.id)!.startedAt } : null,
       ...(withPeople || c.kind === "dm" || c.kind === "group" ? { people: (c.kind === "dm" || c.kind === "group" ? others : subs).slice(0, 50).map((s) => this.person(c.workspaceId, s)) } : {}),

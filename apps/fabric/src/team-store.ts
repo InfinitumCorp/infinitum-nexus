@@ -20,6 +20,10 @@ export interface ChannelRow {
   id: string; workspaceId: string; kind: ChannelKind; name: string | null; topic: string; purpose: string;
   sealedKey: string; createdBy: string; createdAt: string; archivedAt: string | null; dmKey: string | null;
   isDefault: number; lastMessageAt: string | null;
+  /** Who may start new messages: null or "everyone", or "admins" (owners, admins and the channel's creator). */
+  posting?: "everyone" | "admins" | null;
+  /** With posting limited, whether everyone may still reply in threads. */
+  threadReplies?: number | null;
 }
 export interface ChannelMemberRow { channelId: string; sub: string; lastReadAt: string; muted: number; starred: number; joinedAt: string; sectionId?: string | null; notify?: NotifyLevel | null }
 export interface SectionRow { id: string; workspaceId: string; sub: string; name: string; position: number; collapsed: number; createdAt: string }
@@ -358,6 +362,9 @@ export class TeamStore {
     if (!memberColumns.has("notify")) this.db.exec("ALTER TABLE team_channel_members ADD COLUMN notify TEXT");
     const workspaceMemberColumns = new Set(this.all<{ name: string }>("PRAGMA table_info(team_members)").map((c) => c.name));
     if (!workspaceMemberColumns.has("sealed_keywords")) this.db.exec("ALTER TABLE team_members ADD COLUMN sealed_keywords TEXT");
+    const channelColumns = new Set(this.all<{ name: string }>("PRAGMA table_info(team_channels)").map((c) => c.name));
+    if (!channelColumns.has("posting")) this.db.exec("ALTER TABLE team_channels ADD COLUMN posting TEXT");
+    if (!channelColumns.has("thread_replies")) this.db.exec("ALTER TABLE team_channels ADD COLUMN thread_replies INTEGER");
   }
 }
 

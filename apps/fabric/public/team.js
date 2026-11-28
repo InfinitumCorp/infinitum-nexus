@@ -161,10 +161,49 @@ async function loadSidebar() {
   const all = [...bar.channels, ...bar.direct];
   $("#starred").replaceChildren(...all.filter((c) => c.starred).map(row));
   $("#starred").parentElement.hidden = !all.some((c) => c.starred);
-  $("#channels").replaceChildren(...bar.channels.filter((c) => !c.starred).map(row));
-  $("#direct").replaceChildren(...bar.direct.filter((c) => !c.starred).map(row));
+  const sectionIds = new Set((bar.sections || []).map((s) => s.id));
+  const placed = (c) => c.starred || (c.sectionId && sectionIds.has(c.sectionId));
+  $("#sections").replaceChildren(...(bar.sections || []).map((s, i) => {
+    const items = all.filter((c) => !c.starred && c.sectionId === s.id);
+    const unread = items.some((c) => c.unread && !c.muted);
+    return h("div", { class: "t-section" },
+      h("div", { class: "t-section-head" },
+        h("button", { type: "button", class: `link t-section-toggle${unread && s.collapsed ? " strong" : ""}`, "aria-expanded": String(!s.collapsed), onclick: tryRun(() => sectionUpdate(s, { collapsed: !s.collapsed })) }, `${s.collapsed ? "▸" : "▾"} ${s.name}`),
+        h("button", { type: "button", class: "link", "aria-label": `${s.name} options`, onclick: (e) => menu(e.currentTarget, [
+          ["Rename section", async () => { const r = await dialog("Rename section", [{ name: "name", label: "Name", value: s.name, max: 60, required: true }]); if (r) await sectionUpdate(s, { name: r.name }); }],
+          i > 0 && ["Move up", () => sectionUpdate(s, { position: i - 1 })],
+          i < bar.sections.length - 1 && ["Move down", () => sectionUpdate(s, { position: i + 1 })],
+          ["Delete section", async () => { if (confirm(`Delete the section “${s.name}”? Its channels go back to Channels and Direct messages.`)) { await api(T(`/sections/${s.id}`), { method: "DELETE" }); await loadSidebar(); } }],
+        ]) }, "⋯")),
+      s.collapsed ? h("ul", { class: "t-list" }, ...items.filter((c) => state.channel?.id === c.id || (c.unread && !c.muted)).map(row)) : h("ul", { class: "t-list" }, ...items.map(row)),
+      !s.collapsed && !items.length ? h("p", { class: "meta t-section-empty" }, "Use ⋯ → Move to section on a channel.") : null,
+    );
+  }));
+  $("#channels").replaceChildren(...bar.channels.filter((c) => !placed(c)).map(row));
+  $("#direct").replaceChildren(...bar.direct.filter((c) => !placed(c)).map(row));
   const unread = all.reduce((n, c) => n + (c.muted ? 0 : c.mentions), 0);
   document.title = `${unread ? `(${unread}) ` : ""}${bar.workspace.name} · FABRIC Teams`;
+}
+
+async function sectionUpdate(s, body) {
+  await api(T(`/sections/${s.id}`), { method: "PATCH", body });
+  await loadSidebar();
+}
+
+async function moveToSection(c) {
+  const sections = state.bar.sections || [];
+  const r = await dialog(`Move ${chanLabel(c)}`, [
+    { name: "sectionId", label: "Section", type: "select", value: c.sectionId || "", options: [["", c.kind === "dm" || c.kind === "group" ? "Direct messages (default)" : "Channels (default)"], ...sections.map((s) => [s.id, s.name]), ["+", "New section…"]] },
+  ], "Move");
+  if (!r) return;
+  let sectionId = r.sectionId || null;
+  if (sectionId === "+") {
+    const n = await dialog("New section", [{ name: "name", label: "Name", max: 60, required: true, placeholder: "Projects" }], "Create");
+    if (!n) return;
+    sectionId = (await api(T(`/workspaces/${state.wsId}/sections`), { method: "POST", body: { name: n.name } })).id;
+  }
+  await api(T(`/channels/${c.id}/prefs`), { method: "PUT", body: { sectionId } });
+  await loadSidebar();
 }
 
 async function loadWorkspaces() {
@@ -259,6 +298,7 @@ function channelMenu(anchor) {
     c.kind !== "dm" && c.member && ["Add people", async () => { const r = await dialog("Add people", [{ name: "people", label: "Usernames, separated by spaces", required: true }]); if (r) { await api(T(`/channels/${c.id}/invite`), { method: "POST", body: { people: r.people.split(/[\s,]+/) } }); await refreshChannel(); } }],
     c.kind !== "dm" && ["Incoming webhooks", () => showWebhooks()],
     c.member && [c.muted ? "Unmute" : "Mute", async () => { await api(T(`/channels/${c.id}/prefs`), { method: "PUT", body: { muted: !c.muted } }); await refreshChannel(); await loadSidebar(); }],
+    c.member && ["Move to section…", () => moveToSection(c)],
     c.member && ["Mark as read", async () => { await api(T(`/channels/${c.id}/read`), { method: "POST", body: {} }); await loadSidebar(); }],
     named && !c.archived && ["Archive channel", async () => { if (confirm(`Archive #${c.name}? People can still read it.`)) { await api(T(`/channels/${c.id}/archive`), { method: "POST", body: { archived: true } }); await refreshChannel(); await loadSidebar(); } }],
     named && c.archived && ["Unarchive channel", async () => { await api(T(`/channels/${c.id}/archive`), { method: "POST", body: { archived: false } }); await refreshChannel(); await loadSidebar(); }],
@@ -813,7 +853,7 @@ function connect() {
       if (ev.channelId === state.channel?.id || ev.parentId === state.thread?.parent.id) { state.typing.set(ev.username, Date.now()); renderTyping(); }
       return;
     }
-    if (ev.type === "read" || ev.type === "presence" || ev.type === "members") { soon(loadSidebar); return; }
+    if (ev.type === "read" || ev.type === "presence" || ev.type === "members" || ev.type === "sections") { soon(loadSidebar); return; }
     if (ev.type === "message" && ev.sub !== state.me.sub) { notify(ev); state.typing.delete(ev.username); }
     if (ev.type === "message" && ev.mentioned?.includes(state.me.sub)) $("#badge-activity").hidden = false;
     soon(async () => {

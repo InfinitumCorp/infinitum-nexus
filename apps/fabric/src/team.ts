@@ -930,12 +930,46 @@ export class TeamService {
     return { messages: rows.map((r) => this.view(me, r)), hasMore, hasNewer };
   }
 
-  thread(me: FabricIdentity, messageId: string): { parent: MessageView; replies: MessageView[]; channel: ChannelView } {
+  thread(me: FabricIdentity, messageId: string): { parent: MessageView; replies: MessageView[]; channel: ChannelView; following: boolean } {
     let parent = this.message(messageId);
     if (parent.parentId) parent = this.message(parent.parentId);
     const { channel } = this.readable(me, parent.channelId);
     const replies = this.store.all<TeamMessageRow>("SELECT * FROM team_messages WHERE parent_id = ? AND deleted_at IS NULL ORDER BY created_at", parent.id);
-    return { parent: this.view(me, parent), replies: replies.map((r) => this.view(me, r)), channel: this.channelView(me, channel) };
+    return {
+      parent: this.view(me, parent), replies: replies.map((r) => this.view(me, r)), channel: this.channelView(me, channel),
+      following: this.threadFollowers(parent).has(me.sub),
+    };
+  }
+
+  // ---------- following threads ----------
+  //
+  // You follow a thread you started, replied to or were mentioned in, and get told about new replies.
+  // You can follow any other thread you can read, or unfollow one, which wins over all of that.
+
+  setFollow(me: FabricIdentity, messageId: string, following: unknown): { following: boolean } {
+    if (typeof following !== "boolean") throw fail(400, "following must be true or false");
+    let parent = this.message(messageId);
+    if (parent.parentId) parent = this.message(parent.parentId);
+    this.readable(me, parent.channelId);
+    if (parent.deletedAt && parent.replyCount === 0) throw fail(404, "not found");
+    this.store.run(
+      `INSERT INTO team_thread_follows (sub, parent_id, following, updated_at) VALUES (?, ?, ?, ?)
+       ON CONFLICT (sub, parent_id) DO UPDATE SET following = excluded.following, updated_at = excluded.updated_at`,
+      me.sub, parent.id, following ? 1 : 0, this.stamp(),
+    );
+    return { following };
+  }
+
+  /** Who follows a thread: its starter, repliers and people mentioned in it, plus explicit follows, minus unfollows. */
+  private threadFollowers(parent: TeamMessageRow): Set<string> {
+    const subs = new Set<string>([parent.sender]);
+    for (const r of this.store.all<{ sub: string }>(
+      `SELECT sender AS sub FROM team_messages WHERE parent_id = ? AND kind = 'user'
+       UNION SELECT x.sub FROM team_mentions x JOIN team_messages m ON m.id = x.message_id WHERE m.id = ? OR m.parent_id = ?
+       UNION SELECT sub FROM team_thread_follows WHERE parent_id = ? AND following = 1`, parent.id, parent.id, parent.id, parent.id,
+    )) subs.add(r.sub);
+    for (const r of this.store.all<{ sub: string }>("SELECT sub FROM team_thread_follows WHERE parent_id = ? AND following = 0", parent.id)) subs.delete(r.sub);
+    return subs;
   }
 
   getMessage(me: FabricIdentity, messageId: string): MessageView {
@@ -1585,8 +1619,10 @@ export class TeamService {
     for (const r of this.store.all<TeamMessageRow>(
       `SELECT r.* FROM team_messages r JOIN team_channels c ON c.id = r.channel_id
        WHERE c.workspace_id = ? AND ${visible} AND r.parent_id IS NOT NULL AND r.sender <> ? AND r.deleted_at IS NULL
-         AND r.parent_id IN (SELECT id FROM team_messages WHERE sender = ? UNION SELECT parent_id FROM team_messages WHERE sender = ? AND parent_id IS NOT NULL)
-       ORDER BY r.created_at DESC LIMIT 50`, workspaceId, me.sub, me.sub, me.sub, me.sub,
+         AND r.parent_id IN (SELECT id FROM team_messages WHERE sender = ? UNION SELECT parent_id FROM team_messages WHERE sender = ? AND parent_id IS NOT NULL
+                             UNION SELECT parent_id FROM team_thread_follows WHERE sub = ? AND following = 1)
+         AND r.parent_id NOT IN (SELECT parent_id FROM team_thread_follows WHERE sub = ? AND following = 0)
+       ORDER BY r.created_at DESC LIMIT 50`, workspaceId, me.sub, me.sub, me.sub, me.sub, me.sub, me.sub,
     )) {
       if (items.some((i) => i.message.id === r.id)) continue;
       items.push({ kind: "reply", at: r.createdAt, actor: this.person(workspaceId, r.sender), message: this.view(me, r) });
@@ -1606,8 +1642,10 @@ export class TeamService {
       `SELECT p.* FROM team_messages p JOIN team_channels c ON c.id = p.channel_id
        WHERE c.workspace_id = ? AND p.parent_id IS NULL AND p.reply_count > 0
          AND (p.sender = ? OR EXISTS (SELECT 1 FROM team_messages r WHERE r.parent_id = p.id AND r.sender = ?)
-              OR EXISTS (SELECT 1 FROM team_mentions x JOIN team_messages r ON r.id = x.message_id WHERE x.sub = ? AND (r.id = p.id OR r.parent_id = p.id)))
-       ORDER BY p.last_reply_at DESC LIMIT 30`, workspaceId, me.sub, me.sub, me.sub,
+              OR EXISTS (SELECT 1 FROM team_mentions x JOIN team_messages r ON r.id = x.message_id WHERE x.sub = ? AND (r.id = p.id OR r.parent_id = p.id))
+              OR EXISTS (SELECT 1 FROM team_thread_follows f WHERE f.parent_id = p.id AND f.sub = ? AND f.following = 1))
+         AND NOT EXISTS (SELECT 1 FROM team_thread_follows f WHERE f.parent_id = p.id AND f.sub = ? AND f.following = 0)
+       ORDER BY p.last_reply_at DESC LIMIT 30`, workspaceId, me.sub, me.sub, me.sub, me.sub, me.sub,
     ).filter((p) => this.canRead(me, p.channelId)).map((p) => ({
       parent: this.view(me, p),
       latest: this.store.all<TeamMessageRow>("SELECT * FROM team_messages WHERE parent_id = ? AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 3", p.id).reverse().map((r) => this.view(me, r)),
@@ -2226,6 +2264,12 @@ export class TeamService {
       type: "message", workspaceId: channel.workspaceId, channelId: channel.id, messageId: row.id, parentId: row.parentId,
       sub: sender, mentioned, kind: channel.kind, alsoInChannel: opts.alsoInChannel,
     });
+    if (opts.parent) {
+      // Tell people following the thread, apart from the sender and anyone the reply already mentions.
+      const members = new Set(this.channelSubs(channel.id));
+      const followers = [...this.threadFollowers(opts.parent)].filter((s) => s !== sender && members.has(s) && !mentioned.includes(s));
+      if (followers.length) this.publish(followers, { type: "thread-reply", workspaceId: channel.workspaceId, channelId: channel.id, messageId: row.id, parentId: opts.parent.id, sub: sender });
+    }
     return { row, notInChannel };
   }
 

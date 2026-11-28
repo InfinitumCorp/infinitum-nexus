@@ -1008,7 +1008,14 @@ function renderThread(keepScroll = false) {
   });
   const list = h("ol", { class: "t-messages" }, messageItem(t.parent, { inThread: true }), h("li", { class: "t-day" }, h("span", {}, `${t.replies.length} ${t.replies.length === 1 ? "reply" : "replies"}`)), ...t.replies.map((m) => messageItem(m, { inThread: true })));
   const canReply = t.channel.canReply !== false;
-  panel(`Thread in ${chanLabel(t.channel)}`, list, canReply ? h("form", { class: "t-composer", onsubmit: (e) => { e.preventDefault(); submit(); } }, ta,
+  const follow = h("p", { class: "t-row t-thread-follow" },
+    h("button", { type: "button", class: `btn small${t.following ? "" : " primary"}`, "aria-pressed": String(!!t.following), onclick: tryRun(async () => {
+      await api(T(`/messages/${t.parent.id}/follow`), { method: "PUT", body: { following: !t.following } });
+      t.following = !t.following;
+      renderThread(true);
+    }) }, t.following ? "Unfollow thread" : "Follow thread"),
+    h("span", { class: "meta" }, t.following ? "You'll be told about new replies." : "You won't be told about new replies unless you're mentioned."));
+  panel(`Thread in ${chanLabel(t.channel)}`, follow, list, canReply ? h("form", { class: "t-composer", onsubmit: (e) => { e.preventDefault(); submit(); } }, ta,
     h("div", { class: "t-composer-bar" }, t.channel.canPost !== false ? h("label", { for: "thread-also", class: "meta" }, also, ` Also send to ${chanLabel(t.channel)}`) : h("span"), h("button", { class: "btn primary small", type: "submit" }, "Reply")))
     : h("p", { class: "meta" }, t.channel.member === false ? "Join the channel to reply." : "Only admins and the channel creator can reply here."));
   bindComposer(ta, submit, t.parent.id);
@@ -1283,6 +1290,7 @@ function connect() {
   es.addEventListener("team", (e) => {
     const ev = JSON.parse(e.data);
     if (ev.type === "huddle-signal") { onHuddleSignal(ev); return; }
+    if (ev.type === "thread-reply") { $("#badge-activity").hidden = false; notifyThreadReply(ev); return; }
     if (ev.type === "huddle-reaction") { if (ev.channelId === huddle.channelId) showHuddleReaction(ev.from, ev.emoji); return; }
     if (ev.type === "huddle" && ev.channelId === huddle.channelId) refreshHuddle().catch((err) => showError(err.message));
     if (ev.workspaceId !== state.wsId) return;
@@ -1356,6 +1364,19 @@ async function notify(ev) {
   const keyword = !mentioned && level !== "all" ? keywordIn(m.text) : null;
   if (!mentioned && level !== "all" && !keyword) return;
   const n = new Notification(`${m.sender.displayName}${c ? ` in ${chanLabel(c)}` : ""}${keyword ? ` · “${keyword}”` : ""}`, { body: m.text.slice(0, 140), tag: m.id });
+  n.onclick = () => { window.focus(); jumpTo(m.id); };
+}
+
+/** A desktop notification for a reply in a thread you follow. */
+async function notifyThreadReply(ev) {
+  if (!state.bar || state.bar.me.dnd) return;
+  const c = [...state.bar.channels, ...state.bar.direct].find((x) => x.id === ev.channelId);
+  if (notifyLevel(c) === "nothing") return;
+  if (document.visibilityState === "visible" && state.thread?.parent.id === ev.parentId && !$("#panel").hidden) return;
+  if (!("Notification" in window) || Notification.permission !== "granted") return;
+  const m = await api(T(`/messages/${ev.messageId}`)).catch(() => null);
+  if (!m) return;
+  const n = new Notification(`${m.sender.displayName} replied in a thread${c ? ` in ${chanLabel(c)}` : ""}`, { body: m.text.slice(0, 140), tag: m.id });
   n.onclick = () => { window.focus(); jumpTo(m.id); };
 }
 

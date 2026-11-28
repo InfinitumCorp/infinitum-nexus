@@ -196,6 +196,7 @@ export function teamRoutes(): Route[] {
     r("PUT", `/messages/${ID}/save`, ({ team, me, params, body }) => team.save(me, params[0]!, body)),
     r("POST", `/messages/${ID}/vote`, ({ team, me, params, body }) => team.vote(me, params[0]!, body.choice, typeof body.on === "boolean" ? body.on : undefined)),
     r("POST", `/messages/${ID}/close`, ({ team, me, params }) => team.closePoll(me, params[0]!)),
+    r("PUT", `/messages/${ID}/follow`, ({ team, me, params, body }) => team.setFollow(me, params[0]!, body.following)),
     r("POST", `/messages/${ID}/share`, ({ team, me, params, body }) => team.share(me, params[0]!, body)),
 
     r("DELETE", `/bookmarks/${ID}`, ({ team, me, params }) => team.removeBookmark(me, params[0]!)),

@@ -761,9 +761,6 @@ async function renderPeople() {
   main().innerHTML = `
     <div class="page">
       <div class="page-head"><h1>People</h1><button class="btn primary" id="new-ct">Add person</button></div>
-      ${qStats.queued ? `<div class="faint small">Queue: ${qStats.queued} pending · ${qStats.done} done</div>` : ""}
-      ${queue.queue?.length ? `<div class="section"><h2>Research queue</h2><div class="list">${queue.queue.slice(0, 5).map((r) => `<div class="item"><div class="main"><div class="title">${esc(r.name)}</div><div class="sub">priority ${r.priority} · ${r.factCount} facts · ${r.ageDays < 999 ? r.ageDays + "d" : "never"}</div></div><button class="btn ghost small" data-unqueue="${esc(r.id)}">Remove</button></div>`).join("")}</div></div>` : ""}
-      ${recs.recommendations?.length ? `<div class="section"><h2>Needs research</h2><div class="list">${recs.recommendations.map((r) => `<div class="item"><div class="main"><div class="title">${esc(r.name)}</div><div class="sub">${esc(r.reason)} · ${r.factCount} facts${r.ageDays < 999 ? ` · ${r.ageDays}d old` : ""}</div></div></div>`).join("")}</div></div>` : ""}
       ${list.length ? `<div class="list">${list.map((c) => `
         <div class="item"><div class="avatar">${esc(initials(c.name))}</div>
           <div class="main"><div class="title">${esc(c.name)}</div><div class="sub">${esc([c.title, c.company].filter(Boolean).join(" · "))}</div></div>

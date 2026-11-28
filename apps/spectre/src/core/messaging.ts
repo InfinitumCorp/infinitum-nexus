@@ -106,11 +106,20 @@ export async function sendMessage(
   providers: Providers,
   ws: string,
   actor: string,
-  input: { contactId: string; channel: "email" | "sms"; subject?: string; body: string },
+  input: { contactId: string; channel: "email" | "sms" | "note"; subject?: string; body: string },
 ): Promise<Message> {
   const contact = crm.contact(ws, input.contactId);
+  if (input.channel === "note") {
+    // An internal note on the conversation: kept for the team, never sent to the contact (allowed after opt-out).
+    const text = String(input.body ?? "").trim().slice(0, MAX_BODY);
+    if (!text) throw new SpectreError("invalid", "Write a note first");
+    const note: Message = { id: `ms_${randomUUID()}`, workspace: ws, contactId: contact.id, channel: "note", direction: "out", body: text, status: "sent", at: crm.now().toISOString(), by: actor, read: true };
+    crm.store.messages.set(note.id, note);
+    await crm.record(actor, `message:${note.id}`, { event: "note", channel: "note", contact: contact.id, provider: null });
+    return note;
+  }
   if (contact.optedOut) throw new SpectreError("opted_out", "This contact opted out; they can't be messaged");
-  if (input.channel !== "email" && input.channel !== "sms") throw new SpectreError("invalid", "Channel must be email or sms");
+  if (input.channel !== "email" && input.channel !== "sms") throw new SpectreError("invalid", "Channel must be email, sms or note");
   const companyName = contact.companyId ? crm.list("companies", ws).find((c) => c.id === contact.companyId)?.name : undefined;
   const body = personalize(String(input.body ?? ""), contact, companyName).trim().slice(0, MAX_BODY);
   const subject = input.channel === "email" ? personalize(String(input.subject ?? ""), contact, companyName).trim().slice(0, 300) : undefined;

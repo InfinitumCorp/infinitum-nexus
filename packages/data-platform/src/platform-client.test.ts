@@ -176,6 +176,13 @@ test("documents: a batch put sends one request with every item", async () => {
   assert.deepEqual(JSON.parse(calls[0].body!), { documents: items });
 });
 
+test("documents: usage is a GET with no body", async () => {
+  const { client, calls } = scripted([reply(200, { documents: 12, limit: 20000 })]);
+  assert.deepEqual(await client.getDocumentUsage(), { documents: 12, limit: 20000 });
+  assert.equal(`${calls[0].method} ${new URL(calls[0].url).pathname}`, "GET /api/v1/documents/usage");
+  assert.equal(calls[0].body ?? undefined, undefined);
+});
+
 test("every client path is an endpoint declared in conjure/platform.yml", () => {
   const yml = readFileSync(new URL("../../../infra/data-platform/conjure/platform.yml", import.meta.url), "utf8");
   const declared = new Set<string>();
@@ -190,7 +197,7 @@ test("every client path is an endpoint declared in conjure/platform.yml", () => 
   const used = [...src.matchAll(/this\.call\(\s*"(\w+)",\s*[`"]([^`"]+)[`"]/g)].map(
     ([, method, path]) => `${method} ${path.replace(/\$\{enc\((\w+)(?:\.\w+)?\)\}/g, (_m, v: string) => `{${v === "spec" ? "name" : v}}`)}`,
   );
-  assert.ok(used.length >= 13);
+  assert.ok(used.length >= 14);
   for (const u of used) assert.ok(declared.has(u), `${u} is not declared in platform.yml`);
 });
 

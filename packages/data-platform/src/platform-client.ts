@@ -148,6 +148,13 @@ export interface DocumentBatchResponse {
   created: number;
 }
 
+export interface DocumentUsage {
+  /** Documents this product has stored, in every collection and tenant. */
+  documents: number;
+  /** PLATFORM_MAX_DOCUMENTS_PER_PRODUCT; absent or null when there is no cap. */
+  limit?: number | null;
+}
+
 export interface DocumentRef {
   collection: string;
   documentId: string;
@@ -395,6 +402,11 @@ export class PlatformClient {
    */
   putDocuments(collection: string, documents: DocumentBatchItem[]): Promise<DocumentBatchResponse> {
     return this.call("POST", `/api/v1/documents/collections/${enc(collection)}/batch`, { documents });
+  }
+
+  /** DocumentService.getDocumentUsage: how close this product is to its document cap. */
+  getDocumentUsage(): Promise<DocumentUsage> {
+    return this.call("GET", "/api/v1/documents/usage");
   }
 
   /** DocumentService.removeDocument: 1 if it existed, else 0. Safe to repeat. */

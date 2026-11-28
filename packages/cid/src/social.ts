@@ -225,7 +225,8 @@ export class SocialClient {
   private readonly discoveryCache = new Map<string, { authorization_endpoint: string; token_endpoint: string; jwks_uri: string; issuer: string }>();
 
   constructor(fetchImpl: typeof fetch = fetch) {
-    this.fetchImpl = fetchImpl;
+    // Call fetch as a plain function: Workers throw "Illegal invocation" when it runs with this = SocialClient.
+    this.fetchImpl = (input, init) => fetchImpl(input, init);
   }
 
   private async json<T>(url: string, init?: RequestInit): Promise<T> {

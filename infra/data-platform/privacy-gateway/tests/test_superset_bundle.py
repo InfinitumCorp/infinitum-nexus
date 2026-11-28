@@ -41,6 +41,8 @@ def test_every_reference_resolves(files):
     for d in by_prefix(files, "dashboards/").values():
         in_layout = [v["meta"]["uuid"] for v in d["position"].values() if isinstance(v, dict) and v.get("type") == "CHART"]
         assert in_layout and set(in_layout) <= set(charts)
+        assert all(isinstance(v["meta"]["chartId"], int) for v in d["position"].values()
+                   if isinstance(v, dict) and v.get("type") == "CHART")  # Superset's importer needs it
 
 
 def test_embeddable_dashboards_only_use_tenant_scoped_datasets(files):

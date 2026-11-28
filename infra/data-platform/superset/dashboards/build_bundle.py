@@ -131,7 +131,9 @@ def _position(title: str, rows: list[list[str]], widths: dict[str, int]) -> dict
             chart_id = f"CHART-{key.replace('.', '-')}"
             pos[row_id]["children"].append(chart_id)
             pos[chart_id] = {"type": "CHART", "id": chart_id, "children": [], "parents": ["ROOT_ID", "GRID_ID", row_id],
+                             # Superset remaps chartId from the uuid on import; the key must exist.
                              "meta": {"width": widths[key], "height": 50, "uuid": uid("chart:" + key),
+                                      "chartId": [c[0] for c in CHARTS].index(key) + 1,
                                       "sliceName": next(c[1] for c in CHARTS if c[0] == key)}}
     return pos
 

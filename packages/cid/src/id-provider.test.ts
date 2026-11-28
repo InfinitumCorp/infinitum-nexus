@@ -15,6 +15,8 @@ describe("shared product clients", () => {
     assert.ok(idClientFor("fabric", "https://infinitumfabric.app/api/auth/callback"));
     assert.ok(idClientFor("fabric", "https://ru.infinitumfabric.app/_synapse/client/oidc/callback"));
     assert.ok(idClientFor("defense", "https://infinitumdefense.com/"));
+    assert.ok(idClientFor("hrvst", "https://ru-hrvst.infinitumcorporation.ai/"));
+    assert.equal(idClientFor("hrvst", "http://ru-hrvst.infinitumcorporation.ai/"), null);
     assert.equal(idClientFor("scalvs", "https://scalvs.app.evil.example/"), null);
     assert.equal(idClientFor("cndctr", "http://cndctr.app/"), null);
     assert.equal(idClientFor("toString", "https://scalvs.app/"), null);

@@ -12,13 +12,21 @@ import { labyrinthFromEnvironment } from "@infinitum/lbrnth";
  *   CUMULUS_MAIL_MASTER_KEY  base64 32-byte Cumulus Tunnel master key (otherwise data/tunnel-master.key)
  *   Social sign-in variables, as in +SPCTR (GOOGLE_CLIENT_ID, ...). Callback:
  *   {MAIL_ORIGIN}/api/auth/oauth/{provider}/callback
+ *   MAIL_BILLING=off  no billing routes and no calls to the revenue API (Stripe doesn't serve Russia)
+ *
+ * Outside mail without Cloudflare (README, "Node mode with Postfix"):
+ *   MAIL_INBOUND_PORT, MAIL_INBOUND_TOKEN(_FILE), MAIL_INBOUND_AUTHSERV_ID  Postfix -> Mail (node-mail.ts)
+ *   MAIL_SMTP_HOST, MAIL_SMTP_PORT, MAIL_SMTP_USER, MAIL_SMTP_PASSWORD     Mail -> relay (smtp.ts)
  */
 import { existsSync, readFileSync, writeFileSync, mkdirSync, chmodSync } from "node:fs";
 import { join } from "node:path";
 import { Ledger, FileStore, generateSigner, signerFromPrivateKey } from "@infinitum/firmament";
 import { cookieDomainForHost, readCumulusDomain, socialFromEnv, upstreamIssuerFromEnv } from "@infinitum/cid";
 import { createCumulus, emptyCumulusStores, loadCumulusStores, loadOrCreateMasterKey, loadSnapshot, saveCumulusStores, saveSnapshot } from "@infinitum/cumulus";
-import { createMailApp } from "./app.ts";
+import { billingEnabled, createMailApp } from "./app.ts";
+import { inboundConfigFromEnv, startInboundListener, startOutboundLoop } from "./node-mail.ts";
+import { deliverOutbound } from "./outbound.ts";
+import { smtpConfigFromEnv, smtpSender } from "./smtp.ts";
 import { diskFileStore } from "./files.ts";
 import { WorkspaceStore } from "./workspace.ts";
 
@@ -57,9 +65,12 @@ const save = () => {
   saveSnapshot(workspacePath, workspaceStore);
 };
 
+const files = diskFileStore(join(dataDir, "files"));
+const billing = billingEnabled();
 const app = createMailApp({
   suite,
-  files: diskFileStore(join(dataDir, "files")),
+  files,
+  billing,
   workspaceStore,
   publicDir: join(import.meta.dirname, "..", "public"),
   origin,
@@ -72,3 +83,23 @@ if (backfilled) save();
 app.server().listen(port, () => {
   console.log(`Cumulus://Mail listening on ${origin} (ledger: ${verified.length} verified entries, mailboxes: ${stores.mail.mailboxes.size})`);
 });
+
+// Outside mail. Each step runs to completion and is saved before the next one starts.
+const saved = async <T>(fn: () => Promise<T>): Promise<T> => {
+  const result = await fn();
+  save();
+  return result;
+};
+const inbound = inboundConfigFromEnv();
+if (inbound) {
+  startInboundListener(inbound, { files, receive: (mail) => saved(() => suite.mail.receive(mail)) });
+  console.log(`Inbound mail from Postfix on 127.0.0.1:${inbound.port} (trusting Authentication-Results from ${inbound.authservId})`);
+}
+const smtp = smtpConfigFromEnv();
+if (smtp) {
+  startOutboundLoop(() => deliverOutbound(saved, suite.mail, smtpSender(smtp, files)));
+  console.log(`Outside mail goes out through ${smtp.host}:${smtp.port}${smtp.user ? ` as ${smtp.user}` : ""}`);
+} else {
+  console.log("MAIL_SMTP_HOST isn't set: mail to outside addresses stays queued.");
+}
+if (!billing) console.log("Billing is off (MAIL_BILLING=off).");

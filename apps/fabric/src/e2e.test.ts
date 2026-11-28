@@ -173,6 +173,14 @@ test("team chat over HTTP: workspace, channel, thread, reaction, file, search an
     assert.equal(download.status, 200);
     assert.match(download.headers.get("content-disposition") ?? "", /attachment/);
     assert.equal(await download.text(), "file body");
+    assert.match((await bob.raw(`/api/team/files/${file.id}?inline=1`)).headers.get("content-disposition") ?? "", /attachment/, "text files never play inline");
+    // Voice clips play inline in an <audio> element, still sandboxed.
+    const clip = await alice.api("POST", `/api/team/channels/${general.id}/files`, { name: "Voice clip 0:03.webm", mime: "audio/webm", data: Buffer.from([0x1a, 0x45, 0xdf, 0xa3, 1, 2, 3]).toString("base64") });
+    await alice.api("POST", `/api/team/channels/${general.id}/messages`, { text: "", fileIds: [clip.id] });
+    const played = await bob.raw(`/api/team/files/${clip.id}?inline=1`);
+    assert.equal(played.headers.get("content-type"), "audio/webm");
+    assert.match(played.headers.get("content-disposition") ?? "", /^inline/);
+    assert.match(played.headers.get("content-security-policy") ?? "", /sandbox/);
 
     // An incoming webhook works with no session and no Origin; a wrong token is a plain 404.
     const hook = await alice.api("POST", `/api/team/channels/${general.id}/webhooks`, { name: "CI" });
@@ -182,6 +190,13 @@ test("team chat over HTTP: workspace, channel, thread, reaction, file, search an
     assert.equal(hookMessage.app.name, "CI");
     const wrongToken = await fetch(`${origin}${hook.path.slice(0, -4)}AAAA`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "x" }) });
     assert.equal(wrongToken.status, 404);
+
+    // Workspace export: a JSON download for admins only.
+    const exported = await alice.raw(`/api/team/workspaces/${ws.id}/export`);
+    assert.equal(exported.status, 200);
+    assert.match(exported.headers.get("content-disposition") ?? "", /^attachment; filename="acme-export-\d{4}-\d{2}-\d{2}\.json"$/);
+    assert.equal((await exported.json()).format, "fabric-teams-export/1");
+    assert.equal((await bob.raw(`/api/team/workspaces/${ws.id}/export`)).status, 403);
 
     const found = await bob.api("GET", `/api/team/workspaces/${ws.id}/search?q=${encodeURIComponent(phrase)}`);
     assert.equal(found.messages.length, 1);

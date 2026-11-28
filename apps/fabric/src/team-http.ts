@@ -29,7 +29,9 @@ const ID = "([0-9a-fA-F-]{36})";
 const NAME = "([a-z0-9._-]{1,64})";
 const BODY_LIMIT = 64 * 1024;
 const FILE_BODY_LIMIT = Math.ceil(TEAM_LIMITS.fileBytes * 1.4) + 4096;
-const INLINE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
+const INLINE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp", "audio/webm", "audio/ogg", "audio/mp4", "audio/mpeg"]);
+const EMOJI = "([a-z0-9_+-]{1,40})";
+const EMOJI_BODY_LIMIT = Math.ceil(TEAM_LIMITS.emojiBytes * 1.4) + 4096;
 
 type Handler = (c: Call) => unknown | Promise<unknown>;
 interface Call {
@@ -111,6 +113,19 @@ export function teamRoutes(): Route[] {
     r("GET", `/workspaces/${ID}/groups`, ({ team, me, params }) => ({ groups: team.groups(me, params[0]!) })),
     r("POST", `/workspaces/${ID}/groups`, ({ team, me, params, body }) => team.saveGroup(me, params[0]!, body)),
     r("DELETE", `/workspaces/${ID}/groups/${NAME}`, ({ team, me, params }) => team.deleteGroup(me, params[0]!, params[1]!)),
+    r("GET", `/workspaces/${ID}/export`, ({ team, me, params, query, res, security }) => {
+      const data = team.exportWorkspace(me, params[0]!, { includePrivate: query.get("private") === "1" });
+      const body = Buffer.from(JSON.stringify(data, null, 2));
+      const day = data.exportedAt.slice(0, 10);
+      res.writeHead(200, {
+        ...security,
+        "content-type": "application/json; charset=utf-8",
+        "content-length": body.length,
+        "content-disposition": `attachment; filename="${data.workspace.slug}-export-${day}.json"`,
+        "cache-control": "no-store",
+      });
+      res.end(body);
+    }, { raw: true }),
     r("GET", `/workspaces/${ID}/webhooks`, ({ team, me, params }) => ({ webhooks: team.webhooks(me, params[0]!) })),
     r("GET", `/workspaces/${ID}/scheduled`, ({ team, me, params }) => ({ scheduled: team.scheduledList(me, params[0]!) })),
     r("GET", `/workspaces/${ID}/reminders`, ({ team, me, params }) => ({ reminders: team.reminders(me, params[0]!) })),
@@ -124,6 +139,12 @@ export function teamRoutes(): Route[] {
     r("POST", `/channels/${ID}/invite`, ({ team, me, params, body }) => team.invite(me, params[0]!, body.people)),
     r("POST", `/channels/${ID}/kick`, ({ team, me, params, body }) => team.kick(me, params[0]!, str(body.username))),
     r("PUT", `/channels/${ID}/prefs`, ({ team, me, params, body }) => team.setChannelPrefs(me, params[0]!, body)),
+    r("GET", `/workspaces/${ID}/sections`, ({ team, me, params }) => ({ sections: team.sections(me, params[0]!) })),
+    r("POST", `/workspaces/${ID}/sections`, ({ team, me, params, body }) => team.createSection(me, params[0]!, body), { status: 201 }),
+    r("PATCH", `/sections/${ID}`, ({ team, me, params, body }) => ({ sections: team.updateSection(me, params[0]!, body) })),
+    r("DELETE", `/sections/${ID}`, ({ team, me, params }) => team.deleteSection(me, params[0]!)),
+    r("GET", `/workspaces/${ID}/keywords`, ({ team, me, params }) => ({ keywords: team.keywords(me, params[0]!) })),
+    r("PUT", `/workspaces/${ID}/keywords`, ({ team, me, params, body }) => ({ keywords: team.setKeywords(me, params[0]!, body.keywords) })),
     r("POST", `/channels/${ID}/read`, ({ team, me, params, body }) => team.markRead(me, params[0]!, typeof body.unreadFrom === "string" ? body.unreadFrom : undefined)),
     r("GET", `/channels/${ID}/people`, ({ team, me, params }) => ({ people: team.channelPeople(me, params[0]!) })),
     r("GET", `/channels/${ID}/messages`, ({ team, me, params, query }) => team.list(me, params[0]!, {
@@ -140,8 +161,15 @@ export function teamRoutes(): Route[] {
     r("GET", `/channels/${ID}/pins`, ({ team, me, params }) => ({ team, messages: team.pins(me, params[0]!) })),
     r("GET", `/channels/${ID}/canvas`, ({ team, me, params }) => team.canvas(me, params[0]!)),
     r("PUT", `/channels/${ID}/canvas`, ({ team, me, params, body }) => team.setCanvas(me, params[0]!, body.text)),
+    r("GET", `/channels/${ID}/tasks`, ({ team, me, params }) => ({ tasks: team.tasks(me, params[0]!) })),
+    r("POST", `/channels/${ID}/tasks`, ({ team, me, params, body }) => team.createTask(me, params[0]!, body), { status: 201 }),
+    r("PATCH", `/tasks/${ID}`, ({ team, me, params, body }) => team.updateTask(me, params[0]!, body)),
+    r("DELETE", `/tasks/${ID}`, ({ team, me, params }) => team.deleteTask(me, params[0]!)),
+    r("GET", `/workspaces/${ID}/tasks`, ({ team, me, params }) => ({ tasks: team.myTasks(me, params[0]!) })),
     r("POST", `/channels/${ID}/bookmarks`, ({ team, me, params, body }) => team.addBookmark(me, params[0]!, body), { status: 201 }),
     r("POST", `/channels/${ID}/files`, ({ team, me, params, body }) => team.upload(me, params[0]!, body), { status: 201, limit: FILE_BODY_LIMIT }),
+    r("GET", `/channels/${ID}/workflows`, ({ team, me, params }) => ({ workflows: team.workflows(me, params[0]!) })),
+    r("POST", `/channels/${ID}/workflows`, ({ team, me, params, body }) => team.createWorkflow(me, params[0]!, body), { status: 201 }),
     r("POST", `/channels/${ID}/webhooks`, ({ team, me, params, body }) => team.createWebhook(me, params[0]!, body), { status: 201 }),
     r("GET", `/channels/${ID}/huddle`, ({ team, me, params }) => ({ huddle: team.huddle(me, params[0]!) })),
     r("POST", `/channels/${ID}/huddle/join`, ({ team, me, params }) => team.joinHuddle(me, params[0]!)),
@@ -161,6 +189,7 @@ export function teamRoutes(): Route[] {
     r("PUT", `/messages/${ID}/save`, ({ team, me, params, body }) => team.save(me, params[0]!, body)),
     r("POST", `/messages/${ID}/vote`, ({ team, me, params, body }) => team.vote(me, params[0]!, body.choice, typeof body.on === "boolean" ? body.on : undefined)),
     r("POST", `/messages/${ID}/close`, ({ team, me, params }) => team.closePoll(me, params[0]!)),
+    r("POST", `/messages/${ID}/share`, ({ team, me, params, body }) => team.share(me, params[0]!, body)),
 
     r("DELETE", `/bookmarks/${ID}`, ({ team, me, params }) => team.removeBookmark(me, params[0]!)),
     r("GET", `/files/${ID}`, ({ team, me, params, query, res, security }) => {
@@ -174,6 +203,22 @@ export function teamRoutes(): Route[] {
         "content-security-policy": "default-src 'none'; sandbox",
       });
       res.end(file.data);
+    }, { raw: true }),
+    r("PATCH", `/workflows/${ID}`, ({ team, me, params, body }) => team.updateWorkflow(me, params[0]!, body)),
+    r("DELETE", `/workflows/${ID}`, ({ team, me, params }) => team.deleteWorkflow(me, params[0]!)),
+    r("GET", `/workspaces/${ID}/emoji`, ({ team, me, params }) => ({ emoji: team.emojis(me, params[0]!) })),
+    r("POST", `/workspaces/${ID}/emoji`, ({ team, me, params, body }) => team.addEmoji(me, params[0]!, body), { status: 201, limit: EMOJI_BODY_LIMIT }),
+    r("DELETE", `/workspaces/${ID}/emoji/${EMOJI}`, ({ team, me, params }) => team.removeEmoji(me, params[0]!, params[1]!)),
+    r("GET", `/workspaces/${ID}/emoji/${EMOJI}`, ({ team, me, params, res, security }) => {
+      const image = team.emojiImage(me, params[0]!, params[1]!);
+      res.writeHead(200, {
+        ...security,
+        "content-type": image.mime,
+        "content-length": image.data.length,
+        "cache-control": "private, max-age=300",
+        "content-security-policy": "default-src 'none'; sandbox",
+      });
+      res.end(image.data);
     }, { raw: true }),
     r("DELETE", `/webhooks/${ID}`, ({ team, me, params }) => team.deleteWebhook(me, params[0]!)),
     r("DELETE", `/scheduled/${ID}`, ({ team, me, params }) => team.cancelScheduled(me, params[0]!)),

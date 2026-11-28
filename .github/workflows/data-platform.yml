@@ -185,6 +185,26 @@ jobs:
           curl -fsS http://127.0.0.1:8088/health
           # Sign-in is Cumulus ID only: the login page must offer the cumulus provider.
           curl -fsS http://127.0.0.1:8088/login/ | grep -q cumulus
+      - name: Dashboards as code import into Superset
+        run: |
+          python3 superset/dashboards/build_bundle.py /tmp/cumulus-dashboards.zip
+          docker compose --profile bi cp /tmp/cumulus-dashboards.zip superset:/tmp/cumulus-dashboards.zip
+          # A throwaway CI user to own the import; sign-in stays Cumulus ID only (AUTH_OAUTH).
+          docker compose --profile bi exec -T superset superset fab create-admin --username ci-import             --firstname CI --lastname Import --email ci-import@example.invalid --password "$(openssl rand -hex 24)"
+          docker compose --profile bi exec -T superset superset import-dashboards -p /tmp/cumulus-dashboards.zip -u ci-import
+          docker compose --profile bi exec -T superset python - <<'PY'
+          from superset.app import create_app
+          app = create_app()
+          with app.app_context():
+              from superset.extensions import db
+              from superset.models.dashboard import Dashboard
+              got = {d.dashboard_title: (str(d.uuid), sorted(s.slice_name for s in d.slices)) for d in db.session.query(Dashboard)}
+              print(got)
+              assert got["Product activity"] == ("3690a391-0b11-5f9a-a2f2-59cd7e2e570a", ["Events", "Events by type", "Events per day"]), got
+              assert got["Data quality"] == ("3d83ccfe-0c46-52c2-aedf-dc3a0fadcc12", ["Failed runs", "Quality pass rate", "Runs by dataset"]), got
+          PY
+          # Importing again updates in place (same UUIDs), it does not duplicate.
+          docker compose --profile bi exec -T superset superset import-dashboards -p /tmp/cumulus-dashboards.zip -u ci-import
       - name: Logs on failure
         if: failure()
         run: docker compose --profile bi logs --tail 200

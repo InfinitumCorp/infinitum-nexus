@@ -139,7 +139,9 @@ export type WorkflowStep =
   | { type: "send_email"; subject: string; body: string }
   | { type: "send_sms"; body: string }
   | { type: "wait"; minutes: number }
-  | { type: "note"; text: string };
+  | { type: "note"; text: string }
+  /** Ask for a review (Reputation): uses the workspace review link and skips anyone asked in the last 30 days. */
+  | { type: "request_review"; channel: "email" | "sms" };
 
 export interface Workflow {
   id: string;

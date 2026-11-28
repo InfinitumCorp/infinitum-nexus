@@ -293,6 +293,7 @@ const STEPS = {
   create_task: { label: "Create task", fields: [["summary", "Task"], ["dueInDays", "Due in days", "number"]] },
   move_deal: { label: "Move deal", fields: [["stage", "Stage", "stage"]] },
   note: { label: "Add note", fields: [["text", "Note", "textarea"]] },
+  request_review: { label: "Request a review", fields: [["channel", "Send by", "channel"]] },
 };
 const STAGES = ["lead", "qualified", "discovery", "proposal", "negotiation", "won", "lost"];
 const describeTrigger = (t, forms, cals) => {
@@ -310,6 +311,7 @@ const describeStep = (s) => {
     case "create_task": return `Task: ${s.summary}`;
     case "move_deal": return `Deal → ${s.stage}`;
     case "note": return "Note";
+    case "request_review": return `Ask for a review by ${s.channel === "sms" ? "SMS" : "email"}`;
     default: return s.type;
   }
 };
@@ -373,6 +375,7 @@ function stepRow(s = { type: "send_email" }) {
     <button type="button" class="btn ghost small" data-up aria-label="Move up">↑</button><button type="button" class="btn ghost small" data-remove aria-label="Remove">✕</button></div>
     ${spec.fields.map(([k, label, kind]) => `<label class="mini">${label}${kind === "textarea"
       ? `<textarea class="input small" name="${k}" rows="2" placeholder="${label}" required>${esc(s[k] ?? "")}</textarea>`
+      : kind === "channel" ? `<select class="input small" name="${k}"><option value="email">Email</option><option value="sms" ${s[k] === "sms" ? "selected" : ""}>SMS</option></select>`
       : kind === "stage" ? `<select class="input small" name="${k}">${STAGES.map((v) => `<option ${v === s[k] ? "selected" : ""}>${v}</option>`).join("")}</select>`
       : `<input class="input small" name="${k}" placeholder="${label}" ${kind === "number" ? `type="number" min="${k === "minutes" ? 1 : 0}"` : ""} value="${esc(s[k] ?? (k === "minutes" ? 1440 : k === "dueInDays" ? 1 : ""))}" ${k === "dueInDays" ? "" : "required"}>`}</label>`).join("")}
   </div>`;

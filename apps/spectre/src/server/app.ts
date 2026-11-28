@@ -212,7 +212,7 @@ export function createApp(deps: AppDeps) {
     await dispatch(engine, ws, event);
     await deps.emit?.(ws, event);
   };
-  const engine: AutomationEngine = { crm, providers, raise };
+  const engine: AutomationEngine = { crm, providers, raise, origin: deps.origin };
   const routes: Route[] = [];
   const route = (method: string, path: string, handler: Handler, auth = true, opts: { csrf?: boolean; optionalAuth?: boolean } = {}) => {
     const keys: string[] = [];

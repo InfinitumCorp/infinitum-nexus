@@ -15,6 +15,7 @@ import { SpectreError, type SpectreCRM } from "./crm.ts";
 import { STAGES, OPEN_STAGES, type Stage } from "./model.ts";
 import { normalizeTag } from "./contacts-plus.ts";
 import { personalize, sendMessage, type Providers } from "./messaging.ts";
+import { requestReviews } from "./reputation.ts";
 import type { GrowthEvent, Trigger, TriggerType, Workflow, WorkflowJob, WorkflowStep } from "./growth-model.ts";
 
 export const MAX_DEPTH = 3;
@@ -27,6 +28,8 @@ export interface AutomationEngine {
   providers: Providers;
   /** Raise an event caused by a step (re-enters `dispatch` and any outside listener). */
   raise: (ws: string, event: GrowthEvent) => Promise<void>;
+  /** Public origin for links that steps send (review requests). */
+  origin?: string;
 }
 
 /* ---------------- Builder validation ---------------- */
@@ -67,6 +70,8 @@ function cleanStep(crm: SpectreCRM, raw: any, i: number): WorkflowStep {
       if (!(minutes >= 1 && minutes <= MAX_WAIT_MIN)) throw new SpectreError("invalid", `${n}: wait between 1 minute and 90 days`);
       return { type: "wait", minutes };
     }
+    case "request_review":
+      return { type: "request_review", channel: raw.channel === "sms" ? "sms" : "email" };
     case "note": {
       const t = text(raw.text, 2000);
       if (!t) throw new SpectreError("invalid", `${n}: write the note`);
@@ -297,6 +302,14 @@ async function runStep(engine: AutomationEngine, wf: Workflow, job: WorkflowJob,
       const m = await sendMessage(crm, engine.providers, ws, actor, { contactId: c.id, channel, subject: step.type === "send_email" ? step.subject : undefined, body: step.body });
       if (m.status === "failed") throw new Error(m.error ?? "provider refused the message");
       return m.status === "sent" ? `${channel === "email" ? "Email" : "SMS"} sent` : `Saved as a draft (no ${channel === "email" ? "email" : "SMS"} provider connected)`;
+    }
+    case "request_review": {
+      const c = needContact();
+      if (!engine.origin) throw new Error("Review links need the app's public address");
+      const r = await requestReviews(crm, engine.providers, ws, actor, { contactIds: [c.id], channel: step.channel, origin: engine.origin });
+      if (r.skipped.length) return `Skipped: ${r.skipped[0]!.reason}`;
+      if (r.failed) throw new Error("provider refused the review request");
+      return r.sent ? `Review request sent by ${step.channel === "sms" ? "SMS" : "email"}` : "Review request saved as a draft (no provider connected)";
     }
     case "wait":
       return "";

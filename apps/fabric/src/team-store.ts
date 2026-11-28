@@ -32,6 +32,10 @@ export interface TeamMessageRow {
   /** Set when this message shares (forwards) another message. */
   sharedId?: string | null;
 }
+export interface TaskRow {
+  id: string; channelId: string; ciphertext: string; assignee: string | null; due: string | null; done: number; position: number;
+  createdBy: string; createdAt: string; updatedAt: string; doneAt: string | null; doneBy: string | null;
+}
 export interface ReactionRow { messageId: string; sub: string; emoji: string; createdAt: string }
 export interface PinRow { channelId: string; messageId: string; pinnedBy: string; pinnedAt: string }
 export interface SavedRow { sub: string; messageId: string; savedAt: string; remindAt: string | null; done: number }
@@ -298,6 +302,22 @@ export class TeamStore {
         created_at TEXT NOT NULL
       );
       CREATE INDEX IF NOT EXISTS team_sections_owner ON team_sections(workspace_id, sub, position);
+      CREATE TABLE IF NOT EXISTS team_tasks (
+        id TEXT PRIMARY KEY,
+        channel_id TEXT NOT NULL REFERENCES team_channels(id),
+        ciphertext TEXT NOT NULL,
+        assignee TEXT REFERENCES users(sub),
+        due TEXT,
+        done INTEGER NOT NULL DEFAULT 0,
+        position INTEGER NOT NULL,
+        created_by TEXT NOT NULL REFERENCES users(sub),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        done_at TEXT,
+        done_by TEXT
+      );
+      CREATE INDEX IF NOT EXISTS team_tasks_channel ON team_tasks(channel_id, done, position);
+      CREATE INDEX IF NOT EXISTS team_tasks_assignee ON team_tasks(assignee, done);
       CREATE TABLE IF NOT EXISTS team_webhooks (
         id TEXT PRIMARY KEY,
         workspace_id TEXT NOT NULL REFERENCES team_workspaces(id),

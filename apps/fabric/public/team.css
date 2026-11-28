@@ -180,3 +180,16 @@
 /* Sidebar sections */
 .t-section-toggle { font: inherit; color: inherit; text-transform: inherit; letter-spacing: inherit; }
 .t-section-empty { padding: 2px 16px 6px; margin: 0; }
+
+/* Task lists */
+.t-task-add { display: flex; gap: 6px; margin-bottom: 10px; }
+.t-task-add .input { flex: 1; }
+.t-tasks { list-style: none; margin: 0; padding: 0; }
+.t-task { display: flex; align-items: flex-start; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.t-task input[type="checkbox"] { margin-top: 3px; }
+.t-task-body { flex: 1; min-width: 0; }
+.t-task-body .t-row { margin: 2px 0 0; gap: 8px; }
+.t-task-notes { margin: 2px 0 0; white-space: pre-wrap; }
+.t-task.done .t-task-title { text-decoration: line-through; color: var(--muted); }
+.t-due.soon { color: var(--accent); }
+.t-due.late { color: #b42318; font-weight: 600; }

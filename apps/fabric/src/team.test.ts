@@ -7,7 +7,7 @@ import { test } from "node:test";
 import type { FabricIdentity } from "./auth.ts";
 import { FabricServiceError, touchUser } from "./service.ts";
 import { FabricStore } from "./store.ts";
-import { TeamService, imageType, nextRun, parseIceServers, parseQuery, parseReminder, type TeamEvent } from "./team.ts";
+import { TeamService, dueDate, imageType, nextRun, parseIceServers, parseQuery, parseReminder, type TeamEvent } from "./team.ts";
 
 const ISSUER = "https://id.cumuluscloud.app/realms/cumulus";
 function person(n: number, username: string): FabricIdentity {
@@ -652,6 +652,66 @@ test("sidebar sections are personal: create, move channels, reorder, collapse, d
     t.team.setChannelPrefs(t.alice, dm.id, { sectionId: null });
     assert.equal(t.team.sidebar(t.alice, ws.id).direct[0]!.sectionId, null);
     assert.ok(t.events.some((e) => e.event.type === "sections" && e.subs.length === 1 && e.subs[0] === t.alice.sub));
+  } finally {
+    t.close();
+  }
+});
+
+test("task lists: add, assign, due dates, tick off, reorder, my tasks, access", () => {
+  const t = setup();
+  try {
+    const ws = t.team.createWorkspace(t.alice, "Acme");
+    t.team.joinWorkspace(t.bob, ws.inviteCode);
+    t.team.joinWorkspace(t.cara, ws.inviteCode);
+    const general = t.team.sidebar(t.alice, ws.id).channels.find((c) => c.name === "general")!;
+    const secret = t.team.createChannel(t.alice, ws.id, { name: "secret", private: true, members: ["bob"] });
+
+    const a = t.team.createTask(t.alice, secret.id, { title: "Draft launch post", assignee: "bob", due: "2026-12-01", notes: "Keep it short" });
+    const b = t.team.createTask(t.bob, secret.id, { title: "Book the venue" });
+    assert.equal(a.assignee!.username, "bob");
+    assert.equal(a.due, "2026-12-01");
+    assert.equal(a.notes, "Keep it short");
+    const stored = t.store.database.prepare("SELECT ciphertext FROM team_tasks WHERE id = ?").get(a.id) as { ciphertext: string };
+    assert.ok(!stored.ciphertext.includes("launch"), "task titles are sealed at rest");
+
+    // Cara can't see the private channel's list, be assigned in it, or change it.
+    assert.throws(() => t.team.tasks(t.cara, secret.id), status(404));
+    assert.throws(() => t.team.createTask(t.alice, secret.id, { title: "x", assignee: "cara" }), status(400));
+    assert.throws(() => t.team.updateTask(t.cara, a.id, { done: true }), status(404));
+    assert.throws(() => t.team.createTask(t.alice, secret.id, { title: "x", due: "2026-02-30" }), status(400));
+    assert.throws(() => t.team.createTask(t.alice, secret.id, { title: " " }), status(400));
+    // In a public channel, anyone in the workspace can be assigned.
+    const c = t.team.createTask(t.alice, general.id, { title: "Say hi", assignee: "@cara" });
+    assert.equal(c.assignee!.username, "cara");
+
+    assert.deepEqual(t.team.myTasks(t.bob, ws.id).map((x) => x.title), ["Draft launch post"]);
+    assert.equal(t.team.sidebar(t.bob, ws.id).tasks, 1);
+    assert.equal(t.team.sidebar(t.cara, ws.id).tasks, 1);
+
+    // Reorder, then tick off: done tasks move to the end.
+    t.team.updateTask(t.bob, b.id, { position: 0 });
+    assert.deepEqual(t.team.tasks(t.alice, secret.id).map((x) => x.title), ["Book the venue", "Draft launch post"]);
+    const done = t.team.updateTask(t.bob, b.id, { done: true });
+    assert.equal(done.done, true);
+    assert.equal(done.doneBy!.username, "bob");
+    assert.deepEqual(t.team.tasks(t.alice, secret.id).map((x) => [x.title, x.done]), [["Draft launch post", false], ["Book the venue", true]]);
+    assert.equal(t.team.getChannel(t.alice, secret.id).openTasks, 1);
+    assert.equal(t.team.updateTask(t.alice, b.id, { done: false }).doneAt, null);
+
+    // Edit and reassign; the new assignee gets the event even outside the channel's members.
+    const edited = t.team.updateTask(t.alice, c.id, { title: "Say hello", assignee: "bob", due: null });
+    assert.equal(edited.title, "Say hello");
+    assert.equal(edited.due, null);
+    assert.ok(t.events.some((e) => e.event.type === "task" && e.event.taskId === c.id && e.event.action === "assigned"));
+    assert.equal(t.team.myTasks(t.cara, ws.id).length, 0);
+
+    // Leaving a private channel hides its tasks from "my tasks".
+    t.team.leaveChannel(t.bob, secret.id);
+    assert.deepEqual(t.team.myTasks(t.bob, ws.id).map((x) => x.title), ["Say hello"]);
+
+    t.team.deleteTask(t.alice, a.id);
+    assert.deepEqual(t.team.tasks(t.alice, secret.id).map((x) => x.title), ["Book the venue"]);
+    assert.equal(dueDate("2028-02-29"), "2028-02-29");
   } finally {
     t.close();
   }

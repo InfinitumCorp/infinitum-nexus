@@ -7,6 +7,7 @@ change what the event erasure step counts.
 """
 import json
 import sys
+from datetime import datetime, timedelta, timezone
 import urllib.error
 import urllib.request
 
@@ -64,4 +65,22 @@ assert ids(viewer="cid_docviewer1") == {"pii-1"}
 assert ids() == {"pii-1"}
 assert call("POST", "/api/v1/erasure/subjects", {"cid": "cid_docowner01"})[1] == {"deleted": 1}
 assert ids(viewer="cid_docowner01") == {"pii-1"}
+
+# Batch writes, expiry and usage on the real index.
+status, before = call("GET", f"{DOCS}/usage")
+assert status == 200 and before["limit"] is None, (status, before)  # no cap on the OpenSearch layout
+soon = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat().replace("+00:00", "Z")
+batch = [{"documentId": f"faq-{i}", "tenant": "acme", "title": f"Renewal FAQ {i}", "body": "renewal questions",
+          "updatedAt": T} for i in range(2)]
+batch[1]["expiresAt"] = soon  # not yet expired: still found
+status, out = call("POST", f"{DOCS}/collections/help/batch", {"documents": batch})
+assert status == 200 and out == {"collection": "help", "stored": 2, "created": 2}, (status, out)
+assert {"faq-0", "faq-1"} <= ids(collections=["help"]), ids(collections=["help"])
+status, after = call("GET", f"{DOCS}/usage")
+assert after["documents"] == before["documents"] + 2, (before, after)
+status, out = call("POST", f"{DOCS}/collections/help/batch", {"documents": batch})  # replacing adds nothing
+assert out["created"] == 0 and call("GET", f"{DOCS}/usage")[1]["documents"] == after["documents"], out
+status, out = call("POST", f"{DOCS}/collections/help/batch", {"documents": [{**batch[0], "expiresAt": "2020-01-01T00:00:00Z"}]})
+assert status == 400 and "expiresAt" in out["parameters"]["message"], (status, out)
+print("batch, expiry and usage ok:", after)
 print("documents smoke ok")

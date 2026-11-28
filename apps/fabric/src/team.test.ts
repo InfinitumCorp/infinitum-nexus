@@ -716,3 +716,31 @@ test("task lists: add, assign, due dates, tick off, reorder, my tasks, access", 
     t.close();
   }
 });
+
+test("notification settings: per-channel level and private keywords", () => {
+  const t = setup();
+  try {
+    const ws = t.team.createWorkspace(t.alice, "Acme");
+    t.team.joinWorkspace(t.bob, ws.inviteCode);
+    const general = t.team.sidebar(t.alice, ws.id).channels.find((c) => c.name === "general")!;
+    assert.equal(general.notify, null);
+    assert.equal(t.team.setChannelPrefs(t.alice, general.id, { notify: "all" }).notify, "all");
+    assert.equal(t.team.sidebar(t.bob, ws.id).channels.find((c) => c.id === general.id)!.notify, null, "settings are personal");
+    assert.equal(t.team.setChannelPrefs(t.alice, general.id, { notify: "default" }).notify, null);
+    assert.throws(() => t.team.setChannelPrefs(t.alice, general.id, { notify: "loud" }), status(400));
+
+    assert.deepEqual(t.team.setKeywords(t.alice, ws.id, "Launch, invoice\nlaunch,  "), ["launch", "invoice"]);
+    assert.deepEqual(t.team.sidebar(t.alice, ws.id).keywords, ["launch", "invoice"]);
+    assert.deepEqual(t.team.keywords(t.bob, ws.id), []);
+    const row = t.store.database.prepare("SELECT sealed_keywords FROM team_members WHERE sub = ?").get(t.alice.sub) as { sealed_keywords: string };
+    assert.ok(!row.sealed_keywords.includes("invoice"), "keywords are sealed at rest");
+    assert.ok(t.events.some((e) => e.event.type === "keywords" && e.subs.length === 1 && e.subs[0] === t.alice.sub));
+    assert.throws(() => t.team.setKeywords(t.alice, ws.id, Array.from({ length: 26 }, (_, i) => `w${i}`)), status(400));
+    assert.throws(() => t.team.setKeywords(t.alice, ws.id, ["x".repeat(41)]), status(400));
+    assert.throws(() => t.team.setKeywords(t.cara, ws.id, ["hi"]), status(404));
+    assert.deepEqual(t.team.setKeywords(t.alice, ws.id, []), []);
+    assert.deepEqual(t.team.keywords(t.alice, ws.id), []);
+  } finally {
+    t.close();
+  }
+});

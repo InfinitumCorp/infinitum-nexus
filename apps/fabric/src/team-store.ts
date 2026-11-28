@@ -21,8 +21,9 @@ export interface ChannelRow {
   sealedKey: string; createdBy: string; createdAt: string; archivedAt: string | null; dmKey: string | null;
   isDefault: number; lastMessageAt: string | null;
 }
-export interface ChannelMemberRow { channelId: string; sub: string; lastReadAt: string; muted: number; starred: number; joinedAt: string; sectionId?: string | null }
+export interface ChannelMemberRow { channelId: string; sub: string; lastReadAt: string; muted: number; starred: number; joinedAt: string; sectionId?: string | null; notify?: NotifyLevel | null }
 export interface SectionRow { id: string; workspaceId: string; sub: string; name: string; position: number; collapsed: number; createdAt: string }
+export type NotifyLevel = "all" | "mentions" | "nothing";
 export interface TeamMessageRow {
   id: string; channelId: string; sender: string; ciphertext: string; parentId: string | null; createdAt: string;
   editedAt: string | null; deletedAt: string | null; replyCount: number; lastReplyAt: string | null;
@@ -354,6 +355,9 @@ export class TeamStore {
     if (!columns.has("shared_id")) this.db.exec("ALTER TABLE team_messages ADD COLUMN shared_id TEXT");
     const memberColumns = new Set(this.all<{ name: string }>("PRAGMA table_info(team_channel_members)").map((c) => c.name));
     if (!memberColumns.has("section_id")) this.db.exec("ALTER TABLE team_channel_members ADD COLUMN section_id TEXT");
+    if (!memberColumns.has("notify")) this.db.exec("ALTER TABLE team_channel_members ADD COLUMN notify TEXT");
+    const workspaceMemberColumns = new Set(this.all<{ name: string }>("PRAGMA table_info(team_members)").map((c) => c.name));
+    if (!workspaceMemberColumns.has("sealed_keywords")) this.db.exec("ALTER TABLE team_members ADD COLUMN sealed_keywords TEXT");
   }
 }
 

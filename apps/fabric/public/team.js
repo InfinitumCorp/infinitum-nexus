@@ -312,6 +312,7 @@ function channelMenu(anchor) {
     c.kind !== "dm" && ["Incoming webhooks", () => showWebhooks()],
     c.member && [c.muted ? "Unmute" : "Mute", async () => { await api(T(`/channels/${c.id}/prefs`), { method: "PUT", body: { muted: !c.muted } }); await refreshChannel(); await loadSidebar(); }],
     c.member && ["Move to section…", () => moveToSection(c)],
+    c.member && ["Notifications…", () => editNotifications(c)],
     c.member && ["Mark as read", async () => { await api(T(`/channels/${c.id}/read`), { method: "POST", body: {} }); await loadSidebar(); }],
     named && !c.archived && ["Archive channel", async () => { if (confirm(`Archive #${c.name}? People can still read it.`)) { await api(T(`/channels/${c.id}/archive`), { method: "POST", body: { archived: true } }); await refreshChannel(); await loadSidebar(); } }],
     named && c.archived && ["Unarchive channel", async () => { await api(T(`/channels/${c.id}/archive`), { method: "POST", body: { archived: false } }); await refreshChannel(); await loadSidebar(); }],
@@ -1017,7 +1018,7 @@ function connect() {
       if (ev.channelId === state.channel?.id || ev.parentId === state.thread?.parent.id) { state.typing.set(ev.username, Date.now()); renderTyping(); }
       return;
     }
-    if (ev.type === "read" || ev.type === "presence" || ev.type === "members" || ev.type === "sections") { soon(loadSidebar); return; }
+    if (ev.type === "read" || ev.type === "presence" || ev.type === "members" || ev.type === "sections" || ev.type === "keywords") { soon(loadSidebar); return; }
     if (ev.type === "emoji") { soon(async () => { await loadSidebar(); if (state.channel) renderMessages(null, false); }); return; }
     if (ev.type === "task") {
       soon(async () => {
@@ -1048,17 +1049,52 @@ function renderTyping() {
 }
 setInterval(renderTyping, 2000);
 
+/** Your notification level for a channel: your own setting, or everything in conversations and mentions in channels. */
+const notifyLevel = (c) => c?.notify || (c && (c.kind === "dm" || c.kind === "group") ? "all" : "mentions");
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+/** The first of your keywords that appears in the text as a whole word, if any. */
+function keywordIn(text) {
+  for (const k of state.bar?.keywords || []) {
+    if (new RegExp(`(^|[^\\p{L}\\p{N}_])${escapeRe(k)}($|[^\\p{L}\\p{N}_])`, "iu").test(text)) return k;
+  }
+  return null;
+}
+
 async function notify(ev) {
   if (!state.bar || state.bar.me.dnd) return;
+  if (ev.parentId && !ev.alsoInChannel && !ev.mentioned?.includes(state.me.sub)) return;
   const c = [...state.bar.channels, ...state.bar.direct].find((x) => x.id === ev.channelId);
-  if (c?.muted && !ev.mentioned?.includes(state.me.sub)) return;
-  if (!ev.mentioned?.includes(state.me.sub)) return;
+  const level = notifyLevel(c);
+  if (level === "nothing") return;
+  const mentioned = ev.mentioned?.includes(state.me.sub);
+  if (!mentioned && c?.muted) return;
+  if (!mentioned && level !== "all" && !(state.bar.keywords || []).length) return;
   if (document.visibilityState === "visible" && state.channel?.id === ev.channelId) return;
   if (!("Notification" in window) || Notification.permission !== "granted") return;
   const m = await api(T(`/messages/${ev.messageId}`)).catch(() => null);
   if (!m) return;
-  const n = new Notification(`${m.sender.displayName}${c ? ` in ${chanLabel(c)}` : ""}`, { body: m.text.slice(0, 140), tag: m.id });
+  const keyword = !mentioned && level !== "all" ? keywordIn(m.text) : null;
+  if (!mentioned && level !== "all" && !keyword) return;
+  const n = new Notification(`${m.sender.displayName}${c ? ` in ${chanLabel(c)}` : ""}${keyword ? ` · “${keyword}”` : ""}`, { body: m.text.slice(0, 140), tag: m.id });
   n.onclick = () => { window.focus(); jumpTo(m.id); };
+}
+
+async function editNotifications(c) {
+  const r = await dialog(`Notifications for ${chanLabel(c)}`, [
+    { name: "notify", label: "Notify me about", type: "select", value: c.notify || "default", options: [
+      ["default", c.kind === "dm" || c.kind === "group" ? "Default (every message)" : "Default (mentions only)"],
+      ["all", "Every new message"], ["mentions", "Mentions only"], ["nothing", "Nothing"]] },
+    { note: "Keywords from your notification settings still count unless you choose Nothing." },
+  ], "Save");
+  if (r) { await api(T(`/channels/${c.id}/prefs`), { method: "PUT", body: { notify: r.notify } }); await loadSidebar(); if (state.channel?.id === c.id) await refreshChannel(); }
+}
+
+async function editKeywords() {
+  const r = await dialog("Notification keywords", [
+    { note: "Get a desktop notification when a message in a channel you're in contains one of these words, even without an @mention. Only you can see your keywords." },
+    { name: "keywords", label: "Keywords, separated by commas", type: "textarea", rows: 3, max: 1200, value: (state.bar.keywords || []).join(", ") },
+  ], "Save");
+  if (r) { await api(T(`/workspaces/${state.wsId}/keywords`), { method: "PUT", body: { keywords: r.keywords } }); await loadSidebar(); }
 }
 
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && state.channel) soon(refreshChannel); });
@@ -1328,6 +1364,7 @@ $("#ws-menu").addEventListener("click", (e) => {
     }],
     ["Custom emoji", () => showEmoji()],
     ["Turn on desktop notifications", async () => { if ("Notification" in window) await Notification.requestPermission(); }],
+    ["Notification keywords…", () => editKeywords()],
   ]);
 });
 

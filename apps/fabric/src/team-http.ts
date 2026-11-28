@@ -143,6 +143,8 @@ export function teamRoutes(): Route[] {
     r("POST", `/workspaces/${ID}/sections`, ({ team, me, params, body }) => team.createSection(me, params[0]!, body), { status: 201 }),
     r("PATCH", `/sections/${ID}`, ({ team, me, params, body }) => ({ sections: team.updateSection(me, params[0]!, body) })),
     r("DELETE", `/sections/${ID}`, ({ team, me, params }) => team.deleteSection(me, params[0]!)),
+    r("GET", `/workspaces/${ID}/keywords`, ({ team, me, params }) => ({ keywords: team.keywords(me, params[0]!) })),
+    r("PUT", `/workspaces/${ID}/keywords`, ({ team, me, params, body }) => ({ keywords: team.setKeywords(me, params[0]!, body.keywords) })),
     r("POST", `/channels/${ID}/read`, ({ team, me, params, body }) => team.markRead(me, params[0]!, typeof body.unreadFrom === "string" ? body.unreadFrom : undefined)),
     r("GET", `/channels/${ID}/people`, ({ team, me, params }) => ({ people: team.channelPeople(me, params[0]!) })),
     r("GET", `/channels/${ID}/messages`, ({ team, me, params, query }) => team.list(me, params[0]!, {

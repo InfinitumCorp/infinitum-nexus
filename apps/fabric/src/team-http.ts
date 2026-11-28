@@ -29,7 +29,7 @@ const ID = "([0-9a-fA-F-]{36})";
 const NAME = "([a-z0-9._-]{1,64})";
 const BODY_LIMIT = 64 * 1024;
 const FILE_BODY_LIMIT = Math.ceil(TEAM_LIMITS.fileBytes * 1.4) + 4096;
-const INLINE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
+const INLINE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp", "audio/webm", "audio/ogg", "audio/mp4", "audio/mpeg"]);
 const EMOJI = "([a-z0-9_+-]{1,40})";
 const EMOJI_BODY_LIMIT = Math.ceil(TEAM_LIMITS.emojiBytes * 1.4) + 4096;
 

@@ -193,3 +193,11 @@
 .t-task.done .t-task-title { text-decoration: line-through; color: var(--muted); }
 .t-due.soon { color: var(--accent); }
 .t-due.late { color: #b42318; font-weight: 600; }
+
+/* Voice clips */
+.t-clip { display: flex; align-items: center; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
+.t-clip audio { height: 36px; max-width: min(360px, 100%); }
+.t-clip-status { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
+.t-rec-dot { width: 10px; height: 10px; border-radius: 50%; background: #d92d20; animation: t-rec 1s ease-in-out infinite; }
+@keyframes t-rec { 50% { opacity: 0.3; } }
+@media (prefers-reduced-motion: reduce) { .t-rec-dot { animation: none; } }

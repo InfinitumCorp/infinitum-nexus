@@ -388,6 +388,10 @@ function messageItem(m, { compact = false, focus = false, inThread = false } = {
   for (const f of m.files) {
     const url = T(`/files/${f.id}`);
     if (/^image\/(png|jpeg|gif|webp)$/.test(f.mime)) body.append(h("a", { href: url, class: "t-image" }, h("img", { src: `${url}?inline=1`, alt: f.name, loading: "lazy" })));
+    if (/^audio\/(webm|ogg|mp4|mpeg)$/.test(f.mime)) {
+      body.append(h("div", { class: "t-clip" }, h("span", { "aria-hidden": "true" }, "🎙"), h("audio", { controls: true, preload: "metadata", src: `${url}?inline=1`, "aria-label": f.name }), h("span", { class: "meta" }, f.name.replace(/\.[a-z0-9]+$/i, ""))));
+      continue;
+    }
     body.append(h("a", { href: url, class: "t-filecard", download: f.name }, `📎 ${f.name}`, h("span", { class: "meta" }, ` ${size(f.size)}`)));
   }
   li.append(body);
@@ -498,10 +502,10 @@ async function afterChange(m) {
 
 const draftKey = () => `team.draft.${state.channel?.id}`;
 function saveDraft() { if (state.channel) { try { const v = $("#text").value; v ? localStorage.setItem(draftKey(), v) : localStorage.removeItem(draftKey()); } catch {} } }
-function restoreDraft() { $("#text").value = localStorage.getItem(draftKey()) || ""; state.files = []; renderAttachments(); }
+function restoreDraft() { if (typeof stopClip === "function") stopClip(true); $("#text").value = localStorage.getItem(draftKey()) || ""; state.files = []; renderAttachments(); }
 
 function renderAttachments() {
-  $("#attachments").replaceChildren(...state.files.map((f) => h("span", { class: "t-chip" }, `📎 ${f.name}`, h("button", { type: "button", class: "link", "aria-label": `Remove ${f.name}`, onclick: () => { state.files = state.files.filter((x) => x !== f); renderAttachments(); } }, "×"))));
+  $("#attachments").replaceChildren(...state.files.map((f) => h("span", { class: "t-chip" }, `${f.mime?.startsWith("audio/") ? "🎙" : "📎"} ${f.name}`, h("button", { type: "button", class: "link", "aria-label": `Remove ${f.name}`, onclick: () => { state.files = state.files.filter((x) => x !== f); renderAttachments(); } }, "×"))));
 }
 
 async function upload(file, channelId) {
@@ -637,6 +641,66 @@ $("#file").addEventListener("change", tryRun(async (e) => {
 }));
 
 $("#poll").addEventListener("click", tryRun(newPoll));
+
+// ---------- voice clips ----------
+// Record a short audio message in the browser and attach it like a file. Up to three minutes, small enough
+// (Opus at 32 kbit/s) to fit the 1 MB file limit.
+
+const CLIP_SECONDS = 180;
+const clipType = () => ["audio/webm;codecs=opus", "audio/ogg;codecs=opus", "audio/mp4"].find((t) => window.MediaRecorder?.isTypeSupported?.(t)) || "";
+const mmss = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+let clip = null;
+
+async function startClip() {
+  if (clip || !state.channel) return;
+  if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) throw new Error("This browser can't record audio");
+  const type = clipType();
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+  const recorder = new MediaRecorder(stream, { ...(type ? { mimeType: type } : {}), audioBitsPerSecond: 32_000 });
+  const chunks = [];
+  const channelId = state.channel.id;
+  const started = Date.now();
+  clip = { recorder, stream, cancelled: false, timer: 0 };
+  recorder.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+  recorder.onstop = tryRun(async () => {
+    const { cancelled } = clip;
+    stream.getTracks().forEach((t) => t.stop());
+    clearInterval(clip.timer);
+    clip = null;
+    renderClip();
+    if (cancelled) return;
+    const seconds = Math.max(1, Math.round((Date.now() - started) / 1000));
+    const mime = (recorder.mimeType || type || "audio/webm").split(";")[0];
+    const ext = mime === "audio/mp4" ? "m4a" : mime === "audio/ogg" ? "ogg" : "webm";
+    const file = new File(chunks, `Voice clip ${mmss(seconds)}.${ext}`, { type: mime });
+    if (file.size > 1_000_000) throw new Error("That clip is too long to send");
+    state.files.push(await upload(file, channelId));
+    renderAttachments();
+    $("#text").focus();
+  });
+  recorder.start(1000);
+  clip.timer = setInterval(() => { renderClip(Math.round((Date.now() - started) / 1000)); if (Date.now() - started >= CLIP_SECONDS * 1000) stopClip(false); }, 250);
+  renderClip(0);
+}
+
+function stopClip(cancel) {
+  if (!clip) return;
+  clip.cancelled = cancel;
+  if (clip.recorder.state !== "inactive") clip.recorder.stop();
+}
+
+function renderClip(seconds = 0) {
+  const bar = $("#clip-status");
+  if (!clip) { bar.hidden = true; bar.replaceChildren(); $("#record").hidden = false; return; }
+  $("#record").hidden = true;
+  bar.hidden = false;
+  bar.replaceChildren(
+    h("span", { class: "t-rec-dot", "aria-hidden": "true" }), h("span", { role: "timer" }, `Recording ${mmss(seconds)} / ${mmss(CLIP_SECONDS)}`),
+    h("button", { type: "button", class: "btn primary small", onclick: () => stopClip(false) }, "Done"),
+    h("button", { type: "button", class: "btn small", onclick: () => stopClip(true) }, "Cancel"));
+}
+
+$("#record").addEventListener("click", tryRun(startClip));
 $("#schedule").addEventListener("click", tryRun(async () => {
   const text = $("#text").value;
   if (!text.trim()) throw new Error("Write the message first");

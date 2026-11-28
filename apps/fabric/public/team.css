@@ -176,3 +176,7 @@
 .t-emoji-list { list-style: none; margin: 0; padding: 0; }
 .t-emoji-list li { display: flex; align-items: center; gap: 6px; padding: 6px 0; border-bottom: 1px solid var(--line); }
 .t-emoji-list .t-emoji { width: 28px; height: 28px; }
+
+/* Sidebar sections */
+.t-section-toggle { font: inherit; color: inherit; text-transform: inherit; letter-spacing: inherit; }
+.t-section-empty { padding: 2px 16px 6px; margin: 0; }

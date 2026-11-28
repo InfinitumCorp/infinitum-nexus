@@ -27,6 +27,7 @@ import {
   type ReminderRow,
   type Role,
   type ScheduledRow,
+  type SectionRow,
   type TeamMessageRow,
   type WebhookRow,
   type WorkflowEvery,
@@ -46,6 +47,8 @@ export const TEAM_LIMITS = {
   /** Custom emoji: image size and how many one workspace can have. */
   emojiBytes: 128_000,
   emojiPerWorkspace: 500,
+  /** Sidebar sections one person can make in a workspace. */
+  sections: 30,
   /** People in one huddle. Media flows peer to peer (a full mesh), so this stays small. */
   huddlePeople: 8,
   /** How long a person may be disconnected before they are taken out of a huddle. */
@@ -117,6 +120,8 @@ export interface ChannelView {
   member: boolean;
   muted: boolean;
   starred: boolean;
+  /** The sidebar section you put this channel in, or null for the default place. */
+  sectionId: string | null;
   unread: number;
   mentions: number;
   lastReadAt: string | null;
@@ -166,6 +171,7 @@ export interface MessageView {
 export type SharedView =
   | { available: true; id: string; channelId: string; channelName: string | null; channelKind: ChannelKind; sender: PersonView; text: string; createdAt: string; files: FileView[] }
   | { available: false };
+export interface SectionView { id: string; name: string; position: number; collapsed: boolean }
 
 export interface PollView {
   options: { text: string; count: number; voters: string[]; mine: boolean }[];
@@ -372,7 +378,7 @@ export class TeamService {
   // ---------- channels ----------
 
   /** Channels and conversations the caller belongs to, with unread and mention counts. */
-  sidebar(me: FabricIdentity, workspaceId: string): { workspace: WorkspaceView; me: PersonView; channels: ChannelView[]; direct: ChannelView[]; scheduled: number; reminders: number; saved: number; emoji: string[] } {
+  sidebar(me: FabricIdentity, workspaceId: string): { workspace: WorkspaceView; me: PersonView; channels: ChannelView[]; direct: ChannelView[]; scheduled: number; reminders: number; saved: number; emoji: string[]; sections: SectionView[] } {
     this.member(me, workspaceId);
     this.seen(me.sub);
     const rows = this.store.all<ChannelRow>(
@@ -389,7 +395,63 @@ export class TeamService {
       reminders: this.store.count("SELECT COUNT(*) FROM team_reminders WHERE sub = ? AND workspace_id = ? AND done = 0", me.sub, workspaceId),
       saved: this.store.count("SELECT COUNT(*) FROM team_saved s JOIN team_messages m ON m.id = s.message_id JOIN team_channels c ON c.id = m.channel_id WHERE s.sub = ? AND s.done = 0 AND c.workspace_id = ?", me.sub, workspaceId),
       emoji: this.store.all<{ name: string }>("SELECT name FROM team_emoji WHERE workspace_id = ? ORDER BY name", workspaceId).map((e) => e.name),
+      sections: this.sections(me, workspaceId),
     };
+  }
+
+  // ---------- sidebar sections ----------
+  //
+  // Sections are personal: each person groups their own channels and conversations. Nobody else sees them.
+
+  sections(me: FabricIdentity, workspaceId: string): SectionView[] {
+    this.member(me, workspaceId);
+    return this.store.all<SectionRow>("SELECT * FROM team_sections WHERE workspace_id = ? AND sub = ? ORDER BY position, created_at", workspaceId, me.sub)
+      .map((s) => ({ id: s.id, name: s.name, position: s.position, collapsed: !!s.collapsed }));
+  }
+
+  createSection(me: FabricIdentity, workspaceId: string, input: { name?: unknown }): SectionView {
+    this.member(me, workspaceId);
+    const name = label(input.name, "name", 60);
+    const count = this.store.count("SELECT COUNT(*) FROM team_sections WHERE workspace_id = ? AND sub = ?", workspaceId, me.sub);
+    if (count >= TEAM_LIMITS.sections) throw fail(400, `you can have up to ${TEAM_LIMITS.sections} sections`);
+    const position = (this.store.one<{ p: number | null }>("SELECT MAX(position) AS p FROM team_sections WHERE workspace_id = ? AND sub = ?", workspaceId, me.sub)?.p ?? -1) + 1;
+    const row: SectionRow = { id: randomUUID(), workspaceId, sub: me.sub, name, position, collapsed: 0, createdAt: this.stamp() };
+    this.store.insert("team_sections", row);
+    this.publish([me.sub], { type: "sections", workspaceId });
+    return { id: row.id, name, position, collapsed: false };
+  }
+
+  /** Rename, collapse or move a section. `position` moves it to that place in your list. */
+  updateSection(me: FabricIdentity, sectionId: string, input: { name?: unknown; collapsed?: unknown; position?: unknown }): SectionView[] {
+    const row = this.section(me, sectionId);
+    this.store.tx(() => {
+      if (input.name !== undefined) this.store.run("UPDATE team_sections SET name = ? WHERE id = ?", label(input.name, "name", 60), row.id);
+      if (typeof input.collapsed === "boolean") this.store.run("UPDATE team_sections SET collapsed = ? WHERE id = ?", input.collapsed ? 1 : 0, row.id);
+      if (typeof input.position === "number" && Number.isInteger(input.position)) {
+        const ids = this.store.all<{ id: string }>("SELECT id FROM team_sections WHERE workspace_id = ? AND sub = ? ORDER BY position, created_at", row.workspaceId, me.sub).map((s) => s.id).filter((id) => id !== row.id);
+        ids.splice(Math.max(0, Math.min(ids.length, input.position)), 0, row.id);
+        ids.forEach((id, i) => this.store.run("UPDATE team_sections SET position = ? WHERE id = ?", i, id));
+      }
+    });
+    this.publish([me.sub], { type: "sections", workspaceId: row.workspaceId });
+    return this.sections(me, row.workspaceId);
+  }
+
+  /** Delete a section. Its channels go back to their default place. */
+  deleteSection(me: FabricIdentity, sectionId: string): void {
+    const row = this.section(me, sectionId);
+    this.store.tx(() => {
+      this.store.run("UPDATE team_channel_members SET section_id = NULL WHERE sub = ? AND section_id = ?", me.sub, row.id);
+      this.store.run("DELETE FROM team_sections WHERE id = ?", row.id);
+    });
+    this.publish([me.sub], { type: "sections", workspaceId: row.workspaceId });
+  }
+
+  private section(me: FabricIdentity, sectionId: string): SectionRow {
+    const row = this.store.one<SectionRow>("SELECT * FROM team_sections WHERE id = ?", uuid(sectionId));
+    if (!row || row.sub !== me.sub) throw fail(404, "not found");
+    this.member(me, row.workspaceId);
+    return row;
   }
 
   browseChannels(me: FabricIdentity, workspaceId: string, query = "", archived = false): ChannelView[] {
@@ -526,9 +588,15 @@ export class TeamService {
     this.publish([...this.channelSubs(channelId), target.sub], { type: "channel", workspaceId: channel.workspaceId, channelId });
   }
 
-  setChannelPrefs(me: FabricIdentity, channelId: string, input: { muted?: unknown; starred?: unknown }): ChannelView {
+  setChannelPrefs(me: FabricIdentity, channelId: string, input: { muted?: unknown; starred?: unknown; sectionId?: unknown }): ChannelView {
     const { channel } = this.readable(me, channelId);
     if (!this.channelMember(channelId, me.sub)) throw fail(403, "join the channel first");
+    if (input.sectionId !== undefined) {
+      const sectionId = input.sectionId === null || input.sectionId === "" ? null : this.section(me, String(input.sectionId)).id;
+      if (sectionId && this.store.one<SectionRow>("SELECT * FROM team_sections WHERE id = ?", sectionId)!.workspaceId !== channel.workspaceId) throw fail(404, "not found");
+      this.store.run("UPDATE team_channel_members SET section_id = ? WHERE channel_id = ? AND sub = ?", sectionId, channelId, me.sub);
+      this.publish([me.sub], { type: "sections", workspaceId: channel.workspaceId });
+    }
     if (input.muted !== undefined) this.store.run("UPDATE team_channel_members SET muted = ? WHERE channel_id = ? AND sub = ?", input.muted === true ? 1 : 0, channelId, me.sub);
     if (input.starred !== undefined) this.store.run("UPDATE team_channel_members SET starred = ? WHERE channel_id = ? AND sub = ?", input.starred === true ? 1 : 0, channelId, me.sub);
     return this.channelView(me, channel);
@@ -2003,6 +2071,7 @@ export class TeamService {
     return {
       id: c.id, workspaceId: c.workspaceId, kind: c.kind, name, topic: c.topic, purpose: c.purpose, createdBy: c.createdBy, createdAt: c.createdAt,
       archived: !!c.archivedAt, isDefault: !!c.isDefault, memberCount: subs.length, member: !!mine, muted: !!mine?.muted, starred: !!mine?.starred,
+      sectionId: mine?.sectionId ?? null,
       unread, mentions, lastReadAt: lastRead, lastMessageAt: c.lastMessageAt,
       huddle: this.huddles.has(c.id) ? { people: this.huddles.get(c.id)!.people.size, startedAt: this.huddles.get(c.id)!.startedAt } : null,
       ...(withPeople || c.kind === "dm" || c.kind === "group" ? { people: (c.kind === "dm" || c.kind === "group" ? others : subs).slice(0, 50).map((s) => this.person(c.workspaceId, s)) } : {}),

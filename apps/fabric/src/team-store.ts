@@ -21,7 +21,8 @@ export interface ChannelRow {
   sealedKey: string; createdBy: string; createdAt: string; archivedAt: string | null; dmKey: string | null;
   isDefault: number; lastMessageAt: string | null;
 }
-export interface ChannelMemberRow { channelId: string; sub: string; lastReadAt: string; muted: number; starred: number; joinedAt: string }
+export interface ChannelMemberRow { channelId: string; sub: string; lastReadAt: string; muted: number; starred: number; joinedAt: string; sectionId?: string | null }
+export interface SectionRow { id: string; workspaceId: string; sub: string; name: string; position: number; collapsed: number; createdAt: string }
 export interface TeamMessageRow {
   id: string; channelId: string; sender: string; ciphertext: string; parentId: string | null; createdAt: string;
   editedAt: string | null; deletedAt: string | null; replyCount: number; lastReplyAt: string | null;
@@ -287,6 +288,16 @@ export class TeamStore {
         created_at TEXT NOT NULL,
         PRIMARY KEY (workspace_id, name)
       );
+      CREATE TABLE IF NOT EXISTS team_sections (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES team_workspaces(id),
+        sub TEXT NOT NULL REFERENCES users(sub),
+        name TEXT NOT NULL,
+        position INTEGER NOT NULL,
+        collapsed INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS team_sections_owner ON team_sections(workspace_id, sub, position);
       CREATE TABLE IF NOT EXISTS team_webhooks (
         id TEXT PRIMARY KEY,
         workspace_id TEXT NOT NULL REFERENCES team_workspaces(id),
@@ -321,6 +332,8 @@ export class TeamStore {
     if (!columns.has("app_id")) this.db.exec("ALTER TABLE team_messages ADD COLUMN app_id TEXT");
     if (!columns.has("app_name")) this.db.exec("ALTER TABLE team_messages ADD COLUMN app_name TEXT");
     if (!columns.has("shared_id")) this.db.exec("ALTER TABLE team_messages ADD COLUMN shared_id TEXT");
+    const memberColumns = new Set(this.all<{ name: string }>("PRAGMA table_info(team_channel_members)").map((c) => c.name));
+    if (!memberColumns.has("section_id")) this.db.exec("ALTER TABLE team_channel_members ADD COLUMN section_id TEXT");
   }
 }
 

@@ -618,3 +618,41 @@ test("custom emoji: add, list, react, serve, remove; only raster images", () => 
     t.close();
   }
 });
+
+test("sidebar sections are personal: create, move channels, reorder, collapse, delete", () => {
+  const t = setup();
+  try {
+    const ws = t.team.createWorkspace(t.alice, "Acme");
+    t.team.joinWorkspace(t.bob, ws.inviteCode);
+    const general = t.team.sidebar(t.alice, ws.id).channels.find((c) => c.name === "general")!;
+    const dm = t.team.openConversation(t.alice, ws.id, ["bob"]);
+    const projects = t.team.createSection(t.alice, ws.id, { name: "Projects" });
+    const people = t.team.createSection(t.alice, ws.id, { name: "People" });
+    assert.deepEqual(t.team.sections(t.alice, ws.id).map((s) => s.name), ["Projects", "People"]);
+    assert.deepEqual(t.team.sections(t.bob, ws.id), [], "sections are personal");
+
+    t.team.setChannelPrefs(t.alice, general.id, { sectionId: projects.id });
+    t.team.setChannelPrefs(t.alice, dm.id, { sectionId: people.id });
+    let bar = t.team.sidebar(t.alice, ws.id);
+    assert.equal(bar.channels.find((c) => c.id === general.id)!.sectionId, projects.id);
+    assert.equal(bar.direct.find((c) => c.id === dm.id)!.sectionId, people.id);
+    assert.equal(t.team.sidebar(t.bob, ws.id).channels.find((c) => c.id === general.id)!.sectionId, null);
+    // Bob can't use Alice's section.
+    assert.throws(() => t.team.setChannelPrefs(t.bob, general.id, { sectionId: projects.id }), status(404));
+    assert.throws(() => t.team.updateSection(t.bob, projects.id, { name: "Mine" }), status(404));
+
+    const moved = t.team.updateSection(t.alice, people.id, { position: 0, name: "Teammates", collapsed: true });
+    assert.deepEqual(moved.map((s) => [s.name, s.collapsed]), [["Teammates", true], ["Projects", false]]);
+    assert.throws(() => t.team.createSection(t.alice, ws.id, { name: "" }), status(400));
+
+    t.team.deleteSection(t.alice, projects.id);
+    bar = t.team.sidebar(t.alice, ws.id);
+    assert.equal(bar.channels.find((c) => c.id === general.id)!.sectionId, null, "channels go back to their default place");
+    assert.deepEqual(bar.sections.map((s) => s.name), ["Teammates"]);
+    t.team.setChannelPrefs(t.alice, dm.id, { sectionId: null });
+    assert.equal(t.team.sidebar(t.alice, ws.id).direct[0]!.sectionId, null);
+    assert.ok(t.events.some((e) => e.event.type === "sections" && e.subs.length === 1 && e.subs[0] === t.alice.sub));
+  } finally {
+    t.close();
+  }
+});

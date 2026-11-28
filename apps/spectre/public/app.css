@@ -348,3 +348,13 @@ table.simple .num { text-align: right; }
   .contact-row .main { flex: 1 1 calc(100% - 40px); min-width: 0; }
   .contact-row > .pill { margin-left: 32px; }
 }
+
+/* Reporting */
+.stat .up { color: #15803d; } .stat .down { color: #b91c1c; }
+.vbars { display: flex; align-items: flex-end; gap: 2px; height: 140px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.vbars i { flex: 1; min-width: 2px; height: var(--h); min-height: 1px; background: var(--fg, #111); opacity: .8; }
+.hbars { display: grid; gap: 6px; }
+.hbar { display: grid; grid-template-columns: minmax(80px, 40%) 1fr auto; gap: 8px; align-items: center; font-size: 13px; }
+.hbar span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hbar i { display: block; height: 10px; width: var(--w); background: var(--fg, #111); opacity: .7; }
+.stats + .stats { margin-top: 12px; }

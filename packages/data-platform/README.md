@@ -82,7 +82,7 @@ import { Collector } from "@infinitum/data-platform/sdk";
 
 `@infinitum/data-platform/platform-client` is a typed client for the privacy gateway's product
 APIs (`infra/data-platform/conjure/platform.yml`): collection, catalog, event search, erasure,
-data-quality runs, differentially private releases (and their budget) and Superset guest tokens. It runs server-side with the product's
+data-quality runs, differentially private releases (and their budget), document search and Superset guest tokens. It runs server-side with the product's
 gateway token, and it turns Conjure errors into `PlatformApiError` (`shortName`, `errorCode`,
 `parameters`, `retryAfter`). It retries 429 and 503 after their `Retry-After`, and network failures
 with backoff. A test checks every path it calls against the Conjure file.
@@ -97,5 +97,14 @@ await platform.ingest([{ eventId: crypto.randomUUID(), product: "spectre", tenan
 // Data quality measured at ingest, and the DP budget left before a release (reading it spends nothing).
 const runs = await platform.getQualityRuns("spectre.deal");
 const { remainingEpsilon } = await platform.getReleaseBudget("spectre.deal");
+
+// Documents: redacted before storage, searched within one tenant. viewers restricts who finds one;
+// expiresAt makes the gateway forget it (hidden at once, deleted by the daily purge).
+const updatedAt = new Date().toISOString();
+await platform.putDocuments("playbooks", [
+  { documentId: "pb-1", tenant, title: "Renewal playbook", body, updatedAt },
+  { documentId: "pb-2", tenant, title: "Q4 offer", body: offer, updatedAt, expiresAt: "2027-01-31T00:00:00Z" },
+]);
+const hits = await platform.searchDocuments({ tenant, text: "renewal", viewer: cid });
 ```
 

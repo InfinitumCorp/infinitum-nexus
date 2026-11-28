@@ -121,6 +121,13 @@ test("the Labyrinth directory accepts the standalone issuer's access tokens in c
       const other = await issuer.accessToken(account.cid, `s-${client}`, { aud: client, azp: client, client_id: client });
       assert.equal((await dir({ op: "resolve", token: other })).status, 401, client);
     }
+    // A product token +SPCTR itself minted before the cut-over (an opaque device-handoff session) no longer opens
+    // Labyrinth in client mode; the person's own +SPCTR session still does.
+    const { createHash: sha } = await import("node:crypto");
+    const verifier = "v".repeat(43);
+    const { code } = await h.suite.cid.grantDeviceHandoff(account.cid, sha("sha256").update(verifier).digest("base64url"), "architect");
+    const handoff = await h.suite.cid.redeemDeviceHandoff(code, verifier, "test");
+    assert.equal((await dir({ op: "resolve", token: handoff.token })).status, 401, "old product token");
     // A person known only to the new issuer: no organization or scopes, and can't create either here.
     const stranger = await issuer.accessToken("cid_only_at_the_new_issuer", "s4");
     const s = await dir({ op: "resolve", token: stranger });

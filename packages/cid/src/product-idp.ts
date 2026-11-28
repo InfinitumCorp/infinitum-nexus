@@ -415,6 +415,12 @@ export function registerProductIdp(h: ProductIdpHelpers) {
       if (!labyrinthDirectoryKeyMatches(ctx.req.headers["x-cid-directory-key"], directoryKey)) throw new HttpError(401, "Unknown directory client");
       const resolve = async (token: string) => {
         if (!(OPAQUE.test(token) || JWT.test(token))) return null;
+        // In client mode the products sign in at the standalone issuer: a product token this host minted before the
+        // cut-over (an opaque device-handoff session) no longer opens Labyrinth. A person's own +SPCTR session still does.
+        if (h.issuerAccessToken && !token.includes(".")) {
+          const own = await cid.authenticate(token).catch(() => null);
+          if (own?.session.method === "device-handoff") return null;
+        }
         try {
           const hit = await accountFromToken(token);
           return { cid: hit.account.cid, sessionId: hit.sessionId };

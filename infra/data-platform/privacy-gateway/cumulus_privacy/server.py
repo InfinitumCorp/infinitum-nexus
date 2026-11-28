@@ -364,7 +364,7 @@ def main() -> None:
         searcher = Searcher(index)
         releases = StoredReleases(catalog, index, budget)
         if doc_store is not None:
-            documents = Documents(redactor, doc_store)
+            documents = Documents(redactor, doc_store, limits)
     else:
         catalog = None
     if dsn:

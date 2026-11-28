@@ -194,3 +194,47 @@ def test_not_configured(redactor, tmp_path):
     with pytest.raises(Exception) as e:
         gw.search_documents(q(), caller="spectre")
     assert getattr(e.value, "name", "") == "NotConfigured"
+
+
+class _Limits:
+    def __init__(self, state):
+        self.state = state
+
+    def storage_state(self):
+        return self.state
+
+
+def test_puts_stop_when_the_store_is_full_but_removal_still_works(redactor):
+    limits = _Limits("ok")
+    docs = Documents(redactor, MemoryDocumentStore(), limits)
+    docs.put("spectre", "notes", "n1", doc())
+    limits.state = "nearly_full"
+    docs.put("spectre", "notes", "n2", doc())  # still accepted
+    limits.state = "full"
+    with pytest.raises(PlatformError) as e:
+        docs.put("spectre", "notes", "n3", doc())
+    assert (e.value.status, e.value.name, e.value.retry_after) == (503, "StorageQuotaReached", 3600)
+    assert ("spectre", "notes", "acme", "n3") not in docs.store.docs
+    assert docs.remove("spectre", "notes", "n1", {"tenant": "acme"}) == {"deleted": 1}  # frees space
+    assert len(docs.search("spectre", q())["hits"]) == 1
+    limits.state = "unknown"  # a failing size probe must not block writes
+    docs.put("spectre", "notes", "n4", doc())
+
+
+def test_full_store_over_http_is_a_503_with_retry_after(redactor, tmp_path):
+    spectre = "s" * 40
+    docs = Documents(redactor, MemoryDocumentStore(), _Limits("full"))
+    gw = Gateway(redactor, PrivacyBudget(tmp_path / "b.json", 1), "g" * 40, None, None, None,
+                 parse_product_tokens(f"spectre={spectre}"), documents=docs)
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(gw))
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    url = f"http://127.0.0.1:{httpd.server_address[1]}/api/v1/documents/collections/notes/documents/n1"
+    r = urllib.request.Request(url, method="PUT", data=json.dumps(doc()).encode(),
+                               headers={"Authorization": f"Bearer {spectre}", "Content-Type": "application/json"})
+    try:
+        with pytest.raises(urllib.error.HTTPError) as e:
+            urllib.request.urlopen(r)
+        assert e.value.code == 503 and e.value.headers["Retry-After"] == "3600"
+        assert json.loads(e.value.read())["errorName"] == "DataPlatform:StorageQuotaReached"
+    finally:
+        httpd.shutdown()

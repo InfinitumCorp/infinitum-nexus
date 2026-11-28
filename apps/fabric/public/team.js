@@ -52,6 +52,7 @@ function inline(text, mentions) {
     else if (m[2]) out.push(h("strong", {}, ...inline(t.slice(1, -1), mentions)));
     else if (m[3]) out.push(h("em", {}, ...inline(t.slice(1, -1), mentions)));
     else if (m[4]) out.push(h("s", {}, ...inline(t.slice(1, -1), mentions)));
+    else if (m[5] && isTeamLink(t)) out.push(h("a", { href: t, onclick: (e) => { e.preventDefault(); followTeamLink(t); } }, /#\/m\//.test(t) ? "view message" : t));
     else if (m[5]) out.push(h("a", { href: t, target: "_blank", rel: "noopener noreferrer" }, t));
     else if (m[6]) {
       const name = t.slice(1).toLowerCase().replace(/[._-]+$/, "");
@@ -250,6 +251,7 @@ async function openChannel(id, around) {
   const page = await api(T(`/channels/${id}/messages${q}`));
   state.messages = page.messages;
   state.hasMore = page.hasMore;
+  setRoute(around ? `#/m/${around}` : `#/c/${id}`);
   renderHead();
   renderMessages(around);
   $("#composer").hidden = false;
@@ -267,6 +269,46 @@ async function openChannelByName(name) {
   if (hit) await openChannel(hit.id);
   else showError(`No channel #${name}`);
 }
+
+// ---------- links ----------
+// The address follows what you are looking at, so reload keeps your place, Back and Forward work,
+// and a copied link opens a message for anyone who can see it: /team#/c/<channel>, #/m/<message>, #/v/<view>.
+
+const VIEWS = ["activity", "threads", "unreads", "saved", "drafts", "scheduled", "reminders", "tasks", "files", "people"];
+let routing = false;
+const routeNow = () => { const m = /^#\/(c|m|v)\/([a-z0-9-]{1,40})$/.exec(location.hash); return m ? { kind: m[1], id: m[2] } : null; };
+const messageLink = (id) => `${location.origin}/team#/m/${id}`;
+const isTeamLink = (url) => url.startsWith(`${location.origin}/team#/`);
+function setRoute(hash, replace = false) {
+  if (routing || location.hash === hash) return;
+  history[replace ? "replaceState" : "pushState"](null, "", hash);
+}
+async function followTeamLink(url) {
+  history.pushState(null, "", url.slice(url.indexOf("#")));
+  const r = routeNow();
+  if (r) await applyRoute(r);
+}
+/** Go where a link points, switching workspace if it is in another one. False if it isn't there or you can't see it. */
+async function applyRoute(r) {
+  routing = true;
+  try {
+    let wsId = state.wsId;
+    if (r.kind === "c") wsId = (await api(T(`/channels/${r.id}`))).workspaceId;
+    if (r.kind === "m") wsId = (await api(T(`/channels/${(await api(T(`/messages/${r.id}`))).channelId}`))).workspaceId;
+    if (r.kind === "v" && !VIEWS.includes(r.id)) throw new Error("unknown view");
+    if (wsId !== state.wsId) { state.wsId = wsId; await start({ open: false }); }
+    if (r.kind === "c") await openChannel(r.id);
+    else if (r.kind === "m") await jumpTo(r.id);
+    else await showView(r.id);
+    return true;
+  } catch {
+    showNote("That link isn't available to you.");
+    return false;
+  } finally {
+    routing = false;
+  }
+}
+window.addEventListener("popstate", () => { const r = routeNow(); if (r && state.bar) tryRun(applyRoute)(r); });
 
 async function jumpTo(messageId) {
   const m = await api(T(`/messages/${messageId}`));
@@ -561,7 +603,7 @@ function actions(m, inThread) {
       }],
       m.kind !== "system" && ["Share message…", () => shareMessage(m)],
       ["Mark unread", async () => { await api(T(`/channels/${m.channelId}/read`), { method: "POST", body: { unreadFrom: m.id } }); await loadSidebar(); }],
-      ["Copy link", async () => { await navigator.clipboard.writeText(`fabric:message/${m.id}`); }],
+      ["Copy link", async () => { await navigator.clipboard.writeText(messageLink(m.id)); showNote("Link copied. Anyone who can see this message can open it."); }],
       mine && ["Edit message", () => { state.editing = m.id; inThread ? renderThread() : renderMessages(null, false); }],
       (mine || admin) && ["Delete message", async () => { if (confirm("Delete this message? This cannot be undone.")) { await api(T(`/messages/${m.id}`), { method: "DELETE" }); await afterChange(m); } }],
     ]) }, "⋯"),
@@ -1136,6 +1178,7 @@ const chanName = (id) => { const c = [...state.bar.channels, ...state.bar.direct
 
 async function showView(view) {
   state.view = view;
+  setRoute(`#/v/${view}`);
   const ws = state.wsId;
   if (view === "activity") {
     const { items } = await api(T(`/workspaces/${ws}/activity`));
@@ -1819,11 +1862,14 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && !typing && state.channel?.unread) tryRun(async () => { await api(T(`/channels/${state.channel.id}/read`), { method: "POST", body: {} }); await loadSidebar(); })();
 });
 
-async function start() {
+async function start(opts = {}) {
   if (!(await loadWorkspaces())) return;
   connect();
-  const first = state.bar.channels.find((c) => c.name === "general") || state.bar.channels[0] || state.bar.direct[0];
-  if (first) await openChannel(first.id);
+  if (opts.open === false) return;
+  if (!(opts.route && await applyRoute(opts.route))) {
+    const first = state.bar.channels.find((c) => c.name === "general") || state.bar.channels[0] || state.bar.direct[0];
+    if (first) { routing = true; try { await openChannel(first.id); } finally { routing = false; } setRoute(`#/c/${first.id}`, true); }
+  }
   const items = (await api(T(`/workspaces/${state.wsId}/activity`))).items;
   $("#badge-activity").hidden = !(items[0] && items[0].at > state.lastActivitySeen);
 }
@@ -1833,9 +1879,17 @@ try {
   state.me = await api("/api/me");
   const person = state.me;
   window.CumulusBar?.setProfile({ name: person.name || person.username, username: person.username, email: person.email || undefined });
-  await start();
+  // A link opened while signed out is kept across the sign-in, which can't carry the part after #.
+  let pending = null;
+  try { pending = sessionStorage.getItem("team.link"); sessionStorage.removeItem("team.link"); } catch {}
+  if (pending && !routeNow() && /^#\/(c|m|v)\//.test(pending)) history.replaceState(null, "", pending);
+  await start({ route: routeNow() });
   $("#me-button").hidden = !state.bar;
 } catch (e) {
-  if (/unauthorized/.test(e.message)) { $("#signed-out").hidden = false; window.CumulusBar?.setProfile(null); }
+  if (/unauthorized/.test(e.message)) {
+    $("#signed-out").hidden = false;
+    window.CumulusBar?.setProfile(null);
+    if (routeNow()) $("#signed-out").querySelectorAll("a").forEach((a) => a.addEventListener("click", () => { try { sessionStorage.setItem("team.link", location.hash); } catch {} }));
+  }
   else showError(e.message);
 }

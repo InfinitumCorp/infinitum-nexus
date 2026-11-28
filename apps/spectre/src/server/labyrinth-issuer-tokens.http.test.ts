@@ -206,3 +206,26 @@ test("the issuer's yes for an access token is remembered for at most 30 seconds"
   assert.equal(await client.accessToken(token), null);
   assert.equal(issuer.calls(), 2);
 });
+
+test("a key rotation is picked up within seconds, even while someone sends tokens with made-up key ids", async () => {
+  const { createOidcClient } = await import("./cid-oidc-client.ts");
+  const issuer = await fakeIssuer();
+  let jwksCalls = 0;
+  const fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    if (String(input instanceof Request ? input.url : input).endsWith("/certs")) jwksCalls++;
+    return issuer.fetch(input, init);
+  }) as typeof globalThis.fetch;
+  const client = createOidcClient({ issuer: ISSUER, clientId: "spectre", fetch });
+  assert.ok(await client.accessToken(await issuer.accessToken("cid_r", "s1")));
+  // A burst of junk kids: at most one refetch.
+  await Promise.all([1, 2, 3, 4, 5].map(async (i) => client.accessToken(await issuer.sign({ iss: ISSUER, sub: "cid_r", exp: Math.floor(Date.now() / 1000) + 600, sid: `j${i}` }, `junk-${i}`))));
+  assert.ok(jwksCalls <= 2, `jwks fetched ${jwksCalls} times`);
+  // A token signed with a key the issuer hasn't published yet: refused now, but not remembered, so once the
+  // issuer publishes it and a few seconds pass it is accepted.
+  const early = await issuer.accessToken("cid_r", "s2");
+  const rotated = early.replace(/^[^.]+/, Buffer.from(JSON.stringify({ alg: "ES256", typ: "at+jwt", kid: "k2" })).toString("base64url"));
+  assert.equal(await client.accessToken(rotated), null);
+  await new Promise((r) => setTimeout(r, 5100));
+  assert.equal(await client.accessToken(rotated), null, "k2 still isn't published: refused, never cached");
+  assert.ok(await client.accessToken(await issuer.accessToken("cid_r", "s3")), "the published key keeps working");
+});

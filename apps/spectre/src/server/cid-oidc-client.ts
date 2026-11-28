@@ -67,7 +67,7 @@ export function createOidcClient(config: OidcClientConfig) {
   };
 
   /** The token's signature, checked against the issuer's published keys (ES256 or Ed25519), before asking it anything. */
-  async function signedByIssuer(token: string): Promise<boolean> {
+  async function signedByIssuer(token: string): Promise<boolean | "unknown-kid"> {
     const [head, body, sig] = token.split(".") as [string, string, string];
     let header: { alg?: string; kid?: string; typ?: string };
     try {
@@ -83,7 +83,7 @@ export function createOidcClient(config: OidcClientConfig) {
     } catch {
       return false;
     }
-    if (!jwk) return false;
+    if (!jwk) return "unknown-kid";
     const algo = header.alg === "ES256" ? { name: "ECDSA", namedCurve: "P-256" } : { name: "Ed25519" };
     try {
       const key = await globalThis.crypto.subtle.importKey("jwk", { kty: jwk.kty, crv: jwk.crv, x: jwk.x, y: jwk.y } as webcrypto.JsonWebKey, algo, false, ["verify"]);
@@ -124,18 +124,26 @@ export function createOidcClient(config: OidcClientConfig) {
     return parsed;
   }
 
-  // An unknown kid or a failed check refetches the keys, but not more than every 30 seconds: anyone can present a
-  // token with a made-up kid, and that must not turn into a stream of requests to the issuer.
+  // An unknown kid or a failed check refetches the keys, shared by concurrent callers and at most every 5 seconds:
+  // anyone can present a token with a made-up kid, and that must not turn into a stream of requests to the issuer,
+  // while a real key rotation is picked up within seconds.
   let keysAt = 0;
+  let inflight: Promise<Jwk[]> | null = null;
   async function keys(kid: string | undefined, refresh: boolean): Promise<Jwk[]> {
     const stale = refresh || (kid && !jwks?.some((k) => k.kid === kid));
-    if (!jwks || (stale && Date.now() - keysAt >= 30_000)) {
-      keysAt = Date.now();
-      const body = await getJson((await discover()).jwks_uri);
-      if (!Array.isArray(body.keys)) throw new OidcClientError("Cumulus://ID JWKS has no keys");
-      jwks = body.keys as Jwk[];
-    }
-    return jwks;
+    if (jwks && !(stale && Date.now() - keysAt >= 5_000)) return jwks;
+    inflight ??= (async () => {
+      try {
+        keysAt = Date.now();
+        const body = await getJson((await discover()).jwks_uri);
+        if (!Array.isArray(body.keys)) throw new OidcClientError("Cumulus://ID JWKS has no keys");
+        jwks = body.keys as Jwk[];
+        return jwks;
+      } finally {
+        inflight = null;
+      }
+    })();
+    return inflight;
   }
 
   return {
@@ -249,7 +257,10 @@ export function createOidcClient(config: OidcClientConfig) {
         remember(key, now().getTime() + 30_000, null);
         return null;
       };
-      if (!(await signedByIssuer(token))) return refuse();
+      const signed = await signedByIssuer(token);
+      // A kid the issuer hasn't published (yet): no answer, nothing remembered, so a fresh rotation isn't held back.
+      if (signed === "unknown-kid") return null;
+      if (!signed) return refuse();
       let endpoint: string | undefined;
       try {
         endpoint = (await discover()).userinfo_endpoint;

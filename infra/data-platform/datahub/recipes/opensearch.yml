@@ -1,11 +1,11 @@
-# Ingest the OpenSearch event indexes (mappings only) so search is in the catalog too.
+# Ingest the OpenSearch event and document indexes (mappings only) so search is in the catalog too.
 source:
   type: elasticsearch # DataHub's source works with OpenSearch's REST API
   config:
     host: ${OPENSEARCH_URL:-http://localhost:9200}
     env: PROD
     index_pattern:
-      allow: ["^cumulus-events-.*"]
+      allow: ["^cumulus-events-.*", "^cumulus-documents$"]
     ingest_index_templates: true
 pipeline_name: cumulus-opensearch
 sink:

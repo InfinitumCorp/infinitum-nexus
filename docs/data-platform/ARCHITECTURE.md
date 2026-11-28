@@ -78,7 +78,7 @@ so the catalog and the redaction policy cannot drift apart.
   runner.
 - **Ingestion:** `datahub/recipes/supabase-postgres.yml` loads schemas and lineage from Postgres
   with a read-only metadata role. Profiling is off because it reads rows.
-  `datahub/recipes/opensearch.yml` loads the event index mappings.
+  `datahub/recipes/opensearch.yml` loads the event and document index mappings.
 - **Catalog replay:** `python -m cumulus_privacy.catalog_sync` (or, on the box,
   `docker compose exec privacy-gateway python -m cumulus_privacy.catalog_sync`). DataHub runs on
   demand, so it starts empty, while the catalog of record lives in Supabase. The sync pushes

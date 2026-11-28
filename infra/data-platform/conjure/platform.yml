@@ -270,6 +270,11 @@ types:
               If set, only these people (and the owner) find the document. If not set, everyone
               searching the tenant does. At most 500.
           updatedAt: datetime
+          expiresAt:
+            type: optional<datetime>
+            docs: >-
+              When to forget the document: it stops matching searches then, and the daily
+              retention purge deletes it. In the future, at most 3650 days ahead.
       DocumentRef:
         fields:
           collection: string
@@ -289,6 +294,7 @@ types:
           ownerCid: optional<Cid>
           viewers: optional<list<Cid>>
           updatedAt: datetime
+          expiresAt: optional<datetime>
       DocumentBatch:
         fields:
           documents:

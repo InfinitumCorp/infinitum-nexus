@@ -371,8 +371,8 @@ def main() -> None:
             documents = Documents(redactor, doc_store, limits)
     else:
         catalog = None
-    if dsn:
-        threading.Thread(target=_purge_daily, args=(index,), daemon=True).start()
+    if dsn or doc_store is not None:  # stores without purge_expired are skipped
+        threading.Thread(target=_purge_daily, args=(index, doc_store), daemon=True).start()
     guest_tokens = None
     guest_secret = os.environ.get("SUPERSET_GUEST_TOKEN_SECRET", "")
     dashboards = parse_embed_dashboards(os.environ.get("PLATFORM_EMBED_DASHBOARDS", ""))
@@ -388,14 +388,22 @@ def main() -> None:
     httpd.serve_forever()
 
 
-def _purge_daily(index: Any) -> None:
-    """Retention: delete events past their dataset's retentionDays, once a day."""
+def _purge_daily(index: Any, doc_store: Any = None) -> None:
+    """Retention, once a day: events past their dataset's retentionDays, and documents past
+    their expiresAt. One failing store doesn't stop the other."""
     while True:
-        try:
-            print(f"retention purge removed {index.purge_expired()} events", file=sys.stderr)
-        except Exception as e:  # noqa: BLE001 - keep serving; try again tomorrow
-            print(f"retention purge failed: {type(e).__name__}", file=sys.stderr)
+        purge_once(index, doc_store)
         time.sleep(24 * 3600)
+
+
+def purge_once(index: Any, doc_store: Any = None) -> None:
+    for what, store in (("events", index), ("documents", doc_store)):
+        if store is None or not hasattr(store, "purge_expired"):
+            continue
+        try:
+            print(f"retention purge removed {store.purge_expired()} {what}", file=sys.stderr)
+        except Exception as e:  # noqa: BLE001 - keep serving; try again tomorrow
+            print(f"retention purge of {what} failed: {type(e).__name__}", file=sys.stderr)
 
 
 if __name__ == "__main__":

@@ -423,3 +423,48 @@ test("FABRIC_ICE_SERVERS parsing", () => {
   assert.throws(() => parseIceServers("{}"), /JSON list/);
   assert.throws(() => parseIceServers('[{"urls":"https://example.org"}]'), /stun:/);
 });
+
+test("announcement channels: only admins and the creator post; thread replies optional", () => {
+  const t = setup();
+  try {
+    const ws = t.team.createWorkspace(t.alice, "Acme");
+    t.team.joinWorkspace(t.bob, ws.inviteCode);
+    t.team.joinWorkspace(t.cara, ws.inviteCode);
+    const news = t.team.createChannel(t.bob, ws.id, { name: "news", members: ["cara", "alice"] });
+    assert.equal(news.posting, "everyone");
+    assert.equal(news.canPost, true);
+    // Only the creator or an admin can change it.
+    assert.throws(() => t.team.updateChannel(t.cara, news.id, { posting: "admins" }), status(403));
+    assert.throws(() => t.team.updateChannel(t.bob, news.id, { posting: "owners" }), status(400));
+    const limited = t.team.updateChannel(t.bob, news.id, { posting: "admins" });
+    assert.equal(limited.posting, "admins");
+    assert.equal(limited.threadReplies, true);
+
+    const post = t.team.send(t.bob, news.id, { text: "Release notes are out" }).message!;
+    t.team.send(t.alice, news.id, { text: "Admins can post too" });
+    assert.throws(() => t.team.send(t.cara, news.id, { text: "me too" }), status(403));
+    assert.throws(() => t.team.createPoll(t.cara, news.id, { question: "Q?", options: ["a", "b"] }), status(403));
+    assert.throws(() => t.team.schedule(t.cara, news.id, { text: "later", sendAt: new Date(Date.parse("2026-11-12T11:00:00Z")).toISOString() }), status(403));
+    // Replies in threads are still allowed, but not "also send to channel".
+    t.team.send(t.cara, news.id, { text: "Thanks!", parentId: post.id });
+    assert.throws(() => t.team.send(t.cara, news.id, { text: "Thanks!", parentId: post.id, alsoInChannel: true }), status(403));
+    const forCara = t.team.getChannel(t.cara, news.id);
+    assert.deepEqual([forCara.canPost, forCara.canReply], [false, true]);
+
+    t.team.updateChannel(t.alice, news.id, { threadReplies: false });
+    assert.throws(() => t.team.send(t.cara, news.id, { text: "again", parentId: post.id }), status(403));
+    assert.equal(t.team.getChannel(t.cara, news.id).canReply, false);
+    // Sharing into it counts as posting.
+    const general = t.team.sidebar(t.cara, ws.id).channels.find((c) => c.name === "general")!;
+    t.team.send(t.cara, general.id, { text: "hello" });
+
+    t.team.updateChannel(t.bob, news.id, { posting: "everyone" });
+    t.team.send(t.cara, news.id, { text: "open again" });
+    const notes = t.team.list(t.alice, news.id).messages.filter((m) => m.kind === "system").map((m) => m.text);
+    assert.ok(notes.some((n) => n.startsWith("limited posting")));
+    assert.ok(notes.includes("let everyone post in this channel"));
+    assert.throws(() => t.team.updateChannel(t.alice, t.team.openConversation(t.alice, ws.id, ["bob"]).id, { posting: "admins" }), status(400));
+  } finally {
+    t.close();
+  }
+});

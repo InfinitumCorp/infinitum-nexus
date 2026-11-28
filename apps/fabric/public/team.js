@@ -228,6 +228,7 @@ function renderHead() {
       h("h2", {}, chanLabel(c)),
       c.member ? h("button", { type: "button", class: "link", "aria-pressed": String(c.starred), title: c.starred ? "Unstar" : "Star", onclick: tryRun(async () => { await api(T(`/channels/${c.id}/prefs`), { method: "PUT", body: { starred: !c.starred } }); c.starred = !c.starred; renderHead(); await loadSidebar(); }) }, c.starred ? "★" : "☆") : null,
       c.archived ? h("span", { class: "meta" }, "archived") : null,
+      c.posting === "admins" ? h("span", { class: "meta", title: c.threadReplies ? "Only admins and the channel creator can post; everyone can reply in threads" : "Only admins and the channel creator can post" }, "📣 announcements") : null,
     ),
     h("p", { class: "meta t-topic" }, c.topic || c.purpose || (c.kind === "dm" ? "Direct message" : c.kind === "group" ? "Group conversation" : "Add a topic")),
     h("div", { class: "t-row t-head-actions" },
@@ -245,8 +246,10 @@ function renderHead() {
       h("button", { type: "button", class: "link", "aria-label": `Remove ${b.title}`, onclick: tryRun(async () => { await api(T(`/bookmarks/${b.id}`), { method: "DELETE" }); await refreshChannel(); }) }, "×"))),
     c.member ? h("li", {}, h("button", { type: "button", class: "link", onclick: tryRun(addBookmark) }, "+ Add a bookmark")) : null,
   );
-  $("#composer").querySelector("textarea").placeholder = c.archived ? "This channel is archived" : `Message ${chanLabel(c)}`;
-  $("#text").disabled = c.archived || !c.member;
+  const readOnly = c.member && !c.archived && c.canPost === false;
+  $("#composer").querySelector("textarea").placeholder = c.archived ? "This channel is archived" : readOnly ? `Only admins and the channel creator can post in ${chanLabel(c)}${c.threadReplies ? ". You can reply in threads." : "."}` : `Message ${chanLabel(c)}`;
+  $("#text").disabled = c.archived || !c.member || readOnly;
+  $("#composer").classList.toggle("read-only", !!readOnly);
 }
 
 function channelMenu(anchor) {
@@ -259,11 +262,22 @@ function channelMenu(anchor) {
     c.kind !== "dm" && c.member && ["Add people", async () => { const r = await dialog("Add people", [{ name: "people", label: "Usernames, separated by spaces", required: true }]); if (r) { await api(T(`/channels/${c.id}/invite`), { method: "POST", body: { people: r.people.split(/[\s,]+/) } }); await refreshChannel(); } }],
     c.kind !== "dm" && ["Incoming webhooks", () => showWebhooks()],
     c.member && [c.muted ? "Unmute" : "Mute", async () => { await api(T(`/channels/${c.id}/prefs`), { method: "PUT", body: { muted: !c.muted } }); await refreshChannel(); await loadSidebar(); }],
+    named && c.member && (["owner", "admin"].includes(state.bar.workspace.role) || c.createdBy === state.me.sub) && ["Posting permissions…", () => editPosting(c)],
     c.member && ["Mark as read", async () => { await api(T(`/channels/${c.id}/read`), { method: "POST", body: {} }); await loadSidebar(); }],
     named && !c.archived && ["Archive channel", async () => { if (confirm(`Archive #${c.name}? People can still read it.`)) { await api(T(`/channels/${c.id}/archive`), { method: "POST", body: { archived: true } }); await refreshChannel(); await loadSidebar(); } }],
     named && c.archived && ["Unarchive channel", async () => { await api(T(`/channels/${c.id}/archive`), { method: "POST", body: { archived: false } }); await refreshChannel(); await loadSidebar(); }],
     c.member && c.kind !== "dm" && !c.isDefault && ["Leave", async () => { await api(T(`/channels/${c.id}/leave`), { method: "POST", body: {} }); state.channel = null; await loadSidebar(); await openChannel(state.bar.channels[0].id); }],
   ]);
+}
+
+async function editPosting(c) {
+  const r = await dialog(`Who can post in ${chanLabel(c)}`, [
+    { name: "posting", label: "Who can start new messages", type: "select", value: c.posting || "everyone", options: [["everyone", "Everyone in the channel"], ["admins", "Only admins and the channel creator"]] },
+    { name: "threadReplies", label: "When limited, everyone can still reply in threads", type: "checkbox", value: c.threadReplies !== false },
+  ], "Save");
+  if (!r) return;
+  await api(T(`/channels/${c.id}`), { method: "PATCH", body: { posting: r.posting, threadReplies: r.threadReplies } });
+  await refreshChannel();
 }
 
 async function refreshChannel() {
@@ -600,8 +614,10 @@ function renderThread(keepScroll = false) {
     if (also.checked) await refreshChannel();
   });
   const list = h("ol", { class: "t-messages" }, messageItem(t.parent, { inThread: true }), h("li", { class: "t-day" }, h("span", {}, `${t.replies.length} ${t.replies.length === 1 ? "reply" : "replies"}`)), ...t.replies.map((m) => messageItem(m, { inThread: true })));
-  panel(`Thread in ${chanLabel(t.channel)}`, list, h("form", { class: "t-composer", onsubmit: (e) => { e.preventDefault(); submit(); } }, ta,
-    h("div", { class: "t-composer-bar" }, h("label", { for: "thread-also", class: "meta" }, also, ` Also send to ${chanLabel(t.channel)}`), h("button", { class: "btn primary small", type: "submit" }, "Reply"))));
+  const canReply = t.channel.canReply !== false;
+  panel(`Thread in ${chanLabel(t.channel)}`, list, canReply ? h("form", { class: "t-composer", onsubmit: (e) => { e.preventDefault(); submit(); } }, ta,
+    h("div", { class: "t-composer-bar" }, t.channel.canPost !== false ? h("label", { for: "thread-also", class: "meta" }, also, ` Also send to ${chanLabel(t.channel)}`) : h("span"), h("button", { class: "btn primary small", type: "submit" }, "Reply")))
+    : h("p", { class: "meta" }, t.channel.member === false ? "Join the channel to reply." : "Only admins and the channel creator can reply here."));
   bindComposer(ta, submit, t.parent.id);
   const body = $("#panel-body");
   if (!keepScroll) { body.scrollTop = body.scrollHeight; ta.focus(); }

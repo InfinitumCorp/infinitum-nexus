@@ -1183,10 +1183,105 @@ const signOutFromHash = async () => {
 window.addEventListener("hashchange", signOutFromHash);
 signOutFromHash();
 
+// ---------- quick switcher and keyboard shortcuts ----------
+
+/** Score how well a query matches a label: 3 starts with, 2 a word starts with, 1 contains, 0.5 letters in order, 0 no match. */
+function matchScore(label, q) {
+  const s = label.toLowerCase();
+  if (!q) return 1;
+  if (s.startsWith(q)) return 3;
+  if (s.split(/[\s#@._-]+/).some((w) => w.startsWith(q))) return 2;
+  if (s.includes(q)) return 1;
+  let i = 0;
+  for (const ch of s) if (ch === q[i]) i += 1;
+  return i === q.length ? 0.5 : 0;
+}
+
+async function openSwitcher() {
+  if (!state.bar || document.querySelector(".t-switcher")) return;
+  const people = (await api(T(`/workspaces/${state.wsId}/people`))).people.filter((p) => !p.deactivated && p.sub !== state.me.sub);
+  const open = await api(T(`/workspaces/${state.wsId}/channels`)).then((r) => r.channels).catch(() => []);
+  const mine = [...state.bar.channels, ...state.bar.direct];
+  const views = [["activity", "Activity"], ["threads", "Threads"], ["unreads", "All unreads"], ["saved", "Later"], ["scheduled", "Scheduled"], ["reminders", "Reminders"], ["files", "Files"], ["people", "People"]];
+  const candidates = [
+    ...mine.map((c) => ({ label: chanLabel(c), hint: c.unread && !c.muted ? `${c.unread} new` : c.kind === "dm" || c.kind === "group" ? "Direct message" : "Channel", boost: c.unread ? 0.3 : 0, go: () => openChannel(c.id) })),
+    ...open.filter((c) => !mine.some((m) => m.id === c.id)).map((c) => ({ label: chanLabel(c), hint: "Not joined · public channel", boost: 0, go: () => openChannel(c.id) })),
+    ...people.filter((p) => !state.bar.direct.some((d) => d.kind === "dm" && d.people?.[0]?.sub === p.sub)).map((p) => ({ label: `${p.displayName} @${p.username}`, hint: "Person", boost: 0, go: async () => { const c = await api(T(`/workspaces/${state.wsId}/conversations`), { method: "POST", body: { people: [p.username] } }); await loadSidebar(); await openChannel(c.id); } })),
+    ...views.map(([v, l]) => ({ label: l, hint: "View", boost: -0.2, go: () => showView(v) })),
+  ];
+  const input = h("input", { class: "input", type: "text", placeholder: "Jump to a channel, person or view…", "aria-label": "Jump to", autocomplete: "off", role: "combobox", "aria-controls": "t-switcher-list", "aria-expanded": "true" });
+  const list = h("ul", { id: "t-switcher-list", role: "listbox", class: "t-switcher-list" });
+  const box = h("div", { class: "t-switcher", role: "dialog", "aria-modal": "true", "aria-label": "Jump to" }, h("div", { class: "t-switcher-box" }, input, list, h("p", { class: "meta" }, "↑ ↓ to move · Enter to open · Esc to close · ? for all shortcuts")));
+  let results = [];
+  let active = 0;
+  const close = () => { box.remove(); document.removeEventListener("keydown", trap, true); };
+  const choose = (r) => { close(); tryRun(r.go)(); };
+  const render = () => {
+    const q = input.value.trim().toLowerCase().replace(/^[#@]/, "");
+    results = candidates.map((c) => ({ ...c, base: matchScore(c.label, q) })).filter((c) => c.base > 0).map((c) => ({ ...c, score: c.base + (q ? c.boost : c.boost * 3) }))
+      .sort((a, b) => b.score - a.score || a.label.localeCompare(b.label)).slice(0, 12);
+    active = Math.min(active, Math.max(0, results.length - 1));
+    list.replaceChildren(...results.map((r, i) => h("li", { role: "option", id: `t-sw-${i}`, "aria-selected": String(i === active), class: i === active ? "active" : "", onmousedown: (e) => { e.preventDefault(); choose(r); } }, h("span", {}, r.label), h("span", { class: "meta" }, r.hint))));
+    if (!results.length) list.append(h("li", { class: "meta" }, "Nothing matches."));
+    input.setAttribute("aria-activedescendant", results.length ? `t-sw-${active}` : "");
+  };
+  const trap = (e) => {
+    if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); close(); }
+    else if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); active = (active + (e.key === "ArrowDown" ? 1 : -1) + results.length) % Math.max(1, results.length); render(); }
+    else if (e.key === "Enter") { e.preventDefault(); if (results[active]) choose(results[active]); }
+  };
+  input.addEventListener("input", () => { active = 0; render(); });
+  box.addEventListener("mousedown", (e) => { if (e.target === box) close(); });
+  document.addEventListener("keydown", trap, true);
+  document.body.append(box);
+  render();
+  input.focus();
+}
+
+/** Channels in the order they appear in the sidebar. */
+const sidebarOrder = () => [...document.querySelectorAll("#starred li button, #sections li button, #channels li button, #direct li button")]
+  .map((b) => [...state.bar.channels, ...state.bar.direct].find((c) => chanLabel(c) === b.querySelector(".name")?.textContent)).filter(Boolean);
+
+function stepChannel(dir, unreadOnly) {
+  const order = sidebarOrder();
+  if (!order.length) return;
+  let i = order.findIndex((c) => c.id === state.channel?.id);
+  for (let n = 0; n < order.length; n += 1) {
+    i = (i + dir + order.length) % order.length;
+    if (!unreadOnly || (order[i].unread && !order[i].muted)) { openChannel(order[i].id); return; }
+  }
+}
+
+const SHORTCUTS = [
+  ["Ctrl/⌘ K", "Jump to a channel, person or view"],
+  ["Ctrl/⌘ G or /", "Search"],
+  ["Alt ↑ / Alt ↓", "Previous or next channel"],
+  ["Alt Shift ↑ / ↓", "Previous or next unread channel"],
+  ["Shift Esc", "Mark everything as read"],
+  ["Esc", "Close the side panel; in a channel, mark it as read"],
+  ["↑ in an empty message box", "Edit your last message"],
+  ["Ctrl/⌘ / or ?", "Show these shortcuts"],
+];
+function showShortcuts() {
+  panel("Keyboard shortcuts", h("table", { class: "t-shortcuts" }, ...SHORTCUTS.map(([k, d]) => h("tr", {}, h("td", {}, h("kbd", {}, k)), h("td", {}, d)))));
+}
+
 document.addEventListener("keydown", (e) => {
-  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { e.preventDefault(); $("#search").focus(); }
-  const typing = (e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLInputElement) && e.target.value;
-  if (e.key === "Escape" && !typing && !$("#panel").hidden && !document.querySelector("dialog[open]")) { $("#panel").hidden = true; state.thread = null; }
+  const mod = e.ctrlKey || e.metaKey;
+  const inField = e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement || e.target?.isContentEditable;
+  const typing = inField && e.target.value;
+  if (document.querySelector("dialog[open]")) return;
+  if (mod && e.key.toLowerCase() === "k") { e.preventDefault(); openSwitcher().catch((err) => showError(err.message)); return; }
+  if ((mod && e.key.toLowerCase() === "g") || (!inField && e.key === "/")) { e.preventDefault(); $("#search").focus(); return; }
+  if ((mod && e.key === "/") || (!inField && e.key === "?")) { e.preventDefault(); showShortcuts(); return; }
+  if (e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) { e.preventDefault(); stepChannel(e.key === "ArrowUp" ? -1 : 1, e.shiftKey); return; }
+  if (e.key === "Escape" && e.shiftKey && !typing) {
+    e.preventDefault();
+    tryRun(async () => { for (const c of [...state.bar.channels, ...state.bar.direct].filter((x) => x.unread)) await api(T(`/channels/${c.id}/read`), { method: "POST", body: {} }); await loadSidebar(); })();
+    return;
+  }
+  if (e.key === "Escape" && !typing && !$("#panel").hidden) { $("#panel").hidden = true; state.thread = null; return; }
+  if (e.key === "Escape" && !typing && state.channel?.unread) tryRun(async () => { await api(T(`/channels/${state.channel.id}/read`), { method: "POST", body: {} }); await loadSidebar(); })();
 });
 
 async function start() {

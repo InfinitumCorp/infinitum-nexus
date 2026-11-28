@@ -20,7 +20,7 @@ export type { GrowthEvent } from "../core/growth-model.ts";
 import type { GrowthEvent } from "../core/growth-model.ts";
 
 /** Per-IP limit for public endpoints (best effort per instance). */
-function limiter(max: number, windowMs: number) {
+export function limiter(max: number, windowMs: number) {
   const hits = new Map<string, number[]>();
   return (req: IncomingMessage, key: string) => {
     const ip = String(req.headers["x-forwarded-for"] ?? req.socket.remoteAddress ?? "?").split(",")[0].trim();

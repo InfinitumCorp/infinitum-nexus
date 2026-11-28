@@ -23,12 +23,17 @@ import {
   type FileRow,
   type GroupRow,
   type MemberRow,
+  type NotifyLevel,
   type PollRow,
   type ReminderRow,
   type Role,
   type ScheduledRow,
+  type SectionRow,
+  type TaskRow,
   type TeamMessageRow,
   type WebhookRow,
+  type WorkflowEvery,
+  type WorkflowRow,
   type WorkspaceRow,
 } from "./team-store.ts";
 
@@ -41,11 +46,24 @@ export const TEAM_LIMITS = {
   searchScan: 5000,
   activeWindowMs: 5 * 60_000,
   pollOptions: 10,
+  /** Custom emoji: image size and how many one workspace can have. */
+  emojiBytes: 128_000,
+  emojiPerWorkspace: 500,
+  /** Sidebar sections one person can make in a workspace. */
+  sections: 30,
+  /** Tasks in one channel's list, and the length of a task's title and notes. */
+  tasks: 500,
+  taskTitle: 300,
+  taskNotes: 4_000,
+  /** Notification keywords per person per workspace, and the length of each. */
+  keywords: 25,
+  keywordLength: 40,
   /** People in one huddle. Media flows peer to peer (a full mesh), so this stays small. */
   huddlePeople: 8,
   /** How long a person may be disconnected before they are taken out of a huddle. */
   huddleGraceMs: 15_000,
   webhooks: 100,
+  workflowsPerChannel: 20,
   pollOption: 120,
 };
 
@@ -111,6 +129,17 @@ export interface ChannelView {
   member: boolean;
   muted: boolean;
   starred: boolean;
+  /** The sidebar section you put this channel in, or null for the default place. */
+  sectionId: string | null;
+  /** Your desktop notification setting for this channel, or null for the default (everything in conversations, mentions in channels). */
+  notify: NotifyLevel | null;
+  /** "admins" when only owners, admins and the channel's creator can start new messages. */
+  posting: "everyone" | "admins";
+  /** With posting limited, whether everyone may still reply in threads. */
+  threadReplies: boolean;
+  /** Whether you may start a new message here, and reply in threads. */
+  canPost: boolean;
+  canReply: boolean;
   unread: number;
   mentions: number;
   lastReadAt: string | null;
@@ -153,7 +182,14 @@ export interface MessageView {
   poll: PollView | null;
   /** The app (webhook or workflow) that posted this on its creator's behalf. */
   app: { id: string; name: string } | null;
+  /** A message this one shares. It is shown only to people who can read the original. */
+  shared: SharedView | null;
 }
+
+export type SharedView =
+  | { available: true; id: string; channelId: string; channelName: string | null; channelKind: ChannelKind; sender: PersonView; text: string; createdAt: string; files: FileView[] }
+  | { available: false };
+export interface SectionView { id: string; name: string; position: number; collapsed: boolean }
 
 export interface PollView {
   options: { text: string; count: number; voters: string[]; mine: boolean }[];
@@ -270,14 +306,16 @@ export class TeamService {
     if (existing && !existing.deactivatedAt) return this.workspaceView(me, ws);
     if (existing?.deactivatedAt) throw fail(403, "your account was removed from this workspace");
     const now = this.stamp();
+    const defaults = this.store.all<ChannelRow>("SELECT * FROM team_channels WHERE workspace_id = ? AND is_default = 1 AND archived_at IS NULL", ws.id);
     this.store.tx(() => {
       this.store.insert("team_members", { workspaceId: ws.id, sub: me.sub, role: "member", joinedAt: now, away: 0 });
-      for (const ch of this.store.all<ChannelRow>("SELECT * FROM team_channels WHERE workspace_id = ? AND is_default = 1 AND archived_at IS NULL", ws.id)) {
+      for (const ch of defaults) {
         this.addChannelMember(ch.id, me.sub, now);
         this.system(ch, me.sub, `joined #${ch.name}`);
       }
     });
     this.publish(this.workspaceSubs(ws.id), { type: "members", workspaceId: ws.id, sub: me.sub });
+    for (const ch of defaults) this.welcome(ch, me.sub);
     return this.workspaceView(me, ws);
   }
 
@@ -358,7 +396,7 @@ export class TeamService {
   // ---------- channels ----------
 
   /** Channels and conversations the caller belongs to, with unread and mention counts. */
-  sidebar(me: FabricIdentity, workspaceId: string): { workspace: WorkspaceView; me: PersonView; channels: ChannelView[]; direct: ChannelView[]; scheduled: number; reminders: number; saved: number } {
+  sidebar(me: FabricIdentity, workspaceId: string): { workspace: WorkspaceView; me: PersonView; channels: ChannelView[]; direct: ChannelView[]; scheduled: number; reminders: number; saved: number; emoji: string[]; sections: SectionView[]; tasks: number; keywords: string[] } {
     this.member(me, workspaceId);
     this.seen(me.sub);
     const rows = this.store.all<ChannelRow>(
@@ -374,7 +412,96 @@ export class TeamService {
       scheduled: this.store.count("SELECT COUNT(*) FROM team_scheduled s JOIN team_channels c ON c.id = s.channel_id WHERE s.sender = ? AND c.workspace_id = ?", me.sub, workspaceId),
       reminders: this.store.count("SELECT COUNT(*) FROM team_reminders WHERE sub = ? AND workspace_id = ? AND done = 0", me.sub, workspaceId),
       saved: this.store.count("SELECT COUNT(*) FROM team_saved s JOIN team_messages m ON m.id = s.message_id JOIN team_channels c ON c.id = m.channel_id WHERE s.sub = ? AND s.done = 0 AND c.workspace_id = ?", me.sub, workspaceId),
+      emoji: this.store.all<{ name: string }>("SELECT name FROM team_emoji WHERE workspace_id = ? ORDER BY name", workspaceId).map((e) => e.name),
+      sections: this.sections(me, workspaceId),
+      tasks: this.myTasks(me, workspaceId).length,
+      keywords: this.keywords(me, workspaceId),
     };
+  }
+
+  // ---------- sidebar sections ----------
+  //
+  // Sections are personal: each person groups their own channels and conversations. Nobody else sees them.
+
+  sections(me: FabricIdentity, workspaceId: string): SectionView[] {
+    this.member(me, workspaceId);
+    return this.store.all<SectionRow>("SELECT * FROM team_sections WHERE workspace_id = ? AND sub = ? ORDER BY position, created_at", workspaceId, me.sub)
+      .map((s) => ({ id: s.id, name: s.name, position: s.position, collapsed: !!s.collapsed }));
+  }
+
+  createSection(me: FabricIdentity, workspaceId: string, input: { name?: unknown }): SectionView {
+    this.member(me, workspaceId);
+    const name = label(input.name, "name", 60);
+    const count = this.store.count("SELECT COUNT(*) FROM team_sections WHERE workspace_id = ? AND sub = ?", workspaceId, me.sub);
+    if (count >= TEAM_LIMITS.sections) throw fail(400, `you can have up to ${TEAM_LIMITS.sections} sections`);
+    const position = (this.store.one<{ p: number | null }>("SELECT MAX(position) AS p FROM team_sections WHERE workspace_id = ? AND sub = ?", workspaceId, me.sub)?.p ?? -1) + 1;
+    const row: SectionRow = { id: randomUUID(), workspaceId, sub: me.sub, name, position, collapsed: 0, createdAt: this.stamp() };
+    this.store.insert("team_sections", row);
+    this.publish([me.sub], { type: "sections", workspaceId });
+    return { id: row.id, name, position, collapsed: false };
+  }
+
+  /** Rename, collapse or move a section. `position` moves it to that place in your list. */
+  updateSection(me: FabricIdentity, sectionId: string, input: { name?: unknown; collapsed?: unknown; position?: unknown }): SectionView[] {
+    const row = this.section(me, sectionId);
+    this.store.tx(() => {
+      if (input.name !== undefined) this.store.run("UPDATE team_sections SET name = ? WHERE id = ?", label(input.name, "name", 60), row.id);
+      if (typeof input.collapsed === "boolean") this.store.run("UPDATE team_sections SET collapsed = ? WHERE id = ?", input.collapsed ? 1 : 0, row.id);
+      if (typeof input.position === "number" && Number.isInteger(input.position)) {
+        const ids = this.store.all<{ id: string }>("SELECT id FROM team_sections WHERE workspace_id = ? AND sub = ? ORDER BY position, created_at", row.workspaceId, me.sub).map((s) => s.id).filter((id) => id !== row.id);
+        ids.splice(Math.max(0, Math.min(ids.length, input.position)), 0, row.id);
+        ids.forEach((id, i) => this.store.run("UPDATE team_sections SET position = ? WHERE id = ?", i, id));
+      }
+    });
+    this.publish([me.sub], { type: "sections", workspaceId: row.workspaceId });
+    return this.sections(me, row.workspaceId);
+  }
+
+  /** Delete a section. Its channels go back to their default place. */
+  deleteSection(me: FabricIdentity, sectionId: string): void {
+    const row = this.section(me, sectionId);
+    this.store.tx(() => {
+      this.store.run("UPDATE team_channel_members SET section_id = NULL WHERE sub = ? AND section_id = ?", me.sub, row.id);
+      this.store.run("DELETE FROM team_sections WHERE id = ?", row.id);
+    });
+    this.publish([me.sub], { type: "sections", workspaceId: row.workspaceId });
+  }
+
+  private section(me: FabricIdentity, sectionId: string): SectionRow {
+    const row = this.store.one<SectionRow>("SELECT * FROM team_sections WHERE id = ?", uuid(sectionId));
+    if (!row || row.sub !== me.sub) throw fail(404, "not found");
+    this.member(me, row.workspaceId);
+    return row;
+  }
+
+  // ---------- notification keywords ----------
+  //
+  // Words that should notify you even without an @mention. They are private: sealed at rest, sent only to
+  // you, and matched by your own browser against messages it already receives, so nobody else learns them.
+
+  keywords(me: FabricIdentity, workspaceId: string): string[] {
+    const row = this.member(me, workspaceId) as MemberRow & { sealedKeywords?: string | null };
+    if (!row.sealedKeywords) return [];
+    try {
+      return JSON.parse(open(row.sealedKeywords, this.masterKey, keywordsAad(workspaceId, me.sub))) as string[];
+    } catch {
+      return [];
+    }
+  }
+
+  setKeywords(me: FabricIdentity, workspaceId: string, input: unknown): string[] {
+    this.member(me, workspaceId);
+    const list = Array.isArray(input) ? input : typeof input === "string" ? input.split(/[,\n]+/) : null;
+    if (!list) throw fail(400, "keywords must be a list");
+    const words = [...new Set(list.map((k) => (typeof k === "string" ? k.trim().toLowerCase() : "")).filter(Boolean))];
+    if (words.length > TEAM_LIMITS.keywords) throw fail(400, `you can have up to ${TEAM_LIMITS.keywords} keywords`);
+    if (words.some((w) => w.length > TEAM_LIMITS.keywordLength)) throw fail(400, `keywords can be up to ${TEAM_LIMITS.keywordLength} characters`);
+    this.store.run(
+      "UPDATE team_members SET sealed_keywords = ? WHERE workspace_id = ? AND sub = ?",
+      words.length ? seal(JSON.stringify(words), this.masterKey, keywordsAad(workspaceId, me.sub)) : null, workspaceId, me.sub,
+    );
+    this.publish([me.sub], { type: "keywords", workspaceId });
+    return words;
   }
 
   browseChannels(me: FabricIdentity, workspaceId: string, query = "", archived = false): ChannelView[] {
@@ -410,19 +537,35 @@ export class TeamService {
     return this.channelView(me, row, true);
   }
 
-  getChannel(me: FabricIdentity, channelId: string): ChannelView & { bookmarks: BookmarkRow[]; pins: number; canvas: boolean; myRole: Role } {
+  getChannel(me: FabricIdentity, channelId: string): ChannelView & { bookmarks: BookmarkRow[]; pins: number; canvas: boolean; openTasks: number; myRole: Role } {
     const { channel, ws } = this.readable(me, channelId);
     return {
       ...this.channelView(me, channel, true),
       bookmarks: this.store.all<BookmarkRow>("SELECT * FROM team_bookmarks WHERE channel_id = ? ORDER BY created_at", channelId),
       pins: this.store.count("SELECT COUNT(*) FROM team_pins WHERE channel_id = ?", channelId),
       canvas: !!this.store.one("SELECT channel_id FROM team_canvases WHERE channel_id = ?", channelId),
+      openTasks: this.store.count("SELECT COUNT(*) FROM team_tasks WHERE channel_id = ? AND done = 0", channelId),
       myRole: ws.role,
     };
   }
 
-  updateChannel(me: FabricIdentity, channelId: string, input: { name?: unknown; topic?: unknown; purpose?: unknown }): ChannelView {
+  updateChannel(me: FabricIdentity, channelId: string, input: { name?: unknown; topic?: unknown; purpose?: unknown; posting?: unknown; threadReplies?: unknown }): ChannelView {
     const { channel, ws } = this.writable(me, channelId);
+    if (input.posting !== undefined || input.threadReplies !== undefined) {
+      if (channel.kind === "dm" || channel.kind === "group") throw fail(400, "conversations do not have posting settings");
+      if (!isAdmin(ws.role) && channel.createdBy !== me.sub) throw fail(403, "only the channel creator or an admin can change who can post");
+      const posting = input.posting === undefined ? (channel.posting === "admins" ? "admins" : "everyone") : input.posting;
+      if (posting !== "everyone" && posting !== "admins") throw fail(400, "posting must be everyone or admins");
+      const replies = typeof input.threadReplies === "boolean" ? input.threadReplies : channel.threadReplies !== 0;
+      const was = channel.posting === "admins" ? (channel.threadReplies !== 0 ? "admins+replies" : "admins") : "everyone";
+      const now = posting === "admins" ? (replies ? "admins+replies" : "admins") : "everyone";
+      this.store.run("UPDATE team_channels SET posting = ?, thread_replies = ? WHERE id = ?", posting === "admins" ? "admins" : null, replies ? 1 : 0, channelId);
+      if (was !== now) {
+        this.system(channel, me.sub, now === "everyone" ? "let everyone post in this channel"
+          : now === "admins" ? "limited posting in this channel to admins and the channel creator"
+          : "limited posting in this channel to admins and the channel creator; everyone can still reply in threads");
+      }
+    }
     if (input.name !== undefined) {
       if (channel.kind === "dm" || channel.kind === "group") throw fail(400, "conversations do not have names");
       if (!isAdmin(ws.role) && channel.createdBy !== me.sub) throw fail(403, "only the channel creator or an admin can rename it");
@@ -467,6 +610,7 @@ export class TeamService {
       this.addChannelMember(channelId, me.sub, this.stamp());
       this.system(channel, me.sub, `joined #${channel.name}`);
       this.publish(this.channelSubs(channelId), { type: "channel", workspaceId: channel.workspaceId, channelId });
+      this.welcome(channel, me.sub);
     }
     return this.channelView(me, channel, true);
   }
@@ -494,6 +638,7 @@ export class TeamService {
     for (const p of added) this.addChannelMember(channelId, p.sub, now);
     if (added.length) this.system(channel, me.sub, `added ${added.map((p) => `@${this.username(p.sub)}`).join(", ")}`);
     this.publish(this.channelSubs(channelId), { type: "channel", workspaceId: channel.workspaceId, channelId });
+    for (const p of added) this.welcome(channel, p.sub);
     return this.channelView(me, channel, true);
   }
 
@@ -509,9 +654,20 @@ export class TeamService {
     this.publish([...this.channelSubs(channelId), target.sub], { type: "channel", workspaceId: channel.workspaceId, channelId });
   }
 
-  setChannelPrefs(me: FabricIdentity, channelId: string, input: { muted?: unknown; starred?: unknown }): ChannelView {
+  setChannelPrefs(me: FabricIdentity, channelId: string, input: { muted?: unknown; starred?: unknown; sectionId?: unknown; notify?: unknown }): ChannelView {
     const { channel } = this.readable(me, channelId);
     if (!this.channelMember(channelId, me.sub)) throw fail(403, "join the channel first");
+    if (input.sectionId !== undefined) {
+      const sectionId = input.sectionId === null || input.sectionId === "" ? null : this.section(me, String(input.sectionId)).id;
+      if (sectionId && this.store.one<SectionRow>("SELECT * FROM team_sections WHERE id = ?", sectionId)!.workspaceId !== channel.workspaceId) throw fail(404, "not found");
+      this.store.run("UPDATE team_channel_members SET section_id = ? WHERE channel_id = ? AND sub = ?", sectionId, channelId, me.sub);
+      this.publish([me.sub], { type: "sections", workspaceId: channel.workspaceId });
+    }
+    if (input.notify !== undefined) {
+      const level = input.notify === null || input.notify === "" || input.notify === "default" ? null : input.notify;
+      if (level !== null && level !== "all" && level !== "mentions" && level !== "nothing") throw fail(400, "notify must be all, mentions, nothing or default");
+      this.store.run("UPDATE team_channel_members SET notify = ? WHERE channel_id = ? AND sub = ?", level, channelId, me.sub);
+    }
     if (input.muted !== undefined) this.store.run("UPDATE team_channel_members SET muted = ? WHERE channel_id = ? AND sub = ?", input.muted === true ? 1 : 0, channelId, me.sub);
     if (input.starred !== undefined) this.store.run("UPDATE team_channel_members SET starred = ? WHERE channel_id = ? AND sub = ?", input.starred === true ? 1 : 0, channelId, me.sub);
     return this.channelView(me, channel);
@@ -580,6 +736,33 @@ export class TeamService {
     });
     const result = this.insertMessage(channel, me.sub, text, { id, parent, alsoInChannel: !!(parent && input.alsoInChannel), fileIds: files.map((f) => f.id) });
     return { message: this.view(me, result.row), notInChannel: result.notInChannel };
+  }
+
+  /**
+   * Share (forward) a message into another channel or conversation, with an optional comment.
+   * The shared message is a live link: edits show, deletion removes it, and people who cannot
+   * read the original channel see only that it was shared from somewhere they cannot see.
+   */
+  share(me: FabricIdentity, messageId: string, input: { channelId?: unknown; text?: unknown }): SendResult {
+    let original = this.message(messageId);
+    const { channel: from } = this.readable(me, original.channelId);
+    if (original.deletedAt || original.kind === "system") throw fail(400, "this message can't be shared");
+    if (original.sharedId) {
+      // Share the original, not a share of it.
+      try {
+        const inner = this.message(original.sharedId);
+        if (this.canRead(me, inner.channelId) && !inner.deletedAt) original = inner;
+      } catch {
+        // The inner message is gone; share the outer one.
+      }
+    }
+    const target = typeof input.channelId === "string" ? input.channelId : "";
+    const { channel } = this.writable(me, target);
+    if (channel.workspaceId !== from.workspaceId) throw fail(400, "messages can be shared only within a workspace");
+    const text = typeof input.text === "string" ? input.text : "";
+    if (text.length > TEAM_LIMITS.text) throw fail(400, "text is too long");
+    const result = this.insertMessage(channel, me.sub, text, { id: randomUUID(), parent: null, alsoInChannel: false, fileIds: [], sharedId: original.id });
+    return { message: this.view(me, result.row), notInChannel: result.notInChannel, channelId: channel.id };
   }
 
   list(me: FabricIdentity, channelId: string, opts: { before?: string; after?: string; around?: string; limit?: number } = {}): { messages: MessageView[]; hasMore: boolean; hasNewer: boolean } {
@@ -811,6 +994,124 @@ export class TeamService {
     return this.canvas(me, channelId);
   }
 
+  // ---------- task lists ----------
+  //
+  // Every channel and conversation has a shared list of tasks. Titles and notes are sealed with the
+  // channel's key like messages. Anyone who can post in the channel can add, edit, tick off or remove tasks.
+
+  tasks(me: FabricIdentity, channelId: string): TaskView[] {
+    const { channel } = this.readable(me, channelId);
+    return this.store.all<TaskRow>(
+      "SELECT * FROM team_tasks WHERE channel_id = ? ORDER BY done, CASE WHEN done = 1 THEN done_at END DESC, position, created_at LIMIT 1000", channelId,
+    ).map((t) => this.taskView(channel, t));
+  }
+
+  /** Open tasks assigned to you in channels you can still read, soonest due first. */
+  myTasks(me: FabricIdentity, workspaceId: string): TaskView[] {
+    this.member(me, workspaceId);
+    const rows = this.store.all<TaskRow>(
+      `SELECT t.* FROM team_tasks t JOIN team_channels c ON c.id = t.channel_id
+       WHERE t.assignee = ? AND t.done = 0 AND c.workspace_id = ? AND c.archived_at IS NULL
+       ORDER BY t.due IS NULL, t.due, t.created_at LIMIT 500`, me.sub, workspaceId,
+    );
+    return rows.filter((t) => this.canRead(me, t.channelId)).map((t) => this.taskView(this.channel(t.channelId), t));
+  }
+
+  createTask(me: FabricIdentity, channelId: string, input: { title?: unknown; notes?: unknown; assignee?: unknown; due?: unknown }): TaskView {
+    const { channel } = this.writable(me, channelId);
+    if (this.store.count("SELECT COUNT(*) FROM team_tasks WHERE channel_id = ?", channelId) >= TEAM_LIMITS.tasks) throw fail(400, `a list holds up to ${TEAM_LIMITS.tasks} tasks; remove finished ones first`);
+    const title = label(input.title, "title", TEAM_LIMITS.taskTitle);
+    const notes = taskNotes(input.notes);
+    const assignee = input.assignee === undefined || input.assignee === null || input.assignee === "" ? null : this.taskAssignee(channel, input.assignee);
+    const due = input.due === undefined || input.due === null || input.due === "" ? null : dueDate(input.due);
+    const id = randomUUID();
+    const now = this.stamp();
+    const position = (this.store.one<{ p: number | null }>("SELECT MAX(position) AS p FROM team_tasks WHERE channel_id = ?", channelId)?.p ?? -1) + 1;
+    const row: TaskRow = {
+      id, channelId, ciphertext: seal(JSON.stringify({ title, notes }), this.key(channel), taskAad(channelId, id)),
+      assignee, due, done: 0, position, createdBy: me.sub, createdAt: now, updatedAt: now, doneAt: null, doneBy: null,
+    };
+    this.store.insert("team_tasks", row);
+    this.publishTask(channel, row, me.sub, "added");
+    return this.taskView(channel, row);
+  }
+
+  updateTask(me: FabricIdentity, taskId: string, input: { title?: unknown; notes?: unknown; assignee?: unknown; due?: unknown; done?: unknown; position?: unknown }): TaskView {
+    const row = this.task(taskId);
+    const { channel } = this.writable(me, row.channelId);
+    const content = this.taskContent(channel, row);
+    if (input.title !== undefined) content.title = label(input.title, "title", TEAM_LIMITS.taskTitle);
+    if (input.notes !== undefined) content.notes = taskNotes(input.notes);
+    const assignee = input.assignee === undefined ? row.assignee : input.assignee === null || input.assignee === "" ? null : this.taskAssignee(channel, input.assignee);
+    const due = input.due === undefined ? row.due : input.due === null || input.due === "" ? null : dueDate(input.due);
+    const now = this.stamp();
+    const done = typeof input.done === "boolean" ? (input.done ? 1 : 0) : row.done;
+    this.store.tx(() => {
+      this.store.run(
+        "UPDATE team_tasks SET ciphertext = ?, assignee = ?, due = ?, done = ?, done_at = ?, done_by = ?, updated_at = ? WHERE id = ?",
+        seal(JSON.stringify(content), this.key(channel), taskAad(channel.id, row.id)), assignee, due, done,
+        done === row.done ? row.doneAt : done ? now : null, done === row.done ? row.doneBy : done ? me.sub : null, now, row.id,
+      );
+      if (typeof input.position === "number" && Number.isInteger(input.position)) {
+        const ids = this.store.all<{ id: string }>("SELECT id FROM team_tasks WHERE channel_id = ? AND done = 0 ORDER BY position, created_at", channel.id).map((t) => t.id).filter((id) => id !== row.id);
+        ids.splice(Math.max(0, Math.min(ids.length, input.position)), 0, row.id);
+        ids.forEach((id, i) => this.store.run("UPDATE team_tasks SET position = ? WHERE id = ?", i, id));
+      }
+    });
+    const updated = this.task(row.id);
+    this.publishTask(channel, updated, me.sub, done !== row.done ? (done ? "done" : "reopened") : assignee !== row.assignee ? "assigned" : "updated");
+    return this.taskView(channel, updated);
+  }
+
+  deleteTask(me: FabricIdentity, taskId: string): void {
+    const row = this.task(taskId);
+    const { channel } = this.writable(me, row.channelId);
+    this.store.run("DELETE FROM team_tasks WHERE id = ?", row.id);
+    this.publishTask(channel, row, me.sub, "removed");
+  }
+
+  private task(id: string): TaskRow {
+    const row = this.store.one<TaskRow>("SELECT * FROM team_tasks WHERE id = ?", uuid(id));
+    if (!row) throw fail(404, "not found");
+    return row;
+  }
+
+  /** The person a task is assigned to must be able to read the channel. */
+  private taskAssignee(channel: ChannelRow, value: unknown): string {
+    if (typeof value !== "string") throw fail(400, "assignee must be a username");
+    const member = this.memberByUsername(channel.workspaceId, value);
+    const canSee = channel.kind === "public" && member.role !== "guest" ? true : !!this.channelMember(channel.id, member.sub);
+    if (!canSee) throw fail(400, "that person can't see this channel; add them first");
+    return member.sub;
+  }
+
+  private taskContent(channel: ChannelRow, row: TaskRow): { title: string; notes: string } {
+    const parsed = JSON.parse(open(row.ciphertext, this.key(channel), taskAad(channel.id, row.id))) as { title: string; notes: string };
+    return { title: parsed.title, notes: parsed.notes ?? "" };
+  }
+
+  private taskView(channel: ChannelRow, row: TaskRow): TaskView {
+    let content: { title: string; notes: string };
+    try {
+      content = this.taskContent(channel, row);
+    } catch {
+      content = { title: "(this task could not be read)", notes: "" };
+    }
+    const ws = channel.workspaceId;
+    return {
+      id: row.id, channelId: channel.id, channelName: channel.name, channelKind: channel.kind, ...content,
+      assignee: row.assignee ? this.person(ws, row.assignee) : null, due: row.due, done: !!row.done,
+      doneAt: row.doneAt, doneBy: row.doneBy ? this.person(ws, row.doneBy) : null,
+      createdBy: this.person(ws, row.createdBy), createdAt: row.createdAt, updatedAt: row.updatedAt,
+    };
+  }
+
+  private publishTask(channel: ChannelRow, row: TaskRow, sub: string, action: string): void {
+    const subs = new Set(this.channelSubs(channel.id));
+    if (row.assignee) subs.add(row.assignee);
+    this.publish([...subs], { type: "task", workspaceId: channel.workspaceId, channelId: channel.id, taskId: row.id, sub, action, assignee: row.assignee });
+  }
+
   // ---------- user groups ----------
 
   groups(me: FabricIdentity, workspaceId: string): (GroupRow & { members: string[] })[] {
@@ -863,6 +1164,7 @@ export class TeamService {
       if (parent.channelId !== channelId) throw fail(404, "not found");
       parentId = parent.parentId ?? parent.id;
     }
+    if (!this.mayPost(channel, me.sub, !!parentId)) throw fail(403, "only admins and the channel creator can post in this channel");
     if (this.store.count("SELECT COUNT(*) FROM team_scheduled WHERE sender = ?", me.sub) >= 100) throw fail(400, "you can schedule up to 100 messages");
     const id = randomUUID();
     const row: ScheduledRow = { id, channelId, sender: me.sub, ciphertext: seal(text, this.key(channel), messageAad(channelId, id)), parentId, sendAt, createdAt: this.stamp() };
@@ -952,7 +1254,124 @@ export class TeamService {
         // The member left the workspace.
       }
     }
+    for (const w of this.store.all<WorkflowRow>("SELECT * FROM team_workflows WHERE kind = 'recurring' AND paused = 0 AND next_run_at <= ? ORDER BY next_run_at LIMIT 100", now)) {
+      const next = nextRun(w.every ?? "day", w.atMinute ?? 540, w.weekday, w.tzOffset, this.clock());
+      try {
+        const channel = this.channel(w.channelId);
+        if (channel.archivedAt || !this.channelMember(channel.id, w.createdBy)) {
+          this.store.run("UPDATE team_workflows SET paused = 1 WHERE id = ?", w.id);
+          continue;
+        }
+        this.store.run("UPDATE team_workflows SET next_run_at = ?, last_run_at = ? WHERE id = ?", next, now, w.id);
+        const text = open(w.ciphertext, this.key(channel), workflowAad(channel.id, w.id));
+        this.insertMessage(channel, w.createdBy, text, { id: randomUUID(), parent: null, alsoInChannel: false, fileIds: [], app: { id: w.id, name: w.name } });
+        sent += 1;
+      } catch (error) {
+        this.store.run("UPDATE team_workflows SET next_run_at = ? WHERE id = ?", next, w.id);
+        console.warn(`workflow not run: ${error instanceof Error ? error.message : "error"}`);
+      }
+    }
     return { sent, reminded };
+  }
+
+  // ---------- workflows ----------
+
+  /**
+   * A channel workflow. "welcome" sends its text to each person who joins the channel, in their
+   * own direct-message space ({name} becomes their name). "recurring" posts its text in the
+   * channel every day, every weekday or once a week at `at` (HH:MM, in the creator's time zone).
+   * The text is sealed with the channel key.
+   */
+  createWorkflow(me: FabricIdentity, channelId: string, input: { kind?: unknown; name?: unknown; text?: unknown; every?: unknown; at?: unknown; weekday?: unknown; tzOffset?: unknown }): WorkflowView {
+    const { channel, ws } = this.writable(me, channelId);
+    if (ws.role === "guest") throw fail(403, "guests cannot add workflows");
+    if (channel.kind === "dm") throw fail(400, "workflows run in channels");
+    if (input.kind !== "welcome" && input.kind !== "recurring") throw fail(400, "kind must be welcome or recurring");
+    if (this.store.count("SELECT COUNT(*) FROM team_workflows WHERE channel_id = ?", channelId) >= TEAM_LIMITS.workflowsPerChannel) throw fail(400, "this channel has too many workflows");
+    const name = label(input.name ?? (input.kind === "welcome" ? "Welcome" : "Reminder"), "name", 60);
+    const text = typeof input.text === "string" ? input.text.trim() : "";
+    if (!text) throw fail(400, "text is required");
+    if (text.length > TEAM_LIMITS.text) throw fail(400, "text is too long");
+    const tzOffset = typeof input.tzOffset === "number" && Number.isInteger(input.tzOffset) && Math.abs(input.tzOffset) <= 14 * 60 ? input.tzOffset : 0;
+    let every: WorkflowEvery | null = null;
+    let atMinute: number | null = null;
+    let weekday: number | null = null;
+    let nextRunAt: string | null = null;
+    if (input.kind === "recurring") {
+      if (input.every !== "day" && input.every !== "weekday" && input.every !== "week") throw fail(400, "every must be day, weekday or week");
+      every = input.every;
+      const m = typeof input.at === "string" ? /^([01]?\d|2[0-3]):([0-5]\d)$/.exec(input.at.trim()) : null;
+      if (!m) throw fail(400, "at must be a time like 09:30");
+      atMinute = Number(m[1]) * 60 + Number(m[2]);
+      if (every === "week") {
+        if (typeof input.weekday !== "number" || !Number.isInteger(input.weekday) || input.weekday < 0 || input.weekday > 6) throw fail(400, "weekday must be 0 (Sunday) to 6");
+        weekday = input.weekday;
+      }
+      nextRunAt = nextRun(every, atMinute, weekday, tzOffset, this.clock());
+    }
+    const id = randomUUID();
+    const row: WorkflowRow = {
+      id, workspaceId: channel.workspaceId, channelId, kind: input.kind, name, ciphertext: seal(text, this.key(channel), workflowAad(channel.id, id)),
+      every, atMinute, weekday, tzOffset, nextRunAt, paused: 0, createdBy: me.sub, createdAt: this.stamp(), lastRunAt: null,
+    };
+    this.store.insert("team_workflows", row);
+    this.system(channel, me.sub, `added the workflow “${name}”`);
+    return this.workflowView(row);
+  }
+
+  workflows(me: FabricIdentity, channelId: string): WorkflowView[] {
+    this.readable(me, channelId);
+    return this.store.all<WorkflowRow>("SELECT * FROM team_workflows WHERE channel_id = ? ORDER BY created_at", channelId).map((w) => this.workflowView(w));
+  }
+
+  /** Pause or resume a workflow. The person who made it, or an admin. */
+  updateWorkflow(me: FabricIdentity, id: string, input: { paused?: unknown }): WorkflowView {
+    const row = this.ownWorkflow(me, id);
+    if (typeof input.paused === "boolean") {
+      const next = !input.paused && row.kind === "recurring" ? nextRun(row.every ?? "day", row.atMinute ?? 540, row.weekday, row.tzOffset, this.clock()) : row.nextRunAt;
+      this.store.run("UPDATE team_workflows SET paused = ?, next_run_at = ? WHERE id = ?", input.paused ? 1 : 0, next, row.id);
+    }
+    return this.workflowView(this.store.one<WorkflowRow>("SELECT * FROM team_workflows WHERE id = ?", row.id)!);
+  }
+
+  deleteWorkflow(me: FabricIdentity, id: string): void {
+    const row = this.ownWorkflow(me, id);
+    this.store.run("DELETE FROM team_workflows WHERE id = ?", row.id);
+  }
+
+  private ownWorkflow(me: FabricIdentity, id: string): WorkflowRow {
+    const row = this.store.one<WorkflowRow>("SELECT * FROM team_workflows WHERE id = ?", uuid(id));
+    if (!row) throw fail(404, "workflow not found");
+    const { ws } = this.readable(me, row.channelId);
+    if (row.createdBy !== me.sub && !isAdmin(ws.role)) throw fail(403, "only the person who made it or an admin can change a workflow");
+    return row;
+  }
+
+  /** Run the channel's welcome workflows for someone who just joined. Never fails the join. */
+  private welcome(channel: ChannelRow, sub: string): void {
+    for (const w of this.store.all<WorkflowRow>("SELECT * FROM team_workflows WHERE channel_id = ? AND kind = 'welcome' AND paused = 0", channel.id)) {
+      try {
+        const text = open(w.ciphertext, this.key(channel), workflowAad(channel.id, w.id)).replaceAll("{name}", this.person(channel.workspaceId, sub).displayName);
+        this.deliverReminder(channel.workspaceId, sub, text, { id: w.id, name: `${w.name} · #${channel.name ?? ""}` });
+      } catch (error) {
+        console.warn(`welcome workflow not delivered: ${error instanceof Error ? error.message : "error"}`);
+      }
+    }
+  }
+
+  private workflowView(w: WorkflowRow): WorkflowView {
+    const channel = this.channel(w.channelId);
+    let text = "";
+    try {
+      text = open(w.ciphertext, this.key(channel), workflowAad(channel.id, w.id));
+    } catch {
+      text = "";
+    }
+    const at = w.atMinute === null ? null : `${String(Math.floor(w.atMinute / 60)).padStart(2, "0")}:${String(w.atMinute % 60).padStart(2, "0")}`;
+    return {
+      id: w.id, channelId: w.channelId, kind: w.kind, name: w.name, text, every: w.every, at, weekday: w.weekday, tzOffset: w.tzOffset,
+      nextRunAt: w.paused ? null : w.nextRunAt, paused: !!w.paused, createdBy: this.person(w.workspaceId, w.createdBy), createdAt: w.createdAt, lastRunAt: w.lastRunAt,
+    };
   }
 
   // ---------- activity, threads, unreads, search ----------
@@ -1299,6 +1718,132 @@ export class TeamService {
     };
   }
 
+  // ---------- export ----------
+
+  /**
+   * Everything an admin needs to take a workspace's history elsewhere, as plain JSON: people,
+   * channels, members and messages (text decrypted, with threads, reactions, pins, polls and file
+   * names). Admins export public channels; owners may add private channels. Direct and group
+   * messages are never exported. File contents are not included. The export is announced in the
+   * workspace's default channel so members know it happened.
+   */
+  exportWorkspace(me: FabricIdentity, workspaceId: string, opts: { includePrivate?: boolean } = {}): WorkspaceExport {
+    const mine = this.admin(me, workspaceId);
+    if (opts.includePrivate && mine.role !== "owner") throw fail(403, "only an owner can export private channels");
+    const ws = this.workspace(workspaceId);
+    const kinds = opts.includePrivate ? ["public", "private"] : ["public"];
+    const name = (sub: string) => this.username(sub);
+    const channels = this.store.all<ChannelRow>(
+      `SELECT * FROM team_channels WHERE workspace_id = ? AND kind IN (${kinds.map(() => "?").join(", ")}) ORDER BY created_at`, workspaceId, ...kinds,
+    ).map((c) => {
+      const key = this.key(c);
+      const messages = this.store.all<TeamMessageRow>("SELECT * FROM team_messages WHERE channel_id = ? AND deleted_at IS NULL ORDER BY created_at", c.id).map((m) => {
+        let text: string | null;
+        try {
+          text = open(m.ciphertext, key, messageAad(c.id, m.id));
+        } catch {
+          text = null;
+        }
+        const poll = this.store.one<PollRow>("SELECT * FROM team_polls WHERE message_id = ?", m.id);
+        let pollOut: ExportedMessage["poll"] = null;
+        if (poll) {
+          try {
+            const votes = this.store.all<{ sub: string; choice: number }>("SELECT sub, choice FROM team_poll_votes WHERE message_id = ?", m.id);
+            pollOut = {
+              anonymous: !!poll.anonymous, multiple: !!poll.multiple, closed: !!poll.closedAt,
+              options: this.pollOptions(c, poll).map((o, i) => {
+                const subs = votes.filter((v) => v.choice === i).map((v) => v.sub);
+                return { text: o, votes: subs.length, ...(poll.anonymous ? {} : { voters: subs.map(name) }) };
+              }),
+            };
+          } catch {
+            pollOut = null;
+          }
+        }
+        const reactions = new Map<string, string[]>();
+        for (const r of this.store.all<{ emoji: string; sub: string }>("SELECT emoji, sub FROM team_reactions WHERE message_id = ? ORDER BY created_at", m.id)) {
+          reactions.set(r.emoji, [...(reactions.get(r.emoji) ?? []), name(r.sub)]);
+        }
+        return {
+          id: m.id, user: name(m.sender), app: m.appName ?? null, kind: m.kind, text, ts: m.createdAt, edited: m.editedAt,
+          threadParent: m.parentId, replyCount: m.replyCount, alsoInChannel: !!m.alsoInChannel,
+          reactions: [...reactions].map(([emoji, users]) => ({ emoji, users })),
+          files: this.store.all<FileRow>("SELECT * FROM team_files WHERE message_id = ? ORDER BY created_at", m.id).map((f) => ({ id: f.id, name: f.name, mime: f.mime, size: f.size })),
+          pinned: !!this.store.one("SELECT message_id FROM team_pins WHERE message_id = ?", m.id),
+          poll: pollOut,
+        } satisfies ExportedMessage;
+      });
+      return {
+        id: c.id, name: c.name ?? "", kind: c.kind as "public" | "private", topic: c.topic, purpose: c.purpose,
+        createdBy: name(c.createdBy), createdAt: c.createdAt, archived: !!c.archivedAt, isDefault: !!c.isDefault,
+        members: this.channelSubs(c.id).map(name), messages,
+      };
+    });
+    const people = this.store.all<MemberRow>("SELECT * FROM team_members WHERE workspace_id = ? ORDER BY joined_at", workspaceId).map((m) => ({
+      username: name(m.sub), displayName: this.person(workspaceId, m.sub).displayName, title: m.title, role: m.role,
+      joinedAt: m.joinedAt, deactivated: !!m.deactivatedAt,
+    }));
+    const general = this.store.one<ChannelRow>("SELECT * FROM team_channels WHERE workspace_id = ? AND is_default = 1 AND archived_at IS NULL ORDER BY created_at LIMIT 1", workspaceId);
+    if (general) this.system(general, me.sub, `exported the workspace's ${opts.includePrivate ? "public and private" : "public"} channel history`);
+    return {
+      format: "fabric-teams-export/1", exportedAt: this.clock().toISOString(), exportedBy: me.username,
+      workspace: { id: ws.id, name: ws.name, slug: ws.slug, createdAt: ws.createdAt },
+      includes: { publicChannels: true, privateChannels: !!opts.includePrivate, directMessages: false, fileContents: false },
+      people, channels,
+    };
+  }
+
+  // ---------- custom emoji ----------
+  //
+  // Workspace emoji are small images used as :name: in messages and reactions. Only raster images
+  // (PNG, GIF, WebP, JPEG) are accepted, checked by their first bytes, so an emoji can never carry script.
+
+  emojis(me: FabricIdentity, workspaceId: string): EmojiView[] {
+    this.member(me, workspaceId);
+    return this.store.all<{ name: string; size: number; createdBy: string; createdAt: string }>(
+      "SELECT name, size, created_by, created_at FROM team_emoji WHERE workspace_id = ? ORDER BY name", workspaceId,
+    ).map((e) => ({ name: e.name, size: e.size, createdAt: e.createdAt, createdBy: this.person(workspaceId, e.createdBy) }));
+  }
+
+  addEmoji(me: FabricIdentity, workspaceId: string, input: { name?: unknown; data?: unknown }): EmojiView {
+    const mine = this.member(me, workspaceId);
+    if (mine.role === "guest") throw fail(403, "guests cannot add emoji");
+    const name = typeof input.name === "string" ? input.name.trim().toLowerCase().replace(/^:|:$/g, "") : "";
+    if (!EMOJI_NAME.test(name)) throw fail(400, "emoji names use 1 to 40 lowercase letters, numbers, _ + or -");
+    if (typeof input.data !== "string" || !/^[A-Za-z0-9+/]*={0,2}$/.test(input.data)) throw fail(400, "data must be base64");
+    const bytes = Buffer.from(input.data, "base64");
+    if (bytes.length === 0) throw fail(400, "the image is empty");
+    if (bytes.length > TEAM_LIMITS.emojiBytes) throw fail(413, "emoji images can be up to 128 KB");
+    const mime = imageType(bytes);
+    if (!mime) throw fail(400, "emoji must be a PNG, GIF, WebP or JPEG image");
+    if (this.store.one("SELECT name FROM team_emoji WHERE workspace_id = ? AND name = ?", workspaceId, name)) throw fail(409, `:${name}: already exists`);
+    if (this.store.count("SELECT COUNT(*) FROM team_emoji WHERE workspace_id = ?", workspaceId) >= TEAM_LIMITS.emojiPerWorkspace) throw fail(400, `a workspace can have up to ${TEAM_LIMITS.emojiPerWorkspace} custom emoji`);
+    const createdAt = this.stamp();
+    this.store.insert("team_emoji", {
+      workspaceId, name, mime, size: bytes.length, createdBy: me.sub, createdAt,
+      ciphertext: seal(bytes.toString("base64"), this.masterKey, emojiAad(workspaceId, name)),
+    });
+    this.publish(this.workspaceSubs(workspaceId), { type: "emoji", workspaceId, name, action: "added" });
+    return { name, size: bytes.length, createdAt, createdBy: this.person(workspaceId, me.sub) };
+  }
+
+  /** The person who added an emoji, or an owner or admin, can remove it. Reactions using it stay as text. */
+  removeEmoji(me: FabricIdentity, workspaceId: string, name: string): void {
+    const mine = this.member(me, workspaceId);
+    const row = this.store.one<{ createdBy: string }>("SELECT created_by FROM team_emoji WHERE workspace_id = ? AND name = ?", workspaceId, name);
+    if (!row) throw fail(404, "not found");
+    if (row.createdBy !== me.sub && !isAdmin(mine.role)) throw fail(403, "only the person who added it, or an owner or admin, can remove it");
+    this.store.run("DELETE FROM team_emoji WHERE workspace_id = ? AND name = ?", workspaceId, name);
+    this.publish(this.workspaceSubs(workspaceId), { type: "emoji", workspaceId, name, action: "removed" });
+  }
+
+  emojiImage(me: FabricIdentity, workspaceId: string, name: string): { mime: string; data: Buffer } {
+    this.member(me, workspaceId);
+    const row = this.store.one<{ mime: string; ciphertext: string }>("SELECT mime, ciphertext FROM team_emoji WHERE workspace_id = ? AND name = ?", workspaceId, name);
+    if (!row) throw fail(404, "not found");
+    return { mime: row.mime, data: Buffer.from(open(row.ciphertext, this.masterKey, emojiAad(workspaceId, name)), "base64") };
+  }
+
   // ---------- polls ----------
 
   /** Post a poll. The question is the message text, so it is searchable and notifies like any message. */
@@ -1427,15 +1972,29 @@ export class TeamService {
 
   // ---------- internals ----------
 
+  /** Whether someone may post in a channel: new messages, or replies in a thread. */
+  private mayPost(channel: ChannelRow, sub: string, reply: boolean): boolean {
+    if (channel.posting !== "admins") return true;
+    if (reply && channel.threadReplies !== 0) return true;
+    if (channel.createdBy === sub) return true;
+    const member = this.store.one<MemberRow>("SELECT * FROM team_members WHERE workspace_id = ? AND sub = ?", channel.workspaceId, sub);
+    return !!member && isAdmin(member.role);
+  }
+
   private insertMessage(
     channel: ChannelRow, sender: string, text: string,
-    opts: { id: string; parent: TeamMessageRow | null; alsoInChannel: boolean; fileIds: string[]; app?: { id: string; name: string }; extra?: (now: string) => void },
+    opts: { id: string; parent: TeamMessageRow | null; alsoInChannel: boolean; fileIds: string[]; app?: { id: string; name: string }; extra?: (now: string) => void; sharedId?: string },
   ): { row: TeamMessageRow; notInChannel: string[] } {
+    // Every user message, app post, scheduled message and poll goes through here, so this one check covers them all.
+    if (!this.mayPost(channel, sender, !!opts.parent && !opts.alsoInChannel)) {
+      throw fail(403, opts.parent && channel.threadReplies !== 0 ? "only admins can send replies to the channel here" : "only admins and the channel creator can post in this channel");
+    }
     const now = this.stamp();
     const row: TeamMessageRow = {
       id: opts.id, channelId: channel.id, sender, ciphertext: seal(text, this.key(channel), messageAad(channel.id, opts.id)),
       parentId: opts.parent?.id ?? null, createdAt: now, editedAt: null, deletedAt: null, replyCount: 0, lastReplyAt: null,
       alsoInChannel: opts.alsoInChannel ? 1 : 0, kind: "user", appId: opts.app?.id ?? null, appName: opts.app?.name ?? null,
+      sharedId: opts.sharedId ?? null,
     };
     const notInChannel = this.store.tx(() => {
       this.store.insert("team_messages", row);
@@ -1496,7 +2055,7 @@ export class TeamService {
     this.publish(this.channelSubs(channel.id), { type: "message", workspaceId: channel.workspaceId, channelId: channel.id, messageId: id, parentId: null, sub: actor, mentioned: [], kind: channel.kind });
   }
 
-  private deliverReminder(workspaceId: string, sub: string, text: string): string {
+  private deliverReminder(workspaceId: string, sub: string, text: string, app?: { id: string; name: string }): string {
     const user = this.users.findUserBySub(sub);
     if (!user) throw new Error("no such user");
     const identity: FabricIdentity = { sub, issuer: user.issuer, username: user.username, email: user.email, name: user.name, expiresAt: 0 };
@@ -1507,7 +2066,7 @@ export class TeamService {
     this.store.tx(() => {
       this.store.insert("team_messages", {
         id, channelId: channel.id, sender: sub, ciphertext: seal(text, this.key(channel), messageAad(channel.id, id)),
-        parentId: null, createdAt: now, replyCount: 0, alsoInChannel: 0, kind: "system",
+        parentId: null, createdAt: now, replyCount: 0, alsoInChannel: 0, kind: app ? "user" : "system", appId: app?.id ?? null, appName: app?.name ?? null,
       });
       this.store.run("UPDATE team_channels SET last_message_at = ? WHERE id = ?", now, channel.id);
       this.store.insert("team_mentions", { messageId: id, sub, channelId: channel.id, createdAt: now });
@@ -1715,6 +2274,10 @@ export class TeamService {
     return {
       id: c.id, workspaceId: c.workspaceId, kind: c.kind, name, topic: c.topic, purpose: c.purpose, createdBy: c.createdBy, createdAt: c.createdAt,
       archived: !!c.archivedAt, isDefault: !!c.isDefault, memberCount: subs.length, member: !!mine, muted: !!mine?.muted, starred: !!mine?.starred,
+      sectionId: mine?.sectionId ?? null,
+      notify: mine?.notify ?? null,
+      posting: c.posting === "admins" ? "admins" : "everyone", threadReplies: c.threadReplies !== 0,
+      canPost: !!mine && !c.archivedAt && this.mayPost(c, me.sub, false), canReply: !!mine && !c.archivedAt && this.mayPost(c, me.sub, true),
       unread, mentions, lastReadAt: lastRead, lastMessageAt: c.lastMessageAt,
       huddle: this.huddles.has(c.id) ? { people: this.huddles.get(c.id)!.people.size, startedAt: this.huddles.get(c.id)!.startedAt } : null,
       ...(withPeople || c.kind === "dm" || c.kind === "group" ? { people: (c.kind === "dm" || c.kind === "group" ? others : subs).slice(0, 50).map((s) => this.person(c.workspaceId, s)) } : {}),
@@ -1765,6 +2328,25 @@ export class TeamService {
       mentions: this.store.all<{ sub: string }>("SELECT sub FROM team_mentions WHERE message_id = ?", row.id).map((m) => m.sub),
       poll: row.deletedAt ? null : this.pollView(me, channel, row.id),
       app: row.appId ? { id: row.appId, name: row.appName ?? "App" } : null,
+      shared: row.sharedId && !row.deletedAt ? this.sharedView(me, row.sharedId) : null,
+    };
+  }
+
+  private sharedView(me: FabricIdentity, id: string): SharedView | null {
+    const row = this.store.one<TeamMessageRow>("SELECT * FROM team_messages WHERE id = ?", id);
+    if (!row || row.deletedAt) return null;
+    if (!this.canRead(me, row.channelId)) return { available: false };
+    const channel = this.channel(row.channelId);
+    let text: string;
+    try {
+      text = open(row.ciphertext, this.key(channel), messageAad(channel.id, row.id));
+    } catch {
+      return { available: false };
+    }
+    return {
+      available: true, id: row.id, channelId: channel.id, channelName: channel.name, channelKind: channel.kind,
+      sender: this.person(channel.workspaceId, row.sender), text, createdAt: row.createdAt,
+      files: this.store.all<FileRow>("SELECT * FROM team_files WHERE message_id = ? ORDER BY created_at", row.id).map(fileView),
     };
   }
 
@@ -1808,6 +2390,29 @@ export class TeamService {
   }
 }
 
+export interface WorkflowView {
+  id: string; channelId: string; kind: "welcome" | "recurring"; name: string; text: string;
+  every: WorkflowEvery | null; at: string | null; weekday: number | null; tzOffset: number;
+  nextRunAt: string | null; paused: boolean; createdBy: PersonView; createdAt: string; lastRunAt: string | null;
+}
+export interface ExportedMessage {
+  id: string; user: string; app: string | null; kind: "user" | "system"; text: string | null; ts: string; edited: string | null;
+  threadParent: string | null; replyCount: number; alsoInChannel: boolean;
+  reactions: { emoji: string; users: string[] }[];
+  files: { id: string; name: string; mime: string; size: number }[];
+  pinned: boolean;
+  poll: { anonymous: boolean; multiple: boolean; closed: boolean; options: { text: string; votes: number; voters?: string[] }[] } | null;
+}
+export interface WorkspaceExport {
+  format: "fabric-teams-export/1"; exportedAt: string; exportedBy: string;
+  workspace: { id: string; name: string; slug: string; createdAt: string };
+  includes: { publicChannels: boolean; privateChannels: boolean; directMessages: boolean; fileContents: boolean };
+  people: { username: string; displayName: string; title: string | null; role: Role; joinedAt: string; deactivated: boolean }[];
+  channels: {
+    id: string; name: string; kind: "public" | "private"; topic: string; purpose: string; createdBy: string; createdAt: string;
+    archived: boolean; isDefault: boolean; members: string[]; messages: ExportedMessage[];
+  }[];
+}
 export interface WebhookView { id: string; name: string; channel: ChannelView; createdBy: PersonView; createdAt: string; lastUsedAt: string | null }
 export interface ScheduledView { id: string; channel: ChannelView; parentId: string | null; sendAt: string; createdAt: string; text: string }
 export interface ReminderView { id: string; text: string; remindAt: string; done: boolean; fired: boolean; messageId: string | null; createdAt: string }
@@ -1932,7 +2537,63 @@ export function parseIceServers(text: string | undefined): IceServer[] {
   });
 }
 
+function workflowAad(channelId: string, id: string): string { return `fabric-team-workflow:${channelId}:${id}`; }
+
+/** The next time a recurring workflow runs after `from`: at `atMinute` past local midnight, local time = UTC + tzOffset minutes. */
+export function nextRun(every: WorkflowEvery, atMinute: number, weekday: number | null, tzOffset: number, from: Date): string {
+  const local = from.getTime() + tzOffset * 60_000;
+  const day = new Date(local);
+  const base = Date.UTC(day.getUTCFullYear(), day.getUTCMonth(), day.getUTCDate(), 0, atMinute);
+  for (let i = 0; i < 9; i += 1) {
+    const at = base + i * 86_400_000;
+    if (at <= local) continue;
+    const wd = new Date(at).getUTCDay();
+    if (every === "weekday" && (wd === 0 || wd === 6)) continue;
+    if (every === "week" && wd !== (weekday ?? 1)) continue;
+    return new Date(at - tzOffset * 60_000).toISOString();
+  }
+  throw new Error("no next run");
+}
+
 function pollAad(channelId: string, id: string): string { return `fabric-team-poll:${channelId}:${id}`; }
+function emojiAad(workspaceId: string, name: string): string { return `fabric-team-emoji:${workspaceId}:${name}`; }
+
+export interface EmojiView { name: string; size: number; createdAt: string; createdBy: PersonView }
+export const EMOJI_NAME = /^[a-z0-9_+-]{1,40}$/;
+
+/** The image type from a file's first bytes, or null if it is not a PNG, GIF, WebP or JPEG. */
+export function imageType(b: Buffer): string | null {
+  if (b.length >= 8 && b.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return "image/png";
+  if (b.length >= 6 && (b.subarray(0, 6).toString("latin1") === "GIF87a" || b.subarray(0, 6).toString("latin1") === "GIF89a")) return "image/gif";
+  if (b.length >= 12 && b.subarray(0, 4).toString("latin1") === "RIFF" && b.subarray(8, 12).toString("latin1") === "WEBP") return "image/webp";
+  if (b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return "image/jpeg";
+  return null;
+}
+
+function taskAad(channelId: string, id: string): string { return `fabric-team-task:${channelId}:${id}`; }
+
+export interface TaskView {
+  id: string; channelId: string; channelName: string | null; channelKind: ChannelKind; title: string; notes: string;
+  assignee: PersonView | null; due: string | null; done: boolean; doneAt: string | null; doneBy: PersonView | null;
+  createdBy: PersonView; createdAt: string; updatedAt: string;
+}
+
+function taskNotes(value: unknown): string {
+  if (value === undefined || value === null) return "";
+  if (typeof value !== "string") throw fail(400, "notes must be text");
+  if (value.length > TEAM_LIMITS.taskNotes) throw fail(400, "notes are too long");
+  return value;
+}
+
+/** A due date as YYYY-MM-DD. */
+export function dueDate(value: unknown): string {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) throw fail(400, "due must be a date like 2026-12-31");
+  const d = new Date(`${value}T00:00:00Z`);
+  if (Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== value) throw fail(400, "due must be a real date");
+  return value;
+}
+
+function keywordsAad(workspaceId: string, sub: string): string { return `fabric-team-keywords:${workspaceId}:${sub}`; }
 
 /** "10m", "2 hours", "1d" → milliseconds. */
 export function duration(text: string): number | null {

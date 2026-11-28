@@ -7,8 +7,7 @@ import { test } from "node:test";
 import type { FabricIdentity } from "./auth.ts";
 import { FabricServiceError, touchUser } from "./service.ts";
 import { FabricStore } from "./store.ts";
-import { TeamService, parseIceServers, parseQuery, parseReminder, type TeamEvent } from "./team.ts";
-import { TeamService, nextRun, parseQuery, parseReminder, type TeamEvent } from "./team.ts";
+import { TeamService, nextRun, parseIceServers, parseQuery, parseReminder, type TeamEvent } from "./team.ts";
 
 const ISSUER = "https://id.cumuluscloud.app/realms/cumulus";
 function person(n: number, username: string): FabricIdentity {
@@ -467,6 +466,11 @@ test("sharing a message: live link, access-checked, never across workspaces", ()
     const hello = t.team.send(t.bob, general.id, { text: "hello" }).message!;
     assert.throws(() => t.team.share(t.bob, hello.id, { channelId: otherGeneral.id }), status(400));
     assert.throws(() => t.team.share(t.cara, hello.id, { channelId: secret.id }), status(404));
+  } finally {
+    t.close();
+  }
+});
+
 test("nextRun: daily, weekday and weekly times in the creator's time zone", () => {
   // Friday 2026-11-13 10:00 UTC = 13:00 in Moscow (UTC+3).
   const from = new Date("2026-11-13T10:00:00.000Z");

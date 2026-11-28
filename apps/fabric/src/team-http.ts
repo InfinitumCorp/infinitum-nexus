@@ -127,6 +127,8 @@ export function teamRoutes(): Route[] {
       res.end(body);
     }, { raw: true }),
     r("GET", `/workspaces/${ID}/webhooks`, ({ team, me, params }) => ({ webhooks: team.webhooks(me, params[0]!) })),
+    r("GET", `/workspaces/${ID}/notification-schedule`, ({ team, me, params }) => ({ schedule: team.notifySchedule(me, params[0]!) })),
+    r("PUT", `/workspaces/${ID}/notification-schedule`, ({ team, me, params, body }) => ({ schedule: team.setNotifySchedule(me, params[0]!, body.schedule ?? null) })),
     r("GET", `/workspaces/${ID}/drafts`, ({ team, me, params }) => ({ drafts: team.drafts(me, params[0]!) })),
     r("PUT", `/channels/${ID}/draft`, ({ team, me, params, body }) => ({ draft: team.saveDraft(me, params[0]!, body) })),
     r("GET", `/workspaces/${ID}/scheduled`, ({ team, me, params }) => ({ scheduled: team.scheduledList(me, params[0]!) })),

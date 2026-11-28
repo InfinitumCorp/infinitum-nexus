@@ -101,6 +101,8 @@ export interface PersonView {
   presence: "active" | "away";
   dnd: boolean;
   dndUntil: string | null;
+  /** True when the do-not-disturb comes from your notification schedule (outside your working hours). */
+  quietHours: boolean;
   deactivated: boolean;
 }
 
@@ -363,6 +365,23 @@ export class TeamService {
     }
     this.publish(this.workspaceSubs(workspaceId), { type: "members", workspaceId, sub: me.sub });
     return this.person(workspaceId, me.sub);
+  }
+
+  /** Your notification schedule in this workspace, or null for any time. */
+  notifySchedule(me: FabricIdentity, workspaceId: string): NotifySchedule | null {
+    return parseSchedule(this.member(me, workspaceId).notifySchedule);
+  }
+
+  /**
+   * Set when you get notifications: on these days, between these times, in your time zone. Outside it you
+   * are in do-not-disturb, which others see, as with a pause. Null turns the schedule off.
+   */
+  setNotifySchedule(me: FabricIdentity, workspaceId: string, input: unknown): NotifySchedule | null {
+    this.member(me, workspaceId);
+    const schedule = input === null ? null : validSchedule(input);
+    this.store.run("UPDATE team_members SET notify_schedule = ? WHERE workspace_id = ? AND sub = ?", schedule ? JSON.stringify(schedule) : null, workspaceId, me.sub);
+    this.publish(this.workspaceSubs(workspaceId), { type: "members", workspaceId, sub: me.sub });
+    return schedule;
   }
 
   setRole(me: FabricIdentity, workspaceId: string, username: string, role: unknown): PersonView {
@@ -2330,7 +2349,7 @@ export class TeamService {
     const user = this.users.findUserBySub(sub);
     return {
       sub, username: user?.username ?? "unknown", name: user?.name ?? null, displayName: user?.name || user?.username || "unknown", title: null, role: "guest",
-      statusEmoji: null, statusText: null, statusUntil: null, presence: "away", dnd: false, dndUntil: null, deactivated: true,
+      statusEmoji: null, statusText: null, statusUntil: null, presence: "away", dnd: false, dndUntil: null, quietHours: false, deactivated: true,
     };
   }
 
@@ -2338,7 +2357,11 @@ export class TeamService {
     const user: UserRow | null = this.users.findUserBySub(m.sub);
     const now = this.clock().toISOString();
     const statusLive = !m.statusUntil || m.statusUntil > now;
-    const dnd = !!m.dndUntil && m.dndUntil > now;
+    const paused = !!m.dndUntil && m.dndUntil > now;
+    const quiet = quietUntil(parseSchedule(m.notifySchedule), this.clock());
+    const dnd = paused || !!quiet;
+    // When both apply, notifications resume at the later of the two.
+    const until = !dnd ? null : !quiet ? m.dndUntil : !paused ? quiet : (quiet > m.dndUntil! ? quiet : m.dndUntil);
     return {
       sub: m.sub,
       username: user?.username ?? "unknown",
@@ -2351,7 +2374,8 @@ export class TeamService {
       statusUntil: statusLive ? m.statusUntil : null,
       presence: this.presence(m),
       dnd,
-      dndUntil: dnd ? m.dndUntil : null,
+      dndUntil: until,
+      quietHours: !!quiet,
       deactivated: !!m.deactivatedAt,
     };
   }
@@ -2529,6 +2553,70 @@ export interface ChannelInsights {
   perDay: { date: string; messages: number }[];
   topPeople: { person: PersonView; messages: number }[];
 }
+/** Days are 0 (Sunday) to 6; `from` and `to` are minutes after local midnight, `from` before `to`. */
+export interface NotifySchedule { days: number[]; from: number; to: number; timeZone: string }
+
+function validSchedule(input: unknown): NotifySchedule {
+  if (!input || typeof input !== "object") throw fail(400, "schedule must be an object or null");
+  const s = input as Record<string, unknown>;
+  const days = Array.isArray(s.days) ? [...new Set(s.days)].sort() : null;
+  if (!days || days.some((d) => !Number.isInteger(d) || (d as number) < 0 || (d as number) > 6)) throw fail(400, "days must be a list of 0 (Sunday) to 6");
+  const minute = (v: unknown, name: string) => {
+    if (typeof v === "string") {
+      const m = /^(\d{1,2}):(\d{2})$/.exec(v);
+      if (m && Number(m[1]) <= 24 && Number(m[2]) < 60) v = Number(m[1]) * 60 + Number(m[2]);
+    }
+    if (!Number.isInteger(v) || (v as number) < 0 || (v as number) > 1440) throw fail(400, `${name} must be a time like 09:00`);
+    return v as number;
+  };
+  const from = minute(s.from, "from");
+  const to = minute(s.to, "to");
+  if (from >= to) throw fail(400, "from must be before to");
+  const timeZone = typeof s.timeZone === "string" ? s.timeZone : "";
+  try {
+    if (!timeZone) throw new RangeError();
+    new Intl.DateTimeFormat("en-US", { timeZone });
+  } catch {
+    throw fail(400, "timeZone must be a time zone like Europe/Moscow");
+  }
+  return { days: days as number[], from, to, timeZone };
+}
+
+function parseSchedule(json: string | null | undefined): NotifySchedule | null {
+  if (!json) return null;
+  try {
+    return validSchedule(JSON.parse(json));
+  } catch {
+    return null;
+  }
+}
+
+const zoneFormats = new Map<string, Intl.DateTimeFormat>();
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+/** If `at` falls outside the schedule, when notifications start again; otherwise null. */
+export function quietUntil(schedule: NotifySchedule | null, at: Date): string | null {
+  if (!schedule) return null;
+  let format = zoneFormats.get(schedule.timeZone);
+  if (!format) {
+    format = new Intl.DateTimeFormat("en-US", { timeZone: schedule.timeZone, weekday: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+    zoneFormats.set(schedule.timeZone, format);
+  }
+  const parts = Object.fromEntries(format.formatToParts(at).map((p) => [p.type, p.value]));
+  const weekday = WEEKDAYS.indexOf(parts.weekday!);
+  const minute = Number(parts.hour) * 60 + Number(parts.minute);
+  if (schedule.days.includes(weekday) && minute >= schedule.from && minute < schedule.to) return null;
+  if (!schedule.days.length) return null; // no working days: treat as no schedule rather than never notifying
+  // The next start of a working window. Ignores a clock change in between, which moves it by at most an hour.
+  for (let d = 0; d <= 7; d++) {
+    if (!schedule.days.includes((weekday + d) % 7)) continue;
+    if (d === 0 && minute >= schedule.from) continue;
+    const start = new Date(at.getTime() - at.getUTCSeconds() * 1000 - at.getUTCMilliseconds() + (d * 1440 + schedule.from - minute) * 60_000);
+    return start.toISOString();
+  }
+  return null;
+}
+
 export interface DraftView { channel: ChannelView; text: string; updatedAt: string }
 interface DraftRow { sub: string; channelId: string; ciphertext: string; updatedAt: string }
 export interface ScheduledView { id: string; channel: ChannelView; parentId: string | null; sendAt: string; createdAt: string; text: string }

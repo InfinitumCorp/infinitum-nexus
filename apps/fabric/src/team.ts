@@ -27,6 +27,7 @@ import {
   type ReminderRow,
   type Role,
   type ScheduledRow,
+  type TaskRow,
   type TeamMessageRow,
   type WebhookRow,
   type WorkspaceRow,
@@ -41,6 +42,10 @@ export const TEAM_LIMITS = {
   searchScan: 5000,
   activeWindowMs: 5 * 60_000,
   pollOptions: 10,
+  /** Tasks in one channel's list, and the length of a task's title and notes. */
+  tasks: 500,
+  taskTitle: 300,
+  taskNotes: 4_000,
   /** People in one huddle. Media flows peer to peer (a full mesh), so this stays small. */
   huddlePeople: 8,
   /** How long a person may be disconnected before they are taken out of a huddle. */
@@ -358,7 +363,7 @@ export class TeamService {
   // ---------- channels ----------
 
   /** Channels and conversations the caller belongs to, with unread and mention counts. */
-  sidebar(me: FabricIdentity, workspaceId: string): { workspace: WorkspaceView; me: PersonView; channels: ChannelView[]; direct: ChannelView[]; scheduled: number; reminders: number; saved: number } {
+  sidebar(me: FabricIdentity, workspaceId: string): { workspace: WorkspaceView; me: PersonView; channels: ChannelView[]; direct: ChannelView[]; scheduled: number; reminders: number; saved: number; tasks: number } {
     this.member(me, workspaceId);
     this.seen(me.sub);
     const rows = this.store.all<ChannelRow>(
@@ -374,6 +379,7 @@ export class TeamService {
       scheduled: this.store.count("SELECT COUNT(*) FROM team_scheduled s JOIN team_channels c ON c.id = s.channel_id WHERE s.sender = ? AND c.workspace_id = ?", me.sub, workspaceId),
       reminders: this.store.count("SELECT COUNT(*) FROM team_reminders WHERE sub = ? AND workspace_id = ? AND done = 0", me.sub, workspaceId),
       saved: this.store.count("SELECT COUNT(*) FROM team_saved s JOIN team_messages m ON m.id = s.message_id JOIN team_channels c ON c.id = m.channel_id WHERE s.sub = ? AND s.done = 0 AND c.workspace_id = ?", me.sub, workspaceId),
+      tasks: this.myTasks(me, workspaceId).length,
     };
   }
 
@@ -410,13 +416,14 @@ export class TeamService {
     return this.channelView(me, row, true);
   }
 
-  getChannel(me: FabricIdentity, channelId: string): ChannelView & { bookmarks: BookmarkRow[]; pins: number; canvas: boolean; myRole: Role } {
+  getChannel(me: FabricIdentity, channelId: string): ChannelView & { bookmarks: BookmarkRow[]; pins: number; canvas: boolean; openTasks: number; myRole: Role } {
     const { channel, ws } = this.readable(me, channelId);
     return {
       ...this.channelView(me, channel, true),
       bookmarks: this.store.all<BookmarkRow>("SELECT * FROM team_bookmarks WHERE channel_id = ? ORDER BY created_at", channelId),
       pins: this.store.count("SELECT COUNT(*) FROM team_pins WHERE channel_id = ?", channelId),
       canvas: !!this.store.one("SELECT channel_id FROM team_canvases WHERE channel_id = ?", channelId),
+      openTasks: this.store.count("SELECT COUNT(*) FROM team_tasks WHERE channel_id = ? AND done = 0", channelId),
       myRole: ws.role,
     };
   }
@@ -809,6 +816,124 @@ export class TeamService {
     );
     this.publish(this.channelSubs(channelId), { type: "canvas", workspaceId: channel.workspaceId, channelId, sub: me.sub });
     return this.canvas(me, channelId);
+  }
+
+  // ---------- task lists ----------
+  //
+  // Every channel and conversation has a shared list of tasks. Titles and notes are sealed with the
+  // channel's key like messages. Anyone who can post in the channel can add, edit, tick off or remove tasks.
+
+  tasks(me: FabricIdentity, channelId: string): TaskView[] {
+    const { channel } = this.readable(me, channelId);
+    return this.store.all<TaskRow>(
+      "SELECT * FROM team_tasks WHERE channel_id = ? ORDER BY done, CASE WHEN done = 1 THEN done_at END DESC, position, created_at LIMIT 1000", channelId,
+    ).map((t) => this.taskView(channel, t));
+  }
+
+  /** Open tasks assigned to you in channels you can still read, soonest due first. */
+  myTasks(me: FabricIdentity, workspaceId: string): TaskView[] {
+    this.member(me, workspaceId);
+    const rows = this.store.all<TaskRow>(
+      `SELECT t.* FROM team_tasks t JOIN team_channels c ON c.id = t.channel_id
+       WHERE t.assignee = ? AND t.done = 0 AND c.workspace_id = ? AND c.archived_at IS NULL
+       ORDER BY t.due IS NULL, t.due, t.created_at LIMIT 500`, me.sub, workspaceId,
+    );
+    return rows.filter((t) => this.canRead(me, t.channelId)).map((t) => this.taskView(this.channel(t.channelId), t));
+  }
+
+  createTask(me: FabricIdentity, channelId: string, input: { title?: unknown; notes?: unknown; assignee?: unknown; due?: unknown }): TaskView {
+    const { channel } = this.writable(me, channelId);
+    if (this.store.count("SELECT COUNT(*) FROM team_tasks WHERE channel_id = ?", channelId) >= TEAM_LIMITS.tasks) throw fail(400, `a list holds up to ${TEAM_LIMITS.tasks} tasks; remove finished ones first`);
+    const title = label(input.title, "title", TEAM_LIMITS.taskTitle);
+    const notes = taskNotes(input.notes);
+    const assignee = input.assignee === undefined || input.assignee === null || input.assignee === "" ? null : this.taskAssignee(channel, input.assignee);
+    const due = input.due === undefined || input.due === null || input.due === "" ? null : dueDate(input.due);
+    const id = randomUUID();
+    const now = this.stamp();
+    const position = (this.store.one<{ p: number | null }>("SELECT MAX(position) AS p FROM team_tasks WHERE channel_id = ?", channelId)?.p ?? -1) + 1;
+    const row: TaskRow = {
+      id, channelId, ciphertext: seal(JSON.stringify({ title, notes }), this.key(channel), taskAad(channelId, id)),
+      assignee, due, done: 0, position, createdBy: me.sub, createdAt: now, updatedAt: now, doneAt: null, doneBy: null,
+    };
+    this.store.insert("team_tasks", row);
+    this.publishTask(channel, row, me.sub, "added");
+    return this.taskView(channel, row);
+  }
+
+  updateTask(me: FabricIdentity, taskId: string, input: { title?: unknown; notes?: unknown; assignee?: unknown; due?: unknown; done?: unknown; position?: unknown }): TaskView {
+    const row = this.task(taskId);
+    const { channel } = this.writable(me, row.channelId);
+    const content = this.taskContent(channel, row);
+    if (input.title !== undefined) content.title = label(input.title, "title", TEAM_LIMITS.taskTitle);
+    if (input.notes !== undefined) content.notes = taskNotes(input.notes);
+    const assignee = input.assignee === undefined ? row.assignee : input.assignee === null || input.assignee === "" ? null : this.taskAssignee(channel, input.assignee);
+    const due = input.due === undefined ? row.due : input.due === null || input.due === "" ? null : dueDate(input.due);
+    const now = this.stamp();
+    const done = typeof input.done === "boolean" ? (input.done ? 1 : 0) : row.done;
+    this.store.tx(() => {
+      this.store.run(
+        "UPDATE team_tasks SET ciphertext = ?, assignee = ?, due = ?, done = ?, done_at = ?, done_by = ?, updated_at = ? WHERE id = ?",
+        seal(JSON.stringify(content), this.key(channel), taskAad(channel.id, row.id)), assignee, due, done,
+        done === row.done ? row.doneAt : done ? now : null, done === row.done ? row.doneBy : done ? me.sub : null, now, row.id,
+      );
+      if (typeof input.position === "number" && Number.isInteger(input.position)) {
+        const ids = this.store.all<{ id: string }>("SELECT id FROM team_tasks WHERE channel_id = ? AND done = 0 ORDER BY position, created_at", channel.id).map((t) => t.id).filter((id) => id !== row.id);
+        ids.splice(Math.max(0, Math.min(ids.length, input.position)), 0, row.id);
+        ids.forEach((id, i) => this.store.run("UPDATE team_tasks SET position = ? WHERE id = ?", i, id));
+      }
+    });
+    const updated = this.task(row.id);
+    this.publishTask(channel, updated, me.sub, done !== row.done ? (done ? "done" : "reopened") : assignee !== row.assignee ? "assigned" : "updated");
+    return this.taskView(channel, updated);
+  }
+
+  deleteTask(me: FabricIdentity, taskId: string): void {
+    const row = this.task(taskId);
+    const { channel } = this.writable(me, row.channelId);
+    this.store.run("DELETE FROM team_tasks WHERE id = ?", row.id);
+    this.publishTask(channel, row, me.sub, "removed");
+  }
+
+  private task(id: string): TaskRow {
+    const row = this.store.one<TaskRow>("SELECT * FROM team_tasks WHERE id = ?", uuid(id));
+    if (!row) throw fail(404, "not found");
+    return row;
+  }
+
+  /** The person a task is assigned to must be able to read the channel. */
+  private taskAssignee(channel: ChannelRow, value: unknown): string {
+    if (typeof value !== "string") throw fail(400, "assignee must be a username");
+    const member = this.memberByUsername(channel.workspaceId, value);
+    const canSee = channel.kind === "public" && member.role !== "guest" ? true : !!this.channelMember(channel.id, member.sub);
+    if (!canSee) throw fail(400, "that person can't see this channel; add them first");
+    return member.sub;
+  }
+
+  private taskContent(channel: ChannelRow, row: TaskRow): { title: string; notes: string } {
+    const parsed = JSON.parse(open(row.ciphertext, this.key(channel), taskAad(channel.id, row.id))) as { title: string; notes: string };
+    return { title: parsed.title, notes: parsed.notes ?? "" };
+  }
+
+  private taskView(channel: ChannelRow, row: TaskRow): TaskView {
+    let content: { title: string; notes: string };
+    try {
+      content = this.taskContent(channel, row);
+    } catch {
+      content = { title: "(this task could not be read)", notes: "" };
+    }
+    const ws = channel.workspaceId;
+    return {
+      id: row.id, channelId: channel.id, channelName: channel.name, channelKind: channel.kind, ...content,
+      assignee: row.assignee ? this.person(ws, row.assignee) : null, due: row.due, done: !!row.done,
+      doneAt: row.doneAt, doneBy: row.doneBy ? this.person(ws, row.doneBy) : null,
+      createdBy: this.person(ws, row.createdBy), createdAt: row.createdAt, updatedAt: row.updatedAt,
+    };
+  }
+
+  private publishTask(channel: ChannelRow, row: TaskRow, sub: string, action: string): void {
+    const subs = new Set(this.channelSubs(channel.id));
+    if (row.assignee) subs.add(row.assignee);
+    this.publish([...subs], { type: "task", workspaceId: channel.workspaceId, channelId: channel.id, taskId: row.id, sub, action, assignee: row.assignee });
   }
 
   // ---------- user groups ----------
@@ -1933,6 +2058,28 @@ export function parseIceServers(text: string | undefined): IceServer[] {
 }
 
 function pollAad(channelId: string, id: string): string { return `fabric-team-poll:${channelId}:${id}`; }
+function taskAad(channelId: string, id: string): string { return `fabric-team-task:${channelId}:${id}`; }
+
+export interface TaskView {
+  id: string; channelId: string; channelName: string | null; channelKind: ChannelKind; title: string; notes: string;
+  assignee: PersonView | null; due: string | null; done: boolean; doneAt: string | null; doneBy: PersonView | null;
+  createdBy: PersonView; createdAt: string; updatedAt: string;
+}
+
+function taskNotes(value: unknown): string {
+  if (value === undefined || value === null) return "";
+  if (typeof value !== "string") throw fail(400, "notes must be text");
+  if (value.length > TEAM_LIMITS.taskNotes) throw fail(400, "notes are too long");
+  return value;
+}
+
+/** A due date as YYYY-MM-DD. */
+export function dueDate(value: unknown): string {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) throw fail(400, "due must be a date like 2026-12-31");
+  const d = new Date(`${value}T00:00:00Z`);
+  if (Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== value) throw fail(400, "due must be a real date");
+  return value;
+}
 
 /** "10m", "2 hours", "1d" → milliseconds. */
 export function duration(text: string): number | null {

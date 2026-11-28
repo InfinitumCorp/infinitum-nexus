@@ -154,6 +154,7 @@ async function loadSidebar() {
   $("#count-saved").textContent = bar.saved || "";
   $("#count-scheduled").textContent = bar.scheduled || "";
   $("#count-reminders").textContent = bar.reminders || "";
+  $("#count-tasks").textContent = bar.tasks || "";
   const row = (c) => h("li", {}, h("button", {
     type: "button", class: `${c.unread && !c.muted ? "unread" : ""}${c.muted ? " muted" : ""}`, "aria-current": state.channel?.id === c.id ? "true" : null,
     onclick: tryRun(() => openChannel(c.id)),
@@ -234,6 +235,7 @@ function renderHead() {
       h("button", { type: "button", class: "btn small", onclick: tryRun(showMembers) }, `${c.memberCount} ${c.memberCount === 1 ? "member" : "members"}`),
       h("button", { type: "button", class: "btn small", onclick: tryRun(showPins) }, `Pins${c.pins ? ` ${c.pins}` : ""}`),
       h("button", { type: "button", class: "btn small", onclick: tryRun(showCanvas) }, c.canvas ? "Canvas •" : "Canvas"),
+      h("button", { type: "button", class: "btn small", onclick: tryRun(() => showList()) }, `List${c.openTasks ? ` ${c.openTasks}` : ""}`),
       h("button", { type: "button", class: "btn small", onclick: tryRun(() => showFiles(c.id)) }, "Files"),
       huddleButton(c),
       !c.member && !c.archived ? h("button", { type: "button", class: "btn primary small", onclick: tryRun(async () => { await api(T(`/channels/${c.id}/join`), { method: "POST", body: {} }); await openChannel(c.id); }) }, "Join channel") : null,
@@ -571,11 +573,87 @@ $("#older").addEventListener("click", tryRun(async () => {
 // ---------- side panel ----------
 
 function panel(title, ...content) {
+  state.listChannel = null;
   $("#panel").hidden = false;
   $("#panel-title").textContent = title;
   $("#panel-body").replaceChildren(...content.filter((c) => c !== null && c !== undefined && c !== false));
 }
-$("#panel-close").addEventListener("click", () => { $("#panel").hidden = true; state.thread = null; });
+$("#panel-close").addEventListener("click", () => { $("#panel").hidden = true; state.thread = null; state.listChannel = null; });
+
+// ---------- task lists ----------
+
+const today = () => { const d = new Date(); return new Date(d.getTime() - d.getTimezoneOffset() * 60_000).toISOString().slice(0, 10); };
+const dueLabel = (due) => {
+  if (!due) return null;
+  const t = today();
+  const text = due === t ? "Today" : new Date(`${due}T12:00:00`).toLocaleDateString([], { month: "short", day: "numeric" });
+  return h("span", { class: `t-due${due < t ? " late" : due === t ? " soon" : ""}`, title: due < t ? "Overdue" : "Due" }, `📅 ${text}`);
+};
+
+function taskItem(task, { showChannel = false, onChange }) {
+  const box = h("input", { type: "checkbox", "aria-label": task.done ? "Mark as not done" : "Mark as done" });
+  box.checked = task.done;
+  box.addEventListener("change", tryRun(async () => { await api(T(`/tasks/${task.id}`), { method: "PATCH", body: { done: box.checked } }); await onChange(); }));
+  return h("li", { class: `t-task${task.done ? " done" : ""}` },
+    box,
+    h("div", { class: "t-task-body" },
+      h("span", { class: "t-task-title" }, ...inline(task.title)),
+      task.notes ? h("p", { class: "meta t-task-notes" }, task.notes) : null,
+      h("p", { class: "t-row meta" },
+        showChannel ? h("button", { type: "button", class: "link meta", onclick: tryRun(() => showList(task.channelId)) }, chanName(task.channelId)) : null,
+        task.assignee ? h("span", {}, `@${task.assignee.username}`) : null,
+        task.done ? null : dueLabel(task.due),
+        task.done && task.doneBy ? h("span", {}, `done by ${task.doneBy.displayName}`) : null)),
+    h("button", { type: "button", class: "link", "aria-label": "Task options", onclick: (e) => menu(e.currentTarget, [
+      ["Edit task", () => editTask(task, onChange)],
+      ["Remove task", async () => { if (confirm(`Remove “${task.title}”?`)) { await api(T(`/tasks/${task.id}`), { method: "DELETE" }); await onChange(); } }],
+    ]) }, "⋯"));
+}
+
+async function taskFields(channelId, task) {
+  const { people } = await api(T(`/channels/${channelId}/people`));
+  return [
+    { name: "title", label: "Task", value: task?.title, max: 300, required: true },
+    { name: "assignee", label: "Assignee", type: "select", value: task?.assignee?.username || "", options: [["", "Nobody"], ...people.map((p) => [p.username, `${p.displayName} (@${p.username})`])] },
+    { name: "due", label: "Due date", type: "date", value: task?.due || "" },
+    { name: "notes", label: "Notes", type: "textarea", rows: 3, max: 4000, value: task?.notes || "" },
+  ];
+}
+
+async function editTask(task, onChange) {
+  const r = await dialog("Edit task", await taskFields(task.channelId, task), "Save");
+  if (!r) return;
+  await api(T(`/tasks/${task.id}`), { method: "PATCH", body: { title: r.title, assignee: r.assignee || null, due: r.due || null, notes: r.notes } });
+  await onChange();
+}
+
+async function showList(channelId = state.channel?.id) {
+  if (!channelId) return;
+  const { tasks } = await api(T(`/channels/${channelId}/tasks`));
+  state.thread = null;
+  const c = [...state.bar.channels, ...state.bar.direct].find((x) => x.id === channelId) || state.channel;
+  const canEdit = c && c.member !== false && !c.archived;
+  const refresh = async () => { await showList(channelId); if (state.channel?.id === channelId) await refreshChannel(); await loadSidebar(); };
+  const open = tasks.filter((t) => !t.done);
+  const done = tasks.filter((t) => t.done);
+  const title = h("input", { class: "input", maxlength: 300, placeholder: "Add a task", "aria-label": "New task" });
+  const add = h("form", { class: "t-task-add", onsubmit: tryRun(async (e) => {
+    e.preventDefault();
+    if (!title.value.trim()) return;
+    await api(T(`/channels/${channelId}/tasks`), { method: "POST", body: { title: title.value } });
+    await refresh();
+    document.querySelector(".t-task-add input")?.focus();
+  }) }, title, h("button", { type: "submit", class: "btn small" }, "Add"),
+    h("button", { type: "button", class: "btn small", onclick: tryRun(async () => {
+      const r = await dialog("New task", await taskFields(channelId, null), "Add");
+      if (r) { await api(T(`/channels/${channelId}/tasks`), { method: "POST", body: { title: r.title, assignee: r.assignee || null, due: r.due || null, notes: r.notes } }); await refresh(); }
+    }) }, "More…"));
+  panel(`List · ${c ? chanLabel(c) : "channel"}`,
+    canEdit ? add : null,
+    open.length ? h("ul", { class: "t-tasks" }, ...open.map((t) => taskItem(t, { onChange: refresh }))) : h("p", { class: "meta" }, "A shared to-do list for this channel. Add tasks, assign them and set due dates."),
+    done.length ? h("details", {}, h("summary", { class: "meta" }, `${done.length} done`), h("ul", { class: "t-tasks" }, ...done.map((t) => taskItem(t, { onChange: refresh })))) : null);
+  state.listChannel = channelId;
+}
 
 async function openThread(id, keepScroll = false) {
   state.thread = await api(T(`/messages/${id}/thread`));
@@ -761,6 +839,10 @@ async function showView(view) {
       h("p", { class: "t-row" }, h("button", { type: "button", class: "btn small", onclick: tryRun(async () => { await api(T(`/reminders/${r.id}`), { method: "PATCH", body: { done: !r.done } }); await loadSidebar(); await showView("reminders"); }) }, r.done ? "Reopen" : "Mark complete"),
         h("button", { type: "button", class: "btn small", onclick: tryRun(async () => { await api(T(`/reminders/${r.id}`), { method: "PATCH", body: { at: new Date(Date.now() + 20 * 60_000).toISOString() } }); await showView("reminders"); }) }, "Snooze 20 min"),
         h("button", { type: "button", class: "btn small", onclick: tryRun(async () => { await api(T(`/reminders/${r.id}`), { method: "DELETE" }); await loadSidebar(); await showView("reminders"); }) }, "Delete")))));
+  } else if (view === "tasks") {
+    const { tasks } = await api(T(`/workspaces/${ws}/tasks`));
+    viewShell("My tasks", tasks.length ? h("li", {}, h("ul", { class: "t-tasks" }, ...tasks.map((t) => taskItem(t, { showChannel: true, onChange: async () => { await loadSidebar(); await showView("tasks"); } }))))
+      : h("li", { class: "meta" }, "Tasks assigned to you in any channel's List show up here."));
   } else if (view === "files") {
     viewShell("Files", h("li", {}, await showFiles()));
   } else if (view === "people") {
@@ -814,6 +896,15 @@ function connect() {
       return;
     }
     if (ev.type === "read" || ev.type === "presence" || ev.type === "members") { soon(loadSidebar); return; }
+    if (ev.type === "task") {
+      soon(async () => {
+        if (state.listChannel === ev.channelId && !$("#panel").hidden) await showList(ev.channelId);
+        if (state.channel?.id === ev.channelId) await refreshChannel();
+        if (state.view === "tasks") await showView("tasks");
+        await loadSidebar();
+      });
+      return;
+    }
     if (ev.type === "message" && ev.sub !== state.me.sub) { notify(ev); state.typing.delete(ev.username); }
     if (ev.type === "message" && ev.mentioned?.includes(state.me.sub)) $("#badge-activity").hidden = false;
     soon(async () => {

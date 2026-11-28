@@ -371,7 +371,7 @@ def main() -> None:
             documents = Documents(redactor, doc_store, limits)
     else:
         catalog = None
-    if dsn:
+    if dsn or doc_store is not None:  # stores without purge_expired are skipped
         threading.Thread(target=_purge_daily, args=(index, doc_store), daemon=True).start()
     guest_tokens = None
     guest_secret = os.environ.get("SUPERSET_GUEST_TOKEN_SECRET", "")

@@ -379,12 +379,32 @@ async function blockedOnTab(tabId, since) {
   return { blocked, byCategory };
 }
 
+/** Same page, only the query or fragment changed (our own tracking-parameter strip, or an in-page URL update). */
+function samePage(a, b) {
+  try {
+    const x = new URL(a);
+    const y = new URL(b);
+    return x.origin === y.origin && x.pathname === y.pathname;
+  } catch {
+    return false;
+  }
+}
+
 function onNavigate(tabId, url) {
   const prev = tabs.get(tabId);
   const pending = (prev?.pending ?? []).filter((p) => Date.now() - p.at < 10_000).map((p) => p.issue);
   let host = "";
   try { host = new URL(url).hostname; } catch {}
-  tabs.set(tabId, { host, url, since: Date.now(), stripped: 0, issues: mergeIssues(assessUrl(url), pending), pending: [] });
+  // Keep this page's counters when only its query changed: stripping tracking parameters rewrites the
+  // URL after the page has loaded, and must not zero the trackers already blocked on it.
+  const keep = prev && samePage(prev.url, url);
+  tabs.set(tabId, {
+    host, url,
+    since: keep ? prev.since : Date.now(),
+    stripped: keep ? prev.stripped : 0,
+    issues: mergeIssues(assessUrl(url), pending),
+    pending: [],
+  });
   return flagTab(tabId);
 }
 

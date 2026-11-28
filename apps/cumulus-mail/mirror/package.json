@@ -1,0 +1,8 @@
+{
+  "name": "cumulus-mail-mirror",
+  "private": true,
+  "type": "module",
+  "description": "Cumulus://Mail Russian mirror: Cloud Run pass-through behind Firebase Hosting",
+  "engines": { "node": ">=22" },
+  "scripts": { "start": "node server.mjs", "test": "node --test" }
+}

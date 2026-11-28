@@ -2,7 +2,7 @@
   "name": "cumulus-mail-desktop",
   "productName": "Cumulus Mail",
   "version": "1.1.0",
-  "description": "Cumulus://Mail for Windows, macOS and Linux.",
+  "description": "Cumulus://Mail™ for Windows, macOS and Linux.",
   "author": {
     "name": "Infinitum Corporation",
     "email": "info@theinfinitumcorporation.com"
@@ -62,7 +62,8 @@
       "oneClick": true,
       "perMachine": false,
       "deleteAppDataOnUninstall": false,
-      "shortcutName": "Cumulus Mail"
+      "shortcutName": "Cumulus Mail™",
+      "uninstallDisplayName": "Cumulus://Mail™"
     },
     "mac": {
       "target": [
@@ -78,7 +79,7 @@
       }
     },
     "dmg": {
-      "title": "Cumulus Mail"
+      "title": "Cumulus Mail™"
     },
     "linux": {
       "target": [
@@ -88,7 +89,7 @@
       "category": "Office;Email",
       "icon": "build/icon.png",
       "maintainer": "Infinitum Corporation <info@theinfinitumcorporation.com>",
-      "synopsis": "Private email for every Cumulus://ID",
+      "synopsis": "Private email for every Cumulus://ID™",
       "mimeTypes": [
         "x-scheme-handler/mailto",
         "x-scheme-handler/cumulus-mail"
@@ -102,5 +103,8 @@
   },
   "allowScripts": {
     "electron-winstaller": false
+  },
+  "overrides": {
+    "minimatch@>=7.0.0 <11.0.1": "11.0.1"
   }
 }

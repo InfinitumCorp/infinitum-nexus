@@ -10,7 +10,10 @@ test("heartbeat v1 and v2 normalize source and mode without executing it", () =>
     assert.equal(value!.kind, "heartbeat"); assert.equal(value!.systemId, 1);
     assert.equal(value!.componentId, 1); assert.equal(value!.sequence, 7);
     assert.equal(value!.data.armed, true);
+    assert.equal(value!.data.stack, "ardupilot");
   }
+  const px4 = Buffer.from("00000000020cd10403", "hex");
+  assert.equal(decodeTelemetry(frame(0, px4))[0]!.data.stack, "px4");
 });
 test("position uses WGS84 degrees, MSL/relative altitude metres and NED velocities", () => {
   const p = Buffer.alloc(28); p.writeUInt32LE(1234); p.writeInt32LE(551234567, 4); p.writeInt32LE(371234567, 8);

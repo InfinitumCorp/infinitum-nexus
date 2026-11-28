@@ -1,0 +1,6 @@
+node_modules
+*.test.mjs
+firebase.json
+empty
+.firebase
+README.md

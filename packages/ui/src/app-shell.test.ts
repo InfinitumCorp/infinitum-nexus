@@ -8,7 +8,8 @@ import { render } from "../scripts/sync.mjs";
 const pkg = join(dirname(fileURLToPath(import.meta.url)), "..");
 const root = join(pkg, "..", "..");
 const css = readFileSync(join(pkg, "app-shell.css"), "utf8");
-const { copies } = JSON.parse(readFileSync(join(pkg, "copies.json"), "utf8")) as { copies: string[] };
+const { copies, barCopies } = JSON.parse(readFileSync(join(pkg, "copies.json"), "utf8")) as { copies: string[]; barCopies: string[] };
+const bar = readFileSync(join(pkg, "cumulus-bar.js"), "utf8");
 
 test("uses exactly the RULES palette", () => {
   const hexes = new Set((css.match(/#[0-9a-f]{3,8}\b/gi) ?? []).map((h) => h.toLowerCase()));
@@ -36,5 +37,13 @@ for (const rel of copies) {
     const path = join(root, rel);
     assert.ok(existsSync(path), `${rel} is missing; run the sync script`);
     assert.equal(readFileSync(path, "utf8"), render(rel, css), `${rel} drifted; run the sync script`);
+  });
+}
+
+for (const rel of barCopies) {
+  test(`vendored Cumulus://ID account bar is identical: ${rel}`, () => {
+    const path = join(root, rel);
+    assert.ok(existsSync(path), `${rel} is missing; run the sync script`);
+    assert.equal(readFileSync(path, "utf8"), bar, `${rel} drifted; run the sync script`);
   });
 }

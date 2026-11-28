@@ -1,0 +1,7 @@
+{
+  "hosting": {
+    "site": "cumulus-id-ru",
+    "public": "empty",
+    "rewrites": [{ "source": "**", "run": { "serviceId": "cumulus-id-ru", "region": "europe-north1" } }]
+  }
+}

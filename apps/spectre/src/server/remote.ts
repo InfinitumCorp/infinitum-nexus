@@ -26,19 +26,24 @@ export interface DocRow {
 /** The gateway's two operations. Implemented over HTTP in production and in memory in tests. */
 export interface NexusGateway {
   load(since: number, versions: Record<string, number>): Promise<{ entries: Entry[]; docs: DocRow[] }>;
-  /** Throws ConflictError if any expected version is stale or a ledger seq is taken. */
-  commit(entries: Entry[], docs: { id: string; expected: number; data: Record<string, unknown> }[]): Promise<Record<string, number>>;
+  /**
+   * Throws ConflictError if any expected version is stale or a ledger seq is taken, or (with `rows`)
+   * if a Cumulus://ID row changed since the request read it. Everything is saved or nothing is.
+   */
+  commit(entries: Entry[], docs: { id: string; expected: number; data: Record<string, unknown> }[], rows?: unknown[]): Promise<Record<string, number>>;
+  /** Cumulus://ID row lookups (nexus-store "cid.read"). Only gateways that hold the rows have it. */
+  readRows?(ops: unknown[]): Promise<unknown[]>;
 }
 
 export class HttpGateway implements NexusGateway {
   private readonly url: string;
   private readonly key: string;
   private readonly fetchImpl: typeof fetch;
-  // The default wraps fetch: Workers reject fetch called as a method of another object.
-  constructor(url: string, key: string, fetchImpl: typeof fetch = (input, init) => fetch(input, init)) {
+  constructor(url: string, key: string, fetchImpl: typeof fetch = fetch) {
     this.url = url;
     this.key = key;
-    this.fetchImpl = fetchImpl;
+    // Call fetch as a plain function: Workers throw "Illegal invocation" when it runs with this = HttpGateway.
+    this.fetchImpl = (input, init) => fetchImpl(input, init);
   }
   private async call<T>(body: unknown): Promise<T> {
     const res = await this.fetchImpl(this.url, {
@@ -48,14 +53,17 @@ export class HttpGateway implements NexusGateway {
     });
     if (res.status === 409) throw new ConflictError();
     const text = await res.text();
-    if (!res.ok) throw new Error(`Data store error ${res.status}: ${text.slice(0, 200)}`);
+    if (!res.ok) throw new StoreError(`Data store error ${res.status}: ${text.slice(0, 200)}`);
     return JSON.parse(text) as T;
   }
   load(since: number, versions: Record<string, number>) {
     return this.call<{ entries: Entry[]; docs: DocRow[] }>({ op: "load", since, versions });
   }
-  commit(entries: Entry[], docs: { id: string; expected: number; data: Record<string, unknown> }[]) {
-    return this.call<Record<string, number>>({ op: "commit", entries, docs });
+  commit(entries: Entry[], docs: { id: string; expected: number; data: Record<string, unknown> }[], rows?: unknown[]) {
+    return this.call<Record<string, number>>({ op: "commit", entries, docs, ...(rows?.length ? { cid: rows } : {}) });
+  }
+  async readRows(ops: unknown[]) {
+    return (await this.call<{ results: unknown[] }>({ op: "cid.read", ops })).results;
   }
 }
 
@@ -74,7 +82,44 @@ export class RemoteLedgerStore implements LedgerStore {
   }
 }
 
+/**
+ * Phase 0 of docs/plans/relational-storage.md: how big each whole-store document is and how often
+ * concurrent requests collide. Byte counts and counters only; never any content.
+ */
+export interface StoreStats {
+  transactions: number;
+  /** Commits refused because another instance saved first (each one re-runs the request). */
+  conflicts: number;
+  /** Requests that still conflicted after every re-run and failed. */
+  exhausted: number;
+  commits: number;
+  /** Participant commits that failed after the ledger was saved (should stay 0; alert on it). */
+  participantFailures?: number;
+  /** Cumulus://ID row writes saved with the ledger (CUMULUS_STORE=gateway), and the commits that carried them. */
+  rowWrites?: number;
+  rowCommits?: number;
+  /** Per document: bytes written in total, size at the last write, and the largest size seen. */
+  docs: Record<string, { writes: number; bytesWritten: number; lastBytes: number; maxBytes: number }>;
+}
+
+/**
+ * Another store that must commit or roll back with each request (e.g. Cumulus://ID's Postgres rows,
+ * see PgRequestScope in @infinitum/cid). begin() runs before the request; commit() only after the
+ * ledger and documents were saved; rollback() whenever they weren't, including before a re-run.
+ */
+export interface TransactionParticipant {
+  begin(): Promise<void>;
+  commit(): Promise<void>;
+  rollback(): Promise<void>;
+}
+
 export class RemoteState {
+  /** Counters since this instance started. */
+  readonly stats: StoreStats = { transactions: 0, conflicts: 0, exhausted: 0, commits: 0, docs: {} };
+  /** Where metrics lines go. Default console.log; null turns them off. */
+  metricsLog: ((line: string) => void) | null = (line) => console.log(line);
+  /** A metrics line every this many transactions (and on every conflict). */
+  metricsEvery = 100;
   readonly ledgerStore = new RemoteLedgerStore();
   private readonly gateway: NexusGateway;
   private readonly docs: Record<string, object>;
@@ -82,6 +127,25 @@ export class RemoteState {
   /** Serialized state as last loaded or saved, to detect changes and to roll back. */
   private baseline: Record<string, string> = {};
   private queue: Promise<unknown> = Promise.resolve();
+  /** Stores that commit and roll back with each request. Set before the first request. */
+  participants: TransactionParticipant[] = [];
+  /**
+   * Row writes saved by the gateway in the same transaction as the ledger and documents
+   * (Cumulus://ID rows behind nexus-store). Read at commit; the source resets itself via begin/rollback.
+   */
+  rows: { pending(): unknown[] } | null = null;
+  /** Work to do once the current attempt is saved (null: no request is running). */
+  private committedHooks: (() => Promise<void>)[] | null = null;
+
+  /**
+   * Run `fn` once the current request is saved: never for an attempt that is rolled back or re-run.
+   * For what can't be undone and must not happen unless the change is kept, such as deleting a stored
+   * file. Outside a request it runs now. A failure is logged, not thrown: the change is already saved.
+   */
+  afterCommit(fn: () => Promise<void>): void {
+    if (this.committedHooks) this.committedHooks.push(fn);
+    else void fn().catch((err) => console.error(`remote: after-commit step failed: ${(err as Error).message}`));
+  }
 
   /** @param docs named stores to keep in sync, e.g. { cid: cidStore, spectre: spectreStore } */
   constructor(gateway: NexusGateway, docs: Record<string, object>) {
@@ -99,10 +163,18 @@ export class RemoteState {
     this.ledgerStore.committed.push(...entries.sort((a, b) => a.seq - b.seq));
     for (const row of docs) {
       const store = this.docs[row.id];
-      if (!store) continue;
+      if (!store) {
+        // A document this host doesn't keep (e.g. `cid` once ID is in rows): remember its version so
+        // the gateway stops sending it with every request.
+        this.versions[row.id] = row.version;
+        continue;
+      }
       applySnapshot(store, row.data);
       this.versions[row.id] = row.version;
-      this.baseline[row.id] = JSON.stringify(row.data);
+      // The store as it now is, serialized the way commit() compares it. Not row.data: Postgres jsonb
+      // returns object keys in its own order, so that string never equals the store's, and every
+      // request after a load rewrote the whole document (and made every other server load it again).
+      this.baseline[row.id] = JSON.stringify(toSnapshot(store));
     }
   }
 
@@ -125,14 +197,41 @@ export class RemoteState {
         serialized[id] = json;
       }
     }
+    // In id order, as every host sends them: the database locks them in this order, so two commits (or a
+    // commit and a rows claim) can't each hold one document the other waits for.
+    changed.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
     const entries = this.ledgerStore.pending;
-    if (!changed.length && !entries.length) return;
-    const versions = await this.gateway.commit(entries, changed);
+    const rows = this.rows?.pending() ?? [];
+    if (!changed.length && !entries.length && !rows.length) return;
+    const versions = await (rows.length ? this.gateway.commit(entries, changed, rows) : this.gateway.commit(entries, changed));
+    this.stats.commits++;
+    if (rows.length) {
+      this.stats.rowWrites = (this.stats.rowWrites ?? 0) + rows.length;
+      this.stats.rowCommits = (this.stats.rowCommits ?? 0) + 1;
+    }
+    for (const d of changed) {
+      const bytes = Buffer.byteLength(serialized[d.id]!, "utf8");
+      const s = (this.stats.docs[d.id] ??= { writes: 0, bytesWritten: 0, lastBytes: 0, maxBytes: 0 });
+      s.writes++;
+      s.bytesWritten += bytes;
+      s.lastBytes = bytes;
+      s.maxBytes = Math.max(s.maxBytes, bytes);
+    }
     this.ledgerStore.committed.push(...entries);
     this.ledgerStore.pending = [];
     for (const [id, v] of Object.entries(versions)) {
       this.versions[id] = v;
       if (serialized[id]) this.baseline[id] = serialized[id];
+    }
+  }
+
+  /** One JSON line with the counters, tagged so it can be filtered in Workers/Vercel logs. */
+  private emit(reason: string) {
+    if (!this.metricsLog) return;
+    try {
+      this.metricsLog(JSON.stringify({ metric: "nexus-store", reason, ...this.stats }));
+    } catch {
+      // Metrics must never break a request.
     }
   }
 
@@ -145,7 +244,16 @@ export class RemoteState {
    */
   transaction<T>(fn: () => Promise<T>): Promise<T> {
     const attempt = async (retries: number): Promise<T> => {
+      const begun: TransactionParticipant[] = [];
+      const rollbackParticipants = async () => {
+        for (const p of begun.splice(0)) await p.rollback().catch(() => undefined);
+      };
+      this.committedHooks = [];
       try {
+        for (const p of this.participants) {
+          await p.begin();
+          begun.push(p);
+        }
         await this.sync();
         let outcome: { ok: true; value: T } | { ok: false; error: unknown };
         try {
@@ -153,13 +261,40 @@ export class RemoteState {
         } catch (error) {
           outcome = { ok: false, error };
         }
+        // Postgres ended the request's transaction to let another one through (a deadlock, or a
+        // serialization failure): nothing of it can be saved, so treat it as a conflict and re-run.
+        if (!outcome.ok && isRetryableDatabaseError(outcome.error)) throw new ConflictError();
+        // The store itself failed part way (a gateway read, a database statement): the request did only
+        // part of its work, so nothing of it is saved. Refusals (a wrong code, a taken name) still are.
+        if (!outcome.ok && isStoreFailure(outcome.error)) throw outcome.error;
         await this.commit();
+        // The ledger and documents are saved: now the participants. A failure here leaves them
+        // behind the ledger, which can't be undone any more; it is reported, never silent.
+        for (const p of begun.splice(0)) {
+          try {
+            await p.commit();
+          } catch (err) {
+            this.stats.participantFailures = (this.stats.participantFailures ?? 0) + 1;
+            this.emit("participant-commit-failed");
+            await rollbackParticipants();
+            throw err;
+          }
+        }
+        // Saved, whatever the request answered: now the steps that had to wait for that.
+        const hooks = this.committedHooks ?? [];
+        this.committedHooks = null;
+        for (const hook of hooks) await hook().catch((err) => console.error(`remote: after-commit step failed: ${(err as Error).message}`));
         if (!outcome.ok) throw outcome.error;
         return outcome.value;
       } catch (err) {
+        this.committedHooks = null;
+        await rollbackParticipants();
         if (err instanceof ConflictError) {
           this.rollback();
+          this.stats.conflicts++;
+          this.emit("conflict");
           if (retries > 0) return attempt(retries - 1);
+          this.stats.exhausted++;
           throw new Error("The data store is busy. Please try again.");
         }
         // Handler errors were already committed above; anything else (e.g. the store is down)
@@ -168,10 +303,29 @@ export class RemoteState {
         throw err;
       }
     };
+    this.stats.transactions++;
+    if (this.metricsEvery > 0 && this.stats.transactions % this.metricsEvery === 0) this.emit("periodic");
     const run = this.queue.then(() => attempt(2));
     this.queue = run.catch(() => undefined);
     return run;
   }
+}
+
+
+/** The data store failed (as opposed to the request refusing something). */
+export class StoreError extends Error {}
+
+/** A gateway error, or any Postgres error (a five-character SQLSTATE such as 23505). */
+export function isStoreFailure(err: unknown): boolean {
+  if (err instanceof StoreError) return true;
+  const code = (err as { code?: unknown } | null)?.code;
+  return typeof code === "string" && /^[0-9A-Z]{5}$/.test(code);
+}
+
+/** Postgres errors after which the whole transaction is gone but running it again can succeed. */
+export function isRetryableDatabaseError(err: unknown): boolean {
+  const code = (err as { code?: unknown } | null)?.code;
+  return code === "40P01" /* deadlock_detected */ || code === "40001" /* serialization_failure */;
 }
 
 /** In-memory gateway with the same rules as the database function (tests, local runs). */

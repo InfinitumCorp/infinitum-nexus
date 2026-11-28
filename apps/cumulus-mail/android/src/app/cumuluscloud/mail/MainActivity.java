@@ -9,6 +9,7 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.telephony.TelephonyManager;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -42,11 +43,34 @@ public class MainActivity extends Activity {
         final String mirror = getString(R.string.mirror_url);
         final Handler ui = new Handler(Looper.getMainLooper());
         new Thread(() -> {
-            // The main site is the default and needs nothing else. Switch to the mirror only when the
-            // main site is throttled AND the mirror answers, so the app works with no mirror at all.
-            String base = !mirror.isEmpty() && !reachable(main) && reachable(mirror) ? mirror : main;
-            ui.post(() -> open(targetFor(intent, base)));
+            // The main site is the default and needs nothing else. On a Russian mobile network the
+            // throttling of Cloudflare comes and goes, so a quick probe can pass while the page itself
+            // then crawls; there the mirror is used whenever it answers. Elsewhere, switch only when
+            // the main site is throttled AND the mirror answers, so the app works with no mirror at all.
+            String base = main;
+            if (!mirror.isEmpty()) {
+                if (onRussianNetwork()) {
+                    if (reachable(mirror)) base = mirror;
+                } else if (!reachable(main) && reachable(mirror)) {
+                    base = mirror;
+                }
+            }
+            final String chosen = base;
+            ui.post(() -> open(targetFor(intent, chosen)));
         }).start();
+    }
+
+    /** True when the phone is registered on a Russian mobile network (or, with none, has a Russian SIM). Needs no permission. */
+    private boolean onRussianNetwork() {
+        try {
+            TelephonyManager tm = (TelephonyManager) getSystemService(TELEPHONY_SERVICE);
+            if (tm == null) return false;
+            String country = tm.getNetworkCountryIso();
+            if (country == null || country.isEmpty()) country = tm.getSimCountryIso();
+            return "ru".equalsIgnoreCase(country);
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     /** True if the first PROBE_BYTES of the main site's app script arrive within PROBE_MS. */

@@ -21,6 +21,9 @@ body {
 
 header { border-bottom: 1px solid var(--line); padding-bottom: 1rem; }
 
+.head-row { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 1rem; }
+.head-row [data-cumulus-bar] { flex: none; }
+
 .mark {
   margin: 0;
   letter-spacing: 0.16em;

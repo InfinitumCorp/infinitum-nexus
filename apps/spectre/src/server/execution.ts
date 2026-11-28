@@ -23,6 +23,6 @@ export async function listPendingActions(crm: SpectreCRM, workspace: string) {
 
 export async function runPendingActions(crm: SpectreCRM, workspace: string) {
   const actions = await listPendingActions(crm, workspace);
-  const results = await executeAll(actions, crm);
+  const results = await executeAll(actions, { crm, workspace });
   return { actions, results };
 }

@@ -7,6 +7,10 @@ export type { Simulation, Persona, Post, Report as ConjureReport, RoundStats, Co
 
 export { createConjureLabyrinth } from "./labyrinth.ts";
 
+/** Seed a forecast from the web with Infinitum Search when no material was given. */
+export { webSeed } from "./web-seed.ts";
+export type { WebSeed } from "./web-seed.ts";
+
 /** @conjure: reach Conjure from any product by mentioning it. */
 export {
   parseConjureMention, hasConjureMention, formatForecast, createConjureLive, conjureLiveFromEnv, handleConjureMention, ConjureApiError,

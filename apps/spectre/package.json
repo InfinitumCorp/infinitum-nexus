@@ -10,24 +10,28 @@
   "scripts": {
     "start": "node src/server/main.ts",
     "typecheck": "tsc -p . --noEmit",
-    "test": "node --test --experimental-strip-types $(find src -name \"*.test.ts\" 2>/dev/null || true)"
+    "test": "node --test --experimental-strip-types \"src/**/*.test.ts\" scripts/live-ui.test.mjs"
   },
   "dependencies": {
     "@infinitum/ai": "workspace:*",
-    "@infinitum/firmament": "workspace:*",
-    "@infinitum/cid": "workspace:*",
     "@infinitum/architect": "workspace:*",
+    "@infinitum/cid": "workspace:*",
     "@infinitum/conjure": "workspace:*",
     "@infinitum/cumulus": "workspace:*",
-    "@infinitum/metatron": "workspace:*",
-    "@infinitum/scalus": "workspace:*",
+    "@infinitum/drone-backend": "workspace:*",
+    "@infinitum/firmament": "workspace:*",
     "@infinitum/lbrnth": "workspace:*",
     "@infinitum/lbrnth-client": "workspace:*",
-    "@infinitum/drone-backend": "workspace:*",
-    "@infinitum/veil": "workspace:*"
+    "@infinitum/mail": "workspace:*",
+    "@infinitum/metatron": "workspace:*",
+    "@infinitum/scalus": "workspace:*",
+    "@infinitum/veil": "workspace:*",
+    "pg": "^8.23.1"
   },
   "devDependencies": {
-    "typescript": "^5.9.0",
-    "@types/node": "^22.0.0"
+    "@electric-sql/pglite": "0.5.17",
+    "@types/node": "^26.6.6",
+    "typescript": "^7.0.2",
+    "@types/pg": "^8.23.1"
   }
 }

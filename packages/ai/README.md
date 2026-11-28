@@ -32,8 +32,8 @@ Deployed services can't reach an OmniRoute running on a laptop. In production, p
 
 These are the canonical ids, in tier order:
 
-- **smart:** `gpt-oss-120b` (Apache-2.0), `qwen3-235b` (Apache-2.0), `deepseek-v3` (MIT)
-- **fast:** `gpt-oss-20b` (Apache-2.0), `qwen3-32b` (Apache-2.0)
+- **smart:** `gpt-oss-120b` (Apache-2.0), `qwen3-235b` (Apache-2.0), `deepseek-v3` (MIT), `gemma-4-31b` (Apache-2.0, Google)
+- **fast:** `gpt-oss-20b` (Apache-2.0), `qwen3-32b` (Apache-2.0), `gemma-4-26b-a4b` (Apache-2.0, Google; keyless on Workers AI and Ollama)
 
 Only OSI-licensed models are included. Llama is excluded because its custom license isn't open source.
 
@@ -56,3 +56,7 @@ Nothing here needs a paid plan.
 
 - **Local:** OmniRoute routes to Ollama on the same machine. The `infinitum-open` combo lists the local models (qwen3:8b, gpt-oss:20b). Set `OMNIROUTE_BASE_URL=http://localhost:20128/v1` and `OMNIROUTE_SMART_MODEL=infinitum-open`. A local gateway needs no key.
 - **Deployed on Cloudflare Workers:** declare the AI binding (`"ai": { "binding": "AI" }`) and add `workersAiProvider(env.AI)` to the router's providers. It runs Workers AI open models inside Cloudflare's free daily allowance with no token. When the allowance runs out, the router cools the host down and moves to the next one.
+
+## SCALVS agent on OpenClaw (`@infinitum/ai/openclaw`)
+
+`@scalvs <task>` (or `@scalus <task>`) in any product's chat, Ask or compose box hands the task to the SCALVS agent on an [OpenClaw](https://openclaw.ai) gateway and shows the answer, the same way `@conjure` works. It is off until `OPENCLAW_GATEWAY_URL` and `OPENCLAW_GATEWAY_TOKEN` are set on the product's server. The client is one dependency-free file, `src/openclaw/openclaw.mjs`, so products outside this monorepo get a synced copy (`node packages/ai/scripts/sync-openclaw.mjs <dest>`). Setup, routes and safety notes: [src/openclaw/README.md](src/openclaw/README.md).

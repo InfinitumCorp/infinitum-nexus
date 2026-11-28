@@ -58,7 +58,6 @@ import androidx.webkit.WebViewFeature;
  */
 public class MainActivity extends Activity {
     static final String HUB = "file:///android_asset/hub/index.html";
-    static final String TOR_CHECK = "https://check.torproject.org/";
     /** WebRTC can reach the network over UDP outside the proxy and reveal the real IP, so pages don't get it. */
     static final String NO_WEBRTC = "(function(){['RTCPeerConnection','webkitRTCPeerConnection','RTCDataChannel',"
         + "'RTCIceCandidate','RTCSessionDescription','RTCRtpSender','RTCRtpReceiver','RTCRtpTransceiver'].forEach(function(k){"
@@ -82,7 +81,15 @@ public class MainActivity extends Activity {
     /** What VEIL can't see. Same statement as the extension and the web app. */
     static final String PRIVACY_STATEMENT = "Every check runs on this phone. VEIL doesn't send your pages, searches, passwords, forms or downloads anywhere, keeps no browsing history, and can't see what you do in other apps.";
 
+    /** The tab on screen. Every tab is its own WebView with the same settings (see createTab). */
     WebView web;
+    /** Open tabs, like Chrome. Closed tabs are destroyed; nothing about them is kept. */
+    final java.util.ArrayList<WebView> tabs = new java.util.ArrayList<>();
+    /** Each tab's page host, read on WebView's network thread for third-party blocking. */
+    final java.util.Map<WebView, String> tabHost = new java.util.concurrent.ConcurrentHashMap<>();
+    static final int MAX_TABS = 20;
+    FrameLayout webHolder;
+    TextView tabButton;
     EditText address;
     ProgressBar progress;
     TextView shield;
@@ -101,9 +108,16 @@ public class MainActivity extends Activity {
     // Tor state. Web pages load only when proxyReady && tor.ready().
     final Tor tor = Tor.get();
     /** True when this APK was built without the Tor binaries (see build.sh VEIL_ABIS). */
+    boolean torMissing;
+    /** True when browsing directly (the default, for speed). Tor is the person's choice. */
     boolean torOff;
+    /** Opt-in data sharing (Cumulus Data Exchange). Off by default; counts nothing while off. */
+    Earn earn;
+    int blockedReported = 0;
     TextView torBox;
     volatile boolean proxyReady = false;
+    /** The Tor SOCKS port the WebView proxy points at; Tor's changes when its racing spare wins. */
+    int proxyPort = -1;
     /** Set when this phone's WebView can't be pointed at Tor; VEIL then refuses to browse. */
     String proxyProblem;
     /** Where to go once Tor connects (main view), or the panel to open (url, title). */
@@ -120,42 +134,95 @@ public class MainActivity extends Activity {
         getWindow().setNavigationBarColor(BG);
         // White bars with dark icons, like the other Infinitum apps.
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
-        torOff = !new java.io.File(getApplicationInfo().nativeLibraryDir, "libTor.so").exists();
+        torMissing = !new java.io.File(getApplicationInfo().nativeLibraryDir, "libTor.so").exists();
+        // Tor is optional and never connects by itself: every launch starts direct, and Tor
+        // runs only after the person turns it on in this session.
+        torOff = true;
+        settings().edit().remove("tor").apply(); // older versions remembered "on" and reconnected at launch
+        earn = new Earn(this);
         setContentView(wrapWithPanel(buildUi()));
         configureWebView();
 
         Uri data = getIntent() != null ? getIntent().getData() : null;
         if (data != null && Privacy.isWeb(data.toString())) pendingUrl = data.toString();
 
-        // Point every WebView at Tor before anything loads, then start Tor.
-        if (torOff) {
-            // Built without Tor (VEIL_ABIS=""): browse directly, and say so in the Tor box.
-            updateTorBox();
-            web.loadUrl(HUB);
-            if (pendingUrl != null) { String u = pendingUrl; pendingUrl = null; open(u); }
-            return;
-        }
-        startProxy();
-        tor.setListener(this::onTorState);
-        tor.start(this);
+        // Direct (fast). Tor starts only from setTor(true), which points every WebView at Tor first.
+        updateTorBox();
+        web.loadUrl(HUB);
+        if (pendingUrl != null) { String u = pendingUrl; pendingUrl = null; open(u); }
     }
 
     // ---------------- Tor ----------------
 
+    android.content.SharedPreferences settings() {
+        return getSharedPreferences("veil", MODE_PRIVATE);
+    }
+
+    /**
+     * Turn Tor on or off while VEIL runs. Either way VEIL clears cookies, site storage and
+     * cache first, so the direct session and the Tor session can't be linked to each other.
+     */
+    void setTor(boolean on) {
+        if (on == !torOff) return;
+        if (on && torMissing) { torTapped(); return; }
+        closeOtherTabs();
+        wipe();
+        pendingUrl = null;
+        pendingPanel = null;
+        torWasReady = false;
+        if (on) {
+            torOff = false;
+            proxyReady = false;
+            proxyProblem = null;
+            web.loadUrl("about:blank");
+            startProxy();
+            tor.setListener(this::onTorState);
+            tor.start(this);
+            Toast.makeText(this, "Tor is on. Connecting…", Toast.LENGTH_SHORT).show();
+        } else {
+            torOff = true;
+            tor.setListener(null);
+            tor.stop();
+            proxyReady = false;
+            proxyProblem = null;
+            updateTorBox();
+            // Always clear: a proxy set while Tor was still starting would otherwise stay
+            // pointed at the stopped Tor, and no page would load.
+            if (WebViewFeature.isFeatureSupported(WebViewFeature.PROXY_OVERRIDE)) {
+                ProxyController.getInstance().clearProxyOverride(getMainExecutor(), () -> web.loadUrl(HUB));
+            } else {
+                web.loadUrl(HUB);
+            }
+            Toast.makeText(this, "Tor is off. Sites can see this phone's IP address.", Toast.LENGTH_LONG).show();
+        }
+    }
+
     void startProxy() {
+        startProxy(true);
+    }
+
+    /** Points the WebView at Tor's SOCKS port; reload loads the start page once it's set. */
+    void startProxy(boolean reload) {
         if (!WebViewFeature.isFeatureSupported(WebViewFeature.PROXY_OVERRIDE)) {
             proxyProblem = "This phone's Android System WebView is too old to send VEIL's traffic over Tor. Update \"Android System WebView\" from the Play Store, then reopen VEIL.";
             updateTorBox();
             web.loadUrl(HUB); // local page; nothing remote loads (proxyReady stays false)
             return;
         }
+        int port = tor.socksPort;
+        proxyPort = port;
         ProxyConfig config = new ProxyConfig.Builder()
-            .addProxyRule("socks5://127.0.0.1:" + tor.socksPort) // SOCKS5: host names resolve inside Tor, not on the phone
+            .addProxyRule("socks5://127.0.0.1:" + port) // SOCKS5: host names resolve inside Tor, not on the phone
             .build();
         try {
             ProxyController.getInstance().setProxyOverride(config, getMainExecutor(), () -> {
+                if (torOff) { // Tor was switched off while the proxy was being set
+                    ProxyController.getInstance().clearProxyOverride(getMainExecutor(), () -> {});
+                    return;
+                }
+                if (port != proxyPort) return; // a newer port is being set
                 proxyReady = true;
-                web.loadUrl(HUB);
+                if (reload) web.loadUrl(HUB);
                 onTorState(tor.progress, tor.summary, tor.error);
             });
         } catch (RuntimeException e) {
@@ -170,10 +237,16 @@ public class MainActivity extends Activity {
     }
 
     void onTorState(int progress, String summary, String error) {
+        if (!torOff && proxyPort != -1 && proxyPort != tor.socksPort && proxyProblem == null) {
+            // Tor's racing spare won: follow it to its SOCKS port. Nothing loads until it's set.
+            proxyReady = false;
+            startProxy(false);
+        }
         updateTorBox();
         if (!torReady()) { torWasReady = false; return; }
         if (!torWasReady) {
             torWasReady = true;
+            if (!torOff) earn.count("tor_session");
             if (pendingUrl != null) { String u = pendingUrl; pendingUrl = null; open(u); }
             if (pendingPanel != null) { String[] p = pendingPanel; pendingPanel = null; openPanel(p[0], p[1]); }
         }
@@ -185,7 +258,7 @@ public class MainActivity extends Activity {
         if (torOff) {
             torBox.setText("Tor off");
             torBox.setTextColor(QUIET);
-            torBox.setContentDescription("This version doesn't use Tor. Tap for details");
+            torBox.setContentDescription(torMissing ? "This version doesn't include Tor. Tap for details" : "Tor is off. Tap to turn it on");
             return;
         }
         String text;
@@ -211,25 +284,42 @@ public class MainActivity extends Activity {
     }
 
     void torTapped() {
-        if (torOff) {
+        if (torMissing) {
             new AlertDialog.Builder(this).setTitle("Tor isn't in this version")
-                .setMessage("This version of VEIL connects directly, not over Tor. Built-in Tor is coming in the next update. You can check this connection on the Tor Project's site.")
-                .setPositiveButton("Check connection", (d, w) -> open(TOR_CHECK))
-                .setNegativeButton("OK", null).show();
+                .setMessage("This version of VEIL connects directly, not over Tor. The version with Tor built in is a larger download from infinitumveil.app.")
+                .setPositiveButton("OK", null).show();
+            return;
+        }
+        if (torOff) {
+            new AlertDialog.Builder(this).setTitle("Browse over Tor?")
+                .setMessage("VEIL connects directly by default, for speed. Trackers, ads and tracking parameters are blocked either way.\n\n"
+                    + "Tor hides this phone's IP address from sites, and hides the sites you visit from your network. Pages load more slowly over Tor.\n\n"
+                    + "Tor stays on until you turn it off or close VEIL; VEIL always opens without it. Turning Tor on clears cookies and site data. VEIL over Tor is not Tor Browser: sites can still fingerprint the browser.")
+                .setPositiveButton("Turn on Tor", (d, w) -> setTor(true))
+                .setNegativeButton("Not now", null).show();
             return;
         }
         if (proxyProblem != null) {
             new AlertDialog.Builder(this).setTitle("Tor is unavailable").setMessage(proxyProblem)
-                .setPositiveButton("OK", null).show();
+                .setPositiveButton("OK", null)
+                .setNeutralButton("Turn off Tor", (d, w) -> setTor(false)).show();
         } else if (tor.error != null) {
             new AlertDialog.Builder(this).setTitle("Tor isn't connected")
-                .setMessage(tor.error + "\n\nVEIL won't load pages until Tor is back.")
+                .setMessage(tor.error + "\n\nWith Tor on, VEIL won't load pages until Tor is back.")
                 .setPositiveButton("Reconnect", (d, w) -> tor.start(this))
-                .setNegativeButton("Cancel", null).show();
+                .setNegativeButton("Cancel", null)
+                .setNeutralButton("Turn off Tor", (d, w) -> setTor(false)).show();
         } else if (torReady()) {
-            open(TOR_CHECK);
+            new AlertDialog.Builder(this).setTitle("Connected to Tor")
+                .setMessage("Every page goes over Tor" + (tor.bridges ? ", through a bridge." : "."))
+                .setPositiveButton("Check", (d, w) -> checkTor())
+                .setNegativeButton("Close", null)
+                .setNeutralButton("Turn off Tor", (d, w) -> setTor(false)).show();
         } else {
-            Toast.makeText(this, "Connecting to Tor" + (tor.bridges ? " over bridges" : "") + ": " + tor.progress + "% (" + tor.summary + ")", Toast.LENGTH_SHORT).show();
+            new AlertDialog.Builder(this).setTitle("Connecting to Tor")
+                .setMessage(tor.progress + "%" + (tor.bridges ? " over bridges" : "") + ": " + tor.summary + "\n\nPages open when Tor is connected.")
+                .setPositiveButton("OK", null)
+                .setNeutralButton("Turn off Tor", (d, w) -> setTor(false)).show();
         }
     }
 
@@ -296,14 +386,26 @@ public class MainActivity extends Activity {
 
     void showMenu(View anchor) {
         android.widget.PopupMenu m = new android.widget.PopupMenu(this, anchor);
-        m.getMenu().add(0, 1, 0, "Home");
+        m.getMenu().add(0, 7, 0, "New tab");
+        m.getMenu().add(0, 8, 0, "Tabs (" + tabs.size() + ")");
+        if (web.canGoForward()) m.getMenu().add(0, 9, 0, "Forward");
+        m.getMenu().add(0, 10, 0, "Reload");
+        m.getMenu().add(0, 1, 1, "Home");
         m.getMenu().add(0, 3, 2, "New identity");
         m.getMenu().add(0, 4, 3, "Privacy");
+        if (!torMissing) m.getMenu().add(0, 5, 4, torOff ? "Turn on Tor" : "Turn off Tor");
+        m.getMenu().add(0, 6, 5, earn.optedIn() ? "Data sharing: on" : "Share data & earn");
         m.setOnMenuItemClickListener(item -> {
             switch (item.getItemId()) {
+                case 7: newTab(null); return true;
+                case 8: showTabs(); return true;
+                case 9: if (web.canGoForward()) web.goForward(); return true;
+                case 10: web.reload(); return true;
                 case 1: web.loadUrl(HUB); return true;
                 case 3: confirmNewIdentity(); return true;
                 case 4: showPrivacy(); return true;
+                case 5: if (torOff) torTapped(); else setTor(false); return true;
+                case 6: showEarn(); return true;
             }
             return false;
         });
@@ -428,6 +530,7 @@ public class MainActivity extends Activity {
         panelTitle.setText(title);
         panelHost = String.valueOf(Uri.parse(url).getHost());
         panelWeb.loadUrl(url);
+        earn.count("app_panel");
         if (panelOpen) return;
         panelOpen = true;
         hideKeyboard();
@@ -469,15 +572,13 @@ public class MainActivity extends Activity {
         root.setBackgroundColor(BG);
         root.setFitsSystemWindows(true);
 
-        // Chrome-style toolbar: back, forward, reload, the omnibox (grey pill with the
-        // white "Anonymous" chip), then the overflow menu.
+        // Chrome-style toolbar: the omnibox (grey pill with the white "Anonymous" chip), the
+        // Tor box, the tab counter and the overflow menu. Back is the phone's back gesture;
+        // forward and reload are in the menu, as in Chrome for Android.
         LinearLayout top = new LinearLayout(this);
         top.setOrientation(LinearLayout.HORIZONTAL);
         top.setGravity(Gravity.CENTER_VERTICAL);
-        top.setPadding(dp(4), dp(6), dp(2), dp(6));
-        top.addView(iconButton("‹", "Back", v -> { if (web.canGoBack()) web.goBack(); }));
-        top.addView(iconButton("›", "Forward", v -> { if (web.canGoForward()) web.goForward(); }));
-        top.addView(iconButton("↻", "Reload", v -> web.reload()));
+        top.setPadding(dp(8), dp(6), dp(2), dp(6));
 
         LinearLayout omni = new LinearLayout(this);
         omni.setOrientation(LinearLayout.HORIZONTAL);
@@ -510,8 +611,7 @@ public class MainActivity extends Activity {
 
         address = new EditText(this);
         address.setSingleLine(true);
-        address.setHint("Search");
-        address.setGravity(Gravity.CENTER);
+        address.setHint("Search or type URL");
         address.setContentDescription("Address bar");
         address.setHintTextColor(QUIET);
         address.setTextColor(FG);
@@ -526,7 +626,7 @@ public class MainActivity extends Activity {
             boolean enter = event != null && event.getKeyCode() == KeyEvent.KEYCODE_ENTER && event.getAction() == KeyEvent.ACTION_DOWN;
             if (actionId == EditorInfo.IME_ACTION_GO || enter) {
                 String url = Privacy.fromInput(address.getText().toString());
-                if (url != null) open(url);
+                if (url != null) { earn.count("address_bar"); open(url); }
                 hideKeyboard();
                 return true;
             }
@@ -553,6 +653,21 @@ public class MainActivity extends Activity {
         tlp.leftMargin = dp(4);
         tor.setLayoutParams(tlp);
         top.addView(tor);
+        // Tab counter, as in Chrome: a small rounded square with the number of open tabs.
+        tabButton = new TextView(this);
+        tabButton.setText("1");
+        tabButton.setTextColor(FG);
+        tabButton.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        tabButton.setTypeface(Typeface.DEFAULT_BOLD);
+        tabButton.setGravity(Gravity.CENTER);
+        tabButton.setBackground(rounded(BG, FG, 4));
+        tabButton.setClickable(true);
+        tabButton.setOnClickListener(v -> showTabs());
+        LinearLayout.LayoutParams tblp = new LinearLayout.LayoutParams(dp(24), dp(24));
+        tblp.leftMargin = dp(8);
+        tblp.rightMargin = dp(2);
+        tabButton.setLayoutParams(tblp);
+        top.addView(tabButton);
         View menuButton = iconButton("⋮", "More options", null);
         menuButton.setOnClickListener(v -> showMenu(menuButton));
         top.addView(menuButton);
@@ -567,10 +682,10 @@ public class MainActivity extends Activity {
         progress.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(2)));
         root.addView(progress);
 
-        web = new WebView(this);
-        web.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
-        web.setBackgroundColor(BG);
-        root.addView(web);
+        webHolder = new FrameLayout(this);
+        webHolder.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+        webHolder.setBackgroundColor(BG);
+        root.addView(webHolder);
 
         return root;
     }
@@ -596,8 +711,15 @@ public class MainActivity extends Activity {
     }
 
     void configureWebView() {
-        blockWebRtc(web);
         blockWebRtc(panelWeb);
+        showTab(createTab());
+    }
+
+    /** A new tab: its own WebView with VEIL's settings. Not shown until showTab(). */
+    WebView createTab() {
+        WebView web = new WebView(this);
+        web.setBackgroundColor(BG);
+        blockWebRtc(web);
         WebSettings s = web.getSettings();
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);           // wiped on exit and on New Identity
@@ -606,7 +728,7 @@ public class MainActivity extends Activity {
         s.setGeolocationEnabled(false);
         s.setSaveFormData(false);
         s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
-        s.setSupportMultipleWindows(false);
+        s.setSupportMultipleWindows(true);       // links that open a new window become a tab (user taps only)
         s.setJavaScriptCanOpenWindowsAutomatically(false);
         s.setSafeBrowsingEnabled(false);        // no URL lookups sent to Google
         s.setMediaPlaybackRequiresUserGesture(true);
@@ -623,13 +745,13 @@ public class MainActivity extends Activity {
                 String url = request.getUrl().toString();
                 if (handlePanelLink(view, url)) return true;
                 if (url.startsWith("file:///android_asset/")) return false;
-                if (request.isForMainFrame()) navHost = String.valueOf(request.getUrl().getHost());
+                if (request.isForMainFrame() && view == MainActivity.this.web) navHost = String.valueOf(request.getUrl().getHost());
                 if (!Privacy.isWeb(url)) {
                     Toast.makeText(MainActivity.this, "VEIL only opens web pages", Toast.LENGTH_SHORT).show();
                     return true;
                 }
                 if (!torReady()) {
-                    if (request.isForMainFrame()) { pendingUrl = url; torGate(url); }
+                    if (request.isForMainFrame() && view == MainActivity.this.web) { pendingUrl = url; torGate(url); }
                     return true;
                 }
                 String cleaned = Privacy.clean(url);
@@ -648,8 +770,9 @@ public class MainActivity extends Activity {
                 // Ad networks, trackers and data brokers, as third-party subresources only.
                 if (!blocking || request.isForMainFrame()) return null;
                 String host = request.getUrl().getHost();
-                if (!Blocklist.isBlocked(host) || !Privacy.isThirdParty(host, pageHost)) return null;
-                blocked++;
+                String page = tabHost.get(view);
+                if (!Blocklist.isBlocked(host) || !Privacy.isThirdParty(host, page == null ? "" : page)) return null;
+                if (view == MainActivity.this.web) blocked++;
                 blockedSession++;
                 return new WebResourceResponse("text/plain", "utf-8", new ByteArrayInputStream(new byte[0]));
             }
@@ -657,6 +780,8 @@ public class MainActivity extends Activity {
             @Override
             public void onPageStarted(WebView view, String url, Bitmap favicon) {
                 String host = Uri.parse(url).getHost();
+                tabHost.put(view, host == null ? "" : host);
+                if (view != MainActivity.this.web) return;
                 pageHost = host == null ? "" : host;
                 blocked = 0;
                 showAddress(url);
@@ -665,6 +790,7 @@ public class MainActivity extends Activity {
 
             @Override
             public void onPageFinished(WebView view, String url) {
+                if (view != MainActivity.this.web) return;
                 showAddress(url);
                 showShield();
                 progress.setVisibility(View.INVISIBLE);
@@ -674,6 +800,7 @@ public class MainActivity extends Activity {
             @Override
             public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {
                 handler.cancel(); // never proceed past a certificate error
+                if (view != MainActivity.this.web) return;
                 // Alert for the page itself; a broken subresource just doesn't load.
                 String host = Uri.parse(error.getUrl()).getHost();
                 if (host != null && (host.equals(navHost) || host.equals(pageHost))) certificateAlert(error);
@@ -682,10 +809,215 @@ public class MainActivity extends Activity {
         web.setWebChromeClient(new WebChromeClient() {
             @Override
             public void onProgressChanged(WebView view, int p) {
+                if (view != MainActivity.this.web) return;
                 progress.setVisibility(p < 100 ? View.VISIBLE : View.INVISIBLE);
                 progress.setProgress(p);
             }
+
+            @Override
+            public boolean onCreateWindow(WebView view, boolean isDialog, boolean isUserGesture, android.os.Message resultMsg) {
+                // A link that opens a new window, tapped by the person: open it in a new tab.
+                if (!isUserGesture || isDialog || tabs.size() >= MAX_TABS) return false;
+                WebView t = createTab();
+                showTab(t);
+                ((WebView.WebViewTransport) resultMsg.obj).setWebView(t);
+                resultMsg.sendToTarget();
+                return true;
+            }
+
+            @Override
+            public void onCloseWindow(WebView window) {
+                closeTab(window);
+            }
+
+            @Override
+            public void onReceivedTitle(WebView view, String title) {
+                if (view == MainActivity.this.web) updateTabButton();
+            }
         });
+        // Long-press a link: open it in a new tab, like Chrome.
+        web.setOnLongClickListener(v -> {
+            WebView.HitTestResult hit = ((WebView) v).getHitTestResult();
+            if (hit == null || hit.getType() != WebView.HitTestResult.SRC_ANCHOR_TYPE) return false;
+            String link = hit.getExtra();
+            if (link == null || !Privacy.isWeb(link)) return false;
+            linkMenu(link);
+            return true;
+        });
+        tabs.add(web);
+        updateTabButton();
+        return web;
+    }
+
+    // ---------------- Tabs ----------------
+
+    /** Put a tab on screen. */
+    void showTab(WebView t) {
+        if (t == null) return;
+        if (t.getParent() != webHolder) {
+            webHolder.removeAllViews();
+            if (t.getParent() instanceof ViewGroup) ((ViewGroup) t.getParent()).removeView(t);
+            webHolder.addView(t, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        }
+        web = t;
+        String host = tabHost.get(t);
+        pageHost = host == null ? "" : host;
+        blocked = 0;
+        String u = t.getUrl();
+        if (address != null && !address.hasFocus()) address.setText("");
+        if (u != null) showAddress(u);
+        if (shield != null) showShield();
+        if (progress != null) progress.setVisibility(t.getProgress() < 100 && u != null ? View.VISIBLE : View.INVISIBLE);
+        updateTabButton();
+    }
+
+    /** Open a new tab on VEIL's start page, or at a link. */
+    void newTab(String url) {
+        if (tabs.size() >= MAX_TABS) {
+            Toast.makeText(this, "Close a tab first: VEIL keeps up to " + MAX_TABS + " open.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        WebView t = createTab();
+        showTab(t);
+        t.loadUrl(HUB);
+        if (url != null) open(url);
+    }
+
+    void closeTab(WebView t) {
+        int i = tabs.indexOf(t);
+        if (i < 0) return;
+        tabs.remove(i);
+        tabHost.remove(t);
+        if (t == web) {
+            if (tabs.isEmpty()) {
+                WebView fresh = createTab();
+                showTab(fresh);
+                fresh.loadUrl(HUB);
+            } else {
+                showTab(tabs.get(Math.max(0, i - 1)));
+            }
+        }
+        webHolder.removeView(t);
+        t.stopLoading();
+        t.destroy();
+        updateTabButton();
+    }
+
+    /** Keep only the tab on screen (Tor on/off and New Identity: nothing carries over). */
+    void closeOtherTabs() {
+        for (WebView t : new java.util.ArrayList<>(tabs)) if (t != web) closeTab(t);
+    }
+
+    void updateTabButton() {
+        if (tabButton == null) return;
+        int n = tabs.size();
+        tabButton.setText(n > 99 ? ":D" : String.valueOf(n));
+        tabButton.setContentDescription(n + (n == 1 ? " open tab" : " open tabs") + ". Tap to switch tabs");
+    }
+
+    /** A tab's name in the switcher. */
+    String tabName(WebView t) {
+        String u = t.getUrl();
+        if (u == null || u.startsWith(HUB) || u.equals("about:blank")) return "New tab";
+        if (u.startsWith(Privacy.SEARCH)) {
+            String q = Uri.parse(u).getQueryParameter("q");
+            return "Search: " + (q == null ? "" : q);
+        }
+        String title = t.getTitle();
+        return isBlank(title) || title.equals(u) ? String.valueOf(Uri.parse(u).getHost()) : title;
+    }
+
+    String tabHostLabel(WebView t) {
+        String u = t.getUrl();
+        if (u == null || u.startsWith("file:") || u.equals("about:blank")) return "VEIL";
+        String h = Uri.parse(u).getHost();
+        return h == null ? u : h.replaceFirst("^www\\.", "");
+    }
+
+    /** Tab switcher: every open tab, tap to switch, ✕ to close, and New tab. */
+    void showTabs() {
+        hideKeyboard();
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        list.setPadding(dp(8), dp(4), dp(8), dp(4));
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+        scroll.addView(list);
+        AlertDialog[] dialog = new AlertDialog[1];
+        Runnable[] fill = new Runnable[1];
+        fill[0] = () -> {
+            list.removeAllViews();
+            for (WebView t : tabs) {
+                LinearLayout row = new LinearLayout(this);
+                row.setOrientation(LinearLayout.HORIZONTAL);
+                row.setGravity(Gravity.CENTER_VERTICAL);
+                row.setPadding(dp(12), dp(10), dp(4), dp(10));
+                row.setBackground(rounded(t == web ? HOVER : BG, RULE, 6));
+                LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                rlp.topMargin = rlp.bottomMargin = dp(4);
+                row.setLayoutParams(rlp);
+                LinearLayout text = new LinearLayout(this);
+                text.setOrientation(LinearLayout.VERTICAL);
+                text.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+                TextView name = new TextView(this);
+                name.setText(tabName(t));
+                name.setTextColor(FG);
+                name.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+                name.setSingleLine(true);
+                name.setEllipsize(TextUtils.TruncateAt.END);
+                if (t == web) name.setTypeface(Typeface.DEFAULT_BOLD);
+                TextView host = new TextView(this);
+                host.setText(tabHostLabel(t));
+                host.setTextColor(QUIET);
+                host.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+                host.setSingleLine(true);
+                host.setEllipsize(TextUtils.TruncateAt.END);
+                text.addView(name);
+                text.addView(host);
+                row.addView(text);
+                TextView close = new TextView(this);
+                close.setText("✕");
+                close.setTextColor(QUIET);
+                close.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
+                close.setGravity(Gravity.CENTER);
+                close.setContentDescription("Close " + tabName(t));
+                close.setLayoutParams(new LinearLayout.LayoutParams(dp(40), dp(40)));
+                close.setOnClickListener(v -> { closeTab(t); fill[0].run(); });
+                row.addView(close);
+                row.setContentDescription(tabName(t) + (t == web ? ", current tab" : ""));
+                row.setOnClickListener(v -> { showTab(t); if (dialog[0] != null) dialog[0].dismiss(); });
+                list.addView(row);
+            }
+            if (dialog[0] != null) dialog[0].setTitle(tabs.size() == 1 ? "1 tab" : tabs.size() + " tabs");
+        };
+        fill[0].run();
+        dialog[0] = new AlertDialog.Builder(this)
+            .setTitle(tabs.size() == 1 ? "1 tab" : tabs.size() + " tabs")
+            .setView(scroll)
+            .setPositiveButton("+ New tab", (d, w) -> newTab(null))
+            .setNegativeButton("Done", null)
+            .setNeutralButton("Close all", (d, w) -> {
+                for (WebView t : new java.util.ArrayList<>(tabs)) closeTab(t);
+            })
+            .show();
+    }
+
+    /** Long-press on a link. */
+    void linkMenu(String link) {
+        new AlertDialog.Builder(this)
+            .setTitle(link)
+            .setItems(new CharSequence[]{"Open in new tab", "Open", "Copy link"}, (d, which) -> {
+                if (which == 0) {
+                    newTab(link);
+                    Toast.makeText(this, "Opened in a new tab (" + tabs.size() + " open)", Toast.LENGTH_SHORT).show();
+                } else if (which == 1) {
+                    open(link);
+                } else {
+                    android.content.ClipboardManager cm = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+                    if (cm != null) cm.setPrimaryClip(android.content.ClipData.newPlainText("Link", Privacy.clean(link)));
+                    Toast.makeText(this, "Link copied", Toast.LENGTH_SHORT).show();
+                }
+            })
+            .show();
     }
 
     void showShield() {
@@ -748,16 +1080,51 @@ public class MainActivity extends Activity {
             .setMessage("VEIL stopped loading " + (host == null ? "this site" : host) + ". " + why
                 + " Someone may be intercepting the connection, or the site is misconfigured.")
             .setPositiveButton("Go back", (d, w) -> goBackOrHub())
-            .setNeutralButton("Check Tor", (d, w) -> open(TOR_CHECK)));
+            .setNeutralButton(torOff ? null : "Check Tor", torOff ? null : (d, w) -> checkTor()));
+    }
+
+    /** Confirms the Tor connection inside VEIL and says so in a dialog; no page opens. */
+    void checkTor() {
+        if (!torReady() || torOff) { torTapped(); return; }
+        Toast.makeText(this, "Checking the Tor connection…", Toast.LENGTH_SHORT).show();
+        tor.verify((isTor, ip) -> {
+            if (isFinishing()) return;
+            String via = tor.bridges ? " through a bridge" : "";
+            if (isTor == null) {
+                new AlertDialog.Builder(this).setTitle("Couldn't check")
+                    .setMessage("Tor is connected" + via + ", but the check didn't answer. Try again in a moment.")
+                    .setPositiveButton("OK", null).show();
+            } else if (isTor) {
+                new AlertDialog.Builder(this).setTitle("Connected through Tor")
+                    .setMessage("Every page goes over Tor" + via + ". Sites see a Tor exit" + (ip != null ? " (" + ip + ")" : "") + ", not this phone's IP address.")
+                    .setPositiveButton("OK", null).show();
+            } else {
+                new AlertDialog.Builder(this).setTitle("Not confirmed as Tor")
+                    .setMessage("The check didn't see a Tor exit" + (ip != null ? " (it saw " + ip + ")" : "") + ". Use New identity or turn Tor off and on.")
+                    .setPositiveButton("OK", null).show();
+            }
+        });
     }
 
     void showAddress(String url) {
-        if (url == null || address.hasFocus()) return;
+        if (url == null || address == null || address.hasFocus()) return;
+        if (url.startsWith(Privacy.SEARCH)) {
+            // VEIL's own results page: show what was searched, not the page's address.
+            String q = Uri.parse(url).getQueryParameter("q");
+            address.setText(q != null ? q : "");
+            return;
+        }
         address.setText(url.startsWith(HUB) ? "" : url);
     }
 
     void open(String url) {
         if (!torGate(url)) { pendingUrl = url; return; }
+        if (url.startsWith(Privacy.SEARCH)) {
+            earn.count("search");
+            web.loadUrl(url); // bundled page: nothing to clean, and it fetches results over Tor
+            return;
+        }
+        if (url.startsWith(Privacy.GOOGLE)) earn.count("search");
         String cleaned = Privacy.clean(url);
         navHost = String.valueOf(Uri.parse(cleaned).getHost());
         if (!cleaned.equals(url) && !Privacy.stripTrackers(url).equals(url)) stripped++;
@@ -769,12 +1136,14 @@ public class MainActivity extends Activity {
     void confirmNewIdentity() {
         new AlertDialog.Builder(this)
             .setTitle("New Identity")
-            .setMessage("Clear cookies, site storage, cache and history, and switch to new Tor circuits?")
+            .setMessage("Clear cookies, site storage, cache and history" + (torOff ? "?" : ", and switch to new Tor circuits?"))
             .setPositiveButton("Clear", (d, w) -> {
+                closeOtherTabs();
                 wipe();
-                tor.newIdentity();
+                if (!torOff) tor.newIdentity();
+                earn.count("new_identity");
                 web.loadUrl(HUB);
-                Toast.makeText(this, "New Identity: everything cleared, new Tor circuits", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, torOff ? "New Identity: everything cleared" : "New Identity: everything cleared, new Tor circuits", Toast.LENGTH_SHORT).show();
             })
             .setNegativeButton("Cancel", null)
             .show();
@@ -784,26 +1153,32 @@ public class MainActivity extends Activity {
         CookieManager.getInstance().removeAllCookies(null);
         CookieManager.getInstance().flush();
         WebStorage.getInstance().deleteAllData();
-        web.clearCache(true);
-        web.clearHistory();
-        web.clearFormData();
+        for (WebView t : tabs) {
+            t.clearCache(true);
+            t.clearHistory();
+            t.clearFormData();
+        }
         if (panelWeb != null) resetPanel();
+        reportBlocked();
         stripped = 0;
         blocked = 0;
         blockedSession = 0;
+        blockedReported = 0;
         allowedInsecure.clear();
     }
 
     void showPrivacy() {
+        earn.count("privacy_view");
         boolean insecure = Privacy.isInsecure(web.getUrl());
         String title = insecure ? "Not encrypted" : blocking ? "Protected" : "Blocking is off";
         String msg = (pageHost.isEmpty() ? "" : pageHost + "\n\n")
             + "• Trackers and ads blocked: " + blocked + " on this page, " + blockedSession + " this session\n"
             + "• Tracking parameters stripped: " + stripped + " this session\n"
             + "• HTTPS-first, certificate errors blocked\n"
-            + "• " + (torOff ? "Tor: not in this version (direct connection)" : torReady() ? "Every page goes over Tor (built in)" : "Tor: " + (tor.error != null || proxyProblem != null ? "not connected, pages blocked" : "connecting, " + tor.progress + "%")) + "\n"
+            + "• " + (torOff ? (torMissing ? "Direct connection (Tor isn't in this version)" : "Direct connection, for speed. Tor is off (tap the Tor box)") : torReady() ? "Every page goes over Tor (built in)" : "Tor: " + (tor.error != null || proxyProblem != null ? "not connected, pages blocked" : "connecting, " + tor.progress + "%")) + "\n"
             + "• Third-party cookies off\n"
             + "• Nothing kept after you close VEIL\n"
+            + "• Data sharing: " + (earn.optedIn() ? "on (feature counts only, never sites or searches)" : "off") + "\n"
             + "• Screenshots of pages blocked\n\n"
             + PRIVACY_STATEMENT;
         new AlertDialog.Builder(this).setTitle(title).setMessage(msg)
@@ -814,6 +1189,54 @@ public class MainActivity extends Activity {
                 web.reload();
             })
             .show();
+    }
+
+    // ---------------- Data sharing (opt-in) ----------------
+
+    void reportBlocked() {
+        if (earn == null) return;
+        earn.count("trackers_blocked", blockedSession - blockedReported);
+        blockedReported = blockedSession;
+    }
+
+    void showEarn() {
+        if (!earn.optedIn()) {
+            new AlertDialog.Builder(this).setTitle("Share data & earn")
+                .setMessage("Off unless you turn it on.\n\n"
+                    + "If you opt in, VEIL counts how often you use its features (address bar, search, app panel, New Identity, Tor, privacy view, trackers blocked) and how many sessions you have and how long they last.\n\n"
+                    + "Never shared: the sites you visit, your searches, page content, anything you type, or your IP address.\n\n"
+                    + "These counts are pooled with other people's on the Cumulus Data Exchange and licensed for research. You get " + Earn.OWNER_SHARE_PCT + "% of each sale, paid to your Cumulus://ID.\n\n"
+                    + "The exchange isn't open yet, so for now the counts stay on this phone and nothing is sent. You can see them, and turn this off and delete them, at any time.")
+                .setPositiveButton("Opt in", (d, w) -> {
+                    earn.optIn();
+                    Toast.makeText(this, "Data sharing is on. Only feature counts, never sites or searches.", Toast.LENGTH_LONG).show();
+                })
+                .setNegativeButton("Not now", null).show();
+            return;
+        }
+        reportBlocked();
+        earn.sessionEnded();
+        earn.sessionStarted();
+        new AlertDialog.Builder(this).setTitle("Data sharing is on")
+            .setMessage("This is everything VEIL keeps for the Cumulus Data Exchange (" + Earn.OWNER_SHARE_PCT + "% of each sale goes to you). Nothing has been sent: the exchange isn't open yet.\n\n" + earn.report())
+            .setPositiveButton("OK", null)
+            .setNeutralButton("Turn off and delete", (d, w) -> {
+                earn.optOutAndDelete();
+                Toast.makeText(this, "Data sharing is off. Everything it kept is deleted.", Toast.LENGTH_SHORT).show();
+            }).show();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        earn.sessionStarted();
+    }
+
+    @Override
+    protected void onPause() {
+        reportBlocked();
+        earn.sessionEnded();
+        super.onPause();
     }
 
     // ---------------- Lifecycle ----------------
@@ -832,6 +1255,7 @@ public class MainActivity extends Activity {
             return;
         }
         if (web.canGoBack()) web.goBack();
+        else if (tabs.size() > 1) closeTab(web);
         else super.onBackPressed();
     }
 
@@ -842,7 +1266,8 @@ public class MainActivity extends Activity {
             tor.setListener(null);
             tor.stop();
         }
-        web.destroy();
+        for (WebView t : new java.util.ArrayList<>(tabs)) t.destroy();
+        tabs.clear();
         super.onDestroy();
     }
 

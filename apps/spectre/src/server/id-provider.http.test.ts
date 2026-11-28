@@ -1,6 +1,6 @@
 /**
  * Sign in with Cumulus://ID on the ID host.
- * Google and Cognito are simulated. Nothing calls a real provider.
+ * Google is simulated. Nothing calls a real provider.
  */
 import { createHash, generateKeyPairSync, randomBytes, sign } from "node:crypto";
 import { describe, it, before, after } from "node:test";
@@ -16,10 +16,6 @@ import { SpectreCRM } from "../core/crm.ts";
 import { createApp } from "./app.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const COGNITO_REGION = "us-east-1";
-const COGNITO_POOL = "us-east-1_TestPool";
-const COGNITO_DOMAIN = "infinitum.auth.us-east-1.amazoncognito.com";
-const COGNITO_ISSUER = `https://cognito-idp.${COGNITO_REGION}.amazonaws.com/${COGNITO_POOL}`;
 
 function oidcKey() {
   const { privateKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
@@ -31,15 +27,12 @@ function fakeProviders() {
   const jwk = { ...publicKey.export({ format: "jwk" }), kid: "idp", alg: "RS256", use: "sig" };
   const users: Record<string, Record<string, unknown>> = {
     google: { sub: "g-111", email: "ada@gmail.example", email_verified: true, name: "Ada" },
-    cognito: { sub: "cog-777", email: "ada@cognito.example", email_verified: true, name: "Ada", token_use: "id" },
   };
   const issuers: Record<string, string> = {
     google: "https://accounts.google.com",
-    cognito: COGNITO_ISSUER,
   };
   const hosts: Record<string, SocialProviderId> = {
     "oauth2.googleapis.com": "google",
-    [COGNITO_DOMAIN]: "cognito",
   };
   const codes = new Map<string, { provider: SocialProviderId; nonce: string; challenge: string; clientId: string }>();
   const enc = (o: unknown) => Buffer.from(JSON.stringify(o)).toString("base64url");
@@ -108,11 +101,6 @@ describe("Cumulus://ID product sign-in", () => {
       social: {
         providers: {
           google: { clientId: "google-client", clientSecret: "gs" },
-          cognito: {
-            clientId: "cognito-client",
-            clientSecret: "cognito-secret",
-            cognito: { domain: `https://${COGNITO_DOMAIN}`, region: COGNITO_REGION, userPoolId: COGNITO_POOL },
-          },
         },
         fetchImpl: fake.fetchImpl,
       },
@@ -131,7 +119,7 @@ describe("Cumulus://ID product sign-in", () => {
 
   const raw = (path: string, cookie?: string) => fetch(base + path, { redirect: "manual", headers: cookie ? { cookie } : {} });
 
-  async function throughProvider(provider: "google" | "cognito", clientId: string, redirect: string) {
+  async function throughProvider(provider: "google", clientId: string, redirect: string) {
     const { verifier, challenge } = pkce();
     const q = new URLSearchParams({
       client_id: clientId, redirect_uri: redirect, code_challenge: challenge, code_challenge_method: "S256", state: "st",
@@ -187,17 +175,12 @@ describe("Cumulus://ID product sign-in", () => {
     assert.equal(again.sub, first.profile.cid);
   });
 
-  it("ends a Cognito sign-in with an ID token whose sub is that cid", async () => {
-    const body = await throughProvider("cognito", "fabric", "https://infinitumfabric.app/api/auth/callback");
-    const googleCid = cid.store.byIdentity.get("google|g-111");
-    assert.notEqual(body.profile.cid, googleCid);
-    const claims = verifyOidcToken(body.id_token, signingKey, { issuer: cid.issuer, now: new Date(), audience: "fabric" });
-    assert.equal(claims.sub, body.profile.cid);
-    assert.equal(claims.idp, "cognito");
-    assert.equal(cid.store.byIdentity.get("cognito|cog-777"), body.profile.cid);
-    const who = await fetch(base + "/api/id/userinfo", { headers: { authorization: `Bearer ${body.access_token}` } });
-    assert.equal(who.status, 200);
-    assert.equal((await who.json()).cid, body.profile.cid);
+  it("offers no Amazon Cognito sign-in", async () => {
+    const providers = await (await fetch(base + "/api/auth/providers")).text();
+    assert.doesNotMatch(providers, /cognito/i);
+    const start = await raw("/api/auth/oauth/cognito/start");
+    assert.notEqual(start.status, 302);
+    assert.equal(start.headers.get("location"), null);
   });
 
   it("publishes discovery and a public JWKS on the realm issuer", async () => {
@@ -207,12 +190,78 @@ describe("Cumulus://ID product sign-in", () => {
     assert.equal(doc.issuer, "https://id.cumuluscloud.app/realms/cumulus");
     assert.deepEqual(root, doc);
     assert.equal(doc.jwks_uri, `${cid.issuer}/protocol/openid-connect/certs`);
+    assert.equal(doc.end_session_endpoint, `${cid.issuer}/protocol/openid-connect/logout`);
+    assert.equal(doc.revocation_endpoint, `${cid.issuer}/protocol/openid-connect/revoke`);
     const jwks = await (await fetch(base + "/realms/cumulus/protocol/openid-connect/certs")).text();
     assert.match(jwks, /"kid":"test-oidc"/);
     assert.doesNotMatch(jwks, /"d"/);
     const keys = JSON.parse(jwks).keys;
     assert.equal(keys[0].kty, "EC");
     assert.equal(keys[0].d, undefined);
+  });
+
+  it("publishes and reads a public key only for the token's own address", async () => {
+    const body = await throughProvider("google", "scalvs", "https://scalvs.app/keys");
+    const pub = "-----BEGIN PGP PUBLIC KEY BLOCK-----\nxsBNB\n-----END PGP PUBLIC KEY BLOCK-----\n";
+    const priv = "-----BEGIN PGP PRIVATE KEY BLOCK-----\nsecret\n-----END PGP PRIVATE KEY BLOCK-----\n";
+    const email = "ada@gmail.example";
+    const put = await fetch(base + `/api/keys/${encodeURIComponent(email)}`, {
+      method: "PUT",
+      headers: { authorization: `Bearer ${body.access_token}`, "content-type": "application/pgp-keys" },
+      body: pub,
+    });
+    assert.equal(put.status, 204);
+    const got = await fetch(base + `/api/keys/${encodeURIComponent("Ada@gmail.example")}`, { redirect: "manual" });
+    assert.equal(got.status, 200);
+    assert.match(got.headers.get("content-type") ?? "", /application\/pgp-keys/);
+    assert.equal(await got.text(), pub.trim());
+    const missing = await fetch(base + "/api/keys/missing@example.com", { redirect: "manual" });
+    assert.equal(missing.status, 404);
+    const other = await fetch(base + "/api/keys/other@example.com", {
+      method: "PUT",
+      headers: { authorization: `Bearer ${body.access_token}`, "content-type": "application/pgp-keys" },
+      body: pub,
+    });
+    assert.equal(other.status, 403);
+    const secret = await fetch(base + `/api/keys/${encodeURIComponent(email)}`, {
+      method: "PUT",
+      headers: { authorization: `Bearer ${body.access_token}`, "content-type": "application/pgp-keys" },
+      body: priv,
+    });
+    assert.equal(secret.status, 400);
+    const still = await fetch(base + `/api/keys/${encodeURIComponent(email)}`);
+    assert.equal(await still.text(), pub.trim());
+    assert.equal(still.headers.get("location"), null);
+  });
+
+  it("logout and revocation end the session the token named", async () => {
+    const body = await throughProvider("google", "cndctr", "https://cndctr.app/api/auth/callback");
+    const logout = await fetch(base + `/realms/cumulus/protocol/openid-connect/logout?${new URLSearchParams({
+      id_token_hint: body.id_token,
+      client_id: "cndctr",
+      post_logout_redirect_uri: "https://cndctr.app/bye",
+      state: "out",
+    })}`, { redirect: "manual" });
+    assert.equal(logout.status, 302);
+    const to = new URL(logout.headers.get("location")!);
+    assert.equal(to.origin + to.pathname, "https://cndctr.app/bye");
+    assert.equal(to.searchParams.get("state"), "out");
+    assert.equal((await fetch(base + "/api/id/userinfo", { headers: { authorization: `Bearer ${body.access_token}` } })).status, 401);
+
+    const again = await throughProvider("google", "cndctr", "https://cndctr.app/api/auth/callback");
+    const revoked = await fetch(base + "/api/id/revoke", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded", origin: "https://cndctr.app" },
+      body: new URLSearchParams({ token: again.access_token }).toString(),
+    });
+    assert.equal(revoked.status, 200);
+    assert.equal((await fetch(base + "/api/id/userinfo", { headers: { authorization: `Bearer ${again.access_token}` } })).status, 401);
+    const unknown = await fetch(base + "/realms/cumulus/protocol/openid-connect/revoke", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ token: "not-a-token" }).toString(),
+    });
+    assert.equal(unknown.status, 200);
   });
 
   it("serves the button pointed at the ID host", async () => {

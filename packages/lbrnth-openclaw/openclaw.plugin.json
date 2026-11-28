@@ -1,0 +1,36 @@
+{
+  "id": "labyrinth",
+  "name": "Labyrinth",
+  "description": "Read and save files in your private Labyrinth repositories (Infinitum Corporation), signed in with Cumulus ID.",
+  "version": "0.1.0",
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "endpoint": {
+        "type": "string",
+        "description": "Labyrinth relay (https only). Default https://id.cumuluscloud.app/api/labyrinth; in Russia use https://ru.id.cumuluscloud.app/api/labyrinth."
+      },
+      "token": {
+        "type": "string",
+        "description": "Repository-only lbrnth_ credential from id.cumuluscloud.app/labyrinth (lasts 15 minutes). Prefer the LBRNTH_TOKEN environment variable or a SecretRef."
+      }
+    },
+    "additionalProperties": false
+  },
+  "activation": {
+    "onStartup": true
+  },
+  "contracts": {
+    "tools": [
+      "labyrinth_repositories",
+      "labyrinth_read",
+      "labyrinth_history",
+      "labyrinth_save"
+    ]
+  },
+  "toolMetadata": {
+    "labyrinth_save": {
+      "optional": true
+    }
+  }
+}

@@ -1,0 +1,262 @@
+"""Postgres backends against a real Postgres with the Supabase migration applied.
+
+Runs when TEST_DATABASE_URL points at a disposable superuser database (CI uses a postgres:17
+service). The tests connect as the restricted data_platform_gateway role, so the grants and
+row-level security in the migration are exercised too.
+"""
+import os
+import uuid
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+import pytest
+
+psycopg = pytest.importorskip("psycopg")
+ADMIN = os.environ.get("TEST_DATABASE_URL")
+pytestmark = pytest.mark.skipif(not ADMIN, reason="set TEST_DATABASE_URL to a disposable Postgres")
+
+from cumulus_privacy.dp import BudgetExceeded  # noqa: E402
+from cumulus_privacy.platform import Collector, PlatformError, Searcher  # noqa: E402
+from cumulus_privacy.pgstore import PostgresBudget, PostgresCatalog, PostgresEventIndex  # noqa: E402
+
+from .test_platform import DEALS, _q, event  # noqa: E402
+
+MIGRATION = Path(__file__).parents[4] / "supabase" / "migrations" / "20261113_data_platform.sql"
+GATEWAY_PASSWORD = "test-only-" + "x" * 24  # disposable CI database only
+
+
+@pytest.fixture(scope="module")
+def gateway_dsn():
+    sql = MIGRATION.read_text("utf-8")
+    with psycopg.connect(ADMIN, autocommit=True) as c:
+        c.execute(sql)  # first run: tables, no role yet (notice only)
+        for role in ("data_platform_gateway", "data_platform_reader"):
+            if not c.execute("select 1 from pg_roles where rolname = %s", (role,)).fetchone():
+                c.execute(f"create role {role} login noinherit password '{GATEWAY_PASSWORD}'")
+        c.execute(sql)  # second run: grants and policies
+    return psycopg.conninfo.make_conninfo(ADMIN, user="data_platform_gateway", password=GATEWAY_PASSWORD)
+
+
+@pytest.fixture()
+def reader_dsn(gateway_dsn):
+    return psycopg.conninfo.make_conninfo(ADMIN, user="data_platform_reader", password=GATEWAY_PASSWORD)
+
+
+@pytest.fixture()
+def clean(gateway_dsn):
+    with psycopg.connect(ADMIN, autocommit=True) as c:
+        c.execute("truncate data_platform.events, data_platform.datasets, data_platform.privacy_budget")
+    return gateway_dsn
+
+
+@pytest.fixture()
+def stack(clean, redactor):
+    catalog = PostgresCatalog(clean)
+    catalog.register("spectre", DEALS["name"], DEALS)
+    index = PostgresEventIndex(clean)
+    return catalog, Collector(catalog, redactor, index, "EU"), Searcher(index), index
+
+
+def test_catalog_round_trip_and_ownership(stack):
+    catalog, *_ = stack
+    assert catalog.read("spectre", DEALS["name"])["owners"] == ["team-spectre"]
+    catalog.register("spectre", DEALS["name"], {**DEALS, "description": "changed"})
+    assert catalog.get(DEALS["name"])["description"] == "changed"
+    hijack = {**DEALS, "product": "cumulus-mail"}
+    with pytest.raises(PlatformError) as e:
+        catalog.register("cumulus-mail", DEALS["name"], hijack)
+    assert e.value.name == "TenantNotAuthorized"
+    assert catalog.get(DEALS["name"])["product"] == "spectre"
+    assert [spec["name"] for spec in catalog.all()] == [DEALS["name"]]  # what catalog_sync replays
+
+
+def test_ingest_search_and_scoping(stack):
+    _, collector, searcher, _ = stack
+    events = [event(occurredAt=f"2026-11-1{i}T10:00:00Z", objectId=f"d-{i}") for i in range(5)]
+    assert collector.ingest("spectre", events + [events[0]])["duplicates"] == 1
+    collector.ingest("spectre", [event(tenant="globex")])
+
+    page1 = searcher.search("spectre", _q(pageSize=2))
+    assert [h["objectId"] for h in page1["hits"]] == ["d-4", "d-3"]
+    page2 = searcher.search("spectre", _q(pageSize=2, pageToken=page1["nextPageToken"]))
+    assert [h["objectId"] for h in page2["hits"]] == ["d-2", "d-1"]
+    assert len(searcher.search("spectre", _q(text="signed call"))["hits"]) == 5
+    assert searcher.search("spectre", _q(text="jane"))["hits"] == []  # names were redacted
+    assert searcher.search("spectre", _q(objectId="d-0"))["hits"][0]["objectId"] == "d-0"
+    assert searcher.search("cumulus-mail", _q())["hits"] == []
+    hit = searcher.search("spectre", _q(pageSize=1))["hits"][0]
+    assert "apiKey" not in hit["payload"] and hit["payload"]["contactEmail"].startswith("<contactEmail:")
+
+
+def test_gateway_role_cannot_rewrite_events(stack, clean):
+    _, collector, *_ = stack
+    collector.ingest("spectre", [event()])
+    with psycopg.connect(clean) as c, pytest.raises(psycopg.errors.InsufficientPrivilege):
+        c.execute("update data_platform.events set text = 'tampered'")
+
+
+def test_bi_reader_sees_only_safe_columns(stack, reader_dsn):
+    _, collector, *_ = stack
+    collector.ingest("spectre", [event(), event(tenant="globex")])
+    with psycopg.connect(reader_dsn, autocommit=True) as c:
+        rows = c.execute("select product, tenant, event_type from data_platform.events_bi order by tenant").fetchall()
+        assert [r[1] for r in rows] == ["acme", "globex"]
+        for sql in ("select cid from data_platform.events", "select payload from data_platform.events",
+                    "select text from data_platform.events", "select spec from data_platform.datasets",
+                    "select * from data_platform.privacy_budget"):
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                c.execute(sql)
+        with pytest.raises((psycopg.errors.InsufficientPrivilege, psycopg.errors.ReadOnlySqlTransaction)):
+            c.execute("delete from data_platform.events")
+
+
+def test_erasure_and_storage_size(stack, redactor):
+    from cumulus_privacy.platform import Eraser, IngestLimits
+
+    _, collector, searcher, index = stack
+    collector.ingest("spectre", [event(), event(tenant="globex"), event(cid="cid_other")])
+    eraser = Eraser(redactor, index)
+    assert eraser.erase("cumulus-mail", "cid_person0001") == {"deleted": 0}
+    assert eraser.erase("spectre", "cid_person0001") == {"deleted": 2}
+    assert eraser.erase(None, "cid_person0001") == {"deleted": 0}
+    assert len(searcher.search("spectre", _q())["hits"]) == 1
+    # The gateway role can read the database size, which drives the free-tier guard.
+    size = index.storage_bytes()
+    assert size > 1_000_000
+    limits = IngestLimits(storage_limit_bytes=size, storage=index.storage_bytes)
+    assert limits.storage_state() == "full"
+
+
+def test_quality_runs_in_postgres(clean, redactor, reader_dsn):
+    from cumulus_privacy.pgstore import PostgresQualityLog
+
+    with psycopg.connect(ADMIN, autocommit=True) as c:
+        c.execute("truncate data_platform.quality_runs")
+    catalog = PostgresCatalog(clean)
+    spec = {**DEALS, "quality": [{"kind": "uniqueness", "columns": ["dealId"], "min": 1.0},
+                                 {"kind": "anomaly", "metric": "size", "maxRelativeChange": 0.5}]}
+    catalog.register("spectre", DEALS["name"], spec)
+    log = PostgresQualityLog(clean)
+    collector = Collector(catalog, redactor, PostgresEventIndex(clean), "EU", quality_log=log)
+    collector.ingest("spectre", [event(), event()])
+    collector.ingest("spectre", [event() for _ in range(6)])
+    runs = collector.quality_runs("spectre", DEALS["name"])["runs"]
+    assert [r["rows"] for r in runs] == [6, 2]
+    anomaly = next(r for r in runs[0]["results"] if r["kind"] == "anomaly")
+    assert anomaly["metric"] == pytest.approx(2.0) and anomaly["ok"] is False
+    with psycopg.connect(reader_dsn, autocommit=True) as c:  # BI can chart quality over time
+        assert c.execute("select count(*) from data_platform.quality_runs").fetchone()[0] == 2
+
+
+def test_retention_purge(stack):
+    _, collector, _, index = stack
+    old = (datetime.now(timezone.utc) - timedelta(days=400)).isoformat()
+    fresh = datetime.now(timezone.utc).isoformat()
+    collector.ingest("spectre", [event(occurredAt=old), event(occurredAt=fresh)])
+    assert index.purge_expired() == 1  # DEALS keeps 365 days
+
+
+def test_budget_is_shared_and_enforced(clean):
+    a, b = PostgresBudget(clean, 1.5), PostgresBudget(clean, 1.5)  # two gateway instances
+    a.charge("usage.daily", 1.0)
+    assert b.remaining("usage.daily") == pytest.approx(0.5)
+    with pytest.raises(BudgetExceeded):
+        b.charge("usage.daily", 1.0)
+    assert a.spent("usage.daily") == pytest.approx(1.0)
+    assert a.spent(str(uuid.uuid4())) == 0.0
+
+
+def test_dp_release_over_stored_events(stack, clean):
+    from cumulus_privacy.dp import exact_backend
+    from cumulus_privacy.event_release import StoredReleases
+
+    catalog, collector, _, index = stack
+    collector.ingest("spectre", [
+        event(cid="cid_a0000001"), event(cid="cid_a0000001"), event(cid="cid_b0000002"),
+        event(cid="cid_c0000003", consent=["ESSENTIAL"]), event(cid=None),
+        event(cid="cid_d0000004", occurredAt="2026-10-01T00:00:00Z"),
+    ])
+    rows = index.release_rows("spectre", DEALS["name"], datetime(2026, 11, 1, tzinfo=timezone.utc),
+                              datetime(2026, 12, 1, tzinfo=timezone.utc), 100)
+    assert len(rows) == 4 and all(r["cid"] and isinstance(r["payload"], dict) for r in rows)
+    releases = StoredReleases(catalog, index, PostgresBudget(clean, 1.0), backend=exact_backend)
+    out = releases.release("spectre", DEALS["name"], {
+        "from": "2026-11-01T00:00:00Z", "to": "2026-12-01T00:00:00Z", "metric": "COUNT",
+        "groupBy": "stage", "publicGroups": ["won"], "epsilon": 0.25,
+    })
+    assert out["groups"] == {"won": 2.0} and out["remainingEpsilon"] == pytest.approx(0.75)
+
+
+def test_documents_in_postgres(clean, redactor):
+    from cumulus_privacy.documents import Documents
+    from cumulus_privacy.pgstore import PostgresDocumentStore
+
+    with psycopg.connect(ADMIN, autocommit=True) as c:
+        c.execute("truncate data_platform.documents")
+    docs = Documents(redactor, PostgresDocumentStore(clean))
+    base = {"tenant": "acme", "updatedAt": "2026-11-20T10:00:00Z"}
+    docs.put("spectre", "playbooks", "a", {**base, "title": "Pricing", "body": "renewal mentioned once", "labels": ["sales"]})
+    docs.put("spectre", "playbooks", "b", {**base, "title": "Renewal guide", "body": "renewal steps", "labels": ["emea"]})
+    docs.put("spectre", "notes", "p", {**base, "title": "Renewal note", "body": "x",
+                                       "ownerCid": "cid_owner0001", "viewers": ["cid_viewer0001"]})
+    docs.put("spectre", "playbooks", "g", {**base, "tenant": "globex", "title": "Renewal", "body": ""})
+    q = {"tenant": "acme", "text": "renewal"}
+    assert [h["documentId"] for h in docs.search("spectre", q)["hits"]] == ["b", "a"]  # title outranks body
+    assert {h["documentId"] for h in docs.search("spectre", {**q, "viewer": "cid_viewer0001"})["hits"]} == {"a", "b", "p"}
+    assert [h["documentId"] for h in docs.search("spectre", {**q, "labels": ["emea"]})["hits"]] == ["b"]
+    assert [h["documentId"] for h in docs.search("spectre", {**q, "text": 'renewal -pricing'})["hits"]] == ["b"]
+    assert docs.search("cumulus-mail", q)["hits"] == []
+    hit = docs.search("spectre", q)["hits"][0]
+    assert hit["updatedAt"] == "2026-11-20T10:00:00Z" and "renewal" in hit["snippet"].lower()
+    # Erasure: the viewer leaves the list, the document stays restricted.
+    pseudonym = docs._pseudonym("cid_viewer0001")
+    assert docs.store.erase(pseudonym, "spectre") == 0
+    assert {h["documentId"] for h in docs.search("spectre", {**q, "viewer": "cid_viewer0001"})["hits"]} == {"a", "b"}
+    assert docs.store.erase(docs._pseudonym("cid_owner0001"), None) == 1
+    assert docs.remove("spectre", "playbooks", "a", {"tenant": "acme"}) == {"deleted": 1}
+
+
+def test_document_expiry_in_postgres(clean, redactor):
+    from cumulus_privacy.documents import Documents
+    from cumulus_privacy.pgstore import PostgresDocumentStore
+
+    with psycopg.connect(ADMIN, autocommit=True) as c:
+        c.execute("truncate data_platform.documents")
+    docs = Documents(redactor, PostgresDocumentStore(clean))
+    soon = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
+    base = {"tenant": "acme", "updatedAt": "2026-11-20T10:00:00Z", "body": "renewal"}
+    docs.put("spectre", "playbooks", "keep", {**base, "title": "Keep"})
+    docs.put("spectre", "playbooks", "temp", {**base, "title": "Temp", "expiresAt": soon})
+    q = {"tenant": "acme", "text": "renewal"}
+    assert {h["documentId"] for h in docs.search("spectre", q)["hits"]} == {"keep", "temp"}
+    assert docs.store.purge_expired() == 0
+    with psycopg.connect(ADMIN, autocommit=True) as c:  # time passes
+        c.execute("update data_platform.documents set expires_at = now() - interval '1 minute' where document_id = 'temp'")
+    assert [h["documentId"] for h in docs.search("spectre", q)["hits"]] == ["keep"]
+    assert docs.store.purge_expired() == 1
+    docs.put("spectre", "playbooks", "keep", {**base, "title": "Keep", "expiresAt": soon})
+    docs.put("spectre", "playbooks", "keep", {**base, "title": "Keep"})  # no expiresAt: kept for good
+    with psycopg.connect(ADMIN, autocommit=True) as c:
+        assert c.execute("select expires_at from data_platform.documents").fetchall() == [(None,)]
+
+
+def test_document_quota_lookups_in_postgres(clean, redactor):
+    from cumulus_privacy.documents import Documents
+    from cumulus_privacy.pgstore import PostgresDocumentStore
+
+    with psycopg.connect(ADMIN, autocommit=True) as c:
+        c.execute("truncate data_platform.documents")
+    store = PostgresDocumentStore(clean)
+    docs = Documents(redactor, store, max_per_product=2)
+    base = {"tenant": "acme", "updatedAt": "2026-11-20T10:00:00Z", "title": "T", "body": "b"}
+    docs.put("spectre", "playbooks", "a", base)
+    docs.put("spectre", "playbooks", "b", {**base, "tenant": "globex"})
+    docs.put("cumulus-mail", "playbooks", "a", base)
+    assert store.count("spectre") == 2 and store.count("cumulus-mail") == 1
+    assert store.existing("spectre", [("playbooks", "acme", "a"), ("playbooks", "acme", "b"),
+                                      ("playbooks", "globex", "b")]) == {("playbooks", "acme", "a"), ("playbooks", "globex", "b")}
+    assert store.existing("spectre", []) == set()
+    with pytest.raises(PlatformError) as e:
+        docs.put("spectre", "playbooks", "c", base)
+    assert e.value.name == "DocumentQuotaReached"
+    docs.put("spectre", "playbooks", "a", {**base, "title": "T2"})  # replacing is fine when full

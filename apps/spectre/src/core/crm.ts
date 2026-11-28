@@ -12,6 +12,7 @@ import {
   type Deal,
   type Fact,
   type Relationship,
+  type SavedScenario,
   type Stage,
 } from "./model.ts";
 
@@ -51,6 +52,8 @@ export interface SpectreStore {
   messages: Map<string, Message>;
   /** Conjure swarm simulations (SCALVS.ai), tagged with their workspace. */
   simulations: Map<string, Simulation & { workspace: string; dealId?: string; createdBy: string }>;
+  /** METATRON¹⁰⁰ "what if?" scenarios saved per workspace. */
+  scenarios: Map<string, SavedScenario>;
 }
 
 export const emptyStore = (): SpectreStore => ({
@@ -70,9 +73,15 @@ export const emptyStore = (): SpectreStore => ({
   jobs: new Map(),
   messages: new Map(),
   simulations: new Map(),
+  scenarios: new Map(),
 });
 
-type Kind = "company" | "contact" | "deal" | "activity" | "relationship";
+type Kind = "company" | "contact" | "deal" | "activity" | "relationship" | "scenario";
+
+/** Saved scenarios per workspace, and the largest model (as JSON) one may hold. */
+export const SCENARIO_LIMITS = { perWorkspace: 100, nameLength: 120, bytes: 64 * 1024 } as const;
+
+export type ScenarioInput = Pick<SavedScenario, "name" | "model"> & Partial<Pick<SavedScenario, "templateId" | "interventions" | "events" | "focus">>;
 
 export class SpectreCRM {
   readonly store: SpectreStore;
@@ -293,6 +302,64 @@ export class SpectreCRM {
     this.store.relationships.set(r.id, r);
     await this.audit(actor, "relationship", r.id, { event: "created", strength });
     return r;
+  }
+
+  /* ---------------- METATRON¹⁰⁰ saved scenarios ---------------- */
+
+  private checkScenario(input: Partial<ScenarioInput>) {
+    if (input.name !== undefined) {
+      if (typeof input.name !== "string" || !input.name.trim()) throw new SpectreError("invalid", "Give the scenario a name");
+      if (input.name.trim().length > SCENARIO_LIMITS.nameLength) throw new SpectreError("invalid", `Scenario names are at most ${SCENARIO_LIMITS.nameLength} characters`);
+    }
+    if (JSON.stringify({ model: input.model, interventions: input.interventions, events: input.events }).length > SCENARIO_LIMITS.bytes) {
+      throw new SpectreError("invalid", "This scenario is too large to save (64 KB at most)");
+    }
+  }
+
+  async saveScenario(workspace: string, actor: string, input: ScenarioInput) {
+    this.checkScenario(input);
+    if (this.list("scenarios", workspace).length >= SCENARIO_LIMITS.perWorkspace) {
+      throw new SpectreError("invalid", `A workspace can keep ${SCENARIO_LIMITS.perWorkspace} saved scenarios; delete one first`);
+    }
+    const t = this.stamp();
+    const s: SavedScenario = {
+      id: `sc_${randomUUID()}`,
+      workspace,
+      name: input.name.trim(),
+      templateId: input.templateId,
+      model: input.model,
+      interventions: input.interventions ?? [],
+      events: input.events ?? {},
+      focus: input.focus,
+      createdBy: actor,
+      createdAt: t,
+      updatedAt: t,
+    };
+    this.store.scenarios.set(s.id, s);
+    await this.audit(actor, "scenario", s.id, { event: "created", name: s.name, template: s.templateId ?? null });
+    return s;
+  }
+
+  scenario(workspace: string, id: string) {
+    return this.get(this.store.scenarios, id, workspace, "Scenario");
+  }
+
+  async updateScenario(workspace: string, actor: string, id: string, patch: Partial<ScenarioInput>) {
+    const s = this.scenario(workspace, id);
+    const clean = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined)) as Partial<ScenarioInput>;
+    this.checkScenario({ ...s, ...clean });
+    const next: SavedScenario = { ...s, ...clean, name: (clean.name ?? s.name).trim(), updatedAt: this.stamp() };
+    const changed = Object.keys(this.diff(s, next));
+    this.store.scenarios.set(id, next);
+    // The model itself can be large; the trail records which parts changed.
+    if (changed.length) await this.audit(actor, "scenario", id, { event: "updated", changed });
+    return next;
+  }
+
+  async deleteScenario(workspace: string, actor: string, id: string) {
+    const s = this.scenario(workspace, id);
+    this.store.scenarios.delete(s.id);
+    await this.audit(actor, "scenario", id, { event: "deleted", name: s.name });
   }
 
   /* ---------------- Queries ---------------- */

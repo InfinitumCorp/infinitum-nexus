@@ -166,12 +166,11 @@ function render() {
   root.replaceChildren();
   const selected = data.messages.find((message) => message.id === state.selected);
   const search = el("input", { placeholder: "Search mail", "aria-label": "Search mail", value: state.query, onInput: (event) => { state.query = event.target.value; render(); document.querySelector(".search input")?.focus(); } });
-  const initial = (data.me.name || data.me.email).trim().charAt(0).toUpperCase();
   root.append(
     el("header", {}, [
       el("div", { class: "brand" }, [el("div", { class: "mark" }, ["Cumulus://Mail", el("sup", { class: "tm" }, ["™"])])]),
       el("label", { class: "search" }, [el("span", { class: "glass", "aria-hidden": "true" }, ["⌕"]), search]),
-      el("button", { class: "avatar", title: `${data.me.name} · ${data.me.email}`, "aria-label": "Your Cumulus://ID", onClick: () => go("account") }, [initial]),
+      el("div", { class: "account-bar", "data-cumulus-bar": "" }),
     ]),
     el("div", { class: "layout" }, [
       sidebar(data),
@@ -189,7 +188,9 @@ function render() {
     el("button", { class: "x", "aria-label": "Dismiss", onClick: () => { state.toast = null; render(); } }, ["×"]),
   ]));
   if (state.help) root.append(helpDialog());
-  document.title = data.unread ? `Inbox (${data.unread}) · Cumulus://Mail` : "Cumulus://Mail";
+  // The Cumulus://ID account bar (id/bar.js) in the header shows the signed-in person.
+  window.CumulusBar?.setProfile({ name: data.me.name, username: data.me.username, email: data.me.email });
+  document.title = data.unread ? `Inbox (${data.unread}) · Cumulus://Mail™` : "Cumulus://Mail™";
 }
 
 const SHORTCUTS = [
@@ -247,7 +248,7 @@ function list() {
       message.payment ? el("span", { class: "tag" }, [`${message.payment.amount} ${message.payment.asset}`]) : none(),
       message.attachments?.length ? el("span", { class: "tag" }, ["File"]) : none(),
       el("b", {}, [message.subject || "(no subject)"]),
-      el("span", { class: "snip" }, [` — ${message.body.replace(/\s+/g, " ").slice(0, 160)}`]),
+      el("span", { class: "snip", translate: "no" }, [` — ${message.body.replace(/\s+/g, " ").slice(0, 160)}`]),
     ]),
     el("span", { class: "when" }, [shortDate(message.at)]),
   ]));
@@ -366,7 +367,7 @@ function scheduledView(message) {
       el("h1", {}, [message.subject || "(no subject)"]),
       el("p", { class: "scheduled-note" }, [`🕒 Sends ${longDate(message.sendAt)}`]),
       el("p", { class: "sub" }, [`To ${message.to.map((p) => p.name || p.email).join(", ")}${message.cc.length ? ` · Cc ${message.cc.map((p) => p.name || p.email).join(", ")}` : ""}`]),
-      el("div", { class: "scheduled-body" }, [message.body]),
+      el("div", { class: "scheduled-body", translate: "no" }, [message.body]),
     ]),
   ]);
 }
@@ -455,7 +456,7 @@ function reader(message) {
           el("span", { class: "sub" }, [shortDate(item.at)]),
         ]),
         item.payment ? paymentCard(item) : none(),
-        el("p", { class: "letter" }, [item.body]),
+        el("p", { class: "letter", translate: "no" }, [item.body]),
         ...(item.attachments || []).map((file) => file.id
           ? el("a", { class: "file", href: fileUrl(file.id), download: file.name, title: `Download ${file.name}` }, [file.name, el("span", { class: "sub" }, [size(file.size)])])
           : el("span", { class: "file", title: "This file wasn't stored, so it can't be opened." }, [file.name, el("span", { class: "sub" }, [size(file.size)])])),
@@ -687,7 +688,7 @@ function cleanView() {
   };
   const by = { rules: "Automatic", scalvs: "SCALVS", you: "You" };
   return el("section", { class: "pane" }, [el("div", { class: "sheet" }, [
-    el("h1", {}, [waiting ? `${waiting} message${waiting === 1 ? "" : "s"} ready to clean` : "Your inbox is clean"]),
+    el("h1", {}, [waiting === 1 ? "1 message ready to clean" : waiting ? `${waiting} messages ready to clean` : "Your inbox is clean"]),
     el("p", { class: "muted" }, [c.rules.auto ? `SCALVS cleans on its own${c.lastRun ? ` · last run ${ago(c.lastRun)}` : ""}. Everything it moves can be undone.` : "Automatic cleaning is off."]),
     el("div", { class: "actions" }, [
       el("button", { class: "primary", disabled: !waiting, onClick: () => act(() => api("/api/clean/run", {})) }, ["Clean now"]),
@@ -706,7 +707,7 @@ function cleanView() {
       el("div", {}, [
         el("div", { class: "by" }, [s.source === "scalvs" ? "SCALVS" : "Rules"]),
         el("div", {}, [s.reason]),
-        el("div", { class: "sub" }, [s.kind === "mute" ? `Mute ${s.email}` : `${s.kind === "trash" ? "Move to Trash" : "Archive"} · ${s.count} message${s.count === 1 ? "" : "s"}`]),
+        el("div", { class: "sub" }, s.kind === "mute" ? [`Mute ${s.email}`] : [s.kind === "trash" ? "Move to Trash" : "Archive", " · ", s.count === 1 ? "1 message" : `${s.count} messages`]),
       ]),
       el("div", { class: "btns" }, [
         el("button", { class: "primary", onClick: () => act(() => api("/api/clean/approve", { id: s.id })) }, ["Approve"]),
@@ -727,7 +728,7 @@ function cleanView() {
 
     ...(c.senders.length || c.rules.muted.length ? [el("h3", {}, ["Senders"])] : []),
     ...c.senders.map((s) => el("div", { class: "item" }, [
-      el("div", {}, [el("div", {}, [s.name]), el("div", { class: "sub" }, [`${s.email} · ${s.count} message${s.count === 1 ? "" : "s"}`])]),
+      el("div", {}, [el("div", {}, [s.name]), el("div", { class: "sub" }, [s.email, " · ", s.count === 1 ? "1 message" : `${s.count} messages`])]),
       el("button", { class: "outline", onClick: () => act(() => api("/api/clean/mute", { email: s.email })) }, ["Mute"]),
     ])),
     ...c.rules.muted.map((email) => el("div", { class: "item" }, [
@@ -1031,7 +1032,32 @@ function takeNext() {
   try { return JSON.parse(sessionStorage.getItem(NEXT_KEY) || "null"); } catch { return null; }
 }
 
+/** The account bar's "Sign out" (here and in Drive) navigates to /#signout (data-signout). */
+async function signOutFromBar() {
+  if (location.hash !== "#signout") return false;
+  history.replaceState(null, "", "/");
+  await api("/api/auth/signout", {}).catch(() => {});
+  state.data = null;
+  window.CumulusBar?.setProfile(null);
+  renderAuth();
+  return true;
+}
+window.addEventListener("hashchange", () => void signOutFromBar());
+
+/* Shown when the first load fails for any reason other than "please sign in" (a dropped or
+ * throttled connection, a timeout, a server error), so the page never stays blank. */
+function renderLoadFailed() {
+  document.querySelector("#app").replaceChildren(el("div", { class: "auth" }, [el("div", { class: "auth-card" }, [
+    el("div", { class: "mark" }, ["Cumulus://Mail", el("sup", { class: "tm" }, ["™"])]),
+    el("p", { class: "error", role: "alert" }, ["Request failed"]),
+    el("button", { class: "primary", onClick: () => location.reload() }, ["Reload"]),
+  ])]));
+}
+
+const FIRST_LOAD_TIMEOUT_MS = 30_000;
+
 async function boot() {
+  if (await signOutFromBar()) return;
   const desktopChallenge = takeDesktopChallenge();
   const pending = takeNext();
   state.signInFor = pending?.for || "";
@@ -1045,7 +1071,11 @@ async function boot() {
     }
   }
   try {
-    state.data = await api("/api/state");
+    let timer;
+    state.data = await Promise.race([
+      api("/api/state"),
+      new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("timeout")), FIRST_LOAD_TIMEOUT_MS); }),
+    ]).finally(() => clearTimeout(timer));
     if (pending) {
       try { sessionStorage.removeItem(NEXT_KEY); } catch {}
       location.replace(pending.next);
@@ -1057,7 +1087,8 @@ async function boot() {
     if (desktopChallenge) return renderDesktopApprove(desktopChallenge);
     render();
   } catch {
-    // Not signed in: renderAuth() has already been shown.
+    // Not signed in: renderAuth() has already been shown. Anything else gets a Reload button.
+    if (!document.querySelector("#app .auth-card")) renderLoadFailed();
   }
 }
 

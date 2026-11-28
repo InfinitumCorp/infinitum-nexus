@@ -7,6 +7,9 @@
  * FABRIC_PUBLIC_ORIGIN  exact browser origin. Loopback is used when unset.
  * FABRIC_DATA_DIR       SQLite database and generated master key. Default ./data
  * FABRIC_MASTER_KEY     base64 32-byte key. Generated into the data dir when unset.
+ * FABRIC_ICE_SERVERS    JSON list of WebRTC ICE servers for huddles, e.g.
+ *                       [{"urls":"stun:stun.example.org:3478"},{"urls":"turn:turn.example.org:3478","username":"u","credential":"p"}]
+ *                       Default none: huddles then connect directly, which works on one network only.
  * PORT                  default 3020
  */
 import { randomBytes } from "node:crypto";
@@ -17,12 +20,25 @@ import { loadConfig } from "./config.ts";
 import { createHandler } from "./http.ts";
 import { FabricService } from "./service.ts";
 import { FabricStore } from "./store.ts";
+import { TeamHub } from "./team-http.ts";
+import { TeamService, parseIceServers } from "./team.ts";
 
 const config = loadConfig(process.env);
 mkdirSync(config.dataDir, { recursive: true });
 const masterKey = loadMasterKey(config.dataDir);
 const store = new FabricStore(config.databasePath);
 const service = new FabricService(store, masterKey);
+const hub = new TeamHub();
+const team = new TeamService(store, masterKey, { publish: hub.publish, iceServers: parseIceServers(process.env.FABRIC_ICE_SERVERS) });
+hub.watch((sub, delta) => team.setConnected(sub, delta));
+const ticker = setInterval(() => {
+  try {
+    team.tick();
+  } catch (error) {
+    console.warn(`team tick failed: ${error instanceof Error ? error.message : "error"}`);
+  }
+}, 5_000);
+ticker.unref();
 let origin = config.publicOrigin;
 
 const server = createServer(createHandler({
@@ -33,6 +49,8 @@ const server = createServer(createHandler({
   },
   store,
   service,
+  team,
+  hub,
   publicDir: join(import.meta.dirname, "..", "public"),
 }));
 
@@ -47,6 +65,7 @@ server.listen(config.port, config.bind, () => {
 });
 
 function shutdown(): void {
+  clearInterval(ticker);
   server.close(() => {
     store.close();
     process.exit(0);

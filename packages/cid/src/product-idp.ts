@@ -13,14 +13,16 @@
  * The same authorize and token handlers also serve the OpenID Connect paths under
  * /realms/cumulus/protocol/openid-connect/ when a signer is configured.
  */
-import type { Account, CidService } from "./service.ts";
+import { isPublicKeyArmor, type Account, type CidService } from "./service.ts";
 import { idClientFor, idClientOrigins } from "./id-clients.ts";
 import type { OidcSigner } from "./oidc-sign.ts";
 import { verifyOidcToken } from "./oidc-sign.ts";
+import { answerLabyrinthDirectory, labyrinthDirectoryKeyMatches, LabyrinthDirectoryError } from "./labyrinth-directory.ts";
+import { exportCidAccounts } from "./account-export.ts";
 
 export const profileOf = (a: Account) => ({ cid: a.cid, username: a.username, email: a.mailAddress, name: a.username, handle: a.handle });
 
-/** A same-origin path back into this sign-in, or null. Used after Google or Cognito. */
+/** A same-origin path back into this sign-in, or null. Used after a social sign-in. */
 export function safeProductReturn(value: string | null | undefined): string | null {
   if (!value || value.length > 3500) return null;
   if (!value.startsWith("/api/id/") && !value.startsWith("/realms/cumulus/")) return null;
@@ -51,8 +53,22 @@ export function oidcDiscovery(issuer: string, alg: string) {
     scopes_supported: ["openid", "profile", "email"],
     token_endpoint_auth_methods_supported: ["none"],
     code_challenge_methods_supported: ["S256"],
-    claims_supported: ["sub", "cid", "username", "preferred_username", "handle", "email", "email_verified", "amr", "idp", "nonce"],
+    claims_supported: ["sub", "cid", "username", "preferred_username", "handle", "email", "email_verified", "amr", "idp", "nonce", "sid"],
+    end_session_endpoint: `${realm}/protocol/openid-connect/logout`,
+    revocation_endpoint: `${realm}/protocol/openid-connect/revoke`,
   };
+}
+
+/** A response that is not JSON: the public-key directory and an empty revocation body. */
+export class IdRawResponse {
+  readonly status: number;
+  readonly contentType: string;
+  readonly body: string;
+  constructor(status: number, contentType: string, body = "") {
+    this.status = status;
+    this.contentType = contentType;
+    this.body = body;
+  }
 }
 
 export interface ProductIdpHelpers {
@@ -60,6 +76,8 @@ export interface ProductIdpHelpers {
   cid: CidService;
   origin: string;
   sessionCookie?: (token: string, maxAge?: number) => string;
+  /** Clears the browser session cookie on OpenID Connect logout. */
+  clearBrowserSession?: (ctx: any) => void;
   device: (ctx: any) => string;
   need: (ctx: any, ...fields: string[]) => void;
   str?: (v: unknown, max?: number) => string;
@@ -67,6 +85,16 @@ export interface ProductIdpHelpers {
   HttpError: new (status: number, message: string) => Error;
   /** When null or omitted, tokens stay opaque and the OpenID Connect routes are not registered. */
   signer?: OidcSigner | null;
+  /**
+   * SHA-256 (hex) of the service key a separately hosted Labyrinth uses to reach
+   * POST /api/id/labyrinth-directory. Unset: the route is not registered.
+   */
+  labyrinthDirectoryKeySha256?: string;
+  /**
+   * SHA-256 (hex) of the one-off key for POST /api/id/export, the account export used to move
+   * Cumulus://ID to InfinitumCorp/cumulus-id. Unset (the default): the route is not registered.
+   */
+  exportKeySha256?: string;
 }
 
 const ALL_ORIGINS = idClientOrigins();
@@ -105,9 +133,9 @@ export function registerProductIdp(h: ProductIdpHelpers) {
     }
   };
 
-  const accountFromToken = (token: string) => {
+  const accountFromToken = async (token: string) => {
     if (!token.includes(".")) {
-      const hit = cid.authenticate(token);
+      const hit = await cid.authenticate(token);
       if (!hit) throw new HttpError(401, "Not signed in");
       return { account: hit.account, sessionId: hit.session.id };
     }
@@ -119,9 +147,9 @@ export function registerProductIdp(h: ProductIdpHelpers) {
       throw new HttpError(401, "Not signed in");
     }
     if (typeof claims.sid !== "string" || claims.sub !== claims.cid) throw new HttpError(401, "Not signed in");
-    const live = cid.listSessions(String(claims.sub)).some((s) => s.id === claims.sid);
+    const live = (await cid.listSessions(String(claims.sub))).some((s) => s.id === claims.sid);
     if (!live) throw new HttpError(401, "Not signed in");
-    return { account: cid.getAccount(String(claims.sub)), sessionId: claims.sid };
+    return { account: await cid.getAccount(String(claims.sub)), sessionId: claims.sid };
   };
 
   const presented = (ctx: any): string => {
@@ -152,11 +180,13 @@ export function registerProductIdp(h: ProductIdpHelpers) {
     }
     if (!ctx.user) {
       const back = `${strict ? "/realms/cumulus/protocol/openid-connect/auth" : "/api/id/authorize"}?${q.toString()}`;
-      return new Redirect(`/?next=${encodeURIComponent(back)}&for=${encodeURIComponent(client.name)}`);
+      // "Create a Cumulus ID" in a product sends prompt=create: open the sign-in page on Create.
+      const create = q.get("prompt") === "create" ? "&create=1" : "";
+      return new Redirect(`/?next=${encodeURIComponent(back)}&for=${encodeURIComponent(client.name)}${create}`);
     }
     const account = ctx.user.account as Account;
-    if (!cid.can(account.cid, client.app, "profile:read")) await cid.grant(account.cid, client.app, ["profile:read"]);
-    const idp = idpOfMethod(cid.listSessions(account.cid).find((s) => s.id === ctx.user.sessionId)?.method);
+    if (!(await cid.can(account.cid, client.app, "profile:read"))) await cid.grant(account.cid, client.app, ["profile:read"]);
+    const idp = idpOfMethod((await cid.listSessions(account.cid)).find((s) => s.id === ctx.user.sessionId)?.method);
     const { code } = await cid.grantDeviceHandoff(account.cid, challenge, clientId, {
       idp,
       nonce: nonce || undefined,
@@ -197,7 +227,7 @@ export function registerProductIdp(h: ProductIdpHelpers) {
       idp,
       azp: clientId,
     };
-    const idClaims = { ...shared };
+    const idClaims: Record<string, unknown> = { ...shared, sid: session.id };
     if (nonce) idClaims.nonce = nonce;
     return {
       access_token: signer.sign({ ...shared, sid: session.id }),
@@ -214,7 +244,7 @@ export function registerProductIdp(h: ProductIdpHelpers) {
       await cid.revokeSession(redeemed.session.cid, redeemed.session.id);
       throw new HttpError(400, "That sign-in code belongs to another product.");
     }
-    return tokenResponse(cid.getAccount(redeemed.session.cid), redeemed.session, clientId, redeemed.idp, redeemed.nonce, redeemed.token);
+    return tokenResponse(await cid.getAccount(redeemed.session.cid), redeemed.session, clientId, redeemed.idp, redeemed.nonce, redeemed.token);
   };
 
   const token = async (ctx: any, strict: boolean) => {
@@ -261,7 +291,7 @@ export function registerProductIdp(h: ProductIdpHelpers) {
     const tokenValue = str(q.get("token"), 8000);
     try {
       if (OPAQUE.test(tokenValue) || JWT.test(tokenValue)) {
-        const hit = accountFromToken(tokenValue);
+        const hit = await accountFromToken(tokenValue);
         await cid.revokeSession(hit.account.cid, hit.sessionId);
       }
     } catch {
@@ -270,19 +300,127 @@ export function registerProductIdp(h: ProductIdpHelpers) {
     return new Redirect(url.toString());
   }, false);
 
-  const userinfo = (ctx: any) => {
+  const userinfo = async (ctx: any) => {
     cors(ctx);
-    return profileOf(accountFromToken(presented(ctx)).account);
+    return profileOf((await accountFromToken(presented(ctx))).account);
   };
   route("GET", "/api/id/userinfo", userinfo, false);
   if (signer) route("GET", "/realms/cumulus/protocol/openid-connect/userinfo", userinfo, false);
 
   route("POST", "/api/id/signout", async (ctx) => {
     cors(ctx);
-    const hit = accountFromToken(presented(ctx));
+    const hit = await accountFromToken(presented(ctx));
     await cid.revokeSession(hit.account.cid, hit.sessionId);
     return { ok: true };
   }, false, { csrf: false });
 
+  const revokePresented = async (token: string) => {
+    if (!(OPAQUE.test(token) || JWT.test(token)) || token.length > 8000) return;
+    try {
+      const hit = await accountFromToken(token);
+      await cid.revokeSession(hit.account.cid, hit.sessionId);
+    } catch {
+      // RFC 7009: an unknown token is still a successful revocation.
+    }
+  };
+
+  // OpenID Connect RP-Initiated Logout. The redirect must be one of the client's origins.
+  const logout = async (ctx: any) => {
+    const q = ctx.query as URLSearchParams;
+    const hint = str(q.get("id_token_hint"), 8000);
+    if (hint) await revokePresented(hint);
+    if (ctx.user) await cid.revokeSession(ctx.user.account.cid, ctx.user.sessionId).catch(() => undefined);
+    h.clearBrowserSession?.(ctx);
+    const redirectUri = str(q.get("post_logout_redirect_uri"), 500);
+    if (!redirectUri) return { ok: true };
+    const clientId = str(q.get("client_id"), 40);
+    if (!idClientFor(clientId, redirectUri)) throw new HttpError(400, "This sign-in request didn't come from an Infinitum product.");
+    const to = new URL(redirectUri);
+    const state = str(q.get("state"), 200);
+    if (state) to.searchParams.set("state", state);
+    return new Redirect(to.toString());
+  };
+  route("GET", "/realms/cumulus/protocol/openid-connect/logout", logout, false, { optionalAuth: true });
+  route("GET", "/api/id/logout", logout, false, { optionalAuth: true });
+
+  // RFC 7009. Always 200, so a caller cannot tell a live token from an unknown one.
+  const revoke = async (ctx: any) => {
+    cors(ctx);
+    const tokenValue = str(ctx.body?.token, 8000);
+    if (tokenValue) await revokePresented(tokenValue);
+    return new IdRawResponse(200, "application/json; charset=utf-8", "{}");
+  };
+  route("POST", "/realms/cumulus/protocol/openid-connect/revoke", revoke, false, { csrf: false });
+  route("POST", "/api/id/revoke", revoke, false, { csrf: false });
+
+  const keyEmail = (raw: string) => {
+    let email = "";
+    try { email = decodeURIComponent(raw).trim().toLowerCase(); } catch { email = ""; }
+    if (email.length > 254 || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return "";
+    return email;
+  };
+
+  // Mail's public-key directory. GET is public. PUT stores only a public key for the token's own address.
+  route("GET", "/api/keys/:email", async (ctx) => {
+    const email = keyEmail(ctx.params.email);
+    const armored = email ? await cid.lookupDirectoryKey(email) : undefined;
+    if (!armored) throw new HttpError(404, "No public key");
+    return new IdRawResponse(200, "application/pgp-keys", armored);
+  }, false);
+
+  route("PUT", "/api/keys/:email", async (ctx) => {
+    const email = keyEmail(ctx.params.email);
+    if (!email) throw new HttpError(400, "That address is not valid");
+    let hit: { account: Account; sessionId: string };
+    try {
+      hit = await accountFromToken(presented(ctx));
+    } catch {
+      throw new HttpError(401, "Not signed in");
+    }
+    const armored = typeof ctx.body?.armored === "string" ? ctx.body.armored : "";
+    const result = await cid.publishDirectoryKey(hit.account.cid, email, armored);
+    if (result === "forbidden") throw new HttpError(403, "That address is not this Cumulus://ID");
+    if (result === "invalid") throw new HttpError(400, "Send an OpenPGP public key");
+    return new IdRawResponse(204, "application/pgp-keys", "");
+  }, false, { csrf: false });
+
   route("GET", "/api/id/me", (ctx) => (ctx.user ? profileOf(ctx.user.account) : { signedIn: false }), false, { optionalAuth: true });
+
+  // Server-to-server only, for the move to InfinitumCorp/cumulus-id: every account with its passkeys,
+  // linked identities, confirmed authenticator app and grants. Never sessions, token hashes,
+  // challenges or OAuth state. Off unless CID_EXPORT_KEY_SHA256 is set; no CORS headers at all.
+  const exportKey = h.exportKeySha256;
+  if (exportKey) {
+    route("POST", "/api/id/export", async (ctx) => {
+      for (const name of ["Access-Control-Allow-Origin", "Access-Control-Allow-Credentials", "Access-Control-Allow-Methods", "Access-Control-Allow-Headers", "Access-Control-Max-Age"]) {
+        ctx.res.removeHeader(name);
+      }
+      if (!labyrinthDirectoryKeyMatches(ctx.req.headers["x-cid-export-key"], exportKey)) throw new HttpError(401, "Unknown export client");
+      return await exportCidAccounts(cid);
+    }, false, { csrf: false });
+  }
+
+  // Server-to-server only: the hosted Labyrinth asks who a presented token belongs to.
+  // No CORS headers are set, so a browser page can never read an answer.
+  const directoryKey = h.labyrinthDirectoryKeySha256;
+  if (directoryKey) {
+    route("POST", "/api/id/labyrinth-directory", async (ctx) => {
+      if (!labyrinthDirectoryKeyMatches(ctx.req.headers["x-cid-directory-key"], directoryKey)) throw new HttpError(401, "Unknown directory client");
+      const resolve = async (token: string) => {
+        if (!(OPAQUE.test(token) || JWT.test(token))) return null;
+        try {
+          const hit = await accountFromToken(token);
+          return { cid: hit.account.cid, sessionId: hit.sessionId };
+        } catch {
+          return null;
+        }
+      };
+      try {
+        return await answerLabyrinthDirectory(cid, resolve, ctx.body);
+      } catch (err) {
+        if (err instanceof LabyrinthDirectoryError) throw new HttpError(err.status, err.message);
+        throw err;
+      }
+    }, false, { csrf: false });
+  }
 }

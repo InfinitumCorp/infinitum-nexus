@@ -1,10 +1,13 @@
 import { createServer } from "node:http";
 import { httpServerHandler } from "cloudflare:node";
 import PostalMime from "postal-mime";
+import { useLabyrinthServiceBinding } from "@infinitum/lbrnth";
+type LabyrinthServiceBinding = Parameters<typeof useLabyrinthServiceBinding>[1];
 import { MailError } from "@infinitum/mail";
 import handler, { deliverOutboundMail, receiveMail, sendScheduledMail, useFileStore } from "./vercel.ts";
 import { cloudflareSender, type EmailBinding } from "./outbound.ts";
 import { r2FileStore, type FileStore, type R2BucketLike } from "./files.ts";
+import { useCidDatabaseUrl } from "../../spectre/src/server/cid-store.ts";
 import { storeInboundFiles, toInbound } from "./inbound.ts";
 
 /**
@@ -35,11 +38,17 @@ interface Env {
   MAIL_FILES?: R2BucketLike;
   /** Service binding to the downloads site (Worker cumulus-downloads), served at /download/. */
   DOWNLOADS_SITE?: { fetch(request: Request): Promise<Response> };
+  /** Service binding to lbrnth-host-us (US Labyrinth). Relay calls to lbrnth-us.cumuluscloud.app go through it. */
+  LBRNTH_US?: LabyrinthServiceBinding;
+  /** Cloudflare Hyperdrive in front of Cumulus://ID's Postgres, used when CUMULUS_STORE=postgres. */
+  CID_DB?: { connectionString: string };
 }
 
 let files: FileStore | undefined;
 /** Hand the R2 bucket to the app before it is first built. */
 function configure(env: Env) {
+  useLabyrinthServiceBinding("lbrnth-us.cumuluscloud.app", env.LBRNTH_US);
+  if (env.CID_DB) useCidDatabaseUrl(env.CID_DB.connectionString);
   if (!files && env.MAIL_FILES) {
     files = r2FileStore(env.MAIL_FILES);
     useFileStore(files);

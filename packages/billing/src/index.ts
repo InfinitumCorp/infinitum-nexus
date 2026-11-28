@@ -15,6 +15,7 @@ export {
   BillingLinkStore,
   REVENUE_PRODUCT,
   billingFor,
+  hasBilling,
   effectiveEntitlements,
   ensureBillingOrg,
   extraStorageGb,

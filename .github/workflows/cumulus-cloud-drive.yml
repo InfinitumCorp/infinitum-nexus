@@ -34,12 +34,14 @@ jobs:
       # Ephemeral database on the runner. Not a production credential.
       CUMULUS_CLOUD_DATABASE_URL: postgres://cumulus:cumulus@127.0.0.1:5432/cloud
       CUMULUS_CLOUD_REQUIRE_INTEGRATION: "1"
+      # Cumulus://ID's suites also run on PgCidRepository against the same database.
+      CID_TEST_PG_URL: postgres://cumulus:cumulus@127.0.0.1:5432/cloud
     steps:
       - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: 10.28.0
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
@@ -47,3 +49,35 @@ jobs:
       - run: pnpm --filter @infinitum/cloud typecheck
       - run: pnpm --filter @infinitum/cloud test
       - run: pnpm --filter @infinitum/cid test
+      # FIRM Wallet on PgWalletRepository, including two payments racing for one balance.
+      - run: pnpm --filter @infinitum/firm exec node --test --experimental-strip-types src/accounts.test.ts
+      # CUMULUS_STORE=postgres end to end: accounts become rows, the cid document is no longer saved.
+      - run: pnpm --filter @infinitum/spectre exec node --test --experimental-strip-types src/server/cid-store.test.ts src/server/cid-rows.test.ts src/server/local-cid.test.ts
+      # Mail end to end on Cumulus://ID rows (CUMULUS_STORE=gateway), before Mail switches.
+      - run: pnpm --filter @infinitum/cumulus-mail exec node --test --experimental-strip-types src/cid-gateway.http.test.ts
+      # Mail on PgMailRepository: rows, sealing at rest, two deliveries to one mailbox, two senders.
+      - run: pnpm --filter @infinitum/mail exec node --test --experimental-strip-types src/postgres.test.ts
+      # CUMULUS_ROWS: Mail, Wallet and Quota copied from their documents into rows (rows-cli), then used.
+      - run: pnpm --filter @infinitum/cumulus exec node --test --experimental-strip-types src/rows.test.ts
+      # The Mail app end to end with CUMULUS_STORE=postgres and CUMULUS_ROWS=mail,wallet,quota.
+      - run: pnpm --filter @infinitum/cumulus-mail exec node --test --experimental-strip-types src/rows.http.test.ts
+      # CUMULUS_STORE=gateway with CUMULUS_ROWS=wallet,quota: rows through nexus-store's SQL, and two servers racing.
+      - run: pnpm --filter @infinitum/cumulus-mail exec node --test --experimental-strip-types src/rows-gateway.http.test.ts
+      # CUMULUS_ROWS=mail through the gateway: the Mail app on mail rows, concurrent changes, copying the document in.
+      - run: pnpm --filter @infinitum/cumulus-mail exec node --test --experimental-strip-types src/mail-gateway.http.test.ts
+      # A gateway host's first request claims the rows from the documents, once (no manual refresh).
+      - run: pnpm --filter @infinitum/cumulus-mail exec node --test --experimental-strip-types src/claim.http.test.ts
+      # Claims never overwrite rows that hold something else; a rollback releases the claim.
+      - run: pnpm --filter @infinitum/cumulus-mail exec node --test --experimental-strip-types src/claim-safety.http.test.ts
+      # +SPCTR on CUMULUS_ROWS: a sign-up there lands in the rows Mail reads.
+      - run: pnpm --filter @infinitum/spectre exec node --test --experimental-strip-types src/server/spectre-rows.http.test.ts
+      # Mail with the storage settings in cloudflare.config.ts, on all migrations and existing documents.
+      - run: pnpm --filter @infinitum/cumulus-mail exec node --test --experimental-strip-types src/production-config.http.test.ts
+      # Drive on a repository that copies values in and out (as a database does): every change is an explicit put.
+      - run: DRIVE_TEST_COPYING=1 pnpm --filter @infinitum/cumulus-mail exec node --test --experimental-strip-types src/workspace.test.ts
+      # CUMULUS_ROWS=drive: Drive metadata in rows, two saves of one document at once, the first-start copy.
+      - run: pnpm --filter @infinitum/cumulus-mail exec node --test --experimental-strip-types src/workspace-postgres.test.ts
+      # CUMULUS_ROWS=drive through the gateway: nexus-store's SQL, the first-request claim, two servers saving one document.
+      - run: pnpm --filter @infinitum/cumulus-mail exec node --test --experimental-strip-types src/drive-gateway.http.test.ts
+      # Overlapping requests through the gateway: two moves into each other, an upload into a folder being deleted, two saves.
+      - run: pnpm --filter @infinitum/cumulus-mail exec node --test --experimental-strip-types src/drive-gateway-races.http.test.ts

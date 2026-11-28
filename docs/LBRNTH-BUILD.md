@@ -135,7 +135,7 @@ permissions, overwrite refusal, writer locks and tampered snapshots.
 This is a source build and local verification, not a production activation. Hosting
 credentials, a real billing authority and organization allowlist were not supplied.
 The existing encrypted file adapter still requires one long-lived writer with
-persistent disk. It is not suitable for ephemeral serverless disks. Distributed
-transactional storage, live billing/KMS, Git wire protocol, merges, firmware sync
+persistent disk. It is not suitable for ephemeral serverless disks; use the
+Postgres-backed hosted service in [LBRNTH-HOSTED.md](LBRNTH-HOSTED.md). Live billing/KMS, Git wire protocol, merges, firmware sync
 and new implementations for registry-only products remain separate work. No
 production domains, DNS, package registry or unrelated product code is changed.

@@ -1,5 +1,4 @@
 import { createHash, randomBytes } from "node:crypto";
-import type { CidService } from "@infinitum/cid";
 import { Labyrinth } from "./service.ts";
 import { LabyrinthError } from "./model.ts";
 import type { CommitInput, LabyrinthOptions, Role, Scope, LabyrinthStorage } from "./model.ts";
@@ -8,20 +7,52 @@ import { labyrinthProduct } from "@infinitum/lbrnth-client";
 export interface CidLabyrinthOptions extends Pick<LabyrinthOptions, "entitled" | "clock" | "limits"> {
   /** Explicit storage is mandatory; MemoryStorage must be deliberately selected for tests. */
   storage: LabyrinthStorage;
+  /**
+   * A Labyrinth the host already built over `storage` (LabyrinthHost shares one across
+   * requests). Its can/canProvision callbacks must consult the same CID authority.
+   */
+  labyrinth?: Labyrinth;
+  /** Where repository-only bearer grants live. Defaults to process memory. */
+  delegations?: DelegationStore;
+}
+
+/**
+ * The Cumulus://ID operations Labyrinth relies on. CidService satisfies it directly;
+ * LabyrinthHost supplies a per-request view of a remote, authoritative CID directory.
+ */
+export interface CidAuthority {
+  authenticate(token: string): { account: { cid: string }; session: { id: string } } | null;
+  isSessionActive(cid: string, sessionId: string): boolean;
+  organizationMembership(cid: string): { id: string; name: string; admin: boolean } | null;
+  can(cid: string, app: string, scope: string): boolean;
+  permissions(cid: string): { app: string; scopes: string[] }[];
+  createOrganization(name: string, adminCid: string): Promise<{ id: string; name: string }>;
+  grant(cid: string, app: string, scopes: string[]): Promise<unknown>;
+}
+
+/** A repository-only bearer grant. Only the SHA-256 of the bearer is ever a key. */
+export interface DelegationGrant { cid: string; orgId: string; parentSession: string; expires: number }
+export interface DelegationStore {
+  get(tokenHash: string): DelegationGrant | undefined;
+  set(tokenHash: string, grant: DelegationGrant): void;
+  delete(tokenHash: string): void;
+  entries(): Iterable<[string, DelegationGrant]>;
+  readonly size: number;
 }
 
 /** Cumulus://ID is the authority: raw CID/org strings are never credentials. */
 export class CidLabyrinth {
-  readonly #cid: CidService;
+  readonly #cid: CidAuthority;
   readonly #lab: Labyrinth;
   readonly #clock: () => Date;
-  readonly #grants = new Map<string, { cid: string; orgId: string; parentSession: string; expires: number }>();
+  readonly #grants: DelegationStore;
   #tokenHash(token: string) { return createHash("sha256").update(token).digest("hex"); }
-  constructor(cid: CidService, options: CidLabyrinthOptions) {
+  constructor(cid: CidAuthority, options: CidLabyrinthOptions) {
     if (!options.storage) throw new LabyrinthError("invalid", "Explicit Labyrinth storage is required");
     this.#cid = cid;
     this.#clock = options.clock ?? (() => new Date());
-    this.#lab = new Labyrinth({ ...options, can: cid.can.bind(cid), canProvision: (actor, orgId) => {
+    this.#grants = options.delegations ?? new Map();
+    this.#lab = options.labyrinth ?? new Labyrinth({ ...options, can: cid.can.bind(cid), canProvision: (actor, orgId) => {
       const membership = cid.organizationMembership(actor);
       return membership?.id === orgId && membership.admin;
     } });
@@ -58,8 +89,8 @@ export class CidLabyrinth {
     if (identity.delegated) throw new LabyrinthError("forbidden", "A direct Cumulus ID session is required to issue credentials");
     this.#lab.recordCredentialIssue(identity.cid, identity.org.id); // live plan, membership, read consent, no credential bytes in audit
     const now = this.#clock().getTime();
-    for (const [hash, grant] of this.#grants) if (grant.expires <= now || !this.#cid.isSessionActive(grant.cid, grant.parentSession)) this.#grants.delete(hash);
-    if (this.#grants.size >= 1000 || [...this.#grants.values()].filter(g => g.parentSession === identity.parentSession).length >= 8) throw new LabyrinthError("capacity", "Repository credential capacity exceeded");
+    for (const [hash, grant] of [...this.#grants.entries()]) if (grant.expires <= now || !this.#cid.isSessionActive(grant.cid, grant.parentSession)) this.#grants.delete(hash);
+    if (this.#grants.size >= 1000 || [...this.#grants.entries()].filter(([, g]) => g.parentSession === identity.parentSession).length >= 8) throw new LabyrinthError("capacity", "Repository credential capacity exceeded");
     const bearer = `lbrnth_${randomBytes(32).toString("base64url")}`;
     const expires = now + 15 * 60000;
     this.#grants.set(this.#tokenHash(bearer), { cid: identity.cid, orgId: identity.org.id, parentSession: identity.parentSession, expires });

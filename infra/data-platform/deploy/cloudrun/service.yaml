@@ -1,0 +1,64 @@
+# Fallback when the box can't host the gateway: Google Cloud Run inside its always-free tier.
+# Template only. Creating it needs William's OK (Cloud Run needs a billing account attached even
+# when the bill stays at $0). See docs/data-platform/FREE-HOSTING.md.
+#
+#   gcloud run services replace infra/data-platform/deploy/cloudrun/service.yaml --region us-central1
+#
+# The always-free allowance applies only in some US regions; us-central1 is one of them.
+# Storage stays in Supabase in Ireland, so data residency doesn't change.
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: cumulus-privacy-gateway
+  labels:
+    app: cumulus-data-platform
+  annotations:
+    run.googleapis.com/ingress: all
+spec:
+  template:
+    metadata:
+      annotations:
+        # Scale to zero: no idle cost. One instance max keeps the in-memory daily quota exact
+        # and stays inside the free vCPU-seconds.
+        autoscaling.knative.dev/minScale: "0"
+        autoscaling.knative.dev/maxScale: "1"
+        run.googleapis.com/cpu-throttling: "true"
+        run.googleapis.com/startup-cpu-boost: "true"
+    spec:
+      containerConcurrency: 8
+      timeoutSeconds: 60
+      serviceAccountName: cumulus-privacy-gateway@PROJECT_ID.iam.gserviceaccount.com
+      containers:
+        # Build and push from infra/data-platform/privacy-gateway; pin by digest, not a tag.
+        - image: REGION-docker.pkg.dev/PROJECT_ID/cumulus/privacy-gateway@sha256:DIGEST
+          ports:
+            - containerPort: 8090
+          resources:
+            limits:
+              cpu: "1"
+              memory: 1Gi # Presidio with spaCy en_core_web_sm needs about 700 MB
+          env:
+            - name: PORT
+              value: "8090"
+            - name: PLATFORM_REGION
+              value: EU
+            - name: PLATFORM_STORAGE_LIMIT_MB
+              value: "450"
+            - name: PLATFORM_DAILY_EVENT_QUOTA
+              value: "200000"
+            # Secrets come from Secret Manager (free for up to 6 active secret versions).
+            - name: PRIVACY_GATEWAY_TOKEN
+              valueFrom: { secretKeyRef: { name: privacy-gateway-token, key: latest } }
+            - name: PRIVACY_PSEUDONYM_KEY
+              valueFrom: { secretKeyRef: { name: privacy-pseudonym-key, key: latest } }
+            - name: PLATFORM_PRODUCT_TOKENS
+              valueFrom: { secretKeyRef: { name: platform-product-tokens, key: latest } }
+            - name: DATABASE_URL
+              valueFrom: { secretKeyRef: { name: data-platform-database-url, key: latest } }
+          startupProbe:
+            httpGet: { path: /api/v1/health, port: 8090 }
+            periodSeconds: 3
+            failureThreshold: 40
+  traffic:
+    - percent: 100
+      latestRevision: true

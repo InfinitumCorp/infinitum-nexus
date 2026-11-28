@@ -21,11 +21,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: 10.28.0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22.23.4
           cache: pnpm
@@ -45,13 +45,13 @@ jobs:
       - name: Pack Labyrinth packages
         run: bash scripts/pack-labyrinth.sh "$RUNNER_TEMP/labyrinth-packages"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: labyrinth-packages
           path: ${{ runner.temp }}/labyrinth-packages
           if-no-files-found: error
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: labyrinth-security
           path: ${{ runner.temp }}/labyrinth-security

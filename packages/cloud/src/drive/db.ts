@@ -25,35 +25,49 @@ export function openPool(databaseUrl: string): pg.Pool {
   });
 }
 
-/** Apply packages/cloud/migrations in order. Safe to call on every process start. */
+/** Advisory-lock key for migrations: any constant works as long as every process uses the same one. */
+const MIGRATION_LOCK = 0x6375_6d75; // "cumu"
+
+/**
+ * Apply packages/cloud/migrations in order. Safe to call on every process start, and from several
+ * processes at once: everything runs on one connection holding a session advisory lock, so two
+ * instances (or two test files) starting on an empty database can't race on CREATE TABLE.
+ */
 export async function migrate(pool: pg.Pool, dir = migrationsDir()): Promise<string[]> {
-  await pool.query(`CREATE TABLE IF NOT EXISTS cloud_schema_migrations (
-    id TEXT PRIMARY KEY,
-    applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
-  )`);
   const files = (await readdir(dir)).filter((name) => name.endsWith(".sql")).sort();
   const applied: string[] = [];
-  for (const file of files) {
-    const seen = await pool.query(`SELECT 1 FROM cloud_schema_migrations WHERE id = $1`, [file]);
-    if ((seen.rowCount ?? 0) > 0) continue;
-    const sql = await readFile(join(dir, file), "utf8");
-    const client = await pool.connect();
+  const client = await pool.connect();
+  try {
+    await client.query("SELECT pg_advisory_lock($1)", [MIGRATION_LOCK]);
     try {
-      await client.query("BEGIN");
-      for (const statement of splitSql(sql)) await client.query(statement);
-      await client.query(`INSERT INTO cloud_schema_migrations (id) VALUES ($1)`, [file]);
-      await client.query("COMMIT");
-      applied.push(file);
-    } catch (err) {
-      try {
-        await client.query("ROLLBACK");
-      } catch {
-        // The connection may already be aborted.
+      await client.query(`CREATE TABLE IF NOT EXISTS cloud_schema_migrations (
+        id TEXT PRIMARY KEY,
+        applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )`);
+      for (const file of files) {
+        const seen = await client.query(`SELECT 1 FROM cloud_schema_migrations WHERE id = $1`, [file]);
+        if ((seen.rowCount ?? 0) > 0) continue;
+        const sql = await readFile(join(dir, file), "utf8");
+        try {
+          await client.query("BEGIN");
+          for (const statement of splitSql(sql)) await client.query(statement);
+          await client.query(`INSERT INTO cloud_schema_migrations (id) VALUES ($1)`, [file]);
+          await client.query("COMMIT");
+          applied.push(file);
+        } catch (err) {
+          try {
+            await client.query("ROLLBACK");
+          } catch {
+            // The connection may already be aborted.
+          }
+          throw err;
+        }
       }
-      throw err;
     } finally {
-      client.release();
+      await client.query("SELECT pg_advisory_unlock($1)", [MIGRATION_LOCK]).catch(() => undefined);
     }
+  } finally {
+    client.release();
   }
   return applied;
 }

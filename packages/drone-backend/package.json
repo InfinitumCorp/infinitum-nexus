@@ -17,8 +17,8 @@
     "@infinitum/lbrnth": "workspace:*"
   },
   "devDependencies": {
-    "typescript": "^5.9.0",
-    "@types/node": "^22.0.0",
+    "typescript": "^7.0.2",
+    "@types/node": "^26.6.6",
     "@infinitum/cid": "workspace:*",
     "@infinitum/firmament": "workspace:*"
   }

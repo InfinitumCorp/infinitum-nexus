@@ -22,6 +22,11 @@ if [ "${1:-}" = "test" ]; then
   exit 0
 fi
 
+# Windows tools (aapt2, javac) fail on paths over 260 characters, which deep checkouts
+# and git worktrees reach. There the build works in a short temp folder, and only the
+# finished APK is copied to build/.
+FINAL="$OUT"
+if [ -n "$EXT" ]; then OUT="$(mktemp -d)"; trap 'rm -rf "$OUT"' EXIT; fi
 rm -rf "$OUT" && mkdir -p "$OUT/res" "$OUT/classes" "$OUT/dex"
 
 # 1. Bundle the VEIL hub (the web app) into assets, and fetch Tor and androidx.webkit.
@@ -30,7 +35,9 @@ bash scripts/fetch-deps.sh
 DEPS=.deps
 
 # 2. Resources.
-"$BT/aapt2$EXT" compile --dir src/main/res -o "$OUT/res.zip"
+RES=src/main/res
+if [ -n "$EXT" ]; then RES="$OUT/src-res" && cp -r src/main/res "$RES"; fi
+"$BT/aapt2$EXT" compile --dir "$RES" -o "$OUT/res.zip"
 "$BT/aapt2$EXT" link -o "$OUT/unsigned.apk" -I "$JAR" \
   --manifest src/main/AndroidManifest.xml \
   --java "$OUT/gen" "$OUT/res.zip" --auto-add-overlay
@@ -43,7 +50,9 @@ javac --release 17 -nowarn -cp "$JAR$SEP$DEPS/webkit.jar$SEP$DEPS/core.jar" -d "
 # Dex and assets go in with zipfile, not aapt2 -A: aapt2 on Windows writes
 # backslashes into asset paths, which Android cannot open.
 python scripts/add-to-apk.py "$OUT/unsigned.apk" "$OUT/dex/classes.dex"
-python scripts/add-to-apk.py "$OUT/unsigned.apk" assets src/main/assets
+ASSETS=src/main/assets
+if [ -n "$EXT" ]; then ASSETS="$OUT/src-assets" && cp -r src/main/assets "$ASSETS"; fi
+python scripts/add-to-apk.py "$OUT/unsigned.apk" assets "$ASSETS"
 # Tor runs as its own process from the app's native library folder (lib/<abi>/libTor.so).
 # VEIL_ABIS picks which CPUs get Tor (default all three); VEIL_ABIS="" builds without Tor,
 # and the app then browses directly and says "Tor off". A trimmed list leaves out
@@ -59,4 +68,5 @@ KS="${VEIL_KEYSTORE:-$HOME/.android/debug.keystore}"
 "$BT/apksigner$BAT" sign --ks "$KS" --ks-pass "pass:${VEIL_KS_PASS:-android}" \
   --ks-key-alias "${VEIL_KS_ALIAS:-androiddebugkey}" --out "$OUT/veil-browser.apk" "$OUT/aligned.apk"
 "$BT/apksigner$BAT" verify "$OUT/veil-browser.apk"
-ls -la "$OUT/veil-browser.apk"
+if [ "$OUT" != "$FINAL" ]; then mkdir -p "$FINAL" && cp "$OUT/veil-browser.apk" "$FINAL/"; fi
+ls -la "$FINAL/veil-browser.apk"

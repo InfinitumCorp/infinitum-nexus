@@ -91,6 +91,26 @@ export interface Activity {
   actorCid: string;
 }
 
+/**
+ * A METATRON¹⁰⁰ "what if?" scenario a workspace saved to run again later. The model,
+ * interventions and events are stored as sent and checked by the METATRON engine.
+ */
+export interface SavedScenario {
+  id: string;
+  workspace: string;
+  name: string;
+  /** The template it started from, if any. */
+  templateId?: string;
+  model: Record<string, unknown>;
+  interventions: Record<string, unknown>[];
+  events: Record<string, string>;
+  /** The output the sensitivity chart looks at. */
+  focus?: string;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 /** "Who knows whom": an edge in the relationship map. Strength 1 (met once) to 5 (close). */
 export interface Relationship {
   id: string;

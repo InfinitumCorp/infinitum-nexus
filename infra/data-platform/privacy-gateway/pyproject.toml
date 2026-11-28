@@ -1,0 +1,11 @@
+[project]
+name = "cumulus-privacy-gateway"
+version = "0.1.0"
+description = "Cumulus privacy gateway: Presidio redaction, data-quality checks and DP releases in front of analytics, AI agents and Exchange exports."
+requires-python = ">=3.12,<3.14"
+license = { text = "Proprietary. (c) Infinitum Corporation" }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-q"

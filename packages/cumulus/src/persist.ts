@@ -51,10 +51,11 @@ export function loadCumulusStores(dir: string, stores: CumulusStores): CumulusSt
  * mailboxes are written sealed (subjects, bodies and files encrypted to each owner) and the wrapped
  * account keys go to tunnel.json. Without a persistent key, tunnel keys aren't written at all.
  */
-export function saveCumulusStores(dir: string, stores: CumulusStores, opts: { tunnel?: CumulusTunnel } = {}) {
+export function saveCumulusStores(dir: string, stores: CumulusStores, opts: { tunnel?: CumulusTunnel; skip?: string[] } = {}) {
   const sealing = opts.tunnel?.persistent ? opts.tunnel : undefined;
   for (const [name, store] of Object.entries(stores)) {
     if (name === "tunnel" && !sealing) continue;
+    if (opts.skip?.includes(name)) continue; // kept elsewhere (e.g. Cumulus://ID in Postgres); leave its file as it was
     saveSnapshot(join(dir, `${name}.json`), name === "mail" && sealing ? sealMailStore(stores.mail, sealing) : store);
   }
 }

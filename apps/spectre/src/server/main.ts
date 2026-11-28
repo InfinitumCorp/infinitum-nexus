@@ -11,6 +11,7 @@ import { veilFromEnv } from "@infinitum/veil/server";
 import { aiConfigFromEnv } from "./ai.ts";
 import { providersFromEnv } from "../core/messaging.ts";
 import { saveSnapshot, loadSnapshot } from "./persist.ts";
+import { localCidStorage } from "./local-cid.ts";
 
 /**
  * Starts +SPCTR.
@@ -25,8 +26,9 @@ import { saveSnapshot, loadSnapshot } from "./persist.ts";
  *   CUMULUS_MAIL_HOST    Cumulus://Mail, default mail.cumuluscloud.app
  *   CUMULUS_MAIL_ORIGIN  full mail URL in notices; default https://CUMULUS_MAIL_HOST
  *   SPECTRE_DATA_DIR     default ./data
- *   OMNIROUTE_API_KEY    enables AI features through OmniRoute (open-weight models); see
- *                        packages/ai/src/env.ts for backup hosts (Cloudflare Workers AI, Groq, ...)
+ *   OMNIROUTE_API_KEY    optional fallback for AI features through OmniRoute (open-weight models).
+ *                        The Cloudflare Worker tries the free Workers AI binding (`AI`) first.
+ *                        See packages/ai/src/env.ts for other hosts. With neither, AI stays not connected.
  *   USE_METATRON         set to 1 (default) to use METATRON scorer
  *   Social sign-in (each optional; a provider appears only when its credentials are set):
  *     GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
@@ -34,9 +36,6 @@ import { saveSnapshot, loadSnapshot } from "./persist.ts";
  *     MICROSOFT_CLIENT_ID, MICROSOFT_CLIENT_SECRET
  *     APPLE_CLIENT_ID, APPLE_TEAM_ID, APPLE_KEY_ID, APPLE_PRIVATE_KEY
  *     CHATGPT_CLIENT_ID, CHATGPT_CLIENT_SECRET, CHATGPT_ISSUER   (OpenAI partner program)
- *     COGNITO_DOMAIN, COGNITO_CLIENT_ID, COGNITO_CLIENT_SECRET, COGNITO_REGION, COGNITO_USER_POOL_ID
- *       Amazon Cognito user pool (Lite or Essentials). Off unless all five are set.
- *       Plus has no free MAU. Leave SMS MFA and SES email disabled; use TOTP if MFA is wanted.
  *   Callback URL to register with each provider: {SPECTRE_ORIGIN}/api/auth/oauth/{provider}/callback
  *   CID_OIDC_SIGNING_KEY private JWK (ES256 or Ed25519). Unset: OpenID Connect stays off.
  *                        node apps/spectre/scripts/generate-oidc-key.mjs writes the file and does not print the key.
@@ -45,6 +44,10 @@ import { saveSnapshot, loadSnapshot } from "./persist.ts";
  *     RESEND_API_KEY, MAIL_FROM                         email
  *     TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM  SMS; inbound webhook: {SPECTRE_ORIGIN}/api/hooks/twilio/sms
  *   CRON_SECRET          lets an outside scheduler call POST /api/cron/automations (a local timer runs anyway)
+ *   SPECTRE_AUTH         unset: Cumulus://ID runs in process (passkeys, MFA, social sign-in).
+ *                        oidc: sign in at the standalone issuer as an OpenID Connect client (set at cut-over).
+ *     CID_ISSUER         default https://id.cumuluscloud.app/realms/cumulus
+ *     CID_CLIENT_ID      default spectre (public client, PKCE S256, no secret)
  */
 
 // Enable METATRON by default for advertised prediction performance.
@@ -78,6 +81,10 @@ if (!verified.ok) {
 // cid.json keeps its old name; mail, wallet, quota and suite sit next to it.
 const cumulusStores = loadCumulusStores(dataDir, emptyCumulusStores());
 const cidStore = cumulusStores.cid;
+// CUMULUS_STORE=postgres keeps Cumulus://ID in Postgres rows instead of cid.json, and CUMULUS_ROWS
+// Mail, Wallet and Quota too (see local-cid.ts).
+const masterKey = loadOrCreateMasterKey(dataDir);
+const cidStorage = await localCidStorage(cidStore, process.env, console.log, { stores: cumulusStores, masterKey });
 const spectreStore = loadSnapshot(join(dataDir, "spectre.json"), emptyStore());
 // Social sign-in available to every Infinitum product that uses Cumulus://ID.
 const social = socialFromEnv();
@@ -85,11 +92,11 @@ const social = socialFromEnv();
 // Every CID that signs up through +SPCTR gets the full Cumulus account: Mail, Cloud and a FIRM Wallet.
 const suite = createCumulus({
   labyrinth: labyrinthFromEnvironment(process.env, process.env.LBRNTH_SNAPSHOT_FILE ?? join(dataDir, "labyrinth.json")),
-  ledger, signer, rpId, origins: [origin], stores: cumulusStores, social: { providers: social },
+  ledger, signer, rpId, origins: [origin], stores: cumulusStores, social: { providers: social }, repository: cidStorage.repository, repositories: cidStorage.repositories,
   mailOrigin: process.env.CUMULUS_MAIL_ORIGIN ?? cumulus.mailOrigin,
-  masterKey: loadOrCreateMasterKey(dataDir),
+  masterKey,
 });
-suite.provisionAll();
+await suite.provisionAll();
 const cid = suite.cid;
 const crm = new SpectreCRM({ ledger, signer, store: spectreStore });
 
@@ -107,15 +114,16 @@ const app = createApp({
   cronSecret: process.env.CRON_SECRET,
   twilioAuthToken: process.env.TWILIO_AUTH_TOKEN,
   veil: veilFromEnv(process.env),
+  transaction: cidStorage.transaction,
   onChange: () => {
-    saveCumulusStores(dataDir, cumulusStores, { tunnel: suite.tunnel });
+    saveCumulusStores(dataDir, cumulusStores, { tunnel: suite.tunnel, skip: cidStorage.skipFiles });
     saveSnapshot(join(dataDir, "spectre.json"), spectreStore);
   },
 });
 
 const server = app.server();
 server.listen(port, () => {
-  console.log(`+SPCTR running at ${origin}  (ledger: ${verified.length} verified entries, AI: ${ai.router?.connected ? `open models via ${ai.router.providers.join(" → ")}` : "not connected"}, METATRON: ${process.env.USE_METATRON === "1" ? "on" : "off"}, sign-in: passkey${Object.keys(social).map((p) => ", " + p).join("")})`);
+  console.log(`+SPCTR running at ${origin}  (ledger: ${verified.length} verified entries, AI: ${ai.router?.connected ? `open models via ${ai.router.providers.join(" → ")}` : "not connected"}, METATRON: ${process.env.USE_METATRON === "1" ? "on" : "off"}, sign-in: passkey${Object.keys(social).map((p) => ", " + p).join("")}, Cumulus://ID: ${cidStorage.describe})`);
 });
 
 // Resume automation steps whose wait is over.

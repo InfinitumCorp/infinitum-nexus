@@ -200,7 +200,7 @@ test("real CID grants cannot substitute for the client organization's paid entit
   const cid = new CidService({ ledger: new Ledger(undefined, { authorizedSigners: [signer.publicKey] }), signer, rpId: "id.cumuluscloud.app", origins: ["https://id.cumuluscloud.app"] });
   const account = await cid.createAccount({ username: "labyrinth-client" });
   let entitled = false;
-  const lab = new Labyrinth({ can: cid.can.bind(cid), entitled: () => entitled, canProvision: (actor, org) => actor === account.cid && org === "real-client" });
+  const lab = new Labyrinth({ can: cid.syncView().can, entitled: () => entitled, canProvision: (actor, org) => actor === account.cid && org === "real-client" });
   error(() => lab.createOrganization(account.cid, "real-client", "Client"), "forbidden");
   await cid.grant(account.cid, "LBRNTH", ["repo:admin", "repo:read", "repo:write"]);
   error(() => lab.createOrganization(account.cid, "real-client", "Client"), "forbidden");

@@ -1,0 +1,10 @@
+# Upload only what deploy/lbrnth-host/Dockerfile copies (gcloud builds submit from the root).
+.git
+**/node_modules/
+**/dist/
+**/android/
+**/*.apk
+**/*.zip
+docs/
+apps/*
+!apps/lbrnth-host/

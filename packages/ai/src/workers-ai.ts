@@ -20,6 +20,7 @@ export const WORKERS_AI_MODELS: Record<string, string> = {
   "gpt-oss-120b": "@cf/openai/gpt-oss-120b",
   "gpt-oss-20b": "@cf/openai/gpt-oss-20b",
   "qwen3-32b": "@cf/qwen/qwen3-30b-a3b-fp8",
+  "gemma-4-26b-a4b": "@cf/google/gemma-4-26b-a4b-it",
 };
 
 type RawToolCall = { id?: string; name?: string; arguments?: unknown; function?: { name?: string; arguments?: unknown } };

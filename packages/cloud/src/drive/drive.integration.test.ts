@@ -6,10 +6,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { CidService } from "@infinitum/cid";
+import { CidService, signerFromJwk } from "@infinitum/cid";
+import { generateKeyPairSync } from "node:crypto";
 import { Ledger, generateSigner } from "@infinitum/firmament";
 import { VirtualAuthenticator } from "../../../cid/src/testing/virtual-authenticator.ts";
-import { cidAuth } from "./auth.ts";
+import { cidAuth, issuerAuth } from "./auth.ts";
 import { MasterKey } from "./crypto.ts";
 import { migrate, openPool } from "./db.ts";
 import { createDriveApp } from "./http.ts";
@@ -297,6 +298,35 @@ describe("Cumulus://Cloud Drive against local PostgreSQL", {
     assert.equal(plainRead.status, 500);
   });
 
+  it("accepts Cumulus://ID access tokens instead of local sessions (issuer mode)", async () => {
+    const { privateKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
+    const key = signerFromJwk({ ...privateKey.export({ format: "jwk" }), kid: "drive-it" });
+    const ISS = "https://id.cumuluscloud.app/realms/cumulus";
+    const auth = issuerAuth({ issuer: ISS, fetchImpl: (async () => Response.json({ keys: [key.publicJwk()] })) as typeof fetch });
+    const app = createDriveApp({ service: new DriveService({ repo, blobs: new LocalFsBlobStore(dir), chunkSize: 1024, partSize: 1024, maxUploadBytes: 1_000_000 }), auth, rateLimit: 500 });
+    const server = await listen(app.server());
+    // The same claims the issuer's token endpoint signs (packages/cid product-idp.ts).
+    const tokenFor = (cidValue: string, aud = "cumulus-cloud") => {
+      const now = Math.floor(Date.now() / 1000);
+      return key.sign({ iss: ISS, sub: cidValue, cid: cidValue, aud, azp: aud, iat: now, exp: now + 3600, sid: `ses_${randomUUID()}`, amr: ["passkey"], idp: "passkey" });
+    };
+    try {
+      const alex = `cid_${randomUUID()}`;
+      const sam = `cid_${randomUUID()}`;
+      assert.equal((await call(server.port, "POST", "/v1/access", { token: tokenFor(alex) })).status, 200);
+      const made = await upload(server.port, tokenFor(alex), "from-id.txt", Buffer.from("issued-by-cumulus-id"));
+      assert.equal(made.status, 201, made.body.toString());
+      const fileId = json(made).file.id as string;
+      const mine = await call(server.port, "GET", `/v1/files/${fileId}/content`, { token: tokenFor(alex) });
+      assert.equal(mine.body.toString(), "issued-by-cumulus-id");
+      assert.equal((await call(server.port, "GET", `/v1/files/${fileId}`, { token: tokenFor(sam) })).status, 404, "another cid can't see it");
+      assert.equal((await call(server.port, "GET", "/v1/quota", { token: tokenFor(alex, "scalvs") })).status, 401, "a token for another product is refused");
+      assert.equal((await call(server.port, "GET", "/v1/quota", { token: "opaque-session-token-from-somewhere" })).status, 401);
+    } finally {
+      await close(server.server);
+    }
+  });
+
   it("rate limits anonymous health checks", async () => {
     const app = createDriveApp({
       service: new DriveService({ repo, blobs: new LocalFsBlobStore(dir), chunkSize: 1024, partSize: 1024 }),
@@ -320,10 +350,10 @@ describe("Cumulus://Cloud Drive against local PostgreSQL", {
     const username = `u${randomBytes(4).toString("hex")}`;
     const account = await cid.createAccount({ username });
     const authenticator = new VirtualAuthenticator();
-    const options = cid.startAuthenticatorRegistration(account.cid);
+    const options = await cid.startAuthenticatorRegistration(account.cid);
     const registration = authenticator.create({ challenge: options.challenge, origin: ORIGIN, rpId: RP });
     const key = await cid.finishAuthenticatorRegistration(account.cid, registration);
-    const { challenge } = cid.startSignIn();
+    const { challenge } = await cid.startSignIn();
     const signed = await cid.finishSignIn(authenticator.get({ credentialId: key.credentialId, challenge, origin: ORIGIN }), "Drive test");
     if (signed.status !== "ok") throw new Error("Cumulus://ID sign-in failed");
     const access = await call(plain.port, "POST", "/v1/access", { token: signed.token });

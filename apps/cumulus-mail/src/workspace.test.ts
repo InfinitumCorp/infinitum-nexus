@@ -9,7 +9,7 @@ import { createCumulus } from "@infinitum/cumulus";
 import { VirtualAuthenticator } from "../../../packages/cid/src/testing/virtual-authenticator.ts";
 import { createMailApp } from "./app.ts";
 import { MemoryFileStore } from "./files.ts";
-import { WorkspaceStore, validDoc } from "./workspace.ts";
+import { CopyingWorkspaceRepository, WorkspaceStore, validDoc } from "./workspace.ts";
 import { idClientFor } from "./id-provider.ts";
 
 let base = "";
@@ -26,7 +26,9 @@ before(async () => {
   base = `http://localhost:${port}`;
   const signer = generateSigner();
   suite = createCumulus({ ledger: new Ledger(undefined, { authorizedSigners: [signer.publicKey] }), signer, rpId: "localhost", origins: [base], mailOrigin: base });
-  server = createMailApp({ suite, files, workspaceStore: store, publicDir: join(import.meta.dirname, "..", "public"), origin: base, secureCookies: false }).server();
+  // DRIVE_TEST_COPYING=1: the same tests on a repository that copies values in and out, as a database does.
+  const repo = process.env.DRIVE_TEST_COPYING ? { workspaceRepository: new CopyingWorkspaceRepository(store) } : {};
+  server = createMailApp({ suite, files, workspaceStore: store, ...repo, publicDir: join(import.meta.dirname, "..", "public"), origin: base, secureCookies: false }).server();
   await new Promise<void>((r) => server.listen(port, "127.0.0.1", r));
 });
 after(() => new Promise<void>((r) => server.close(() => r())));
@@ -161,6 +163,13 @@ describe("Sign in with Cumulus://ID", () => {
     assert.equal(idClientFor("toString", "https://scalvs.app/"), null);
   });
 
+  it("lets Infinitum developers sign in on developer.infinitumcorporation.ai only", () => {
+    assert.ok(idClientFor("developer", "https://developer.infinitumcorporation.ai/"));
+    assert.equal(idClientFor("developer", "https://infinitumcorporation.ai/"), null);
+    assert.equal(idClientFor("developer", "http://developer.infinitumcorporation.ai/"), null);
+    assert.equal(idClientFor("infinitum", "https://developer.infinitumcorporation.ai/"), null);
+  });
+
   it("signed out: goes to sign-in first; signed in: returns a code the product trades for a profile", async () => {
     const { verifier, challenge } = pkce();
     const q = new URLSearchParams({ client_id: "scalvs", redirect_uri: "https://scalvs.app/signed-in", code_challenge: challenge, code_challenge_method: "S256", state: "xyz" });
@@ -182,7 +191,7 @@ describe("Sign in with Cumulus://ID", () => {
     assert.equal(token.headers.get("access-control-allow-origin"), "https://scalvs.app");
     const who = await call("GET", "/api/id/userinfo", "", undefined, { authorization: `Bearer ${token.body.access_token}` });
     assert.equal(who.body.username, "idperson");
-    assert.ok(suite.cid.can(suite.stores.cid.byUsername.get("idperson")!, "scalvs", "profile:read"));
+    assert.ok(await suite.cid.can(suite.stores.cid.byUsername.get("idperson")!, "scalvs", "profile:read"));
     await call("POST", "/api/id/signout", "", {}, { authorization: `Bearer ${token.body.access_token}`, "x-cumulus": "" });
     assert.equal((await call("GET", "/api/id/userinfo", "", undefined, { authorization: `Bearer ${token.body.access_token}` })).status, 401);
   });

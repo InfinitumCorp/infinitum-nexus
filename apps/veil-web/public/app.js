@@ -43,8 +43,8 @@
       if (open && onOpen) onOpen();
     });
   }
-  // Apps and Sign In are drop-down menus; opening one closes the other.
-  var menus = [["apps-button", "apps-panel"], ["signin", "signin-panel"]];
+  // Apps is a drop-down menu. Sign-in is the Cumulus://ID account bar (cumulus-bar.js).
+  var menus = [["apps-button", "apps-panel"]];
   function closeMenus(except) {
     menus.forEach(function (m) {
       if (m[1] === except) return;
@@ -60,7 +60,8 @@
   document.addEventListener("keydown", function (e) { if (e.key === "Escape") closeMenus(); });
   $("search-form").addEventListener("submit", function (e) { e.preventDefault(); });
 
-  // Search box: an address opens with trackers removed; anything else searches DuckDuckGo.
+  // Search box: an address opens with trackers removed; anything else is a search. In the VEIL app
+  // that is Google (fetched through Tor when Tor is on); on the web it is VEIL's own results (search.html).
   // Navigates from script because the CSP sets form-action 'none'.
   function looksLikeAddress(s) {
     return /^[a-z][a-z0-9+.-]*:\/\//i.test(s) || (/^[^\s]+\.[a-z]{2,}(?:[:/?#][^\s]*)?$/i.test(s));
@@ -79,7 +80,7 @@
         }
       } catch (err) { /* not a URL: search it */ }
     }
-    location.href = "https://duckduckgo.com/?q=" + encodeURIComponent(q);
+    location.href = (inApp ? "https://www.google.com/search?q=" : "search.html?q=") + encodeURIComponent(q);
   });
 
   if (window.VEIL_BUILD) $("build").textContent = window.VEIL_BUILD;

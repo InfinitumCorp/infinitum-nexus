@@ -306,3 +306,58 @@ def test_batch_over_http(docs, redactor, tmp_path):
             assert json.loads(resp.read()) == {"collection": "help", "stored": 2, "created": 2}
     finally:
         httpd.shutdown()
+
+
+def _soon(days=1):
+    from datetime import datetime, timedelta, timezone
+    return (datetime.now(timezone.utc) + timedelta(days=days)).isoformat().replace("+00:00", "Z")
+
+
+def test_expiry_hides_then_purges(docs):
+    assert "expiresAt" in OBJECTS["DocumentUpsert"]["fields"] and "expiresAt" in OBJECTS["DocumentBatchItem"]["fields"]
+    docs.put("spectre", "playbooks", "keep", doc())
+    docs.put("spectre", "playbooks", "temp", doc(expiresAt=_soon()))
+    assert {h["documentId"] for h in docs.search("spectre", q())["hits"]} == {"keep", "temp"}
+    assert docs.store.purge_expired() == 0
+    # Time passes: the stored expiry is now behind us.
+    docs.store.docs[("spectre", "playbooks", "acme", "temp")]["expiresAt"] = "2020-01-01T00:00:00Z"
+    assert [h["documentId"] for h in docs.search("spectre", q())["hits"]] == ["keep"]  # hidden before the purge runs
+    assert docs.store.purge_expired() == 1
+    assert ("spectre", "playbooks", "acme", "temp") not in docs.store.docs
+    # Putting the document again without expiresAt keeps it for good.
+    docs.put("spectre", "playbooks", "keep", doc(expiresAt=_soon()))
+    docs.put("spectre", "playbooks", "keep", doc())
+    assert docs.store.docs[("spectre", "playbooks", "acme", "keep")]["expiresAt"] is None
+
+
+@pytest.mark.parametrize("value", ["2020-01-01T00:00:00Z", "tomorrow", "2026-12-01T00:00:00", 5, "far"])
+def test_expiry_must_be_a_near_future_time(docs, value):
+    if value == "far":
+        value = _soon(3651)
+    with pytest.raises(PlatformError) as e:
+        docs.put("spectre", "playbooks", "x", doc(expiresAt=value))
+    assert e.value.status == 400 and "expiresAt" in e.value.message
+    with pytest.raises(PlatformError) as e:  # and in a batch, with the position
+        docs.put_many("spectre", "playbooks", {"documents": [{**doc(), "documentId": "ok"},
+                                                             {**doc(expiresAt=value), "documentId": "bad"}]})
+    assert "documents[1]" in e.value.message
+    assert docs.store.docs == {}
+
+
+def test_daily_purge_covers_events_and_documents(capsys):
+    from cumulus_privacy.server import purge_once
+
+    class Store:
+        def __init__(self, n=0, fail=False):
+            self.n, self.fail = n, fail
+
+        def purge_expired(self):
+            if self.fail:
+                raise RuntimeError("db down")
+            return self.n
+
+    purge_once(Store(fail=True), Store(3))  # a failing event purge doesn't skip the documents
+    err = capsys.readouterr().err
+    assert "purge of events failed: RuntimeError" in err and "removed 3 documents" in err
+    purge_once(Store(2), None)
+    assert "removed 2 events" in capsys.readouterr().err

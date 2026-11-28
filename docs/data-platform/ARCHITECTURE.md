@@ -230,6 +230,8 @@ above the body and `websearch_to_tsquery` syntax. The rules:
   empties its viewer list.
 - Right to erasure (`ErasureService`) also deletes the person's own documents and removes them
   from every viewer list.
+- A document sent with `expiresAt` stops matching searches at that time, and the gateway's
+  daily retention purge deletes it. The time must be in the future and at most 3650 days ahead.
 
 ## 7. Metacat: evaluation only
 

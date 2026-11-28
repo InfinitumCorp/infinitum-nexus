@@ -15,6 +15,10 @@ Visibility inside a tenant:
 Right to erasure: ``erase`` deletes the documents a person owns and removes them from every
 viewer list, so no pseudonym of theirs stays behind.
 
+Expiry: a document sent with ``expiresAt`` stops matching searches at that time, and the
+gateway's daily retention purge deletes it (``purge_expired``). It must lie in the future and at
+most ``MAX_EXPIRY_DAYS`` ahead, so a typo can't keep personal data for a century.
+
 Backends: Postgres (free tier, ``data_platform.documents`` with a weighted tsvector) and an
 in-memory store for tests.
 """
@@ -22,7 +26,7 @@ from __future__ import annotations
 
 import re
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Any, Mapping, Protocol
 
 from .platform import EXCLUDED_PRODUCTS, PlatformError, _bad, _iso, _parse_time
@@ -38,6 +42,7 @@ MAX_LABELS = 20
 MAX_VIEWERS = 500
 MAX_PAGE = 50
 MAX_BATCH = 100
+MAX_EXPIRY_DAYS = 3650
 SNIPPET_WORDS = 30
 
 
@@ -52,6 +57,9 @@ class DocumentStore(Protocol):
                viewer: str | None, limit: int) -> list[dict[str, Any]]: ...
 
     def erase(self, cid_pseudonym: str, product: str | None) -> int: ...
+
+    def purge_expired(self) -> int:
+        """Delete documents whose expiresAt has passed; return how many."""
 
 
 def _tenant(v: Any) -> str:
@@ -152,6 +160,12 @@ class Documents:
         if url is not None and (not isinstance(url, str) or not url.startswith("https://") or len(url) > 2048):
             raise _bad("url must be an https:// link")
         updated = _parse_time(b.get("updatedAt"), "updatedAt")
+        expires = b.get("expiresAt")
+        if expires is not None:
+            expires = _parse_time(expires, "expiresAt")
+            now = datetime.now(timezone.utc)
+            if not now < expires <= now + timedelta(days=MAX_EXPIRY_DAYS):
+                raise _bad(f"expiresAt must be in the future and at most {MAX_EXPIRY_DAYS} days ahead")
         owner = b.get("ownerCid")
         if owner is not None and (not isinstance(owner, str) or not owner.strip()):
             raise _bad("ownerCid must be a Cumulus ID")
@@ -176,6 +190,7 @@ class Documents:
             # to the whole tenant.
             "restricted": bool(viewers),
             "updatedAt": _iso(updated),
+            "expiresAt": _iso(expires) if expires else None,
         }
         return doc
 
@@ -215,6 +230,11 @@ def _visible(doc: Mapping[str, Any], viewer: str | None) -> bool:
     return viewer is not None and (viewer in doc["viewers"] or viewer == doc.get("ownerCid"))
 
 
+def _expired(doc: Mapping[str, Any], now: datetime | None = None) -> bool:
+    exp = doc.get("expiresAt")
+    return bool(exp) and _parse_time(exp, "expiresAt") <= (now or datetime.now(timezone.utc))
+
+
 def _snippet(body: str, words: list[str]) -> str:
     tokens = body.split()
     low = [t.lower() for t in tokens]
@@ -245,7 +265,7 @@ class MemoryDocumentStore:
         words = [w.lower() for w in re.findall(r"\w+", text)]
         found = []
         for d in self.docs.values():
-            if d["product"] != product or d["tenant"] != tenant or not _visible(d, viewer):
+            if d["product"] != product or d["tenant"] != tenant or not _visible(d, viewer) or _expired(d):
                 continue
             if collections and d["collection"] not in collections:
                 continue
@@ -271,6 +291,13 @@ class MemoryDocumentStore:
                 elif cid_pseudonym in d["viewers"]:
                     d["viewers"] = [v for v in d["viewers"] if v != cid_pseudonym]
         return n
+
+    def purge_expired(self) -> int:
+        with self._lock:
+            gone = [k for k, d in self.docs.items() if _expired(d)]
+            for k in gone:
+                del self.docs[k]
+        return len(gone)
 
 
 def _hit(d: Mapping[str, Any], snippet: str) -> dict[str, Any]:

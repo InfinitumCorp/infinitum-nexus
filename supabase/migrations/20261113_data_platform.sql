@@ -71,6 +71,9 @@ create index if not exists documents_scope on data_platform.documents (product, 
 create index if not exists documents_tsv on data_platform.documents using gin (tsv);
 create index if not exists documents_owner on data_platform.documents (owner_cid) where owner_cid is not null;
 create index if not exists documents_viewers on data_platform.documents using gin (viewers);
+-- Optional per-document expiry: hidden from search once passed, deleted by the daily purge.
+alter table data_platform.documents add column if not exists expires_at timestamptz;
+create index if not exists documents_expiry on data_platform.documents (expires_at) where expires_at is not null;
 
 -- Data-quality runs measured at ingest: check names and numbers only, never event values.
 create table if not exists data_platform.quality_runs (

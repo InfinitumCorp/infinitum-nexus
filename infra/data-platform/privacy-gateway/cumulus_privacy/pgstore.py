@@ -219,16 +219,17 @@ class PostgresDocumentStore:
         with _connect(self.dsn) as c:
             row = c.execute(
                 """insert into data_platform.documents (product, collection, tenant, document_id, title, body,
-                       url, labels, owner_cid, viewers, restricted, updated_at)
-                   values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                       url, labels, owner_cid, viewers, restricted, updated_at, expires_at)
+                   values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                    on conflict (product, collection, tenant, document_id) do update set
                        title = excluded.title, body = excluded.body, url = excluded.url,
                        labels = excluded.labels, owner_cid = excluded.owner_cid, viewers = excluded.viewers,
-                       restricted = excluded.restricted, updated_at = excluded.updated_at, stored_at = now()
+                       restricted = excluded.restricted, updated_at = excluded.updated_at,
+                       expires_at = excluded.expires_at, stored_at = now()
                    returning (xmax = 0)""",
                 (doc["product"], doc["collection"], doc["tenant"], doc["documentId"], doc["title"], doc["body"],
                  doc.get("url"), doc["labels"], doc.get("ownerCid"), doc["viewers"], doc["restricted"],
-                 _ts(doc["updatedAt"])),
+                 _ts(doc["updatedAt"]), _ts(doc["expiresAt"]) if doc.get("expiresAt") else None),
             ).fetchone()
         return bool(row and row[0])
 
@@ -243,6 +244,7 @@ class PostgresDocumentStore:
     def search(self, product: str, tenant: str, text: str, collections: list[str], labels: list[str],
                viewer: str | None, limit: int) -> list[dict[str, Any]]:
         where = ["product = %(product)s", "tenant = %(tenant)s", "tsv @@ q",
+                 "(expires_at is null or expires_at > now())",
                  "(not restricted or %(viewer)s = any(viewers) or owner_cid = %(viewer)s)"]
         if collections:
             where.append("collection = any(%(collections)s)")
@@ -273,6 +275,10 @@ class PostgresDocumentStore:
             c.execute(f"""update data_platform.documents set viewers = array_remove(viewers, %s)
                           where %s = any(viewers) {scope}""", [cid_pseudonym, cid_pseudonym, *args])
         return n
+
+    def purge_expired(self) -> int:
+        with _connect(self.dsn) as c:
+            return c.execute("delete from data_platform.documents where expires_at <= now()").rowcount
 
 
 class PostgresQualityLog:

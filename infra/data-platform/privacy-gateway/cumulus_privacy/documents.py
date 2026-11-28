@@ -100,6 +100,13 @@ class Documents:
         self.redactor, self.store, self.limits = redactor, store, limits
         self.max_per_product = max_per_product
 
+    def usage(self, caller: str) -> dict[str, Any]:
+        """How many documents the product has, and its cap (None when there is none)."""
+        if EXCLUDED_PRODUCTS.match(caller):
+            raise PlatformError(403, "TenantNotAuthorized", "military and defense products are excluded")
+        return {"documents": self.store.count(caller),
+                "limit": self.max_per_product if self.max_per_product > 0 else None}
+
     def _quota(self, caller: str, docs: list[dict[str, Any]]) -> None:
         if self.max_per_product <= 0:
             return

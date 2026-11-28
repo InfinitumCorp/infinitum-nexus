@@ -342,6 +342,14 @@ types:
           hits:
             type: list<DocumentHit>
             docs: Best match first.
+      DocumentUsage:
+        fields:
+          documents:
+            type: integer
+            docs: Documents this product has stored, in every collection and tenant.
+          limit:
+            type: optional<integer>
+            docs: PLATFORM_MAX_DOCUMENTS_PER_PRODUCT, or absent when there is no cap.
 
     errors:
       SchemaMismatch:
@@ -604,3 +612,7 @@ services:
             type: DocumentQuery
             param-type: body
         returns: DocumentSearchResponse
+      getDocumentUsage:
+        http: GET /usage
+        docs: How close the calling product is to its document cap. Reading it changes nothing.
+        returns: DocumentUsage

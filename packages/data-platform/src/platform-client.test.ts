@@ -163,6 +163,19 @@ test("options are checked", () => {
   assert.doesNotThrow(() => new PlatformClient({ baseUrl: "http://127.0.0.1:8090", productToken: TOKEN }));
 });
 
+test("documents: a batch put sends one request with every item", async () => {
+  const { client, calls } = scripted([reply(200, { collection: "notes", stored: 2, created: 1 })]);
+  const items = [
+    { documentId: "a", tenant: "acme", title: "A", body: "", updatedAt: "2026-11-27T10:00:00Z" },
+    { documentId: "b", tenant: "acme", title: "B", body: "", updatedAt: "2026-11-27T10:00:00Z",
+      expiresAt: "2027-11-27T10:00:00Z" },
+  ];
+  assert.deepEqual(await client.putDocuments("notes", items), { collection: "notes", stored: 2, created: 1 });
+  assert.equal(calls.length, 1);
+  assert.equal(`${calls[0].method} ${new URL(calls[0].url).pathname}`, "POST /api/v1/documents/collections/notes/batch");
+  assert.deepEqual(JSON.parse(calls[0].body!), { documents: items });
+});
+
 test("every client path is an endpoint declared in conjure/platform.yml", () => {
   const yml = readFileSync(new URL("../../../infra/data-platform/conjure/platform.yml", import.meta.url), "utf8");
   const declared = new Set<string>();
@@ -177,7 +190,7 @@ test("every client path is an endpoint declared in conjure/platform.yml", () => 
   const used = [...src.matchAll(/this\.call\(\s*"(\w+)",\s*[`"]([^`"]+)[`"]/g)].map(
     ([, method, path]) => `${method} ${path.replace(/\$\{enc\((\w+)(?:\.\w+)?\)\}/g, (_m, v: string) => `{${v === "spec" ? "name" : v}}`)}`,
   );
-  assert.ok(used.length >= 12);
+  assert.ok(used.length >= 13);
   for (const u of used) assert.ok(declared.has(u), `${u} is not declared in platform.yml`);
 });
 

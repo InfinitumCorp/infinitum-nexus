@@ -293,6 +293,7 @@ const STEPS = {
   create_task: { label: "Create task", fields: [["summary", "Task"], ["dueInDays", "Due in days", "number"]] },
   move_deal: { label: "Move deal", fields: [["stage", "Stage", "stage"]] },
   note: { label: "Add note", fields: [["text", "Note", "textarea"]] },
+  request_review: { label: "Request a review", fields: [["channel", "Send by", "channel"]] },
 };
 const STAGES = ["lead", "qualified", "discovery", "proposal", "negotiation", "won", "lost"];
 const describeTrigger = (t, forms, cals) => {
@@ -310,6 +311,7 @@ const describeStep = (s) => {
     case "create_task": return `Task: ${s.summary}`;
     case "move_deal": return `Deal → ${s.stage}`;
     case "note": return "Note";
+    case "request_review": return `Ask for a review by ${s.channel === "sms" ? "SMS" : "email"}`;
     default: return s.type;
   }
 };
@@ -373,6 +375,7 @@ function stepRow(s = { type: "send_email" }) {
     <button type="button" class="btn ghost small" data-up aria-label="Move up">↑</button><button type="button" class="btn ghost small" data-remove aria-label="Remove">✕</button></div>
     ${spec.fields.map(([k, label, kind]) => `<label class="mini">${label}${kind === "textarea"
       ? `<textarea class="input small" name="${k}" rows="2" placeholder="${label}" required>${esc(s[k] ?? "")}</textarea>`
+      : kind === "channel" ? `<select class="input small" name="${k}"><option value="email">Email</option><option value="sms" ${s[k] === "sms" ? "selected" : ""}>SMS</option></select>`
       : kind === "stage" ? `<select class="input small" name="${k}">${STAGES.map((v) => `<option ${v === s[k] ? "selected" : ""}>${v}</option>`).join("")}</select>`
       : `<input class="input small" name="${k}" placeholder="${label}" ${kind === "number" ? `type="number" min="${k === "minutes" ? 1 : 0}"` : ""} value="${esc(s[k] ?? (k === "minutes" ? 1440 : k === "dueInDays" ? 1 : ""))}" ${k === "dueInDays" ? "" : "required"}>`}</label>`).join("")}
   </div>`;
@@ -835,6 +838,42 @@ async function renderContacts() {
   });
 }
 
+/* ---------------- Reporting ---------------- */
+
+let reportDays = 30;
+async function renderReporting() {
+  const r = await api("GET", `/api/crm/reports/growth?days=${reportDays}`);
+  const delta = ({ now, before }) => now === before ? `<span class="faint">same as before</span>`
+    : `<span class="${now > before ? "up" : "down"}">${now > before ? "▲" : "▼"} ${before ? `${Math.round((Math.abs(now - before) / before) * 100)}%` : `+${now}`}</span>`;
+  const tile = (label, t) => `<div class="stat"><div class="num">${t.now}</div><div class="faint small">${label}</div><div class="small">${delta(t)}</div></div>`;
+  const max = Math.max(1, ...r.series.map((d) => d.contacts));
+  const bars = (rows, key, label) => rows.length ? `<div class="hbars">${rows.map((x) => `<div class="hbar"><span>${esc(x[key])}</span><i style="--w:${Math.round((x.count / rows[0].count) * 100)}%"></i><b>${x.count}</b></div>`).join("")}</div>` : `<div class="empty">No ${label} in this period.</div>`;
+  main().innerHTML = `
+    <div class="page">
+      <div class="page-head"><h1>Reporting</h1>
+        <div class="chips" role="group" aria-label="Period">${[7, 30, 90].map((d) => `<button type="button" class="chip ${d === r.days ? "on" : ""}" data-days="${d}">${d} days</button>`).join("")}</div></div>
+      <p class="muted">${date(r.from)} – ${date(r.to)}, compared with the ${r.days} days before.</p>
+      <div class="stats">
+        ${tile("New contacts", r.totals.newContacts)}${tile("Form submissions", r.totals.formSubmissions)}${tile("Appointments booked", r.totals.appointmentsBooked)}
+        ${tile("Messages sent", r.totals.messagesSent)}${tile("Replies received", r.totals.repliesReceived)}${tile("Deals won", r.totals.dealsWon)}
+      </div>
+      <div class="stats">
+        <div class="stat"><div class="num">${S.money(r.wonValue)}</div><div class="faint small">Won value</div></div>
+        <div class="stat"><div class="num">${r.winRate === null ? "—" : `${r.winRate}%`}</div><div class="faint small">Win rate (won ÷ closed)</div></div>
+        <div class="stat"><div class="num">${r.averageRating === null ? "—" : `${r.averageRating}★`}</div><div class="faint small">Average rating · ${r.totals.reviewRequests.now} asked</div></div>
+        <div class="stat"><div class="num">${r.invoicesPaid.length ? r.invoicesPaid.map((p) => fmtMoney(p.cents, p.currency)).join(" + ") : "—"}</div><div class="faint small">Invoices paid</div></div>
+      </div>
+      <div class="section"><h2>New contacts ${r.days === 90 ? "per week" : "per day"}</h2>
+        <div class="vbars" role="img" aria-label="New contacts over time">${r.series.map((d) => `<i style="--h:${Math.round((d.contacts / max) * 100)}%" title="${esc(d.start)}: ${d.contacts}"></i>`).join("")}</div></div>
+      <div class="grid2">
+        <div class="section"><h2>Where contacts came from</h2>${bars(r.sources, "source", "new contacts")}</div>
+        <div class="section"><h2>Forms</h2>${bars(r.forms, "name", "form submissions")}</div>
+      </div>
+    </div>`;
+  main().querySelectorAll("[data-days]").forEach((b) => b.onclick = () => { reportDays = Number(b.dataset.days); renderReporting(); });
+}
+
+S.view("reporting", renderReporting);
 S.view("contacts", renderContacts);
 S.view("inbox", renderInbox);
 S.view("forms", renderForms);

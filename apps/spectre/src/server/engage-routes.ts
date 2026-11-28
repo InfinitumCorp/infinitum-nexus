@@ -8,6 +8,7 @@ import { receiveSms, sendMessage, threads, verifyTwilioSignature, type Providers
 import { limiter, type GrowthApi } from "./growth-routes.ts";
 import { createInvoice, getInvoice, invoiceDashboard, invoiceLink, publicInvoice, saveInvoiceSettings, sendInvoice, setInvoiceStatus, updateInvoice } from "../core/invoices.ts";
 import { openReview, requestReviews, respondToReview, reviewDashboard, saveReviewSettings } from "../core/reputation.ts";
+import { growthReport } from "../core/reporting.ts";
 import { audienceOf, createCampaign, deleteCampaign, getCampaign, runDueCampaigns, sendCampaign, updateCampaign } from "../core/campaigns.ts";
 
 /** A non-JSON response (e.g. TwiML for Twilio). */
@@ -113,6 +114,7 @@ export function registerEngageRoutes(api: EngageApi) {
   /* ---------------- Invoices ---------------- */
 
   const invoiceLimit = limiter(60, 60_000);
+  route("GET", "/api/crm/reports/growth", (ctx) => growthReport(crm, ws(ctx), Number(ctx.query.get("days") ?? 30)));
   route("GET", "/api/crm/invoices", (ctx) => invoiceDashboard(crm, ws(ctx)));
   route("PUT", "/api/crm/invoices/settings", (ctx) => saveInvoiceSettings(crm, ws(ctx), me(ctx), ctx.body));
   route("POST", "/api/crm/invoices", (ctx) => createInvoice(crm, ws(ctx), me(ctx), ctx.body));

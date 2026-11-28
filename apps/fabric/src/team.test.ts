@@ -1034,3 +1034,44 @@ test("message retention: owners only, announced, erases only what is past the li
     t.close();
   }
 });
+
+test("huddles: raise hand, the host can lower it, and quick reactions go only to people in the call", () => {
+  const t = setup();
+  try {
+    const ws = t.team.createWorkspace(t.alice, "Acme");
+    t.team.joinWorkspace(t.bob, ws.inviteCode);
+    t.team.joinWorkspace(t.cara, ws.inviteCode);
+    const general = t.team.sidebar(t.alice, ws.id).channels.find((c) => c.name === "general")!;
+    t.team.joinHuddle(t.alice, general.id);
+    t.team.joinHuddle(t.bob, general.id);
+    const hand = (v: { people: { sub: string; hand: boolean }[] }, sub: string) => v.people.find((p) => p.sub === sub)!.hand;
+
+    assert.equal(hand(t.team.huddle(t.bob, general.id)!, t.bob.sub), false);
+    assert.equal(hand(t.team.updateHuddle(t.bob, general.id, { hand: true }), t.bob.sub), true);
+    assert.throws(() => t.team.updateHuddle(t.cara, general.id, { hand: true }), status(404), "not in the call");
+    t.team.updateHuddle(t.alice, general.id, { hand: true });
+    assert.throws(() => t.team.updateHuddle(t.bob, general.id, { lower: t.alice.sub }), status(403), "only the host lowers others' hands");
+    assert.equal(hand(t.team.updateHuddle(t.alice, general.id, { lower: t.bob.sub }), t.bob.sub), false, "the host lowers Bob's");
+    assert.equal(hand(t.team.updateHuddle(t.alice, general.id, { lower: t.alice.sub }), t.alice.sub), false);
+    assert.throws(() => t.team.updateHuddle(t.alice, general.id, { lower: t.cara.sub }), status(404));
+
+    const before = t.events.length;
+    t.team.reactHuddle(t.bob, general.id, "👏");
+    const sent = t.events.slice(before).filter((e) => e.event.type === "huddle-reaction");
+    assert.equal(sent.length, 1);
+    assert.deepEqual([...sent[0]!.subs].sort(), [t.alice.sub, t.bob.sub].sort(), "people in the call, not the whole channel");
+    assert.equal((sent[0]!.event as { emoji?: string }).emoji, "👏");
+    assert.throws(() => t.team.reactHuddle(t.bob, general.id, "🎉"), status(429), "too fast");
+    t.advance(400);
+    t.team.reactHuddle(t.bob, general.id, "🎉");
+    assert.throws(() => t.team.reactHuddle(t.bob, general.id, "<b>"), status(400));
+    assert.throws(() => t.team.reactHuddle(t.cara, general.id, "👍"), status(404));
+
+    // Leaving and rejoining starts with your hand down.
+    t.team.updateHuddle(t.bob, general.id, { hand: true });
+    t.team.leaveHuddle(t.bob, general.id);
+    assert.equal(hand(t.team.joinHuddle(t.bob, general.id), t.bob.sub), false);
+  } finally {
+    t.close();
+  }
+});

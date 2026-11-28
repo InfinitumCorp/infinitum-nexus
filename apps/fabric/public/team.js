@@ -1240,6 +1240,7 @@ function connect() {
   es.addEventListener("team", (e) => {
     const ev = JSON.parse(e.data);
     if (ev.type === "huddle-signal") { onHuddleSignal(ev); return; }
+    if (ev.type === "huddle-reaction") { if (ev.channelId === huddle.channelId) showHuddleReaction(ev.from, ev.emoji); return; }
     if (ev.type === "huddle" && ev.channelId === huddle.channelId) refreshHuddle().catch((err) => showError(err.message));
     if (ev.workspaceId !== state.wsId) return;
     if (ev.type === "typing") {
@@ -1534,8 +1535,23 @@ function tileFor(person) {
   t.el.classList.toggle("on-camera", video);
   t.el.classList.toggle("muted", muted);
   const link = me ? "" : huddle.peers.get(person.sub)?.pc.connectionState;
-  t.el.querySelector(".t-tile-name").textContent = `${muted ? "🔇 " : ""}${person.displayName}${me ? " (you)" : ""}${screen ? " · sharing screen" : ""}${link && link !== "connected" ? ` · ${link}` : ""}`;
+  t.el.classList.toggle("hand", !!person.hand);
+  t.el.querySelector(".t-tile-name").textContent = `${person.hand ? "✋ " : ""}${muted ? "🔇 " : ""}${person.displayName}${me ? " (you)" : ""}${screen ? " · sharing screen" : ""}${link && link !== "connected" ? ` · ${link}` : ""}`;
   return t;
+}
+
+const HUDDLE_REACTIONS = ["👍", "👏", "😂", "🎉", "❤️"];
+
+/** Float an emoji up over the sender's tile for a couple of seconds. */
+function showHuddleReaction(from, emoji) {
+  const t = huddle.tiles.get(from);
+  if (!t) return;
+  const bubble = h("span", { class: "t-tile-react", "aria-hidden": "true" }, emoji);
+  t.el.append(bubble);
+  setTimeout(() => bubble.remove(), 2500);
+  const who = huddle.view?.people.find((p) => p.sub === from);
+  const live = $("#huddle-live");
+  if (live && who) live.textContent = `${who.displayName} reacted ${emoji}`;
 }
 
 function renderHuddle() {
@@ -1547,11 +1563,12 @@ function renderHuddle() {
     return;
   }
   if (!huddle.built) {
-    box.replaceChildren(h("div", { class: "t-huddle-head" }), h("div", { class: "t-huddle-tiles" }), h("div", { class: "t-row t-huddle-controls" }));
+    box.replaceChildren(h("div", { class: "t-huddle-head" }), h("div", { class: "t-huddle-tiles" }), h("div", { class: "t-row t-huddle-controls" }), h("span", { id: "huddle-live", class: "sr-only", "aria-live": "polite" }));
     huddle.built = true;
   }
   box.hidden = false;
   const [head, tiles, controls] = box.children;
+  const mine = huddle.view.people.find((p) => p.sub === state.me.sub);
   const c = state.bar && [...state.bar.channels, ...state.bar.direct].find((x) => x.id === huddle.channelId);
   head.replaceChildren(h("strong", {}, `🎧 ${c ? chanLabel(c) : "Huddle"}`), h("span", { class: "meta" }, ` · ${huddle.view.people.length} in the huddle`));
   const present = new Set();
@@ -1565,8 +1582,15 @@ function renderHuddle() {
     h("button", { type: "button", class: `btn small${huddle.muted ? " primary" : ""}`, "aria-pressed": String(huddle.muted), onclick: tryRun(toggleMute) }, huddle.muted ? "Unmute" : "Mute"),
     h("button", { type: "button", class: "btn small", "aria-pressed": String(!!huddle.video && !huddle.screen), onclick: tryRun(toggleCamera) }, huddle.video && !huddle.screen ? "Camera off" : "Camera on"),
     navigator.mediaDevices?.getDisplayMedia ? h("button", { type: "button", class: "btn small", "aria-pressed": String(huddle.screen), onclick: tryRun(toggleScreen) }, huddle.screen ? "Stop sharing" : "Share screen") : null,
+    h("button", { type: "button", class: `btn small${mine?.hand ? " primary" : ""}`, "aria-pressed": String(!!mine?.hand), onclick: tryRun(() => tellHuddle({ hand: !mine?.hand })) }, mine?.hand ? "Lower hand" : "✋ Raise hand"),
+    h("span", { class: "t-huddle-reacts", role: "group", "aria-label": "Send a reaction" },
+      ...HUDDLE_REACTIONS.map((e) => h("button", { type: "button", class: "btn small", title: `Send ${e}`, onclick: tryRun(() => api(T(`/channels/${huddle.channelId}/huddle/react`), { method: "POST", body: { emoji: e } })) }, e))),
     h("button", { type: "button", class: "btn small t-huddle-leave", onclick: tryRun(leaveHuddle) }, "Leave"),
   );
+  // Raised hands, oldest first in the list, so whoever is hosting can see who is waiting.
+  const hands = huddle.view.people.filter((p) => p.hand);
+  head.append(...(hands.length ? [h("span", { class: "meta" }, ` · ✋ ${hands.map((p) => p.displayName).join(", ")}`),
+    huddle.view.startedBy === state.me.sub ? h("button", { type: "button", class: "link meta", onclick: tryRun(async () => { for (const p of hands) await tellHuddle({ lower: p.sub }); }) }, " Lower all") : null] : []).filter(Boolean));
 }
 
 // ---------- top-level wiring ----------

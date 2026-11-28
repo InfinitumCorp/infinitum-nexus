@@ -28,6 +28,8 @@ export interface TeamMessageRow {
   alsoInChannel: number; kind: "user" | "system";
   /** Set when an app (webhook or workflow) posted the message on the creator's behalf. */
   appId?: string | null; appName?: string | null;
+  /** Set when this message shares (forwards) another message. */
+  sharedId?: string | null;
 }
 export interface ReactionRow { messageId: string; sub: string; emoji: string; createdAt: string }
 export interface PinRow { channelId: string; messageId: string; pinnedBy: string; pinnedAt: string }
@@ -308,6 +310,7 @@ export class TeamStore {
     const columns = new Set(this.all<{ name: string }>("PRAGMA table_info(team_messages)").map((c) => c.name));
     if (!columns.has("app_id")) this.db.exec("ALTER TABLE team_messages ADD COLUMN app_id TEXT");
     if (!columns.has("app_name")) this.db.exec("ALTER TABLE team_messages ADD COLUMN app_name TEXT");
+    if (!columns.has("shared_id")) this.db.exec("ALTER TABLE team_messages ADD COLUMN shared_id TEXT");
   }
 }
 

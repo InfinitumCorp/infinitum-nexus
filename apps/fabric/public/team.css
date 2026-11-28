@@ -127,6 +127,8 @@
 
 /* Polls */
 .t-poll { margin-top: 6px; max-width: 460px; }
+.t-shared { margin: 6px 0 0; padding: 6px 10px; border-left: 3px solid var(--line); max-width: 560px; }
+.t-shared .t-who { margin-bottom: 2px; }
 .t-poll-options { list-style: none; margin: 0 0 4px; padding: 0; display: grid; gap: 4px; }
 .t-poll-option { position: relative; display: flex; justify-content: space-between; gap: 8px; width: 100%; padding: 6px 10px; border: 1px solid var(--line); background: var(--paper); cursor: pointer; text-align: left; overflow: hidden; }
 .t-poll-option:disabled { cursor: default; }

@@ -153,7 +153,13 @@ export interface MessageView {
   poll: PollView | null;
   /** The app (webhook or workflow) that posted this on its creator's behalf. */
   app: { id: string; name: string } | null;
+  /** A message this one shares. It is shown only to people who can read the original. */
+  shared: SharedView | null;
 }
+
+export type SharedView =
+  | { available: true; id: string; channelId: string; channelName: string | null; channelKind: ChannelKind; sender: PersonView; text: string; createdAt: string; files: FileView[] }
+  | { available: false };
 
 export interface PollView {
   options: { text: string; count: number; voters: string[]; mine: boolean }[];
@@ -580,6 +586,33 @@ export class TeamService {
     });
     const result = this.insertMessage(channel, me.sub, text, { id, parent, alsoInChannel: !!(parent && input.alsoInChannel), fileIds: files.map((f) => f.id) });
     return { message: this.view(me, result.row), notInChannel: result.notInChannel };
+  }
+
+  /**
+   * Share (forward) a message into another channel or conversation, with an optional comment.
+   * The shared message is a live link: edits show, deletion removes it, and people who cannot
+   * read the original channel see only that it was shared from somewhere they cannot see.
+   */
+  share(me: FabricIdentity, messageId: string, input: { channelId?: unknown; text?: unknown }): SendResult {
+    let original = this.message(messageId);
+    const { channel: from } = this.readable(me, original.channelId);
+    if (original.deletedAt || original.kind === "system") throw fail(400, "this message can't be shared");
+    if (original.sharedId) {
+      // Share the original, not a share of it.
+      try {
+        const inner = this.message(original.sharedId);
+        if (this.canRead(me, inner.channelId) && !inner.deletedAt) original = inner;
+      } catch {
+        // The inner message is gone; share the outer one.
+      }
+    }
+    const target = typeof input.channelId === "string" ? input.channelId : "";
+    const { channel } = this.writable(me, target);
+    if (channel.workspaceId !== from.workspaceId) throw fail(400, "messages can be shared only within a workspace");
+    const text = typeof input.text === "string" ? input.text : "";
+    if (text.length > TEAM_LIMITS.text) throw fail(400, "text is too long");
+    const result = this.insertMessage(channel, me.sub, text, { id: randomUUID(), parent: null, alsoInChannel: false, fileIds: [], sharedId: original.id });
+    return { message: this.view(me, result.row), notInChannel: result.notInChannel, channelId: channel.id };
   }
 
   list(me: FabricIdentity, channelId: string, opts: { before?: string; after?: string; around?: string; limit?: number } = {}): { messages: MessageView[]; hasMore: boolean; hasNewer: boolean } {
@@ -1429,13 +1462,14 @@ export class TeamService {
 
   private insertMessage(
     channel: ChannelRow, sender: string, text: string,
-    opts: { id: string; parent: TeamMessageRow | null; alsoInChannel: boolean; fileIds: string[]; app?: { id: string; name: string }; extra?: (now: string) => void },
+    opts: { id: string; parent: TeamMessageRow | null; alsoInChannel: boolean; fileIds: string[]; app?: { id: string; name: string }; extra?: (now: string) => void; sharedId?: string },
   ): { row: TeamMessageRow; notInChannel: string[] } {
     const now = this.stamp();
     const row: TeamMessageRow = {
       id: opts.id, channelId: channel.id, sender, ciphertext: seal(text, this.key(channel), messageAad(channel.id, opts.id)),
       parentId: opts.parent?.id ?? null, createdAt: now, editedAt: null, deletedAt: null, replyCount: 0, lastReplyAt: null,
       alsoInChannel: opts.alsoInChannel ? 1 : 0, kind: "user", appId: opts.app?.id ?? null, appName: opts.app?.name ?? null,
+      sharedId: opts.sharedId ?? null,
     };
     const notInChannel = this.store.tx(() => {
       this.store.insert("team_messages", row);
@@ -1765,6 +1799,25 @@ export class TeamService {
       mentions: this.store.all<{ sub: string }>("SELECT sub FROM team_mentions WHERE message_id = ?", row.id).map((m) => m.sub),
       poll: row.deletedAt ? null : this.pollView(me, channel, row.id),
       app: row.appId ? { id: row.appId, name: row.appName ?? "App" } : null,
+      shared: row.sharedId && !row.deletedAt ? this.sharedView(me, row.sharedId) : null,
+    };
+  }
+
+  private sharedView(me: FabricIdentity, id: string): SharedView | null {
+    const row = this.store.one<TeamMessageRow>("SELECT * FROM team_messages WHERE id = ?", id);
+    if (!row || row.deletedAt) return null;
+    if (!this.canRead(me, row.channelId)) return { available: false };
+    const channel = this.channel(row.channelId);
+    let text: string;
+    try {
+      text = open(row.ciphertext, this.key(channel), messageAad(channel.id, row.id));
+    } catch {
+      return { available: false };
+    }
+    return {
+      available: true, id: row.id, channelId: channel.id, channelName: channel.name, channelKind: channel.kind,
+      sender: this.person(channel.workspaceId, row.sender), text, createdAt: row.createdAt,
+      files: this.store.all<FileRow>("SELECT * FROM team_files WHERE message_id = ? ORDER BY created_at", row.id).map(fileView),
     };
   }
 

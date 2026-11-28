@@ -194,3 +194,227 @@ def test_not_configured(redactor, tmp_path):
     with pytest.raises(Exception) as e:
         gw.search_documents(q(), caller="spectre")
     assert getattr(e.value, "name", "") == "NotConfigured"
+
+
+class _Limits:
+    def __init__(self, state):
+        self.state = state
+
+    def storage_state(self):
+        return self.state
+
+
+def test_puts_stop_when_the_store_is_full_but_removal_still_works(redactor):
+    limits = _Limits("ok")
+    docs = Documents(redactor, MemoryDocumentStore(), limits)
+    docs.put("spectre", "notes", "n1", doc())
+    limits.state = "nearly_full"
+    docs.put("spectre", "notes", "n2", doc())  # still accepted
+    limits.state = "full"
+    with pytest.raises(PlatformError) as e:
+        docs.put("spectre", "notes", "n3", doc())
+    assert (e.value.status, e.value.name, e.value.retry_after) == (503, "StorageQuotaReached", 3600)
+    assert ("spectre", "notes", "acme", "n3") not in docs.store.docs
+    assert docs.remove("spectre", "notes", "n1", {"tenant": "acme"}) == {"deleted": 1}  # frees space
+    assert len(docs.search("spectre", q())["hits"]) == 1
+    limits.state = "unknown"  # a failing size probe must not block writes
+    docs.put("spectre", "notes", "n4", doc())
+
+
+def test_full_store_over_http_is_a_503_with_retry_after(redactor, tmp_path):
+    spectre = "s" * 40
+    docs = Documents(redactor, MemoryDocumentStore(), _Limits("full"))
+    gw = Gateway(redactor, PrivacyBudget(tmp_path / "b.json", 1), "g" * 40, None, None, None,
+                 parse_product_tokens(f"spectre={spectre}"), documents=docs)
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(gw))
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    url = f"http://127.0.0.1:{httpd.server_address[1]}/api/v1/documents/collections/notes/documents/n1"
+    r = urllib.request.Request(url, method="PUT", data=json.dumps(doc()).encode(),
+                               headers={"Authorization": f"Bearer {spectre}", "Content-Type": "application/json"})
+    try:
+        with pytest.raises(urllib.error.HTTPError) as e:
+            urllib.request.urlopen(r)
+        assert e.value.code == 503 and e.value.headers["Retry-After"] == "3600"
+        assert json.loads(e.value.read())["errorName"] == "DataPlatform:StorageQuotaReached"
+    finally:
+        httpd.shutdown()
+
+
+def item(document_id, **over):
+    return {"documentId": document_id, **doc(**over)}
+
+
+def test_batch_put_is_all_or_nothing(docs):
+    out = docs.put_many("spectre", "help", {"documents": [item("a1"), item("a2", title="Renewal FAQ")]})
+    assert out == {"collection": "help", "stored": 2, "created": 2}
+    assert set(out) == set(OBJECTS["DocumentBatchResponse"]["fields"])
+    assert set(OBJECTS["DocumentBatchItem"]["fields"]) == {"documentId", *OBJECTS["DocumentUpsert"]["fields"]}
+    out = docs.put_many("spectre", "help", {"documents": [item("a1", title="Renewal v2"), item("a3")]})
+    assert out == {"collection": "help", "stored": 2, "created": 1}
+    assert {h["documentId"] for h in docs.search("spectre", q())["hits"]} == {"a1", "a2", "a3"}
+
+    before = dict(docs.store.docs)
+    with pytest.raises(PlatformError) as e:
+        docs.put_many("spectre", "help", {"documents": [item("b1"), item("b2", tenant="BAD")]})
+    assert e.value.name == "InvalidArgument" and e.value.message.startswith("documents[1]: tenant")
+    assert docs.store.docs == before  # nothing written
+
+
+def test_batch_put_redacts_like_single_puts(docs):
+    docs.put_many("spectre", "notes", {"documents": [item("p1", body="Signed after a call with Jane Doe, jane@example.com. Next step: the renewal.")]})
+    stored = docs.store.docs[("spectre", "notes", "acme", "p1")]
+    assert "jane@example.com" not in stored["body"] and "Jane Doe" not in stored["body"]
+
+
+@pytest.mark.parametrize("body, message", [
+    ({}, "documents must be"),
+    ({"documents": []}, "documents must be"),
+    ({"documents": [item(f"d{i}") for i in range(101)]}, "documents must be"),
+    ({"documents": [item("d1"), item("d1")]}, "once per batch"),
+    ({"documents": [{"title": "x"}]}, "documents[0]: documentId"),
+    ({"documents": [item("../x")]}, "documents[0]: documentId"),
+])
+def test_batch_validation(docs, body, message):
+    with pytest.raises(PlatformError) as e:
+        docs.put_many("spectre", "help", body)
+    assert message in e.value.message
+
+
+def test_batch_put_respects_scope_and_the_storage_guard(redactor):
+    docs = Documents(redactor, MemoryDocumentStore(), _Limits("full"))
+    with pytest.raises(PlatformError) as e:
+        docs.put_many("spectre", "help", {"documents": [item("a1")]})
+    assert e.value.name == "StorageQuotaReached" and not docs.store.docs
+    with pytest.raises(PlatformError) as e:
+        docs.put_many("aether", "help", {"documents": [item("a1")]})
+    assert e.value.name == "TenantNotAuthorized"
+    with pytest.raises(PlatformError):
+        docs.put_many("spectre", "Bad Collection", {"documents": [item("a1")]})
+
+
+def test_batch_over_http(docs, redactor, tmp_path):
+    spectre = "s" * 40
+    gw = Gateway(redactor, PrivacyBudget(tmp_path / "b.json", 1), "g" * 40, None, None, None,
+                 parse_product_tokens(f"spectre={spectre}"), documents=docs)
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(gw))
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    url = f"http://127.0.0.1:{httpd.server_address[1]}/api/v1/documents/collections/help/batch"
+    r = urllib.request.Request(url, method="POST", data=json.dumps({"documents": [item("h1"), item("h2")]}).encode(),
+                               headers={"Authorization": f"Bearer {spectre}", "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(r) as resp:
+            assert json.loads(resp.read()) == {"collection": "help", "stored": 2, "created": 2}
+    finally:
+        httpd.shutdown()
+
+
+def _soon(days=1):
+    from datetime import datetime, timedelta, timezone
+    return (datetime.now(timezone.utc) + timedelta(days=days)).isoformat().replace("+00:00", "Z")
+
+
+def test_expiry_hides_then_purges(docs):
+    assert "expiresAt" in OBJECTS["DocumentUpsert"]["fields"] and "expiresAt" in OBJECTS["DocumentBatchItem"]["fields"]
+    docs.put("spectre", "playbooks", "keep", doc())
+    docs.put("spectre", "playbooks", "temp", doc(expiresAt=_soon()))
+    assert {h["documentId"] for h in docs.search("spectre", q())["hits"]} == {"keep", "temp"}
+    assert docs.store.purge_expired() == 0
+    # Time passes: the stored expiry is now behind us.
+    docs.store.docs[("spectre", "playbooks", "acme", "temp")]["expiresAt"] = "2020-01-01T00:00:00Z"
+    assert [h["documentId"] for h in docs.search("spectre", q())["hits"]] == ["keep"]  # hidden before the purge runs
+    assert docs.store.purge_expired() == 1
+    assert ("spectre", "playbooks", "acme", "temp") not in docs.store.docs
+    # Putting the document again without expiresAt keeps it for good.
+    docs.put("spectre", "playbooks", "keep", doc(expiresAt=_soon()))
+    docs.put("spectre", "playbooks", "keep", doc())
+    assert docs.store.docs[("spectre", "playbooks", "acme", "keep")]["expiresAt"] is None
+
+
+@pytest.mark.parametrize("value", ["2020-01-01T00:00:00Z", "tomorrow", "2026-12-01T00:00:00", 5, "far"])
+def test_expiry_must_be_a_near_future_time(docs, value):
+    if value == "far":
+        value = _soon(3651)
+    with pytest.raises(PlatformError) as e:
+        docs.put("spectre", "playbooks", "x", doc(expiresAt=value))
+    assert e.value.status == 400 and "expiresAt" in e.value.message
+    with pytest.raises(PlatformError) as e:  # and in a batch, with the position
+        docs.put_many("spectre", "playbooks", {"documents": [{**doc(), "documentId": "ok"},
+                                                             {**doc(expiresAt=value), "documentId": "bad"}]})
+    assert "documents[1]" in e.value.message
+    assert docs.store.docs == {}
+
+
+def test_daily_purge_covers_events_and_documents(capsys):
+    from cumulus_privacy.server import purge_once
+
+    class Store:
+        def __init__(self, n=0, fail=False):
+            self.n, self.fail = n, fail
+
+        def purge_expired(self):
+            if self.fail:
+                raise RuntimeError("db down")
+            return self.n
+
+    purge_once(Store(fail=True), Store(3))  # a failing event purge doesn't skip the documents
+    err = capsys.readouterr().err
+    assert "purge of events failed: RuntimeError" in err and "removed 3 documents" in err
+    purge_once(Store(2), None)
+    assert "removed 2 events" in capsys.readouterr().err
+
+
+def test_quota_per_product_allows_replacing_but_not_growing(redactor):
+    docs = Documents(redactor, MemoryDocumentStore(), max_per_product=3)
+    assert "DocumentQuotaReached" in PLATFORM["types"]["definitions"]["errors"]
+    for i in range(2):
+        docs.put("spectre", "playbooks", f"d{i}", doc())
+    docs.put("cumulus-mail", "notes", "m0", doc())  # other products don't count
+    assert docs.put_many("spectre", "playbooks", {"documents": [{**doc(), "documentId": "d0"},
+                                                                {**doc(), "documentId": "d2"}]})["created"] == 1
+    with pytest.raises(PlatformError) as e:
+        docs.put("spectre", "playbooks", "d3", doc())
+    assert (e.value.status, e.value.name) == (409, "DocumentQuotaReached")
+    assert e.value.safe_args == {"product": "spectre", "limit": 3}
+    with pytest.raises(PlatformError):  # a batch that would grow is refused whole
+        docs.put_many("spectre", "playbooks", {"documents": [{**doc(), "documentId": "d1"},
+                                                             {**doc(), "documentId": "d9"}]})
+    assert docs.store.count("spectre") == 3 and ("spectre", "playbooks", "acme", "d9") not in docs.store.docs
+    docs.put("spectre", "playbooks", "d1", doc(title="Renewal playbook v2"))  # replacing still works
+    docs.remove("spectre", "playbooks", "d1", {"tenant": "acme"})
+    docs.put("spectre", "playbooks", "d3", doc())  # room again
+    assert Documents(redactor, docs.store).max_per_product == 0  # no cap unless configured
+
+
+def test_usage_reports_count_and_cap(redactor):
+    store = MemoryDocumentStore()
+    capped = Documents(redactor, store, max_per_product=5)
+    capped.put("spectre", "playbooks", "a", doc())
+    capped.put("spectre", "notes", "b", doc(tenant="globex"))
+    capped.put("cumulus-mail", "notes", "c", doc())
+    out = capped.usage("spectre")
+    assert out == {"documents": 2, "limit": 5}
+    assert set(out) == set(OBJECTS["DocumentUsage"]["fields"])
+    assert Documents(redactor, store).usage("spectre") == {"documents": 2, "limit": None}
+    with pytest.raises(PlatformError) as e:
+        capped.usage("aether")
+    assert e.value.status == 403
+
+
+def test_usage_over_http(redactor, tmp_path):
+    spectre = "s" * 40
+    docs = Documents(redactor, MemoryDocumentStore(), max_per_product=10)
+    docs.put("spectre", "playbooks", "a", doc())
+    gw = Gateway(redactor, PrivacyBudget(tmp_path / "b.json", 1), "g" * 40, None, None, None,
+                 parse_product_tokens(f"spectre={spectre}"), documents=docs)
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(gw))
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    url = f"http://127.0.0.1:{httpd.server_address[1]}/api/v1/documents/usage"
+    try:
+        r = urllib.request.Request(url, headers={"Authorization": f"Bearer {spectre}"})
+        with urllib.request.urlopen(r) as resp:
+            assert json.loads(resp.read()) == {"documents": 1, "limit": 10}
+        with pytest.raises(urllib.error.HTTPError) as e:  # a product token is required
+            urllib.request.urlopen(urllib.request.Request(url, headers={"Authorization": "Bearer " + "g" * 40}))
+        assert e.value.code == 401
+    finally:
+        httpd.shutdown()

@@ -1124,6 +1124,7 @@ public class MainActivity extends Activity {
             web.loadUrl(url); // bundled page: nothing to clean, and it fetches results over Tor
             return;
         }
+        if (url.startsWith(Privacy.GOOGLE)) earn.count("search");
         String cleaned = Privacy.clean(url);
         navHost = String.valueOf(Uri.parse(cleaned).getHost());
         if (!cleaned.equals(url) && !Privacy.stripTrackers(url).equals(url)) stripped++;

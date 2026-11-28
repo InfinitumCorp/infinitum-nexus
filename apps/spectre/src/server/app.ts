@@ -1290,19 +1290,12 @@ export function createApp(deps: AppDeps) {
     const { executeAll } = await import("../core/architect-bridge.ts");
     const { listPendingActions } = await import("./execution.ts");
     const pending = await listPendingActions(crm, ctx.user!.workspace);
-    const results = await executeAll(pending, { crm, workspace: ctx.user!.workspace, actor: ctx.user!.account.cid } as any);
-    // Log executed actions as activities
-    for (const r of results || []) {
-      const dealId = (r as any)?.dealId;
-      if (dealId) {
-        await crm.logActivity(ctx.user!.workspace, ctx.user!.account.cid, {
-          kind: "note",
-          summary: `AI action: ${(r as any).description || (r as any).type || "executed"}`,
-          dealId,
-        });
-      }
-    }
-    return { results, logged: results?.length || 0 };
+    const results = await executeAll(pending, { crm, workspace: ctx.user!.workspace, actor: ctx.user!.account.cid });
+    return {
+      results: results.map((r) => ({ dealId: r.action.dealId, type: r.action.type, description: r.action.description, verified: r.performance.verified, logged: r.logged })),
+      pending: pending.length,
+      logged: results.filter((r) => r.logged).length,
+    };
   });
 
   /* ---------------- Growth: contacts+, forms, calendars, automations, conversations ---------------- */

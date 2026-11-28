@@ -25,7 +25,8 @@ test("executeAction returns a performance", async () => {
     payload: {},
     evidenceHint: "reengage-suggested",
   };
-  const { performance } = await executeAction(action);
+  const { performance, logged } = await executeAction(action);
+  assert.equal(logged, false, "no target, nothing recorded");
   assert.ok(performance);
   assert.ok(typeof performance.verified === "boolean");
 });

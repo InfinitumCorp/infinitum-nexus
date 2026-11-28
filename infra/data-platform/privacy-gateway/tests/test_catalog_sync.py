@@ -94,7 +94,7 @@ def test_cli_uses_the_file_catalog_without_database_url(gms, catalog, monkeypatc
     monkeypatch.setenv("DATAHUB_GMS_URL", url)
     monkeypatch.setenv("PLATFORM_CATALOG_FILE", str(catalog.path))
     assert catalog_sync.main() == 0
-    assert "pushed 2 datasets, 3 lineage edges, 0 failed" in capsys.readouterr().out
+    assert "pushed 2 datasets, 3 lineage edges, 2 dashboards, 0 failed" in capsys.readouterr().out
     monkeypatch.delenv("DATAHUB_GMS_URL")
     assert catalog_sync.main() == 2
 
@@ -142,3 +142,43 @@ def test_without_a_quality_log_nothing_about_quality_is_sent(gms, catalog):
     url, seen, _ = gms
     out = CatalogSync(catalog.all, DataHubSink(url)).run()
     assert "assertions" not in out and not any(p["entityType"] == "assertion" for p in seen)
+
+
+def test_superset_dashboards_with_lineage_to_the_tables(gms, catalog):
+    from cumulus_privacy.catalog_sync import DASHBOARD_OWNER, load_bundle, superset_urn
+
+    url, seen, _ = gms
+    bundle = load_bundle()
+    assert bundle is not None  # the repository checkout has superset/dashboards
+    out = CatalogSync(catalog.all, DataHubSink(url), dashboards=bundle, superset_url="https://bi.example").run()
+    assert out["failed"] == [] and out["dashboards"] == 2
+
+    activity = superset_urn("dashboard", "3690a391-0b11-5f9a-a2f2-59cd7e2e570a")
+    info = aspects(seen, activity)["dashboardInfo"]
+    assert info["title"] == "Product activity" and len(info["chartEdges"]) == 3
+    assert info["dashboardUrl"] == "https://bi.example/superset/dashboard/cumulus-product-activity/"
+    assert aspects(seen, activity)["ownership"]["owners"] == [{"owner": DASHBOARD_OWNER, "type": "TECHNICAL_OWNER"}]
+    assert all(p["entityType"] == "dashboard" for p in seen if p["entityUrn"] == activity)
+
+    for edge in info["chartEdges"]:
+        chart = aspects(seen, edge["destinationUrn"])["chartInfo"]
+        assert chart["inputEdges"] == [{"destinationUrn": physical_urn("data_platform.events_bi")}]
+    quality = aspects(seen, superset_urn("dashboard", "3d83ccfe-0c46-52c2-aedf-dc3a0fadcc12"))["dashboardInfo"]
+    inputs = {aspects(seen, e["destinationUrn"])["chartInfo"]["inputEdges"][0]["destinationUrn"] for e in quality["chartEdges"]}
+    assert inputs == {physical_urn("data_platform.quality_runs")}
+
+
+def test_cli_reports_dashboards(gms, catalog, monkeypatch, capsys):
+    url, seen, _ = gms
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.setenv("DATAHUB_GMS_URL", url)
+    monkeypatch.setenv("PLATFORM_CATALOG_FILE", str(catalog.path))
+    monkeypatch.setattr(catalog_sync, "load_bundle", lambda: {})
+    assert catalog_sync.main() == 0
+    assert "dashboards" not in capsys.readouterr().out  # no bundle, no change
+    monkeypatch.undo()
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.setenv("DATAHUB_GMS_URL", url)
+    monkeypatch.setenv("PLATFORM_CATALOG_FILE", str(catalog.path))
+    assert catalog_sync.main() == 0
+    assert "2 dashboards" in capsys.readouterr().out

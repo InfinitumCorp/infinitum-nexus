@@ -214,3 +214,49 @@ def test_documents_in_postgres(clean, redactor):
     assert {h["documentId"] for h in docs.search("spectre", {**q, "viewer": "cid_viewer0001"})["hits"]} == {"a", "b"}
     assert docs.store.erase(docs._pseudonym("cid_owner0001"), None) == 1
     assert docs.remove("spectre", "playbooks", "a", {"tenant": "acme"}) == {"deleted": 1}
+
+
+def test_document_expiry_in_postgres(clean, redactor):
+    from cumulus_privacy.documents import Documents
+    from cumulus_privacy.pgstore import PostgresDocumentStore
+
+    with psycopg.connect(ADMIN, autocommit=True) as c:
+        c.execute("truncate data_platform.documents")
+    docs = Documents(redactor, PostgresDocumentStore(clean))
+    soon = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
+    base = {"tenant": "acme", "updatedAt": "2026-11-20T10:00:00Z", "body": "renewal"}
+    docs.put("spectre", "playbooks", "keep", {**base, "title": "Keep"})
+    docs.put("spectre", "playbooks", "temp", {**base, "title": "Temp", "expiresAt": soon})
+    q = {"tenant": "acme", "text": "renewal"}
+    assert {h["documentId"] for h in docs.search("spectre", q)["hits"]} == {"keep", "temp"}
+    assert docs.store.purge_expired() == 0
+    with psycopg.connect(ADMIN, autocommit=True) as c:  # time passes
+        c.execute("update data_platform.documents set expires_at = now() - interval '1 minute' where document_id = 'temp'")
+    assert [h["documentId"] for h in docs.search("spectre", q)["hits"]] == ["keep"]
+    assert docs.store.purge_expired() == 1
+    docs.put("spectre", "playbooks", "keep", {**base, "title": "Keep", "expiresAt": soon})
+    docs.put("spectre", "playbooks", "keep", {**base, "title": "Keep"})  # no expiresAt: kept for good
+    with psycopg.connect(ADMIN, autocommit=True) as c:
+        assert c.execute("select expires_at from data_platform.documents").fetchall() == [(None,)]
+
+
+def test_document_quota_lookups_in_postgres(clean, redactor):
+    from cumulus_privacy.documents import Documents
+    from cumulus_privacy.pgstore import PostgresDocumentStore
+
+    with psycopg.connect(ADMIN, autocommit=True) as c:
+        c.execute("truncate data_platform.documents")
+    store = PostgresDocumentStore(clean)
+    docs = Documents(redactor, store, max_per_product=2)
+    base = {"tenant": "acme", "updatedAt": "2026-11-20T10:00:00Z", "title": "T", "body": "b"}
+    docs.put("spectre", "playbooks", "a", base)
+    docs.put("spectre", "playbooks", "b", {**base, "tenant": "globex"})
+    docs.put("cumulus-mail", "playbooks", "a", base)
+    assert store.count("spectre") == 2 and store.count("cumulus-mail") == 1
+    assert store.existing("spectre", [("playbooks", "acme", "a"), ("playbooks", "acme", "b"),
+                                      ("playbooks", "globex", "b")]) == {("playbooks", "acme", "a"), ("playbooks", "globex", "b")}
+    assert store.existing("spectre", []) == set()
+    with pytest.raises(PlatformError) as e:
+        docs.put("spectre", "playbooks", "c", base)
+    assert e.value.name == "DocumentQuotaReached"
+    docs.put("spectre", "playbooks", "a", {**base, "title": "T2"})  # replacing is fine when full

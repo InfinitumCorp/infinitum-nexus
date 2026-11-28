@@ -79,6 +79,11 @@ export interface MailAppDeps {
   billingStore?: BillingLinkStore;
   /** Infinitum revenue API (Stripe Checkout, portal, entitlements). Defaults to the production API. */
   revenue?: RevenueClient;
+  /**
+   * false turns off /api/billing/* and every call to the revenue API (MAIL_BILLING=off), for copies
+   * Stripe doesn't serve, such as the Russia server. Defaults to on.
+   */
+  billing?: boolean;
   /** Upstream mode only: how Mail calls the Cumulus://ID token endpoint. Defaults to fetch (tests inject one). */
   upstreamFetch?: typeof fetch;
 }
@@ -201,6 +206,11 @@ function mailSearchFromEnv(router: AiRouter): Search | null {
     console.warn(`Infinitum Search is off: ${(err as Error).message}`);
     return null;
   }
+}
+
+/** MAIL_BILLING=off (or false/0/no) turns billing off; anything else, or unset, leaves it on. */
+export function billingEnabled(env: Record<string, string | undefined> = process.env): boolean {
+  return !/^(off|false|0|no)$/i.test(env.MAIL_BILLING?.trim() ?? "");
 }
 
 export function createMailApp(deps: MailAppDeps) {
@@ -364,12 +374,17 @@ export function createMailApp(deps: MailAppDeps) {
 
   /* ---------------- Buying Infinitum products with a Cumulus://ID (see billing.ts) ---------------- */
 
-  registerBilling({
-    route, cid, origin: deps.origin, str, Redirect, HttpError,
-    store: deps.billingStore ?? new BillingLinkStore(),
-    // REVENUE_CID_PARTNER_KEY: one billing org per Cumulus ID, shared with product apps (server-side secret).
-    revenue: deps.revenue ?? new RevenueClient({ cidPartnerKey: process.env.REVENUE_CID_PARTNER_KEY }),
-  });
+  // Off (MAIL_BILLING=off): no billing routes, and nothing here ever calls the revenue API.
+  if (deps.billing !== false) {
+    registerBilling({
+      route, cid, origin: deps.origin, str, Redirect, HttpError,
+      // Node mode (server.ts) passes no store, so CID -> billing org links live in memory and are
+      // rebuilt on the next purchase after a restart. Hosted mode saves them with the shared state.
+      store: deps.billingStore ?? new BillingLinkStore(),
+      // REVENUE_CID_PARTNER_KEY: one billing org per Cumulus ID, shared with product apps (server-side secret).
+      revenue: deps.revenue ?? new RevenueClient({ cidPartnerKey: process.env.REVENUE_CID_PARTNER_KEY }),
+    });
+  }
 
   /**
    * Attachments carry raw bytes, so they skip the JSON routes:

@@ -35,7 +35,9 @@ describe("live public UI snapshot", () => {
       assert.equal(sha256(body), row.sha256, row.path);
       assert.equal(body.length, row.bytes);
     }
-    const repoHome = readFileSync(join(app, "public/index.html"));
+    // The committed (LF) form: a Windows checkout with core.autocrlf turns it into CRLF, which
+    // happens to be byte-for-byte what the live host serves.
+    const repoHome = Buffer.from(readFileSync(join(app, "public/index.html"), "utf8").replace(/\r\n/g, "\n"));
     const liveHome = manifest.files.find((file) => file.path === "/index.html");
     assert.notEqual(sha256(repoHome), liveHome.sha256);
     const source = workerEntrySource(files);

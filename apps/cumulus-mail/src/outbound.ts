@@ -51,23 +51,31 @@ const PERMANENT: Record<string, string> = {
 };
 
 /** Email Sending refuses messages over 25 MiB; leave room for the text, HTML and encoding. */
-const MAX_OUTBOUND_ATTACHMENTS = 24 * 1024 * 1024;
+export const MAX_OUTBOUND_ATTACHMENTS = 24 * 1024 * 1024;
+
+export interface OutboundFile { content: Uint8Array; filename: string; type: string }
+
+/** The job's files, or why it can't be sent. Shared by every sender. */
+export async function loadAttachments(job: OutboundSend, files?: FileStore): Promise<{ ok: true; files: OutboundFile[] } | Extract<OutboundResult, { ok: false }>> {
+  if (!job.attachments.length) return { ok: true, files: [] };
+  if (job.attachments.reduce((n, a) => n + a.size, 0) > MAX_OUTBOUND_ATTACHMENTS) {
+    return { ok: false, error: "The attached files add up to more than 24 MB, which is too large to send outside Cumulus. Share them from Cloud instead.", permanent: true };
+  }
+  if (!files) return { ok: false, error: "Attachments can't be sent right now.", permanent: false };
+  const out: OutboundFile[] = [];
+  for (const a of job.attachments) {
+    const file = await files.get(a.id);
+    if (!file) return { ok: false, error: `The attached file "${a.name}" is no longer available.`, permanent: true };
+    out.push({ content: file.data, filename: a.name, type: a.type ?? file.type });
+  }
+  return { ok: true, files: out };
+}
 
 export function cloudflareSender(binding: EmailBinding, files?: FileStore): Sender {
   return async (job) => {
-    let attachments: NonNullable<Parameters<EmailBinding["send"]>[0]["attachments"]> | undefined;
-    if (job.attachments.length) {
-      if (job.attachments.reduce((n, a) => n + a.size, 0) > MAX_OUTBOUND_ATTACHMENTS) {
-        return { ok: false, error: "The attached files add up to more than 24 MB, which is too large to send outside Cumulus. Share them from Cloud instead.", permanent: true };
-      }
-      if (!files) return { ok: false, error: "Attachments can't be sent right now.", permanent: false };
-      attachments = [];
-      for (const a of job.attachments) {
-        const file = await files.get(a.id);
-        if (!file) return { ok: false, error: `The attached file "${a.name}" is no longer available.`, permanent: true };
-        attachments.push({ content: file.data, filename: a.name, type: a.type ?? file.type, disposition: "attachment" });
-      }
-    }
+    const loaded = await loadAttachments(job, files);
+    if (!loaded.ok) return loaded;
+    const attachments = loaded.files.length ? loaded.files.map((f) => ({ ...f, disposition: "attachment" as const })) : undefined;
     try {
       const { messageId } = await binding.send({
         to: job.to,

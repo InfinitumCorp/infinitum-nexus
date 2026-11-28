@@ -45,6 +45,7 @@ moving needs no API change.
   |---|---|---|
   | `PLATFORM_STORAGE_LIMIT_MB` | 450 | New events get 503 `StorageQuotaReached` with `Retry-After` |
   | `PLATFORM_DAILY_EVENT_QUOTA` (per product, per UTC day) | 200,000 | 429 `IngestQuotaExceeded` with `Retry-After` set to UTC midnight |
+  | `PLATFORM_MAX_DOCUMENTS_PER_PRODUCT` | 20,000 | New documents get 409 `DocumentQuotaReached`; replacing existing ones still works |
   | `PLATFORM_MAX_BATCH` (events per request) | 1,000 | 413 |
 
   `GET /api/v1/health` reports `storage: ok | nearly_full | full`. `nearly_full` starts at 80%
@@ -112,8 +113,12 @@ reliably there. Enable pg_cron (step 7) before you use it.
 6. **Optional: connect dashboards.** Create the read-only role:
    `create role data_platform_reader login noinherit password '<generated>';`
 
-   Re-run the migration, then add the database in Superset (Settings > Database Connections)
-   with that role's pooler URL. Build charts on `data_platform.events_bi`. That role:
+   Re-run the migration, then import the dashboards as code
+   ([superset/dashboards](../../infra/data-platform/superset/dashboards/README.md)): build the
+   bundle with `CUMULUS_BI_DATABASE_URI` set to the role's pooler URL **without** the password,
+   import it, and set the password once in Superset (Settings > Database Connections). That gives
+   the Product activity (embeddable) and Data quality dashboards. To embed Product activity in a
+   product, enable embedding on it and put the embedded ID in `PLATFORM_EMBED_DASHBOARDS`. That role:
    - can't read the pseudonym, the text or the payload;
    - can't read the privacy budget;
    - can't write anything.

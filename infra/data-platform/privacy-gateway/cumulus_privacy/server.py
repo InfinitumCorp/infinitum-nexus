@@ -133,6 +133,7 @@ class Gateway:
             Route("POST", "/api/v1/documents/collections/{collection}/documents/{documentId}/remove",
                   self.remove_document, "product"),
             Route("POST", "/api/v1/documents/search", self.search_documents, "product"),
+            Route("GET", "/api/v1/documents/usage", self.document_usage, "product"),
             Route("POST", "/api/v1/documents/collections/{collection}/batch", self.put_documents, "product"),
             Route("GET", "/api/v1/releases/datasets/{name}/budget", self.release_budget, "product"),
             Route("POST", "/api/v1/embed/dashboards/{dashboardId}/guest-token", self.guest_token, "product"),
@@ -184,6 +185,9 @@ class Gateway:
 
     def search_documents(self, b: dict[str, Any], caller: str = "", **_: str) -> Any:
         return self._platform(self.documents).search(caller, b)
+
+    def document_usage(self, b: dict[str, Any], caller: str = "", **_: str) -> Any:
+        return self._platform(self.documents).usage(caller)
 
     def release_budget(self, b: dict[str, Any], caller: str = "", name: str = "") -> Any:
         return self._platform(self.releases).budget(caller, name)
@@ -368,7 +372,9 @@ def main() -> None:
         searcher = Searcher(index)
         releases = StoredReleases(catalog, index, budget)
         if doc_store is not None:
-            documents = Documents(redactor, doc_store, limits)
+            # A cap per product, so one product can't fill the free database for the others.
+            documents = Documents(redactor, doc_store, limits, max_per_product=int(
+                os.environ.get("PLATFORM_MAX_DOCUMENTS_PER_PRODUCT", "20000" if dsn else "0")))
     else:
         catalog = None
     if dsn or doc_store is not None:  # stores without purge_expired are skipped

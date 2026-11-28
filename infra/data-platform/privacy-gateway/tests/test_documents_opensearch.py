@@ -147,3 +147,16 @@ def test_expired_documents_are_hidden_and_purged(fake_os):
     replies.append((500, {}))
     with pytest.raises(PlatformError):
         store.purge_expired()
+
+
+def test_quota_lookups(fake_os):
+    store, seen, replies = fake_os
+    replies.append((200, {"count": 7}))
+    assert store.count("spectre") == 7
+    assert seen[0]["path"] == "/cumulus-documents/_count"
+    assert seen[0]["body"] == {"query": {"term": {"product": "spectre"}}}
+    have = OpenSearchDocumentStore.doc_id("spectre", "playbooks", "acme", "a")
+    missing = OpenSearchDocumentStore.doc_id("spectre", "playbooks", "acme", "b")
+    replies.append((200, {"docs": [{"_id": have, "found": True}, {"_id": missing, "found": False}]}))
+    assert store.existing("spectre", [("playbooks", "acme", "a"), ("playbooks", "acme", "b")]) == {("playbooks", "acme", "a")}
+    assert seen[1]["path"] == "/cumulus-documents/_mget" and seen[1]["body"] == {"ids": [have, missing], "_source": False}

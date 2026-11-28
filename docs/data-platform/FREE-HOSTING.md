@@ -45,6 +45,7 @@ moving needs no API change.
   |---|---|---|
   | `PLATFORM_STORAGE_LIMIT_MB` | 450 | New events get 503 `StorageQuotaReached` with `Retry-After` |
   | `PLATFORM_DAILY_EVENT_QUOTA` (per product, per UTC day) | 200,000 | 429 `IngestQuotaExceeded` with `Retry-After` set to UTC midnight |
+  | `PLATFORM_MAX_DOCUMENTS_PER_PRODUCT` | 20,000 | New documents get 409 `DocumentQuotaReached`; replacing existing ones still works |
   | `PLATFORM_MAX_BATCH` (events per request) | 1,000 | 413 |
 
   `GET /api/v1/health` reports `storage: ok | nearly_full | full`. `nearly_full` starts at 80%

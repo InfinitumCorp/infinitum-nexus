@@ -342,6 +342,14 @@ types:
           hits:
             type: list<DocumentHit>
             docs: Best match first.
+      DocumentUsage:
+        fields:
+          documents:
+            type: integer
+            docs: Documents this product has stored, in every collection and tenant.
+          limit:
+            type: optional<integer>
+            docs: PLATFORM_MAX_DOCUMENTS_PER_PRODUCT, or absent when there is no cap.
 
     errors:
       SchemaMismatch:
@@ -385,6 +393,16 @@ types:
           HTTP 503 with Retry-After. The event store reached PLATFORM_STORAGE_LIMIT_MB (450 MB by
           default on the Supabase free plan). Keep the events and send them again later. Document
           puts are refused the same way; removing documents and erasure still work.
+      DocumentQuotaReached:
+        namespace: DataPlatform
+        code: CONFLICT
+        docs: >-
+          HTTP 409. The put would take the product over PLATFORM_MAX_DOCUMENTS_PER_PRODUCT (20,000
+          by default on the free tier). Replacing documents the product already has still works;
+          remove documents or let them expire to make room. Nothing in the request was stored.
+        safe-args:
+          product: ProductId
+          limit: integer
       IngestQuotaExceeded:
         namespace: DataPlatform
         code: CUSTOM_CLIENT
@@ -556,7 +574,9 @@ services:
     endpoints:
       putDocument:
         http: PUT /collections/{collection}/documents/{documentId}
-        docs: Insert or replace. 503 StorageQuotaReached with Retry-After when the data store is full.
+        docs: >-
+          Insert or replace. 503 StorageQuotaReached with Retry-After when the data store is full;
+          409 DocumentQuotaReached when a new document would take the product over its cap.
         args:
           collection: string
           documentId: string
@@ -592,3 +612,7 @@ services:
             type: DocumentQuery
             param-type: body
         returns: DocumentSearchResponse
+      getDocumentUsage:
+        http: GET /usage
+        docs: How close the calling product is to its document cap. Reading it changes nothing.
+        returns: DocumentUsage

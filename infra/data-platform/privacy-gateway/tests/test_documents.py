@@ -361,3 +361,60 @@ def test_daily_purge_covers_events_and_documents(capsys):
     assert "purge of events failed: RuntimeError" in err and "removed 3 documents" in err
     purge_once(Store(2), None)
     assert "removed 2 events" in capsys.readouterr().err
+
+
+def test_quota_per_product_allows_replacing_but_not_growing(redactor):
+    docs = Documents(redactor, MemoryDocumentStore(), max_per_product=3)
+    assert "DocumentQuotaReached" in PLATFORM["types"]["definitions"]["errors"]
+    for i in range(2):
+        docs.put("spectre", "playbooks", f"d{i}", doc())
+    docs.put("cumulus-mail", "notes", "m0", doc())  # other products don't count
+    assert docs.put_many("spectre", "playbooks", {"documents": [{**doc(), "documentId": "d0"},
+                                                                {**doc(), "documentId": "d2"}]})["created"] == 1
+    with pytest.raises(PlatformError) as e:
+        docs.put("spectre", "playbooks", "d3", doc())
+    assert (e.value.status, e.value.name) == (409, "DocumentQuotaReached")
+    assert e.value.safe_args == {"product": "spectre", "limit": 3}
+    with pytest.raises(PlatformError):  # a batch that would grow is refused whole
+        docs.put_many("spectre", "playbooks", {"documents": [{**doc(), "documentId": "d1"},
+                                                             {**doc(), "documentId": "d9"}]})
+    assert docs.store.count("spectre") == 3 and ("spectre", "playbooks", "acme", "d9") not in docs.store.docs
+    docs.put("spectre", "playbooks", "d1", doc(title="Renewal playbook v2"))  # replacing still works
+    docs.remove("spectre", "playbooks", "d1", {"tenant": "acme"})
+    docs.put("spectre", "playbooks", "d3", doc())  # room again
+    assert Documents(redactor, docs.store).max_per_product == 0  # no cap unless configured
+
+
+def test_usage_reports_count_and_cap(redactor):
+    store = MemoryDocumentStore()
+    capped = Documents(redactor, store, max_per_product=5)
+    capped.put("spectre", "playbooks", "a", doc())
+    capped.put("spectre", "notes", "b", doc(tenant="globex"))
+    capped.put("cumulus-mail", "notes", "c", doc())
+    out = capped.usage("spectre")
+    assert out == {"documents": 2, "limit": 5}
+    assert set(out) == set(OBJECTS["DocumentUsage"]["fields"])
+    assert Documents(redactor, store).usage("spectre") == {"documents": 2, "limit": None}
+    with pytest.raises(PlatformError) as e:
+        capped.usage("aether")
+    assert e.value.status == 403
+
+
+def test_usage_over_http(redactor, tmp_path):
+    spectre = "s" * 40
+    docs = Documents(redactor, MemoryDocumentStore(), max_per_product=10)
+    docs.put("spectre", "playbooks", "a", doc())
+    gw = Gateway(redactor, PrivacyBudget(tmp_path / "b.json", 1), "g" * 40, None, None, None,
+                 parse_product_tokens(f"spectre={spectre}"), documents=docs)
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(gw))
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    url = f"http://127.0.0.1:{httpd.server_address[1]}/api/v1/documents/usage"
+    try:
+        r = urllib.request.Request(url, headers={"Authorization": f"Bearer {spectre}"})
+        with urllib.request.urlopen(r) as resp:
+            assert json.loads(resp.read()) == {"documents": 1, "limit": 10}
+        with pytest.raises(urllib.error.HTTPError) as e:  # a product token is required
+            urllib.request.urlopen(urllib.request.Request(url, headers={"Authorization": "Bearer " + "g" * 40}))
+        assert e.value.code == 401
+    finally:
+        httpd.shutdown()

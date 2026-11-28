@@ -6,6 +6,7 @@ import type { SpectreCRM } from "../core/crm.ts";
 import { createWorkflow, deleteWorkflow, getWorkflow, runDue, updateWorkflow, type AutomationEngine } from "../core/automations.ts";
 import { receiveSms, sendMessage, threads, verifyTwilioSignature, type Providers } from "../core/messaging.ts";
 import { limiter, type GrowthApi } from "./growth-routes.ts";
+import { createInvoice, getInvoice, invoiceDashboard, invoiceLink, publicInvoice, saveInvoiceSettings, sendInvoice, setInvoiceStatus, updateInvoice } from "../core/invoices.ts";
 import { openReview, requestReviews, respondToReview, reviewDashboard, saveReviewSettings } from "../core/reputation.ts";
 import { audienceOf, createCampaign, deleteCampaign, getCampaign, runDueCampaigns, sendCampaign, updateCampaign } from "../core/campaigns.ts";
 
@@ -107,6 +108,26 @@ export function registerEngageRoutes(api: EngageApi) {
   route("POST", "/api/public/reviews/:token", (ctx) => {
     if (!reviewLimit(ctx.req, "respond")) throw httpError(429, "Too many requests. Please try again in a minute.");
     return respondToReview(crm, ctx.params.token, ctx.body);
+  }, false);
+
+  /* ---------------- Invoices ---------------- */
+
+  const invoiceLimit = limiter(60, 60_000);
+  route("GET", "/api/crm/invoices", (ctx) => invoiceDashboard(crm, ws(ctx)));
+  route("PUT", "/api/crm/invoices/settings", (ctx) => saveInvoiceSettings(crm, ws(ctx), me(ctx), ctx.body));
+  route("POST", "/api/crm/invoices", (ctx) => createInvoice(crm, ws(ctx), me(ctx), ctx.body));
+  route("GET", "/api/crm/invoices/:id", (ctx) => { const { token: _t, ...inv } = getInvoice(crm, ws(ctx), ctx.params.id); return inv; });
+  route("PATCH", "/api/crm/invoices/:id", async (ctx) => { const { token: _t, ...inv } = await updateInvoice(crm, ws(ctx), me(ctx), ctx.params.id, ctx.body); return inv; });
+  route("POST", "/api/crm/invoices/:id/status", async (ctx) => { const { token: _t, ...inv } = await setInvoiceStatus(crm, ws(ctx), me(ctx), ctx.params.id, ctx.body.status); return inv; });
+  route("POST", "/api/crm/invoices/:id/send", async (ctx) => {
+    const r = await sendInvoice(crm, providers, ws(ctx), me(ctx), ctx.params.id, { channel: ctx.body.channel, origin: api.origin });
+    const { token: _t, ...inv } = r.invoice;
+    return { invoice: inv, delivery: r.delivery, error: r.error };
+  });
+  route("GET", "/api/crm/invoices/:id/link", (ctx) => invoiceLink(crm, ws(ctx), ctx.params.id, api.origin));
+  route("GET", "/api/public/invoices/:token", (ctx) => {
+    if (!invoiceLimit(ctx.req, "invoice")) throw httpError(429, "Too many requests. Please try again in a minute.");
+    return publicInvoice(crm, ctx.params.token);
   }, false);
 
   /* ---------------- Conversations ---------------- */

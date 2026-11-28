@@ -328,3 +328,7 @@ ol.steps li.trigger { list-style: none; margin-left: -22px; font-weight: 600; }
 .pick .check .faint { margin-left: auto; }
 .pick .check[hidden] { display: none; }
 .stars-cell { color: #e0a100; white-space: nowrap; letter-spacing: 1px; }
+.line-row { display: grid; grid-template-columns: 1fr 72px 100px auto; gap: 6px; align-items: center; padding: 4px 0; }
+@media (max-width: 520px) { .line-row { grid-template-columns: 1fr 1fr auto; } .line-row [name=description] { grid-column: 1 / -1; } }
+table.simple .num { text-align: right; }
+.pre { white-space: pre-line; }

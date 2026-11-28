@@ -39,6 +39,7 @@ export const INFINITUM_APPS = [
   "cumulus", "cumulus-mail", "cumulus-cloud", "firm-wallet", "aether", "argus", "hrvst", "eidetic",
   "orbis", "pollen", "flower", "nemesis", "LBRNTH", "firm", "daemon", "slug", "seraphim", "tokens",
   "odin", "firmament", "cumulus-exchange", "cherubim", "azrail", "cloud", "conjure", "node",
+  "zerkalo",
 ] as const;
 export type AppId = (typeof INFINITUM_APPS)[number];
 

@@ -132,6 +132,27 @@ export interface DocumentUpsert {
   /** If set, only these people (and the owner) find the document. At most 500. */
   viewers?: string[];
   updatedAt: string;
+  /** When to forget the document: hidden from search then, deleted by the daily purge. At most 3650 days ahead. */
+  expiresAt?: string;
+}
+
+/** One document of a putDocuments batch. */
+export interface DocumentBatchItem extends DocumentUpsert {
+  documentId: string;
+}
+
+export interface DocumentBatchResponse {
+  collection: string;
+  stored: number;
+  /** How many of the stored documents were new. */
+  created: number;
+}
+
+export interface DocumentUsage {
+  /** Documents this product has stored, in every collection and tenant. */
+  documents: number;
+  /** PLATFORM_MAX_DOCUMENTS_PER_PRODUCT; absent or null when there is no cap. */
+  limit?: number | null;
 }
 
 export interface DocumentRef {
@@ -373,6 +394,19 @@ export class PlatformClient {
   /** DocumentService.putDocument: insert or replace one document. */
   putDocument(collection: string, documentId: string, document: DocumentUpsert): Promise<DocumentRef> {
     return this.call("PUT", `/api/v1/documents/collections/${enc(collection)}/documents/${enc(documentId)}`, document);
+  }
+
+  /**
+   * DocumentService.putDocuments: 1 to 100 documents of one collection. All are validated before
+   * any is stored, so a bad one rejects the batch (the error names its position).
+   */
+  putDocuments(collection: string, documents: DocumentBatchItem[]): Promise<DocumentBatchResponse> {
+    return this.call("POST", `/api/v1/documents/collections/${enc(collection)}/batch`, { documents });
+  }
+
+  /** DocumentService.getDocumentUsage: how close this product is to its document cap. */
+  getDocumentUsage(): Promise<DocumentUsage> {
+    return this.call("GET", "/api/v1/documents/usage");
   }
 
   /** DocumentService.removeDocument: 1 if it existed, else 0. Safe to repeat. */

@@ -536,9 +536,65 @@ function campaignEditor(existing, lists) {
   sync();
 }
 
+/* ---------------- Reputation ---------------- */
+
+const starsText = (n) => n ? "★".repeat(n) + "☆".repeat(5 - n) : "";
+
+async function renderReputation() {
+  const d = await api("GET", "/api/crm/reviews");
+  const s = d.settings, st = d.stats;
+  main().innerHTML = `
+    <div class="page">
+      <div class="page-head"><h1>Reputation</h1><button class="btn primary" id="ask" ${s.reviewUrl ? "" : "disabled"}>Ask for reviews</button></div>
+      <p class="muted">Ask happy customers for a review in one click. Each person gets a private link: they rate you, can leave a public review, or tell you privately what to fix. Low ratings become follow-up tasks.</p>
+      <div class="stats">${[["Asked", st.requested], ["Opened", st.opened], ["Rated", st.rated], ["Average", st.average ?? "–"], ["Went to review", st.clicked], ["Private notes", st.feedback]]
+        .map(([l, v]) => `<div class="stat"><div class="num">${esc(v)}</div><div class="faint small">${l}</div></div>`).join("")}</div>
+      <div class="section"><h2>Review link</h2>
+        <form id="rv-settings" class="grid2">
+          <label class="field">Business name<input class="input" name="businessName" value="${esc(s.businessName)}" placeholder="Northwind Logistics"></label>
+          <label class="field">Public review link<input class="input" name="reviewUrl" value="${esc(s.reviewUrl ?? "")}" placeholder="https://g.page/r/…/review"></label>
+          <div class="row"><button class="btn">Save</button><span class="faint small">In Google Business Profile: <b>Ask for reviews</b> → copy the link. Any review site works.</span></div>
+        </form>
+        <p class="faint small">Everyone sees the public link, whatever they rate. Steering only happy customers to public reviews breaks Google's rules.</p>
+      </div>
+      <div class="section"><h2>Requests</h2>
+        ${d.requests.length ? `<div class="table-wrap"><table class="simple"><thead><tr><th>Person</th><th>Asked</th><th>By</th><th>Status</th><th>Rating</th><th>Private note</th></tr></thead><tbody>
+        ${d.requests.map((r) => `<tr><td>${esc(r.name)}</td><td class="nowrap">${date(r.sentAt)}</td><td>${r.channel === "sms" ? "SMS" : "Email"}${r.messageStatus === "sent" ? "" : ` · ${esc(r.messageStatus)}`}</td>
+          <td class="nowrap">${r.clickedAt ? "Went to review" : r.ratedAt ? "Rated" : r.openedAt ? "Opened" : "Waiting"}</td><td class="stars-cell">${starsText(r.rating)}</td><td>${esc(r.feedback ?? "")}</td></tr>`).join("")}
+        </tbody></table></div>` : `<div class="empty">${s.reviewUrl ? "No requests yet." : "Add your review link to start."}</div>`}
+      </div>
+    </div>`;
+  const f = S.$("#rv-settings");
+  f.onsubmit = (e) => { e.preventDefault(); act(async () => { await api("PUT", "/api/crm/reviews/settings", { businessName: f.businessName.value, reviewUrl: f.reviewUrl.value || undefined }); renderReputation(); }, "Saved"); };
+  S.$("#ask").onclick = () => askForReviews(s);
+}
+
+async function askForReviews(settings) {
+  const people = await contacts();
+  const recentlyWon = new Set(((await api("GET", "/api/deals").catch(() => ({})))?.deals ?? []).filter((d) => d.stage === "won").flatMap((d) => d.contactIds || []));
+  S.modal(`<h2>Ask for reviews</h2>
+    <label class="field">Send by<select class="input" name="channel"><option value="sms">SMS</option><option value="email">Email</option></select></label>
+    <div class="field">Who<input class="input small" id="pick-filter" placeholder="Filter people…">
+      <div class="row small"><button type="button" class="btn ghost small" id="pick-won">Customers with won deals</button><button type="button" class="btn ghost small" id="pick-none">Clear</button></div>
+      <div class="pick">${people.map((c) => `<label class="check" data-name="${esc(c.name.toLowerCase())}"><input type="checkbox" name="cid" value="${esc(c.id)}" data-won="${recentlyWon.has(c.id) ? 1 : 0}">${esc(c.name)}<span class="faint small">${esc(c.phone || c.email || "no contact info")}</span></label>`).join("") || `<p class="faint small">Add people first.</p>`}</div></div>
+    <label class="field">Message<textarea class="input" name="message" rows="4" placeholder="Leave empty for the standard message"></textarea></label>
+    <p class="faint small">Keep {{review_link}} if you write your own. Also works: {{first_name}}. People asked in the last 30 days, or who opted out, are skipped.</p>`, async (f) => {
+    const ids = f.getAll("cid");
+    if (!ids.length) throw new Error("Choose who to ask");
+    const r = await api("POST", "/api/crm/reviews/request", { contactIds: ids, channel: f.get("channel"), message: f.get("message") || undefined });
+    toast([r.sent && `Asked ${r.sent}`, r.drafted && `${r.drafted} saved as draft${r.drafted === 1 ? "" : "s"}`, r.failed && `${r.failed} failed`, r.skipped.length && `${r.skipped.length} skipped`].filter(Boolean).join(" · ") || "No one asked");
+    renderReputation();
+  });
+  const box = document.querySelector("#modal-form .pick");
+  S.$("#pick-filter").oninput = (e) => { const q = e.target.value.toLowerCase(); box.querySelectorAll("label").forEach((l) => { l.hidden = q && !l.dataset.name.includes(q); }); };
+  S.$("#pick-won").onclick = () => box.querySelectorAll("input").forEach((i) => { if (i.dataset.won === "1") i.checked = true; });
+  S.$("#pick-none").onclick = () => box.querySelectorAll("input").forEach((i) => { i.checked = false; });
+}
+
 S.view("inbox", renderInbox);
 S.view("forms", renderForms);
 S.view("calendars", renderCalendars);
 S.view("automations", renderAutomations);
 S.view("campaigns", renderCampaigns);
+S.view("reputation", renderReputation);
 updateInboxBadge();

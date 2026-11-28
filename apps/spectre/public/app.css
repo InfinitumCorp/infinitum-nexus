@@ -323,3 +323,8 @@ ol.steps li.trigger { list-style: none; margin-left: -22px; font-weight: 600; }
 .stat { border: 1px solid var(--line); padding: 12px 14px; }
 .stat .num { font-size: 24px; font-weight: 600; }
 .field[hidden], .input[hidden] { display: none; }
+.pick { display: grid; gap: 2px; max-height: 240px; overflow-y: auto; border: 1px solid var(--line); padding: 6px 10px; margin-top: 6px; }
+.pick .check { justify-content: flex-start; gap: 8px; padding: 4px 0; white-space: normal; }
+.pick .check .faint { margin-left: auto; }
+.pick .check[hidden] { display: none; }
+.stars-cell { color: #e0a100; white-space: nowrap; letter-spacing: 1px; }

@@ -152,3 +152,7 @@
 .t-tile-name { position: absolute; left: 6px; bottom: 4px; right: 6px; font-size: 12px; text-shadow: 0 1px 2px #000; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .t-huddle-leave { border-color: #b42318; color: #b42318; }
 @media (max-width: 900px) { .t-huddle { left: 16px; right: 16px; width: auto; } }
+
+/* Sidebar sections */
+.t-section-toggle { font: inherit; color: inherit; text-transform: inherit; letter-spacing: inherit; }
+.t-section-empty { padding: 2px 16px 6px; margin: 0; }

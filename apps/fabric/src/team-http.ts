@@ -124,6 +124,10 @@ export function teamRoutes(): Route[] {
     r("POST", `/channels/${ID}/invite`, ({ team, me, params, body }) => team.invite(me, params[0]!, body.people)),
     r("POST", `/channels/${ID}/kick`, ({ team, me, params, body }) => team.kick(me, params[0]!, str(body.username))),
     r("PUT", `/channels/${ID}/prefs`, ({ team, me, params, body }) => team.setChannelPrefs(me, params[0]!, body)),
+    r("GET", `/workspaces/${ID}/sections`, ({ team, me, params }) => ({ sections: team.sections(me, params[0]!) })),
+    r("POST", `/workspaces/${ID}/sections`, ({ team, me, params, body }) => team.createSection(me, params[0]!, body), { status: 201 }),
+    r("PATCH", `/sections/${ID}`, ({ team, me, params, body }) => ({ sections: team.updateSection(me, params[0]!, body) })),
+    r("DELETE", `/sections/${ID}`, ({ team, me, params }) => team.deleteSection(me, params[0]!)),
     r("POST", `/channels/${ID}/read`, ({ team, me, params, body }) => team.markRead(me, params[0]!, typeof body.unreadFrom === "string" ? body.unreadFrom : undefined)),
     r("GET", `/channels/${ID}/people`, ({ team, me, params }) => ({ people: team.channelPeople(me, params[0]!) })),
     r("GET", `/channels/${ID}/messages`, ({ team, me, params, query }) => team.list(me, params[0]!, {

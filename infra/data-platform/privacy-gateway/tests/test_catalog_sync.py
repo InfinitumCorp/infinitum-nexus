@@ -94,7 +94,7 @@ def test_cli_uses_the_file_catalog_without_database_url(gms, catalog, monkeypatc
     monkeypatch.setenv("DATAHUB_GMS_URL", url)
     monkeypatch.setenv("PLATFORM_CATALOG_FILE", str(catalog.path))
     assert catalog_sync.main() == 0
-    assert "pushed 2 datasets, 3 lineage edges, 2 dashboards, 0 failed" in capsys.readouterr().out
+    assert "pushed 2 datasets, 3 lineage edges, 3 dashboards, 0 failed" in capsys.readouterr().out
     monkeypatch.delenv("DATAHUB_GMS_URL")
     assert catalog_sync.main() == 2
 
@@ -151,7 +151,7 @@ def test_superset_dashboards_with_lineage_to_the_tables(gms, catalog):
     bundle = load_bundle()
     assert bundle is not None  # the repository checkout has superset/dashboards
     out = CatalogSync(catalog.all, DataHubSink(url), dashboards=bundle, superset_url="https://bi.example").run()
-    assert out["failed"] == [] and out["dashboards"] == 2
+    assert out["failed"] == [] and out["dashboards"] == 3
 
     activity = superset_urn("dashboard", "3690a391-0b11-5f9a-a2f2-59cd7e2e570a")
     info = aspects(seen, activity)["dashboardInfo"]
@@ -181,4 +181,4 @@ def test_cli_reports_dashboards(gms, catalog, monkeypatch, capsys):
     monkeypatch.setenv("DATAHUB_GMS_URL", url)
     monkeypatch.setenv("PLATFORM_CATALOG_FILE", str(catalog.path))
     assert catalog_sync.main() == 0
-    assert "2 dashboards" in capsys.readouterr().out
+    assert "3 dashboards" in capsys.readouterr().out

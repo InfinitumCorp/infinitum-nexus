@@ -64,7 +64,8 @@ def test_no_password_and_no_personal_columns(files):
     with pytest.raises(ValueError):
         bundle.files("postgresql+psycopg2://data_platform_reader:hunter2@db.example:5432/postgres")
     cols = {c["column_name"] for d in by_prefix(files, "datasets/").values() for c in d["columns"]}
-    assert not cols & {"cid", "text", "payload", "metrics", "results"}
+    assert not cols & {"cid", "text", "payload", "metrics", "results",
+                       "title", "body", "url", "labels", "owner_cid", "viewers"}
 
 
 def test_uuids_are_stable_and_the_zip_imports_as_one_root(tmp_path):

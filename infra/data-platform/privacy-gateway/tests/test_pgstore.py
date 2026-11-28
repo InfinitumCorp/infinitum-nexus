@@ -238,3 +238,24 @@ def test_document_expiry_in_postgres(clean, redactor):
     docs.put("spectre", "playbooks", "keep", {**base, "title": "Keep"})  # no expiresAt: kept for good
     with psycopg.connect(ADMIN, autocommit=True) as c:
         assert c.execute("select expires_at from data_platform.documents").fetchall() == [(None,)]
+
+
+def test_bi_reader_sees_document_counts_but_no_content(clean, redactor, reader_dsn):
+    from cumulus_privacy.documents import Documents
+    from cumulus_privacy.pgstore import PostgresDocumentStore
+
+    with psycopg.connect(ADMIN, autocommit=True) as c:
+        c.execute("truncate data_platform.documents")
+    docs = Documents(redactor, PostgresDocumentStore(clean))
+    base = {"tenant": "acme", "updatedAt": "2026-11-20T10:00:00Z", "title": "Renewal", "body": "renewal call"}
+    docs.put("spectre", "playbooks", "a", base)
+    docs.put("spectre", "notes", "b", {**base, "ownerCid": "cid_owner0001", "viewers": ["cid_viewer0001"]})
+    with psycopg.connect(reader_dsn, autocommit=True) as c:
+        rows = c.execute("""select product, collection, restricted from data_platform.documents_bi
+                            order by collection""").fetchall()
+        assert rows == [("spectre", "notes", True), ("spectre", "playbooks", False)]
+        for col in ("title", "body", "url", "labels", "owner_cid", "viewers", "document_id"):
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                c.execute(f"select {col} from data_platform.documents")
+        with pytest.raises((psycopg.errors.InsufficientPrivilege, psycopg.errors.ReadOnlySqlTransaction)):
+            c.execute("delete from data_platform.documents")

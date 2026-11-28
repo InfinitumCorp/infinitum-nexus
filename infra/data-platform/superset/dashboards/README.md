@@ -7,6 +7,7 @@ fixed, so every environment has the same ones and re-importing updates in place.
 |---|---|---|---|
 | Product activity | `3690a391-0b11-5f9a-a2f2-59cd7e2e570a` | `data_platform.events_bi` (no text, payload or CID) | Yes |
 | Data quality | `3d83ccfe-0c46-52c2-aedf-dc3a0fadcc12` | `data_platform.quality_runs` (check names and numbers) | No, Cumulus ID sign-in only |
+| Documents | `03578c58-943e-579a-b6e3-3c15537a9b48` | `data_platform.documents_bi` (counts and dates; no titles, bodies or people) | No, Cumulus ID sign-in only |
 
 Datasets on an embeddable dashboard must have `product` and `tenant` columns, because the
 gateway's guest tokens pin `product = .. AND tenant = ..` to every chart. A test

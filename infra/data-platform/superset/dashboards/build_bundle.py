@@ -78,6 +78,19 @@ DATASETS: dict[str, dict[str, Any]] = {
                     _metric("pass_rate", "AVG(CASE WHEN ok THEN 1.0 ELSE 0.0 END)", "Pass rate", ".1%"),
                     _metric("failed_runs", "SUM(CASE WHEN ok THEN 0 ELSE 1 END)", "Failed runs")],
     },
+    "documents_bi": {
+        "main_dttm_col": "stored_at",
+        "description": "Document counts without titles, bodies or people (data_platform.documents_bi).",
+        "columns": [_col("product", "TEXT"), _col("collection", "TEXT"), _col("tenant", "TEXT"),
+                    _col("restricted", "BOOLEAN"),
+                    _col("updated_at", "TIMESTAMP WITH TIME ZONE", dttm=True),
+                    _col("stored_at", "TIMESTAMP WITH TIME ZONE", dttm=True),
+                    _col("expires_at", "TIMESTAMP WITH TIME ZONE", dttm=True)],
+        "metrics": [_metric("count", "COUNT(*)", "Documents"),
+                    _metric("restricted_docs", "SUM(CASE WHEN restricted THEN 1 ELSE 0 END)", "Restricted"),
+                    _metric("expiring", "COUNT(expires_at)", "With an expiry"),
+                    _metric("tenants", "COUNT(DISTINCT tenant)", "Tenants")],
+    },
 }
 
 
@@ -104,6 +117,16 @@ CHARTS: list[tuple[str, str, str, str, dict[str, Any], int]] = [
      {"query_mode": "raw", "all_columns": ["checked_at", "product", "dataset", "rows"], "row_limit": 200,
       "order_by_cols": ['["checked_at", false]'],
       "adhoc_filters": [{"expressionType": "SQL", "sqlExpression": "NOT ok", "clause": "WHERE"}]}, 12),
+    # Documents are a snapshot, not a stream, so these charts count everything stored by default.
+    ("documents.total", "Documents", "big_number_total", "documents_bi",
+     {"metric": "count", "subheader": "stored for search", "time_range": "No filter"}, 3),
+    ("documents.by_product", "Documents by product", "table", "documents_bi",
+     {"query_mode": "aggregate", "groupby": ["product", "collection"],
+      "metrics": ["count", "tenants", "restricted_docs", "expiring"], "row_limit": 200, "order_desc": True,
+      "timeseries_limit_metric": "count", "time_range": "No filter"}, 9),
+    ("documents.stored_per_day", "Documents stored per day", "echarts_timeseries_line", "documents_bi",
+     {"x_axis": "stored_at", "time_grain_sqla": "P1D", "metrics": ["count"], "groupby": ["product"],
+      "row_limit": 1000}, 12),
 ]
 
 # (key, title, slug, embeddable, chart keys in rows)
@@ -112,6 +135,8 @@ DASHBOARDS = [
      [["activity.total", "activity.per_day"], ["activity.by_type"]]),
     ("quality", "Data quality", "cumulus-data-quality", False,
      [["quality.pass_rate", "quality.by_dataset"], ["quality.failed"]]),
+    ("documents", "Documents", "cumulus-documents", False,
+     [["documents.total", "documents.by_product"], ["documents.stored_per_day"]]),
 ]
 
 # Native filters per dashboard: (name, column or None for the time range). The dataset is the
@@ -120,6 +145,7 @@ DASHBOARDS = [
 FILTERS = {
     "activity": ("events_bi", [("Time range", None), ("Event type", "event_type"), ("Region", "region")]),
     "quality": ("quality_runs", [("Time range", None), ("Product", "product"), ("Dataset", "dataset")]),
+    "documents": ("documents_bi", [("Time range", None), ("Product", "product"), ("Collection", "collection")]),
 }
 
 

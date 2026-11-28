@@ -207,6 +207,7 @@ jobs:
               print(got)
               assert got["Product activity"] == ("3690a391-0b11-5f9a-a2f2-59cd7e2e570a", ["Events", "Events by type", "Events per day"]), got
               assert got["Data quality"] == ("3d83ccfe-0c46-52c2-aedf-dc3a0fadcc12", ["Failed runs", "Quality pass rate", "Runs by dataset"]), got
+              assert got["Documents"] == ("03578c58-943e-579a-b6e3-3c15537a9b48", ["Documents", "Documents by product", "Documents stored per day"]), got
               import json
               for d in db.session.query(Dashboard):
                   nf = json.loads(d.json_metadata)["native_filter_configuration"]

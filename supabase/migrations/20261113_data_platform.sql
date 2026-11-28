@@ -155,6 +155,12 @@ create or replace view data_platform.events_bi with (security_invoker = true) as
          object_type, object_id, ingested_at
   from data_platform.events;
 
+-- Document volume for dashboards: counts by product, collection and tenant, and when documents
+-- expire. No title, body, URL, labels or people (owner and viewer pseudonyms).
+create or replace view data_platform.documents_bi with (security_invoker = true) as
+  select product, collection, tenant, restricted, updated_at, stored_at, expires_at
+  from data_platform.documents;
+
 -- Optional read-only role for Superset, created the same way as the gateway role:
 --   create role data_platform_reader login noinherit password '<SCRAM-SHA-256 verifier>';
 do $$
@@ -172,6 +178,12 @@ begin
   execute 'grant select (name, product, updated_at) on data_platform.datasets to data_platform_reader';
   execute 'grant select on data_platform.events_bi to data_platform_reader';
   execute 'grant select on data_platform.quality_runs to data_platform_reader';
+  execute 'grant select (product, collection, tenant, restricted, updated_at, stored_at, expires_at)
+           on data_platform.documents to data_platform_reader';
+  execute 'grant select on data_platform.documents_bi to data_platform_reader';
+  if not exists (select 1 from pg_policies where schemaname = 'data_platform' and tablename = 'documents' and policyname = 'reader_select') then
+    execute 'create policy reader_select on data_platform.documents for select to data_platform_reader using (true)';
+  end if;
   if not exists (select 1 from pg_policies where schemaname = 'data_platform' and tablename = 'quality_runs' and policyname = 'reader_select') then
     execute 'create policy reader_select on data_platform.quality_runs for select to data_platform_reader using (true)';
   end if;

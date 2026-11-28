@@ -423,3 +423,50 @@ test("FABRIC_ICE_SERVERS parsing", () => {
   assert.throws(() => parseIceServers("{}"), /JSON list/);
   assert.throws(() => parseIceServers('[{"urls":"https://example.org"}]'), /stun:/);
 });
+
+test("sharing a message: live link, access-checked, never across workspaces", () => {
+  const t = setup();
+  try {
+    const ws = t.team.createWorkspace(t.alice, "Acme");
+    t.team.joinWorkspace(t.bob, ws.inviteCode);
+    t.team.joinWorkspace(t.cara, ws.inviteCode);
+    const general = t.team.sidebar(t.alice, ws.id).channels.find((c) => c.name === "general")!;
+    const secret = t.team.createChannel(t.alice, ws.id, { name: "secret", private: true, members: ["bob"] });
+    const original = t.team.send(t.alice, secret.id, { text: "launch is Friday" }).message!;
+
+    // Cara can't see the private channel, so she can't share from it.
+    assert.throws(() => t.team.share(t.cara, original.id, { channelId: general.id }), status(404));
+    const shared = t.team.share(t.bob, original.id, { channelId: general.id, text: "FYI" });
+    assert.equal(shared.channelId, general.id);
+    assert.equal(shared.message!.text, "FYI");
+    const forBob = t.team.getMessage(t.bob, shared.message!.id).shared;
+    assert.ok(forBob && forBob.available);
+    assert.equal(forBob.text, "launch is Friday");
+    assert.equal(forBob.channelName, "secret");
+    assert.equal(forBob.sender.username, "alice");
+    // Cara sees the comment, not the private message.
+    assert.deepEqual(t.team.getMessage(t.cara, shared.message!.id).shared, { available: false });
+
+    // Edits show through; sharing a share shares the original.
+    t.team.edit(t.alice, original.id, "launch is Monday");
+    const again = t.team.share(t.alice, shared.message!.id, { channelId: general.id });
+    const inner = t.team.getMessage(t.alice, again.message!.id).shared;
+    assert.ok(inner && inner.available);
+    assert.equal(inner.id, original.id);
+    assert.equal(inner.text, "launch is Monday");
+
+    // Deleting the original removes it from every share.
+    t.team.remove(t.alice, original.id);
+    assert.equal(t.team.getMessage(t.bob, shared.message!.id).shared, null);
+    assert.throws(() => t.team.share(t.bob, original.id, { channelId: general.id }), status(400));
+
+    // You must be able to post where you share, and it stays in the workspace.
+    const other = t.team.createWorkspace(t.bob, "Other");
+    const otherGeneral = t.team.sidebar(t.bob, other.id).channels.find((c) => c.name === "general")!;
+    const hello = t.team.send(t.bob, general.id, { text: "hello" }).message!;
+    assert.throws(() => t.team.share(t.bob, hello.id, { channelId: otherGeneral.id }), status(400));
+    assert.throws(() => t.team.share(t.cara, hello.id, { channelId: secret.id }), status(404));
+  } finally {
+    t.close();
+  }
+});

@@ -313,7 +313,8 @@ function messageItem(m, { compact = false, focus = false, inThread = false } = {
   else if (m.unreadable) body.append(h("p", { class: "meta" }, "This message could not be read."));
   else if (state.editing === m.id) body.append(editBox(m));
   else if (m.poll) body.append(h("p", { class: "strong" }, "📊 ", ...inline(m.text)), pollBlock(m));
-  else body.append(format(m.text));
+  else if (m.text) body.append(format(m.text));
+  if (m.shared && !m.deleted) body.append(sharedBlock(m.shared));
   if (m.editedAt && !m.deleted) body.append(h("span", { class: "meta" }, " (edited)"));
   if (m.alsoInChannel && !inThread) body.prepend(h("p", { class: "meta" }, "replied to a thread"));
   for (const f of m.files) {
@@ -329,6 +330,29 @@ function messageItem(m, { compact = false, focus = false, inThread = false } = {
   if (m.replyCount && !inThread) li.append(h("button", { type: "button", class: "t-replies link", onclick: tryRun(() => openThread(m.id)) }, `${m.replyCount} ${m.replyCount === 1 ? "reply" : "replies"}`, h("span", { class: "meta" }, ` · last ${when(m.lastReplyAt)}`)));
   if (!m.deleted && !m.unreadable) li.append(actions(m, inThread));
   return li;
+}
+
+function sharedBlock(s) {
+  if (!s.available) return h("blockquote", { class: "t-shared" }, h("p", { class: "meta" }, "Shared from a conversation you can't see."));
+  const where = s.channelKind === "dm" || s.channelKind === "group" ? "a conversation" : `#${s.channelName}`;
+  return h("blockquote", { class: "t-shared" },
+    h("div", { class: "t-who" }, dot(s.sender), h("span", { class: "strong" }, personName(s.sender)), h("span", { class: "meta" }, ` in ${where} · ${when(s.createdAt)}`)),
+    format(s.text),
+    ...s.files.map((f) => h("a", { href: T(`/files/${f.id}`), class: "t-filecard", download: f.name }, `📎 ${f.name}`, h("span", { class: "meta" }, ` ${size(f.size)}`))),
+    h("button", { type: "button", class: "link meta", onclick: tryRun(() => jumpTo(s.id)) }, "View original"),
+  );
+}
+
+async function shareMessage(m) {
+  const targets = [...state.bar.channels.filter((c) => c.member && !c.archived), ...state.bar.direct];
+  if (!targets.length) return;
+  const r = await dialog("Share message", [
+    { name: "channelId", label: "Share to", type: "select", options: targets.map((c) => [c.id, chanLabel(c)]), value: state.channel?.id },
+    { name: "text", label: "Add a message (optional)", type: "textarea", rows: 3, max: 4000 },
+  ], "Share");
+  if (!r) return;
+  const out = await api(T(`/messages/${m.id}/share`), { method: "POST", body: { channelId: r.channelId, text: r.text } });
+  await openChannel(out.channelId);
 }
 
 function pollBlock(m) {
@@ -377,6 +401,7 @@ function actions(m, inThread) {
         const r = await dialog("Remind me", [{ name: "in", label: "When", type: "select", options: [["20", "In 20 minutes"], ["60", "In 1 hour"], ["180", "In 3 hours"], ["1440", "Tomorrow"], ["10080", "Next week"]] }]);
         if (r) { await api(T(`/messages/${m.id}/save`), { method: "PUT", body: { remindAt: new Date(Date.now() + Number(r.in) * 60_000).toISOString() } }); await afterChange(m); await loadSidebar(); }
       }],
+      m.kind !== "system" && ["Share message…", () => shareMessage(m)],
       ["Mark unread", async () => { await api(T(`/channels/${m.channelId}/read`), { method: "POST", body: { unreadFrom: m.id } }); await loadSidebar(); }],
       ["Copy link", async () => { await navigator.clipboard.writeText(`fabric:message/${m.id}`); }],
       mine && ["Edit message", () => { state.editing = m.id; inThread ? renderThread() : renderMessages(null, false); }],

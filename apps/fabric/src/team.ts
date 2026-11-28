@@ -653,6 +653,44 @@ export class TeamService {
     return this.channelView(me, this.channel(channelId), true);
   }
 
+  /**
+   * Activity in a channel over the last 7, 30 or 90 days: counts only, never message content.
+   * For workspace admins and the channel's creator, who must be members.
+   */
+  insights(me: FabricIdentity, channelId: string, daysInput: unknown = 30): ChannelInsights {
+    const { channel, ws } = this.readable(me, channelId);
+    if (channel.kind === "dm" || channel.kind === "group") throw fail(400, "conversations do not have insights");
+    if (!this.channelMember(channelId, me.sub)) throw fail(403, "join the channel first");
+    if (!isAdmin(ws.role) && channel.createdBy !== me.sub) throw fail(403, "only the channel creator or an admin can see insights");
+    const days = Number(daysInput);
+    if (days !== 7 && days !== 30 && days !== 90) throw fail(400, "days must be 7, 30 or 90");
+    const end = new Date(this.stamp());
+    const start = new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate() - (days - 1)));
+    const from = start.toISOString();
+    const where = "channel_id = ? AND kind = 'user' AND deleted_at IS NULL AND created_at >= ?";
+    const byDay = new Map(this.store.all<{ day: string; n: number }>(
+      `SELECT substr(created_at, 1, 10) AS day, COUNT(*) AS n FROM team_messages WHERE ${where} GROUP BY day`, channelId, from,
+    ).map((r) => [r.day, r.n]));
+    const perDay = Array.from({ length: days }, (_, i) => {
+      const date = new Date(start.getTime() + i * 86_400_000).toISOString().slice(0, 10);
+      return { date, messages: byDay.get(date) ?? 0 };
+    });
+    const posters = this.store.all<{ sender: string; n: number }>(
+      `SELECT sender, COUNT(*) AS n FROM team_messages WHERE ${where} AND app_id IS NULL GROUP BY sender ORDER BY n DESC, sender LIMIT 1000`, channelId, from,
+    );
+    return {
+      channelId, days, from, to: end.toISOString(),
+      messages: perDay.reduce((sum, d) => sum + d.messages, 0),
+      replies: this.store.count(`SELECT COUNT(*) FROM team_messages WHERE ${where} AND parent_id IS NOT NULL`, channelId, from),
+      fromApps: this.store.count(`SELECT COUNT(*) FROM team_messages WHERE ${where} AND app_id IS NOT NULL`, channelId, from),
+      activePeople: posters.length,
+      members: this.channelSubs(channelId).length,
+      joined: this.store.count("SELECT COUNT(*) FROM team_channel_members WHERE channel_id = ? AND joined_at >= ?", channelId, from),
+      perDay,
+      topPeople: posters.slice(0, 5).map((p) => ({ person: this.person(channel.workspaceId, p.sender), messages: p.n })),
+    };
+  }
+
   archiveChannel(me: FabricIdentity, channelId: string, archived: boolean): ChannelView {
     const { channel, ws } = this.readable(me, channelId);
     if (channel.kind === "dm" || channel.kind === "group") throw fail(400, "conversations cannot be archived");
@@ -2482,6 +2520,15 @@ export interface WorkspaceExport {
   }[];
 }
 export interface WebhookView { id: string; name: string; channel: ChannelView; createdBy: PersonView; createdAt: string; lastUsedAt: string | null }
+export interface ChannelInsights {
+  channelId: string; days: number; from: string; to: string;
+  /** Messages people sent, including thread replies; `replies` and `fromApps` are parts of it. */
+  messages: number; replies: number; fromApps: number;
+  /** People who sent at least one message; current members; members who joined in the period. */
+  activePeople: number; members: number; joined: number;
+  perDay: { date: string; messages: number }[];
+  topPeople: { person: PersonView; messages: number }[];
+}
 export interface DraftView { channel: ChannelView; text: string; updatedAt: string }
 interface DraftRow { sub: string; channelId: string; ciphertext: string; updatedAt: string }
 export interface ScheduledView { id: string; channel: ChannelView; parentId: string | null; sendAt: string; createdAt: string; text: string }

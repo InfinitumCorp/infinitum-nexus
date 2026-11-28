@@ -134,6 +134,7 @@ export function teamRoutes(): Route[] {
     r("POST", `/workspaces/${ID}/reminders`, ({ team, me, params, body }) => team.remind(me, params[0]!, body.text, body.at), { status: 201 }),
 
     r("GET", `/channels/${ID}`, ({ team, me, params }) => team.getChannel(me, params[0]!)),
+    r("GET", `/channels/${ID}/insights`, ({ team, me, params, query }) => team.insights(me, params[0]!, query.get("days") ?? 30)),
     r("PATCH", `/channels/${ID}`, ({ team, me, params, body }) => team.updateChannel(me, params[0]!, body)),
     r("POST", `/channels/${ID}/archive`, ({ team, me, params, body }) => team.archiveChannel(me, params[0]!, body.archived !== false)),
     r("POST", `/channels/${ID}/join`, ({ team, me, params }) => team.joinChannel(me, params[0]!)),

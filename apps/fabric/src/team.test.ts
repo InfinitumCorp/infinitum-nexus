@@ -873,3 +873,52 @@ test("converting a public channel to private: admins only, one way, hides it fro
     t.close();
   }
 });
+
+test("channel insights: counts only, by period, for the creator and admins", () => {
+  const t = setup();
+  try {
+    const DAY = 86_400_000;
+    const ws = t.team.createWorkspace(t.alice, "Acme");
+    t.team.joinWorkspace(t.bob, ws.inviteCode);
+    t.team.joinWorkspace(t.cara, ws.inviteCode);
+    const eng = t.team.createChannel(t.bob, ws.id, { name: "eng" });
+    t.team.joinChannel(t.alice, eng.id);
+    t.team.joinChannel(t.cara, eng.id);
+
+    // 12 Nov: three messages, one a reply. 22 Nov: one, plus one deleted. 17 Dec: one.
+    const a = t.team.send(t.bob, eng.id, { text: "a" }).message!;
+    t.team.send(t.bob, eng.id, { text: "b" });
+    t.team.send(t.cara, eng.id, { text: "re", parentId: a.id });
+    t.advance(10 * DAY);
+    t.team.send(t.bob, eng.id, { text: "c" });
+    t.team.remove(t.cara, t.team.send(t.cara, eng.id, { text: "oops" }).message!.id);
+    t.advance(25 * DAY);
+    t.team.send(t.cara, eng.id, { text: "e" });
+
+    const month = t.team.insights(t.bob, eng.id, 30);
+    assert.equal(month.perDay.length, 30);
+    assert.equal(month.perDay[0]!.date, "2026-11-18");
+    assert.deepEqual(month.perDay.at(-1), { date: "2026-12-17", messages: 1 });
+    assert.equal(month.messages, 2, "the deleted message and older ones don't count");
+    assert.equal(month.activePeople, 2);
+    assert.equal(month.joined, 0);
+    assert.equal(month.members, 3);
+
+    const quarter = t.team.insights(t.alice, eng.id, "90");
+    assert.equal(quarter.messages, 5, "system messages don't count");
+    assert.equal(quarter.replies, 1);
+    assert.equal(quarter.fromApps, 0);
+    assert.equal(quarter.joined, 3);
+    assert.deepEqual(quarter.topPeople.map((p) => [p.person.username, p.messages]), [["bob", 3], ["cara", 2]]);
+    assert.ok(!JSON.stringify(quarter).includes("oops"), "no message content");
+    assert.equal(t.team.insights(t.bob, eng.id, 7).messages, 1);
+
+    assert.throws(() => t.team.insights(t.cara, eng.id, 30), status(403), "members who aren't the creator or an admin");
+    assert.throws(() => t.team.insights(t.bob, eng.id, 14), status(400));
+    assert.throws(() => t.team.insights(t.dan, eng.id, 30), status(404));
+    const dm = t.team.openConversation(t.alice, ws.id, ["bob"]);
+    assert.throws(() => t.team.insights(t.alice, dm.id, 30), status(400));
+  } finally {
+    t.close();
+  }
+});

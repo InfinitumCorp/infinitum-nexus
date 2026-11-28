@@ -277,6 +277,30 @@ types:
       DocumentRemoveRequest:
         fields:
           tenant: TenantId
+      DocumentBatchItem:
+        docs: One document of a batch; the fields of DocumentUpsert plus its documentId.
+        fields:
+          documentId: string
+          tenant: TenantId
+          title: string
+          body: string
+          url: optional<string>
+          labels: optional<list<string>>
+          ownerCid: optional<Cid>
+          viewers: optional<list<Cid>>
+          updatedAt: datetime
+      DocumentBatch:
+        fields:
+          documents:
+            type: list<DocumentBatchItem>
+            docs: 1 to 100 documents, each documentId once. All are validated before any is stored.
+      DocumentBatchResponse:
+        fields:
+          collection: string
+          stored: integer
+          created:
+            type: integer
+            docs: How many of the stored documents were new.
       DocumentRemoveResponse:
         fields:
           deleted:
@@ -534,6 +558,18 @@ services:
             type: DocumentUpsert
             param-type: body
         returns: DocumentRef
+      putDocuments:
+        http: POST /collections/{collection}/batch
+        docs: >-
+          Insert or replace up to 100 documents of one collection in one call. A bad document
+          rejects the batch (InvalidArgument names its position); nothing is stored then.
+          503 StorageQuotaReached when the data store is full.
+        args:
+          collection: string
+          batch:
+            type: DocumentBatch
+            param-type: body
+        returns: DocumentBatchResponse
       removeDocument:
         http: POST /collections/{collection}/documents/{documentId}/remove
         args:

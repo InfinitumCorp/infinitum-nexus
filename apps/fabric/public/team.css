@@ -152,3 +152,16 @@
 .t-tile-name { position: absolute; left: 6px; bottom: 4px; right: 6px; font-size: 12px; text-shadow: 0 1px 2px #000; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .t-huddle-leave { border-color: #b42318; color: #b42318; }
 @media (max-width: 900px) { .t-huddle { left: 16px; right: 16px; width: auto; } }
+
+/* Task lists */
+.t-task-add { display: flex; gap: 6px; margin-bottom: 10px; }
+.t-task-add .input { flex: 1; }
+.t-tasks { list-style: none; margin: 0; padding: 0; }
+.t-task { display: flex; align-items: flex-start; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.t-task input[type="checkbox"] { margin-top: 3px; }
+.t-task-body { flex: 1; min-width: 0; }
+.t-task-body .t-row { margin: 2px 0 0; gap: 8px; }
+.t-task-notes { margin: 2px 0 0; white-space: pre-wrap; }
+.t-task.done .t-task-title { text-decoration: line-through; color: var(--muted); }
+.t-due.soon { color: var(--accent); }
+.t-due.late { color: #b42318; font-weight: 600; }

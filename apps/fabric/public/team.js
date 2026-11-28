@@ -318,6 +318,7 @@ function channelMenu(anchor) {
     c.member && ["Move to section…", () => moveToSection(c)],
     c.member && ["Notifications…", () => editNotifications(c)],
     named && c.member && (["owner", "admin"].includes(state.bar.workspace.role) || c.createdBy === state.me.sub) && ["Posting permissions…", () => editPosting(c)],
+    named && c.member && (["owner", "admin"].includes(state.bar.workspace.role) || c.createdBy === state.me.sub) && ["Insights", () => showInsights(c, 30)],
     c.kind === "public" && c.member && !c.isDefault && !c.archived && ["owner", "admin"].includes(state.bar.workspace.role) && ["Make private…", () => makePrivate(c)],
     c.member && ["Mark as read", async () => { await api(T(`/channels/${c.id}/read`), { method: "POST", body: {} }); await loadSidebar(); }],
     named && !c.archived && ["Archive channel", async () => { if (confirm(`Archive #${c.name}? People can still read it.`)) { await api(T(`/channels/${c.id}/archive`), { method: "POST", body: { archived: true } }); await refreshChannel(); await loadSidebar(); } }],
@@ -335,6 +336,35 @@ async function makePrivate(c) {
   await api(T(`/channels/${c.id}`), { method: "PATCH", body: { private: true } });
   await refreshChannel();
   await loadSidebar();
+}
+
+// Channel insights: activity counts for the channel's creator and workspace admins. No message content.
+async function showInsights(c, days) {
+  const s = await api(T(`/channels/${c.id}/insights?days=${days}`));
+  const max = Math.max(1, ...s.perDay.map((d) => d.messages));
+  const day = (iso) => new Date(`${iso}T12:00:00Z`).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  const stat = (n, label) => h("div", { class: "t-stat" }, h("strong", {}, String(n)), h("span", { class: "meta" }, label));
+  panel(`Insights · ${chanLabel(c)}`,
+    h("div", { class: "t-row", role: "group", "aria-label": "Period" }, ...[7, 30, 90].map((d) =>
+      h("button", { type: "button", class: `btn small${d === days ? " primary" : ""}`, "aria-pressed": String(d === days), onclick: tryRun(() => showInsights(c, d)) }, `${d} days`))),
+    h("div", { class: "t-stats" },
+      stat(s.messages, s.messages === 1 ? "message" : "messages"),
+      stat(s.activePeople, s.activePeople === 1 ? "person posted" : "people posted"),
+      stat(s.members, s.members === 1 ? "member" : "members"),
+      stat(s.joined, "joined")),
+    h("p", { class: "meta" }, `${s.replies} ${s.replies === 1 ? "was a thread reply" : "were thread replies"}${s.fromApps ? `, ${s.fromApps} from apps` : ""}.`),
+    h("div", { class: "t-bars", role: "img", "aria-label": `Messages per day, ${day(s.perDay[0].date)} to ${day(s.perDay.at(-1).date)}. Busiest day: ${max} messages.` },
+      ...s.perDay.map((d) => {
+        // Set through the DOM, not a style attribute, which the page's CSP blocks.
+        const bar = h("span", { class: "t-bar", title: `${day(d.date)}: ${d.messages}` });
+        bar.style.height = `${Math.round((d.messages / max) * 100)}%`;
+        return bar;
+      })),
+    h("p", { class: "t-row meta t-bars-axis" }, h("span", {}, day(s.perDay[0].date)), h("span", {}, day(s.perDay.at(-1).date))),
+    h("h3", {}, "Most active"),
+    s.topPeople.length ? h("ol", { class: "t-top" }, ...s.topPeople.map((p) => h("li", {}, h("span", {}, p.person.displayName), h("span", { class: "meta" }, String(p.messages)))))
+      : h("p", { class: "meta" }, "Nobody has posted in this period."),
+    h("p", { class: "meta" }, "Counts only. Deleted and system messages are left out. Only you can see this."));
 }
 
 async function editPosting(c) {

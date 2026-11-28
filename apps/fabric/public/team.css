@@ -181,6 +181,16 @@
 .t-section-toggle { font: inherit; color: inherit; text-transform: inherit; letter-spacing: inherit; }
 .t-section-empty { padding: 2px 16px 6px; margin: 0; }
 
+/* Channel insights */
+.t-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 12px 0 4px; }
+.t-stat { display: flex; flex-direction: column; padding: 8px; border: 1px solid var(--line); border-radius: 8px; }
+.t-stat strong { font-size: 20px; }
+.t-bars { display: flex; align-items: flex-end; gap: 2px; height: 96px; margin-top: 12px; border-bottom: 1px solid var(--line); }
+.t-bar { flex: 1; min-height: 1px; background: var(--accent); border-radius: 2px 2px 0 0; }
+.t-bars-axis { justify-content: space-between; margin-top: 2px; }
+.t-top { margin: 0; padding-left: 20px; }
+.t-top li { display: flex; justify-content: space-between; gap: 8px; padding: 3px 0; }
+
 /* Drafts */
 .t-draft-text { margin: 4px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 

@@ -112,8 +112,12 @@ reliably there. Enable pg_cron (step 7) before you use it.
 6. **Optional: connect dashboards.** Create the read-only role:
    `create role data_platform_reader login noinherit password '<generated>';`
 
-   Re-run the migration, then add the database in Superset (Settings > Database Connections)
-   with that role's pooler URL. Build charts on `data_platform.events_bi`. That role:
+   Re-run the migration, then import the dashboards as code
+   ([superset/dashboards](../../infra/data-platform/superset/dashboards/README.md)): build the
+   bundle with `CUMULUS_BI_DATABASE_URI` set to the role's pooler URL **without** the password,
+   import it, and set the password once in Superset (Settings > Database Connections). That gives
+   the Product activity (embeddable) and Data quality dashboards. To embed Product activity in a
+   product, enable embedding on it and put the embedded ID in `PLATFORM_EMBED_DASHBOARDS`. That role:
    - can't read the pseudonym, the text or the payload;
    - can't read the privacy budget;
    - can't write anything.

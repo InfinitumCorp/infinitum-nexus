@@ -39,31 +39,39 @@ export function actionToScore(action: ExecutionAction): Score {
   };
 }
 
-export async function executeAction(action: ExecutionAction, crm?: SpectreCRM, actor = "cid:spectre") {
+/** Where a performed action is recorded: always the caller's own workspace. */
+export interface ExecutionTarget {
+  crm: SpectreCRM;
+  workspace: string;
+  actor?: string;
+}
+
+const NOTE_PREFIX = "[auto] ";
+const DAY = 86_400_000;
+
+export async function executeAction(action: ExecutionAction, target?: ExecutionTarget) {
   const score = actionToScore(action);
   const granted = new Set(["spectre:write"]);
   const performance = await perform(score, granted);
+  let logged = false;
 
-  // Optionally record a note on the deal
-  if (crm && performance.verified) {
-    try {
-      await crm.logActivity(action.dealId.split("_")[0] ? "demo" : "demo", actor, {
-        kind: "note",
-        summary: `[auto] ${action.description}`,
-        dealId: action.dealId,
-      });
-    } catch {
-      // ignore if workspace/deal lookup fails in scaffold
+  if (target && performance.verified) {
+    const summary = NOTE_PREFIX + action.description;
+    const now = target.crm.now().getTime();
+    // Running the actions again the same day doesn't repeat a note already on the deal.
+    const repeat = target.crm.list("activities", target.workspace).some((a) =>
+      a.dealId === action.dealId && a.summary === summary && now - Date.parse(a.at) < DAY);
+    if (!repeat) {
+      await target.crm.logActivity(target.workspace, target.actor ?? "cid:spectre", { kind: "note", summary, dealId: action.dealId });
+      logged = true;
     }
   }
 
-  return { score, performance };
+  return { action, score, performance, logged };
 }
 
-export async function executeAll(actions: ExecutionAction[], crm?: SpectreCRM) {
+export async function executeAll(actions: ExecutionAction[], target?: ExecutionTarget) {
   const results = [];
-  for (const a of actions) {
-    results.push(await executeAction(a, crm));
-  }
+  for (const a of actions) results.push(await executeAction(a, target));
   return results;
 }

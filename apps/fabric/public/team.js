@@ -43,7 +43,7 @@ const tryRun = (fn) => async (...args) => { try { await fn(...args); } catch (e)
 const URL_RE = /https?:\/\/[^\s<>"')\]]+/g;
 function inline(text, mentions) {
   const out = [];
-  const re = /(`[^`\n]+`)|(\*[^*\n]+\*)|(_[^_\n]+_)|(~[^~\n]+~)|(https?:\/\/[^\s<>"')\]]+)|(@[a-z0-9._-]+)|(#[a-z0-9_-]+)|(fabric:message\/[0-9a-f-]{36})/gi;
+  const re = /(`[^`\n]+`)|(\*[^*\n]+\*)|(_[^_\n]+_)|(~[^~\n]+~)|(https?:\/\/[^\s<>"')\]]+)|(@[a-z0-9._-]+)|(#[a-z0-9_-]+)|(fabric:message\/[0-9a-f-]{36})|(:[a-z0-9_+-]{1,40}:)/gi;
   let last = 0;
   for (const m of text.matchAll(re)) {
     if (m.index > last) out.push(text.slice(last, m.index));
@@ -59,6 +59,7 @@ function inline(text, mentions) {
       out.push(h("span", { class: `mention${me ? " me" : ""}` }, t));
     } else if (m[7]) out.push(h("a", { href: "#", class: "chan", onclick: (e) => { e.preventDefault(); openChannelByName(t.slice(1)); } }, t));
     else if (m[8]) out.push(h("a", { href: "#", onclick: (e) => { e.preventDefault(); jumpTo(t.split("/")[1]); } }, "view message"));
+    else if (m[9]) out.push(emojiNode(t));
     last = m.index + t.length;
   }
   if (last < text.length) out.push(text.slice(last));
@@ -85,6 +86,13 @@ function format(text) {
     }
   });
   return frag;
+}
+
+/** A :name: custom emoji as an image, or the text itself if the workspace has no such emoji. */
+function emojiNode(code) {
+  const name = code.slice(1, -1).toLowerCase();
+  if (!state.emoji?.has(name)) return code;
+  return h("img", { class: "t-emoji", src: T(`/workspaces/${state.wsId}/emoji/${name}`), alt: code, title: code, loading: "lazy" });
 }
 
 const time = (iso) => new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
@@ -137,7 +145,8 @@ function menu(anchor, items) {
 }
 
 function emojiPicker(anchor, onPick) {
-  menu(anchor, [...EMOJI.map((e) => [e, () => onPick(e)]), ["Other…", async () => {
+  const custom = [...(state.emoji || [])].slice(0, 24).map((name) => [emojiNode(`:${name}:`), () => onPick(`:${name}:`)]);
+  menu(anchor, [...EMOJI.map((e) => [e, () => onPick(e)]), ...custom, ["Other…", async () => {
     const r = await dialog("React with", [{ name: "emoji", label: "Emoji or :short_code:", max: 42, required: true }]);
     if (r?.emoji) await onPick(r.emoji);
   }]]);
@@ -149,6 +158,7 @@ function emojiPicker(anchor, onPick) {
 async function loadSidebar() {
   state.bar = await api(T(`/workspaces/${state.wsId}`));
   const bar = state.bar;
+  state.emoji = new Set(bar.emoji || []);
   $("#me-button").hidden = false;
   $("#me-button").textContent = `${bar.me.statusEmoji ? `${bar.me.statusEmoji} ` : ""}${bar.me.displayName}${bar.me.dnd ? " · DND" : bar.me.presence === "away" ? " · away" : ""}`;
   $("#count-saved").textContent = bar.saved || "";
@@ -325,7 +335,7 @@ function messageItem(m, { compact = false, focus = false, inThread = false } = {
   if (m.reactions.length) li.append(h("div", { class: "t-reactions" }, ...m.reactions.map((r) => h("button", {
     type: "button", class: r.mine ? "mine" : "", "aria-pressed": String(r.mine), title: r.subs.length > 0 ? `${r.count} reacted` : "",
     onclick: tryRun(async () => { await api(T(`/messages/${m.id}/reactions`), { method: "POST", body: { emoji: r.emoji } }); await afterChange(m); }),
-  }, `${r.emoji} ${r.count}`)), h("button", { type: "button", class: "add", "aria-label": "Add reaction", onclick: (e) => emojiPicker(e.currentTarget, async (emoji) => { await api(T(`/messages/${m.id}/reactions`), { method: "POST", body: { emoji, on: true } }); await afterChange(m); }) }, "+")));
+  }, emojiNode(r.emoji), ` ${r.count}`)), h("button", { type: "button", class: "add", "aria-label": "Add reaction", onclick: (e) => emojiPicker(e.currentTarget, async (emoji) => { await api(T(`/messages/${m.id}/reactions`), { method: "POST", body: { emoji, on: true } }); await afterChange(m); }) }, "+")));
   if (m.replyCount && !inThread) li.append(h("button", { type: "button", class: "t-replies link", onclick: tryRun(() => openThread(m.id)) }, `${m.replyCount} ${m.replyCount === 1 ? "reply" : "replies"}`, h("span", { class: "meta" }, ` · last ${when(m.lastReplyAt)}`)));
   if (!m.deleted && !m.unreadable) li.append(actions(m, inThread));
   return li;
@@ -814,6 +824,7 @@ function connect() {
       return;
     }
     if (ev.type === "read" || ev.type === "presence" || ev.type === "members") { soon(loadSidebar); return; }
+    if (ev.type === "emoji") { soon(async () => { await loadSidebar(); if (state.channel) renderMessages(null, false); }); return; }
     if (ev.type === "message" && ev.sub !== state.me.sub) { notify(ev); state.typing.delete(ev.username); }
     if (ev.type === "message" && ev.mentioned?.includes(state.me.sub)) $("#badge-activity").hidden = false;
     soon(async () => {
@@ -1105,9 +1116,49 @@ $("#ws-menu").addEventListener("click", (e) => {
     w.inviteCode && ["Invite people", async () => { await dialog(`Invite people to ${w.name}`, [{ note: "Share this invite code. People sign in with Cumulus ID, then choose Join." }, { name: "code", label: "Invite code", value: w.inviteCode }], "Done"); }],
     admin && ["Rename workspace", async () => { const r = await dialog("Rename workspace", [{ name: "name", label: "Name", value: w.name, max: 60 }]); if (r) { await api(T(`/workspaces/${w.id}`), { method: "PATCH", body: r }); await loadWorkspaces(); } }],
     admin && ["Reset invite code", async () => { if (confirm("Old invite codes will stop working.")) { await api(T(`/workspaces/${w.id}`), { method: "PATCH", body: { rotateInvite: true } }); await loadSidebar(); } }],
+    ["Custom emoji", () => showEmoji()],
     ["Turn on desktop notifications", async () => { if ("Notification" in window) await Notification.requestPermission(); }],
   ]);
 });
+
+async function showEmoji() {
+  const { emoji } = await api(T(`/workspaces/${state.wsId}/emoji`));
+  const w = state.bar.workspace;
+  const admin = ["owner", "admin"].includes(w.role);
+  const file = h("input", { type: "file", accept: "image/png,image/gif,image/webp,image/jpeg", class: "input" });
+  const name = h("input", { class: "input", maxlength: 42, placeholder: "party-parrot" });
+  file.addEventListener("change", () => { if (!name.value && file.files[0]) name.value = file.files[0].name.replace(/\.[^.]+$/, "").toLowerCase().replace(/[^a-z0-9_+-]+/g, "-").slice(0, 40); });
+  const add = tryRun(async (e) => {
+    e.preventDefault();
+    const f = file.files[0];
+    if (!f) throw new Error("Choose an image");
+    if (f.size > 128_000) throw new Error("Emoji images can be up to 128 KB");
+    const data = await new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(String(r.result).split(",")[1] || "");
+      r.onerror = () => reject(new Error("could not read the image"));
+      r.readAsDataURL(f);
+    });
+    await api(T(`/workspaces/${state.wsId}/emoji`), { method: "POST", body: { name: name.value, data } });
+    await loadSidebar();
+    await showEmoji();
+  });
+  panel("Custom emoji",
+    w.role !== "guest" ? h("form", { class: "t-emoji-form", onsubmit: add },
+      h("label", { class: "field" }, h("span", {}, "Image (PNG, GIF, WebP or JPEG, up to 128 KB)"), file),
+      h("label", { class: "field" }, h("span", {}, "Name, used as :name:"), name),
+      h("button", { type: "submit", class: "btn primary small" }, "Add emoji")) : null,
+    emoji.length ? h("ul", { class: "t-emoji-list" }, ...emoji.map((e) => h("li", {},
+      emojiNode(`:${e.name}:`), h("span", { class: "strong" }, ` :${e.name}: `), h("span", { class: "meta" }, `added by ${e.createdBy.displayName}`),
+      e.createdBy.sub === state.me.sub || admin ? h("button", { type: "button", class: "link", onclick: tryRun(async () => {
+        if (!confirm(`Remove :${e.name}:? Messages that use it will show the text instead.`)) return;
+        await api(T(`/workspaces/${state.wsId}/emoji/${e.name}`), { method: "DELETE" });
+        await loadSidebar();
+        await showEmoji();
+      }) }, " Remove") : null)))
+      : h("p", { class: "meta" }, "No custom emoji yet."),
+  );
+}
 
 $("#me-button").addEventListener("click", (e) => {
   const me = state.bar.me;

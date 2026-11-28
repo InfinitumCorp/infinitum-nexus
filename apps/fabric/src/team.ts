@@ -41,6 +41,9 @@ export const TEAM_LIMITS = {
   searchScan: 5000,
   activeWindowMs: 5 * 60_000,
   pollOptions: 10,
+  /** Custom emoji: image size and how many one workspace can have. */
+  emojiBytes: 128_000,
+  emojiPerWorkspace: 500,
   /** People in one huddle. Media flows peer to peer (a full mesh), so this stays small. */
   huddlePeople: 8,
   /** How long a person may be disconnected before they are taken out of a huddle. */
@@ -358,7 +361,7 @@ export class TeamService {
   // ---------- channels ----------
 
   /** Channels and conversations the caller belongs to, with unread and mention counts. */
-  sidebar(me: FabricIdentity, workspaceId: string): { workspace: WorkspaceView; me: PersonView; channels: ChannelView[]; direct: ChannelView[]; scheduled: number; reminders: number; saved: number } {
+  sidebar(me: FabricIdentity, workspaceId: string): { workspace: WorkspaceView; me: PersonView; channels: ChannelView[]; direct: ChannelView[]; scheduled: number; reminders: number; saved: number; emoji: string[] } {
     this.member(me, workspaceId);
     this.seen(me.sub);
     const rows = this.store.all<ChannelRow>(
@@ -374,6 +377,7 @@ export class TeamService {
       scheduled: this.store.count("SELECT COUNT(*) FROM team_scheduled s JOIN team_channels c ON c.id = s.channel_id WHERE s.sender = ? AND c.workspace_id = ?", me.sub, workspaceId),
       reminders: this.store.count("SELECT COUNT(*) FROM team_reminders WHERE sub = ? AND workspace_id = ? AND done = 0", me.sub, workspaceId),
       saved: this.store.count("SELECT COUNT(*) FROM team_saved s JOIN team_messages m ON m.id = s.message_id JOIN team_channels c ON c.id = m.channel_id WHERE s.sub = ? AND s.done = 0 AND c.workspace_id = ?", me.sub, workspaceId),
+      emoji: this.store.all<{ name: string }>("SELECT name FROM team_emoji WHERE workspace_id = ? ORDER BY name", workspaceId).map((e) => e.name),
     };
   }
 
@@ -1299,6 +1303,57 @@ export class TeamService {
     };
   }
 
+  // ---------- custom emoji ----------
+  //
+  // Workspace emoji are small images used as :name: in messages and reactions. Only raster images
+  // (PNG, GIF, WebP, JPEG) are accepted, checked by their first bytes, so an emoji can never carry script.
+
+  emojis(me: FabricIdentity, workspaceId: string): EmojiView[] {
+    this.member(me, workspaceId);
+    return this.store.all<{ name: string; size: number; createdBy: string; createdAt: string }>(
+      "SELECT name, size, created_by, created_at FROM team_emoji WHERE workspace_id = ? ORDER BY name", workspaceId,
+    ).map((e) => ({ name: e.name, size: e.size, createdAt: e.createdAt, createdBy: this.person(workspaceId, e.createdBy) }));
+  }
+
+  addEmoji(me: FabricIdentity, workspaceId: string, input: { name?: unknown; data?: unknown }): EmojiView {
+    const mine = this.member(me, workspaceId);
+    if (mine.role === "guest") throw fail(403, "guests cannot add emoji");
+    const name = typeof input.name === "string" ? input.name.trim().toLowerCase().replace(/^:|:$/g, "") : "";
+    if (!EMOJI_NAME.test(name)) throw fail(400, "emoji names use 1 to 40 lowercase letters, numbers, _ + or -");
+    if (typeof input.data !== "string" || !/^[A-Za-z0-9+/]*={0,2}$/.test(input.data)) throw fail(400, "data must be base64");
+    const bytes = Buffer.from(input.data, "base64");
+    if (bytes.length === 0) throw fail(400, "the image is empty");
+    if (bytes.length > TEAM_LIMITS.emojiBytes) throw fail(413, "emoji images can be up to 128 KB");
+    const mime = imageType(bytes);
+    if (!mime) throw fail(400, "emoji must be a PNG, GIF, WebP or JPEG image");
+    if (this.store.one("SELECT name FROM team_emoji WHERE workspace_id = ? AND name = ?", workspaceId, name)) throw fail(409, `:${name}: already exists`);
+    if (this.store.count("SELECT COUNT(*) FROM team_emoji WHERE workspace_id = ?", workspaceId) >= TEAM_LIMITS.emojiPerWorkspace) throw fail(400, `a workspace can have up to ${TEAM_LIMITS.emojiPerWorkspace} custom emoji`);
+    const createdAt = this.stamp();
+    this.store.insert("team_emoji", {
+      workspaceId, name, mime, size: bytes.length, createdBy: me.sub, createdAt,
+      ciphertext: seal(bytes.toString("base64"), this.masterKey, emojiAad(workspaceId, name)),
+    });
+    this.publish(this.workspaceSubs(workspaceId), { type: "emoji", workspaceId, name, action: "added" });
+    return { name, size: bytes.length, createdAt, createdBy: this.person(workspaceId, me.sub) };
+  }
+
+  /** The person who added an emoji, or an owner or admin, can remove it. Reactions using it stay as text. */
+  removeEmoji(me: FabricIdentity, workspaceId: string, name: string): void {
+    const mine = this.member(me, workspaceId);
+    const row = this.store.one<{ createdBy: string }>("SELECT created_by FROM team_emoji WHERE workspace_id = ? AND name = ?", workspaceId, name);
+    if (!row) throw fail(404, "not found");
+    if (row.createdBy !== me.sub && !isAdmin(mine.role)) throw fail(403, "only the person who added it, or an owner or admin, can remove it");
+    this.store.run("DELETE FROM team_emoji WHERE workspace_id = ? AND name = ?", workspaceId, name);
+    this.publish(this.workspaceSubs(workspaceId), { type: "emoji", workspaceId, name, action: "removed" });
+  }
+
+  emojiImage(me: FabricIdentity, workspaceId: string, name: string): { mime: string; data: Buffer } {
+    this.member(me, workspaceId);
+    const row = this.store.one<{ mime: string; ciphertext: string }>("SELECT mime, ciphertext FROM team_emoji WHERE workspace_id = ? AND name = ?", workspaceId, name);
+    if (!row) throw fail(404, "not found");
+    return { mime: row.mime, data: Buffer.from(open(row.ciphertext, this.masterKey, emojiAad(workspaceId, name)), "base64") };
+  }
+
   // ---------- polls ----------
 
   /** Post a poll. The question is the message text, so it is searchable and notifies like any message. */
@@ -1933,6 +1988,19 @@ export function parseIceServers(text: string | undefined): IceServer[] {
 }
 
 function pollAad(channelId: string, id: string): string { return `fabric-team-poll:${channelId}:${id}`; }
+function emojiAad(workspaceId: string, name: string): string { return `fabric-team-emoji:${workspaceId}:${name}`; }
+
+export interface EmojiView { name: string; size: number; createdAt: string; createdBy: PersonView }
+export const EMOJI_NAME = /^[a-z0-9_+-]{1,40}$/;
+
+/** The image type from a file's first bytes, or null if it is not a PNG, GIF, WebP or JPEG. */
+export function imageType(b: Buffer): string | null {
+  if (b.length >= 8 && b.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return "image/png";
+  if (b.length >= 6 && (b.subarray(0, 6).toString("latin1") === "GIF87a" || b.subarray(0, 6).toString("latin1") === "GIF89a")) return "image/gif";
+  if (b.length >= 12 && b.subarray(0, 4).toString("latin1") === "RIFF" && b.subarray(8, 12).toString("latin1") === "WEBP") return "image/webp";
+  if (b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return "image/jpeg";
+  return null;
+}
 
 /** "10m", "2 hours", "1d" → milliseconds. */
 export function duration(text: string): number | null {

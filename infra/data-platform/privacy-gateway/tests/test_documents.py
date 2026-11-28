@@ -238,3 +238,71 @@ def test_full_store_over_http_is_a_503_with_retry_after(redactor, tmp_path):
         assert json.loads(e.value.read())["errorName"] == "DataPlatform:StorageQuotaReached"
     finally:
         httpd.shutdown()
+
+
+def item(document_id, **over):
+    return {"documentId": document_id, **doc(**over)}
+
+
+def test_batch_put_is_all_or_nothing(docs):
+    out = docs.put_many("spectre", "help", {"documents": [item("a1"), item("a2", title="Renewal FAQ")]})
+    assert out == {"collection": "help", "stored": 2, "created": 2}
+    assert set(out) == set(OBJECTS["DocumentBatchResponse"]["fields"])
+    assert set(OBJECTS["DocumentBatchItem"]["fields"]) == {"documentId", *OBJECTS["DocumentUpsert"]["fields"]}
+    out = docs.put_many("spectre", "help", {"documents": [item("a1", title="Renewal v2"), item("a3")]})
+    assert out == {"collection": "help", "stored": 2, "created": 1}
+    assert {h["documentId"] for h in docs.search("spectre", q())["hits"]} == {"a1", "a2", "a3"}
+
+    before = dict(docs.store.docs)
+    with pytest.raises(PlatformError) as e:
+        docs.put_many("spectre", "help", {"documents": [item("b1"), item("b2", tenant="BAD")]})
+    assert e.value.name == "InvalidArgument" and e.value.message.startswith("documents[1]: tenant")
+    assert docs.store.docs == before  # nothing written
+
+
+def test_batch_put_redacts_like_single_puts(docs):
+    docs.put_many("spectre", "notes", {"documents": [item("p1", body="Signed after a call with Jane Doe, jane@example.com. Next step: the renewal.")]})
+    stored = docs.store.docs[("spectre", "notes", "acme", "p1")]
+    assert "jane@example.com" not in stored["body"] and "Jane Doe" not in stored["body"]
+
+
+@pytest.mark.parametrize("body, message", [
+    ({}, "documents must be"),
+    ({"documents": []}, "documents must be"),
+    ({"documents": [item(f"d{i}") for i in range(101)]}, "documents must be"),
+    ({"documents": [item("d1"), item("d1")]}, "once per batch"),
+    ({"documents": [{"title": "x"}]}, "documents[0]: documentId"),
+    ({"documents": [item("../x")]}, "documents[0]: documentId"),
+])
+def test_batch_validation(docs, body, message):
+    with pytest.raises(PlatformError) as e:
+        docs.put_many("spectre", "help", body)
+    assert message in e.value.message
+
+
+def test_batch_put_respects_scope_and_the_storage_guard(redactor):
+    docs = Documents(redactor, MemoryDocumentStore(), _Limits("full"))
+    with pytest.raises(PlatformError) as e:
+        docs.put_many("spectre", "help", {"documents": [item("a1")]})
+    assert e.value.name == "StorageQuotaReached" and not docs.store.docs
+    with pytest.raises(PlatformError) as e:
+        docs.put_many("aether", "help", {"documents": [item("a1")]})
+    assert e.value.name == "TenantNotAuthorized"
+    with pytest.raises(PlatformError):
+        docs.put_many("spectre", "Bad Collection", {"documents": [item("a1")]})
+
+
+def test_batch_over_http(docs, redactor, tmp_path):
+    spectre = "s" * 40
+    gw = Gateway(redactor, PrivacyBudget(tmp_path / "b.json", 1), "g" * 40, None, None, None,
+                 parse_product_tokens(f"spectre={spectre}"), documents=docs)
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(gw))
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    url = f"http://127.0.0.1:{httpd.server_address[1]}/api/v1/documents/collections/help/batch"
+    r = urllib.request.Request(url, method="POST", data=json.dumps({"documents": [item("h1"), item("h2")]}).encode(),
+                               headers={"Authorization": f"Bearer {spectre}", "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(r) as resp:
+            assert json.loads(resp.read()) == {"collection": "help", "stored": 2, "created": 2}
+    finally:
+        httpd.shutdown()

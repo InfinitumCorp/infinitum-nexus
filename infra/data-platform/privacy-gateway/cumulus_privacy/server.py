@@ -133,6 +133,7 @@ class Gateway:
             Route("POST", "/api/v1/documents/collections/{collection}/documents/{documentId}/remove",
                   self.remove_document, "product"),
             Route("POST", "/api/v1/documents/search", self.search_documents, "product"),
+            Route("POST", "/api/v1/documents/collections/{collection}/batch", self.put_documents, "product"),
             Route("GET", "/api/v1/releases/datasets/{name}/budget", self.release_budget, "product"),
             Route("POST", "/api/v1/embed/dashboards/{dashboardId}/guest-token", self.guest_token, "product"),
         ]
@@ -177,6 +178,9 @@ class Gateway:
 
     def remove_document(self, b: dict[str, Any], caller: str = "", collection: str = "", documentId: str = "") -> Any:  # noqa: N803
         return self._platform(self.documents).remove(caller, collection, documentId, b)
+
+    def put_documents(self, b: dict[str, Any], caller: str = "", collection: str = "") -> Any:
+        return self._platform(self.documents).put_many(caller, collection, b)
 
     def search_documents(self, b: dict[str, Any], caller: str = "", **_: str) -> Any:
         return self._platform(self.documents).search(caller, b)

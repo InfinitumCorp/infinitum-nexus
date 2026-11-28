@@ -37,6 +37,7 @@ MAX_BODY = 200_000
 MAX_LABELS = 20
 MAX_VIEWERS = 500
 MAX_PAGE = 50
+MAX_BATCH = 100
 SNIPPET_WORDS = 30
 
 
@@ -105,12 +106,42 @@ class Documents:
         if not DOCUMENT_ID.match(document_id):
             raise _bad("documentId must be letters, digits, '.', '_', ':' or '-' (at most 128)")
 
-    def put(self, caller: str, collection: str, document_id: str, b: Mapping[str, Any]) -> dict[str, Any]:
-        self._key(caller, collection, document_id)
+    def _guard(self) -> None:
         if self.limits is not None and self.limits.storage_state() == "full":
             raise PlatformError(503, "StorageQuotaReached",
                                 "the data store is full; documents are not stored until space is freed",
                                 retry_after=3600)
+
+    def put(self, caller: str, collection: str, document_id: str, b: Mapping[str, Any]) -> dict[str, Any]:
+        self._key(caller, collection, document_id)
+        self._guard()
+        self.store.upsert(self._prepare(caller, collection, document_id, b))
+        return {"collection": collection, "documentId": document_id}
+
+    def put_many(self, caller: str, collection: str, b: Mapping[str, Any]) -> dict[str, Any]:
+        """Up to MAX_BATCH documents of one collection. All are validated and redacted before any
+        is written, so a bad document rejects the whole batch with its position in the message."""
+        items = b.get("documents")
+        if not isinstance(items, list) or not 1 <= len(items) <= MAX_BATCH:
+            raise _bad(f"documents must be a list of 1 to {MAX_BATCH} documents")
+        self._key(caller, collection, "x")
+        ids = [d.get("documentId") if isinstance(d, Mapping) else None for d in items]
+        if len(set(map(str, ids))) != len(ids):
+            raise _bad("documents: each documentId may appear once per batch")
+        self._guard()
+        prepared = []
+        for i, d in enumerate(items):
+            try:
+                if not isinstance(d, Mapping) or not isinstance(d.get("documentId"), str):
+                    raise _bad("documentId is required")
+                self._key(caller, collection, d["documentId"])
+                prepared.append(self._prepare(caller, collection, d["documentId"], d))
+            except PlatformError as e:
+                raise _bad(f"documents[{i}]: {e.message}") from e
+        created = sum(1 for doc in prepared if self.store.upsert(doc))
+        return {"collection": collection, "stored": len(prepared), "created": created}
+
+    def _prepare(self, caller: str, collection: str, document_id: str, b: Mapping[str, Any]) -> dict[str, Any]:
         tenant = _tenant(b.get("tenant"))
         title, body = b.get("title"), b.get("body")
         if not isinstance(title, str) or not title.strip() or len(title) > MAX_TITLE:
@@ -146,8 +177,7 @@ class Documents:
             "restricted": bool(viewers),
             "updatedAt": _iso(updated),
         }
-        self.store.upsert(doc)
-        return {"collection": collection, "documentId": document_id}
+        return doc
 
     def remove(self, caller: str, collection: str, document_id: str, b: Mapping[str, Any]) -> dict[str, int]:
         self._key(caller, collection, document_id)

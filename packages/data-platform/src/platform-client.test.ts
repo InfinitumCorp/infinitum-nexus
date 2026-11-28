@@ -122,6 +122,27 @@ test("searchAllEvents follows page tokens", async () => {
   assert.equal(JSON.parse(calls[1].body!).pageToken, "p2");
 });
 
+test("documents: put, search and remove", async () => {
+  const hit = { collection: "notes", documentId: "n/1", title: "Renewal", snippet: "renewal call", url: null,
+    labels: [], updatedAt: "2026-11-27T10:00:00Z" };
+  const { client, calls } = scripted([
+    reply(200, { collection: "notes", documentId: "n/1" }),
+    reply(200, { hits: [hit] }),
+    reply(200, { deleted: 1 }),
+  ]);
+  const doc = { tenant: "acme", title: "Renewal", body: "renewal call", updatedAt: "2026-11-27T10:00:00Z" };
+  assert.deepEqual(await client.putDocument("notes", "n/1", doc), { collection: "notes", documentId: "n/1" });
+  assert.deepEqual(await client.searchDocuments({ tenant: "acme", text: "renewal", viewer: "cid_1" }), [hit]);
+  assert.deepEqual(await client.removeDocument("notes", "n/1", "acme"), { deleted: 1 });
+  assert.deepEqual(calls.map((c) => `${c.method} ${new URL(c.url).pathname}`), [
+    "PUT /api/v1/documents/collections/notes/documents/n%2F1",
+    "POST /api/v1/documents/search",
+    "POST /api/v1/documents/collections/notes/documents/n%2F1/remove",
+  ]);
+  assert.deepEqual(JSON.parse(calls[0].body!), doc);
+  assert.deepEqual(JSON.parse(calls[2].body!), { tenant: "acme" });
+});
+
 test("quality runs and release budget", async () => {
   const run = { dataset: "spectre.deal", checkedAt: "2026-11-27T10:00:00Z", rows: 10, ok: true,
     metrics: { "completeness:amount": 1 }, results: [] };
@@ -156,7 +177,7 @@ test("every client path is an endpoint declared in conjure/platform.yml", () => 
   const used = [...src.matchAll(/this\.call\(\s*"(\w+)",\s*[`"]([^`"]+)[`"]/g)].map(
     ([, method, path]) => `${method} ${path.replace(/\$\{enc\((\w+)(?:\.\w+)?\)\}/g, (_m, v: string) => `{${v === "spec" ? "name" : v}}`)}`,
   );
-  assert.ok(used.length >= 9);
+  assert.ok(used.length >= 12);
   for (const u of used) assert.ok(declared.has(u), `${u} is not declared in platform.yml`);
 });
 

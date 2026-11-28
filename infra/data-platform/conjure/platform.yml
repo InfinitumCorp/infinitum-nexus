@@ -89,6 +89,45 @@ types:
           retentionDays: integer
           region: Region
           glossaryTerms: list<string>
+          quality:
+            type: optional<list<DatasetCheck>>
+            docs: Deequ-style checks. Per-event checks reject failing events; batch checks are measured into quality runs.
+      DatasetCheck:
+        docs: >-
+          completeness (min 1.0 = required field, enforced per event; below 1.0 = measured per
+          batch), range and allowed_values (enforced), freshness on occurredAt or a datetime
+          field (enforced), uniqueness over columns and anomaly on a metric (measured).
+        fields:
+          kind: string
+          column: optional<string>
+          columns: optional<list<string>>
+          min: optional<double>
+          max: optional<double>
+          values: optional<list<any>>
+          maxAgeHours: optional<double>
+          metric:
+            type: optional<string>
+            docs: For anomaly, e.g. size or completeness:amount.
+          maxRelativeChange: optional<double>
+      DatasetCheckResult:
+        fields:
+          kind: string
+          target: string
+          ok: boolean
+          metric: double
+          message: string
+      QualityRun:
+        docs: One ingest batch's measured checks. Numbers and check names only, never event values.
+        fields:
+          dataset: string
+          checkedAt: datetime
+          rows: integer
+          ok: boolean
+          metrics: map<string, double>
+          results: list<DatasetCheckResult>
+      QualityRunsResponse:
+        fields:
+          runs: list<QualityRun>
       DatasetRef:
         fields:
           name: string
@@ -133,7 +172,7 @@ types:
         fields:
           deleted:
             type: integer
-            docs: Events deleted. 0 when there were none; repeating the call is safe.
+            docs: Events and owned documents deleted. 0 when there were none; repeating the call is safe.
 
       ReleaseMetric:
         values:
@@ -171,6 +210,15 @@ types:
           suppressBelow:
             type: optional<double>
             docs: Noisy groups under this value are listed in suppressed instead of groups.
+      PrivacyBudgetStatus:
+        fields:
+          dataset: string
+          totalEpsilon:
+            type: double
+            docs: PRIVACY_TOTAL_EPSILON, the lifetime budget of every dataset.
+          spentEpsilon: double
+          remainingEpsilon: double
+          maxEpsilonPerRelease: double
       StoredReleaseResponse:
         fields:
           dataset: string
@@ -196,6 +244,112 @@ types:
             type: string
             docs: Pass to the Superset embedded SDK (fetchGuestToken). Short-lived; ask again when it expires.
           expiresAt: datetime
+
+      DocumentUpsert:
+        docs: Title and body are redacted (Presidio) before storage; search runs on the redacted text.
+        fields:
+          tenant: TenantId
+          title:
+            type: string
+            docs: At most 300 characters.
+          body:
+            type: string
+            docs: Plain text, at most 200,000 characters.
+          url:
+            type: optional<string>
+            docs: An https:// link back to the document in the product.
+          labels:
+            type: optional<list<string>>
+            docs: At most 20 lower-case labels to filter on.
+          ownerCid:
+            type: optional<Cid>
+            docs: The person the document belongs to. Stored as a pseudonym; used for erasure and visibility.
+          viewers:
+            type: optional<list<Cid>>
+            docs: >-
+              If set, only these people (and the owner) find the document. If not set, everyone
+              searching the tenant does. At most 500.
+          updatedAt: datetime
+          expiresAt:
+            type: optional<datetime>
+            docs: >-
+              When to forget the document: it stops matching searches then, and the daily
+              retention purge deletes it. In the future, at most 3650 days ahead.
+      DocumentRef:
+        fields:
+          collection: string
+          documentId: string
+      DocumentRemoveRequest:
+        fields:
+          tenant: TenantId
+      DocumentBatchItem:
+        docs: One document of a batch; the fields of DocumentUpsert plus its documentId.
+        fields:
+          documentId: string
+          tenant: TenantId
+          title: string
+          body: string
+          url: optional<string>
+          labels: optional<list<string>>
+          ownerCid: optional<Cid>
+          viewers: optional<list<Cid>>
+          updatedAt: datetime
+          expiresAt: optional<datetime>
+      DocumentBatch:
+        fields:
+          documents:
+            type: list<DocumentBatchItem>
+            docs: 1 to 100 documents, each documentId once. All are validated before any is stored.
+      DocumentBatchResponse:
+        fields:
+          collection: string
+          stored: integer
+          created:
+            type: integer
+            docs: How many of the stored documents were new.
+      DocumentRemoveResponse:
+        fields:
+          deleted:
+            type: integer
+            docs: 1 if the document existed, else 0. Repeating the call is safe.
+      DocumentQuery:
+        fields:
+          tenant: TenantId
+          text:
+            type: string
+            docs: Web-search syntax ("exact phrase", -excluded). At most 500 characters.
+          collections: optional<list<string>>
+          labels:
+            type: optional<list<string>>
+            docs: Every label must be on the document.
+          viewer:
+            type: optional<Cid>
+            docs: The person searching. Without it, only documents with no viewers list are found.
+          pageSize:
+            type: optional<integer>
+            docs: 1 to 50, default 20.
+      DocumentHit:
+        fields:
+          collection: string
+          documentId: string
+          title: string
+          snippet: string
+          url: optional<string>
+          labels: list<string>
+          updatedAt: datetime
+      DocumentSearchResponse:
+        fields:
+          hits:
+            type: list<DocumentHit>
+            docs: Best match first.
+      DocumentUsage:
+        fields:
+          documents:
+            type: integer
+            docs: Documents this product has stored, in every collection and tenant.
+          limit:
+            type: optional<integer>
+            docs: PLATFORM_MAX_DOCUMENTS_PER_PRODUCT, or absent when there is no cap.
 
     errors:
       SchemaMismatch:
@@ -226,12 +380,29 @@ types:
         namespace: DataPlatform
         code: INTERNAL
         docs: The gateway runs without PLATFORM_PRODUCT_TOKENS, so these services are off.
+      QualityCheckFailed:
+        namespace: DataPlatform
+        code: INVALID_ARGUMENT
+        docs: Reported per event in IngestResponse.rejected; the event was not stored.
+        safe-args:
+          eventType: string
       StorageQuotaReached:
         namespace: DataPlatform
         code: INTERNAL
         docs: >-
           HTTP 503 with Retry-After. The event store reached PLATFORM_STORAGE_LIMIT_MB (450 MB by
-          default on the Supabase free plan). Keep the events and send them again later.
+          default on the Supabase free plan). Keep the events and send them again later. Document
+          puts are refused the same way; removing documents and erasure still work.
+      DocumentQuotaReached:
+        namespace: DataPlatform
+        code: CONFLICT
+        docs: >-
+          HTTP 409. The put would take the product over PLATFORM_MAX_DOCUMENTS_PER_PRODUCT (20,000
+          by default on the free tier). Replacing documents the product already has still works;
+          remove documents or let them expire to make room. Nothing in the request was stored.
+        safe-args:
+          product: ProductId
+          limit: integer
       IngestQuotaExceeded:
         namespace: DataPlatform
         code: CUSTOM_CLIENT
@@ -336,6 +507,20 @@ services:
             param-type: body
         returns: ErasureResponse
 
+  QualityService:
+    name: Quality Service
+    package: app.infinitum.cumulus.data.platform
+    base-path: /api/v1/quality
+    default-auth: header
+    docs: Data-quality runs measured at ingest for a product's own datasets.
+    endpoints:
+      getRuns:
+        http: GET /datasets/{name}/runs
+        docs: The 30 newest runs, newest first.
+        args:
+          name: string
+        returns: QualityRunsResponse
+
   ReleaseService:
     name: Release Service
     package: app.infinitum.cumulus.data.platform
@@ -353,6 +538,12 @@ services:
             type: StoredReleaseRequest
             param-type: body
         returns: StoredReleaseResponse
+      getBudget:
+        http: GET /datasets/{name}/budget
+        docs: How much epsilon the dataset has left. Reading it spends nothing.
+        args:
+          name: string
+        returns: PrivacyBudgetStatus
 
   EmbedService:
     name: Embed Service
@@ -371,3 +562,57 @@ services:
             type: GuestTokenRequest
             param-type: body
         returns: GuestTokenResponse
+
+  DocumentService:
+    name: Document Service
+    package: app.infinitum.cumulus.data.platform
+    base-path: /api/v1/documents
+    default-auth: header
+    docs: >-
+      Tenant-scoped full-text search over a product's documents, on Postgres full-text search
+      (free tier). Personal data in titles and bodies is redacted before storage.
+    endpoints:
+      putDocument:
+        http: PUT /collections/{collection}/documents/{documentId}
+        docs: >-
+          Insert or replace. 503 StorageQuotaReached with Retry-After when the data store is full;
+          409 DocumentQuotaReached when a new document would take the product over its cap.
+        args:
+          collection: string
+          documentId: string
+          document:
+            type: DocumentUpsert
+            param-type: body
+        returns: DocumentRef
+      putDocuments:
+        http: POST /collections/{collection}/batch
+        docs: >-
+          Insert or replace up to 100 documents of one collection in one call. A bad document
+          rejects the batch (InvalidArgument names its position); nothing is stored then.
+          503 StorageQuotaReached when the data store is full.
+        args:
+          collection: string
+          batch:
+            type: DocumentBatch
+            param-type: body
+        returns: DocumentBatchResponse
+      removeDocument:
+        http: POST /collections/{collection}/documents/{documentId}/remove
+        args:
+          collection: string
+          documentId: string
+          request:
+            type: DocumentRemoveRequest
+            param-type: body
+        returns: DocumentRemoveResponse
+      searchDocuments:
+        http: POST /search
+        args:
+          query:
+            type: DocumentQuery
+            param-type: body
+        returns: DocumentSearchResponse
+      getDocumentUsage:
+        http: GET /usage
+        docs: How close the calling product is to its document cap. Reading it changes nothing.
+        returns: DocumentUsage

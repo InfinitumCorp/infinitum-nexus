@@ -78,7 +78,7 @@ so the catalog and the redaction policy cannot drift apart.
   runner.
 - **Ingestion:** `datahub/recipes/supabase-postgres.yml` loads schemas and lineage from Postgres
   with a read-only metadata role. Profiling is off because it reads rows.
-  `datahub/recipes/opensearch.yml` loads the event index mappings.
+  `datahub/recipes/opensearch.yml` loads the event and document index mappings.
 - **Catalog replay:** `python -m cumulus_privacy.catalog_sync` (or, on the box,
   `docker compose exec privacy-gateway python -m cumulus_privacy.catalog_sync`). DataHub runs on
   demand, so it starts empty, while the catalog of record lives in Supabase. The sync pushes
@@ -135,6 +135,20 @@ metric history (Deequ's `RelativeRateOfChangeStrategy`). Suites are data (`Quali
 Conjure), so a suite maps one to one onto Deequ `VerificationSuite` checks later. The TS
 package `packages/data-platform/src/quality.ts` (on another branch) uses the same check names
 for in-Worker rebuilds.
+
+**At ingest.** A dataset spec can carry `quality` checks (`DatasetCheck` in `platform.yml`), and
+the collector applies them to every batch (`ingest_quality.py`):
+
+- **Checks on each event:** required fields (completeness with min 1.0), range, allowed values,
+  and freshness of `occurredAt` or a datetime field. An event that fails is rejected with a
+  reason and is not stored.
+- **Checks on the whole batch:** completeness below 1.0, uniqueness, and anomaly against
+  earlier runs. These are measured into a quality run and never block, because one batch is
+  only a sample.
+
+Quality runs hold numbers and check names, never event values. They live in
+`data_platform.quality_runs` for 90 days. Products read them with
+`GET /api/v1/quality/datasets/{name}/runs`, and Superset charts them through the read-only role.
 
 **When to adopt Deequ itself:** when Hudi or Spark tables exist (see 4). Then the same suites run
 as Deequ checks inside the Spark jobs, and the metrics repository feeds anomaly detection.
@@ -201,6 +215,27 @@ with the same query DSL, so we use it.
   AWS option would put EU data in the US, so only metadata-free indexes could go there. That
   needs William's OK.
 
+**Document search** ([`documents.py`](../../infra/data-platform/privacy-gateway/cumulus_privacy/documents.py),
+Conjure `DocumentService`). Products also index their own documents: help articles, playbooks
+and notes. A document is keyed by product, collection, tenant and document ID. On the free tier
+it lives in `data_platform.documents`, using Postgres full-text search with the title weighted
+above the body and `websearch_to_tsquery` syntax. On the full stack it lives in the OpenSearch
+index `cumulus-documents` (strict mapping in `search/documents-index.json`, title weighted twice,
+`simple_query_string` with AND between words). There the document ID is a hash of the four keys,
+so a write or delete can only reach the caller's own document. The rules are the same on both:
+
+- Every search is scoped to the calling product and one tenant. A product's token never reads
+  another product's documents.
+- Titles and bodies are redacted by Presidio before storage. Queries are stripped of anything
+  Presidio detects, so nobody can probe for a person by email or name.
+- A document sent with `viewers` stays restricted to those people and its owner. People are
+  stored only as CID pseudonyms. A restricted document stays restricted even after erasure
+  empties its viewer list.
+- Right to erasure (`ErasureService`) also deletes the person's own documents and removes them
+  from every viewer list.
+- A document sent with `expiresAt` stops matching searches at that time, and the gateway's
+  daily retention purge deletes it. The time must be in the future and at most 3650 days ahead.
+
 ## 7. Metacat: evaluation only
 
 Full evaluation: [EVALUATIONS.md](EVALUATIONS.md#3-metacat).
@@ -249,6 +284,13 @@ itself (Supabase Postgres, or OpenSearch), so raw rows never reach the caller. T
   (`data_platform.privacy_budget`, `PRIVACY_TOTAL_EPSILON` in total).
 - The window is at most 366 days and 200,000 events.
 - The response holds only the noisy groups and the epsilon left, never exact counts.
+
+Operators run releases with `python -m cumulus_privacy.release_cli release.json --out report.json`.
+It reads the budget first (`GET .../budget`, which spends nothing) and refuses before spending
+if the epsilon is above what is left or above the per-release cap; `--dry-run` stops there. The
+release call is never retried, because each call spends epsilon. The report keeps the request,
+the budget before, the noisy figures and a sha256 over them, so a published figure can be traced
+to its run. The product token comes from `DATA_API_TOKEN` and never appears in the output.
 
 `python-dp` has Linux and macOS wheels only. Its noise test runs in CI and in the gateway
 container. On Windows, the bounding and budget tests run with a no-noise test backend.

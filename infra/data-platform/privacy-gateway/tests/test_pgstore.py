@@ -127,6 +127,27 @@ def test_erasure_and_storage_size(stack, redactor):
     assert limits.storage_state() == "full"
 
 
+def test_quality_runs_in_postgres(clean, redactor, reader_dsn):
+    from cumulus_privacy.pgstore import PostgresQualityLog
+
+    with psycopg.connect(ADMIN, autocommit=True) as c:
+        c.execute("truncate data_platform.quality_runs")
+    catalog = PostgresCatalog(clean)
+    spec = {**DEALS, "quality": [{"kind": "uniqueness", "columns": ["dealId"], "min": 1.0},
+                                 {"kind": "anomaly", "metric": "size", "maxRelativeChange": 0.5}]}
+    catalog.register("spectre", DEALS["name"], spec)
+    log = PostgresQualityLog(clean)
+    collector = Collector(catalog, redactor, PostgresEventIndex(clean), "EU", quality_log=log)
+    collector.ingest("spectre", [event(), event()])
+    collector.ingest("spectre", [event() for _ in range(6)])
+    runs = collector.quality_runs("spectre", DEALS["name"])["runs"]
+    assert [r["rows"] for r in runs] == [6, 2]
+    anomaly = next(r for r in runs[0]["results"] if r["kind"] == "anomaly")
+    assert anomaly["metric"] == pytest.approx(2.0) and anomaly["ok"] is False
+    with psycopg.connect(reader_dsn, autocommit=True) as c:  # BI can chart quality over time
+        assert c.execute("select count(*) from data_platform.quality_runs").fetchone()[0] == 2
+
+
 def test_retention_purge(stack):
     _, collector, _, index = stack
     old = (datetime.now(timezone.utc) - timedelta(days=400)).isoformat()
@@ -164,3 +185,78 @@ def test_dp_release_over_stored_events(stack, clean):
         "groupBy": "stage", "publicGroups": ["won"], "epsilon": 0.25,
     })
     assert out["groups"] == {"won": 2.0} and out["remainingEpsilon"] == pytest.approx(0.75)
+
+
+def test_documents_in_postgres(clean, redactor):
+    from cumulus_privacy.documents import Documents
+    from cumulus_privacy.pgstore import PostgresDocumentStore
+
+    with psycopg.connect(ADMIN, autocommit=True) as c:
+        c.execute("truncate data_platform.documents")
+    docs = Documents(redactor, PostgresDocumentStore(clean))
+    base = {"tenant": "acme", "updatedAt": "2026-11-20T10:00:00Z"}
+    docs.put("spectre", "playbooks", "a", {**base, "title": "Pricing", "body": "renewal mentioned once", "labels": ["sales"]})
+    docs.put("spectre", "playbooks", "b", {**base, "title": "Renewal guide", "body": "renewal steps", "labels": ["emea"]})
+    docs.put("spectre", "notes", "p", {**base, "title": "Renewal note", "body": "x",
+                                       "ownerCid": "cid_owner0001", "viewers": ["cid_viewer0001"]})
+    docs.put("spectre", "playbooks", "g", {**base, "tenant": "globex", "title": "Renewal", "body": ""})
+    q = {"tenant": "acme", "text": "renewal"}
+    assert [h["documentId"] for h in docs.search("spectre", q)["hits"]] == ["b", "a"]  # title outranks body
+    assert {h["documentId"] for h in docs.search("spectre", {**q, "viewer": "cid_viewer0001"})["hits"]} == {"a", "b", "p"}
+    assert [h["documentId"] for h in docs.search("spectre", {**q, "labels": ["emea"]})["hits"]] == ["b"]
+    assert [h["documentId"] for h in docs.search("spectre", {**q, "text": 'renewal -pricing'})["hits"]] == ["b"]
+    assert docs.search("cumulus-mail", q)["hits"] == []
+    hit = docs.search("spectre", q)["hits"][0]
+    assert hit["updatedAt"] == "2026-11-20T10:00:00Z" and "renewal" in hit["snippet"].lower()
+    # Erasure: the viewer leaves the list, the document stays restricted.
+    pseudonym = docs._pseudonym("cid_viewer0001")
+    assert docs.store.erase(pseudonym, "spectre") == 0
+    assert {h["documentId"] for h in docs.search("spectre", {**q, "viewer": "cid_viewer0001"})["hits"]} == {"a", "b"}
+    assert docs.store.erase(docs._pseudonym("cid_owner0001"), None) == 1
+    assert docs.remove("spectre", "playbooks", "a", {"tenant": "acme"}) == {"deleted": 1}
+
+
+def test_document_expiry_in_postgres(clean, redactor):
+    from cumulus_privacy.documents import Documents
+    from cumulus_privacy.pgstore import PostgresDocumentStore
+
+    with psycopg.connect(ADMIN, autocommit=True) as c:
+        c.execute("truncate data_platform.documents")
+    docs = Documents(redactor, PostgresDocumentStore(clean))
+    soon = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
+    base = {"tenant": "acme", "updatedAt": "2026-11-20T10:00:00Z", "body": "renewal"}
+    docs.put("spectre", "playbooks", "keep", {**base, "title": "Keep"})
+    docs.put("spectre", "playbooks", "temp", {**base, "title": "Temp", "expiresAt": soon})
+    q = {"tenant": "acme", "text": "renewal"}
+    assert {h["documentId"] for h in docs.search("spectre", q)["hits"]} == {"keep", "temp"}
+    assert docs.store.purge_expired() == 0
+    with psycopg.connect(ADMIN, autocommit=True) as c:  # time passes
+        c.execute("update data_platform.documents set expires_at = now() - interval '1 minute' where document_id = 'temp'")
+    assert [h["documentId"] for h in docs.search("spectre", q)["hits"]] == ["keep"]
+    assert docs.store.purge_expired() == 1
+    docs.put("spectre", "playbooks", "keep", {**base, "title": "Keep", "expiresAt": soon})
+    docs.put("spectre", "playbooks", "keep", {**base, "title": "Keep"})  # no expiresAt: kept for good
+    with psycopg.connect(ADMIN, autocommit=True) as c:
+        assert c.execute("select expires_at from data_platform.documents").fetchall() == [(None,)]
+
+
+def test_document_quota_lookups_in_postgres(clean, redactor):
+    from cumulus_privacy.documents import Documents
+    from cumulus_privacy.pgstore import PostgresDocumentStore
+
+    with psycopg.connect(ADMIN, autocommit=True) as c:
+        c.execute("truncate data_platform.documents")
+    store = PostgresDocumentStore(clean)
+    docs = Documents(redactor, store, max_per_product=2)
+    base = {"tenant": "acme", "updatedAt": "2026-11-20T10:00:00Z", "title": "T", "body": "b"}
+    docs.put("spectre", "playbooks", "a", base)
+    docs.put("spectre", "playbooks", "b", {**base, "tenant": "globex"})
+    docs.put("cumulus-mail", "playbooks", "a", base)
+    assert store.count("spectre") == 2 and store.count("cumulus-mail") == 1
+    assert store.existing("spectre", [("playbooks", "acme", "a"), ("playbooks", "acme", "b"),
+                                      ("playbooks", "globex", "b")]) == {("playbooks", "acme", "a"), ("playbooks", "globex", "b")}
+    assert store.existing("spectre", []) == set()
+    with pytest.raises(PlatformError) as e:
+        docs.put("spectre", "playbooks", "c", base)
+    assert e.value.name == "DocumentQuotaReached"
+    docs.put("spectre", "playbooks", "a", {**base, "title": "T2"})  # replacing is fine when full

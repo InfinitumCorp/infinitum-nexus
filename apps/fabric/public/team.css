@@ -127,6 +127,8 @@
 
 /* Polls */
 .t-poll { margin-top: 6px; max-width: 460px; }
+.t-shared { margin: 6px 0 0; padding: 6px 10px; border-left: 3px solid var(--line); max-width: 560px; }
+.t-shared .t-who { margin-bottom: 2px; }
 .t-poll-options { list-style: none; margin: 0 0 4px; padding: 0; display: grid; gap: 4px; }
 .t-poll-option { position: relative; display: flex; justify-content: space-between; gap: 8px; width: 100%; padding: 6px 10px; border: 1px solid var(--line); background: var(--paper); cursor: pointer; text-align: left; overflow: hidden; }
 .t-poll-option:disabled { cursor: default; }
@@ -135,3 +137,67 @@
 .t-poll-bar { position: absolute !important; inset: 0 auto 0 0; background: #eef3ff; }
 .t-poll-voters { display: block; padding: 0 10px; }
 .t-app { font-size: 10px; font-weight: 700; padding: 0 4px; border: 1px solid var(--line); color: var(--muted); }
+
+/* Incoming webhooks */
+.t-secret { display: grid; gap: 6px; margin: 8px 16px; padding: 10px; border: 1px solid #c99a00; background: #fffaeb; }
+
+/* Huddles */
+.t-huddle-mark { margin-left: auto; font-size: 12px; }
+.t-huddle-live { border-color: #1f8f4e; color: #1f8f4e; }
+.t-huddle { position: fixed; right: 16px; bottom: 16px; z-index: 40; width: min(560px, calc(100% - 32px)); background: var(--paper); border: 1px solid var(--line); box-shadow: 0 8px 28px rgba(17, 24, 32, .18); padding: 10px 12px; display: grid; gap: 8px; }
+.t-huddle-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; }
+.t-tile { position: relative; aspect-ratio: 16 / 9; background: #1b2229; color: #fff; overflow: hidden; display: grid; place-items: center; }
+.t-tile video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; }
+.t-tile.on-camera video { opacity: 1; }
+.t-tile.on-camera .t-tile-initial { visibility: hidden; }
+.t-tile-initial { font-size: 28px; font-weight: 700; }
+.t-tile-name { position: absolute; left: 6px; bottom: 4px; right: 6px; font-size: 12px; text-shadow: 0 1px 2px #000; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.t-huddle-leave { border-color: #b42318; color: #b42318; }
+@media (max-width: 900px) { .t-huddle { left: 16px; right: 16px; width: auto; } }
+
+/* Quick switcher and shortcuts */
+.t-switcher { position: fixed; inset: 0; z-index: 50; display: flex; justify-content: center; align-items: flex-start; padding: 12vh 16px 0; background: rgba(15, 20, 25, 0.35); }
+.t-switcher-box { width: min(560px, 100%); background: var(--paper); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.2); padding: 12px; }
+.t-switcher-box .input { width: 100%; font-size: 16px; }
+.t-switcher-list { list-style: none; margin: 8px 0; padding: 0; max-height: 50vh; overflow: auto; }
+.t-switcher-list li { display: flex; justify-content: space-between; gap: 12px; padding: 6px 10px; border-radius: 6px; cursor: pointer; }
+.t-switcher-list li.active { background: var(--ink); color: var(--paper); }
+.t-switcher-list li.active .meta { color: inherit; opacity: 0.8; }
+.t-shortcuts { border-collapse: collapse; width: 100%; }
+.t-shortcuts td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.t-shortcuts kbd { font-family: inherit; font-size: var(--text-sm); border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; white-space: nowrap; }
+.t-workflow-text { margin: 2px 0; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--muted); }
+
+/* Custom emoji */
+.t-emoji { width: 20px; height: 20px; object-fit: contain; vertical-align: -4px; }
+.t-reactions .t-emoji { width: 16px; height: 16px; vertical-align: -3px; }
+.t-menu.emoji .t-emoji { width: 22px; height: 22px; }
+.t-emoji-form { display: grid; gap: 8px; margin-bottom: 16px; }
+.t-emoji-list { list-style: none; margin: 0; padding: 0; }
+.t-emoji-list li { display: flex; align-items: center; gap: 6px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.t-emoji-list .t-emoji { width: 28px; height: 28px; }
+
+/* Sidebar sections */
+.t-section-toggle { font: inherit; color: inherit; text-transform: inherit; letter-spacing: inherit; }
+.t-section-empty { padding: 2px 16px 6px; margin: 0; }
+
+/* Task lists */
+.t-task-add { display: flex; gap: 6px; margin-bottom: 10px; }
+.t-task-add .input { flex: 1; }
+.t-tasks { list-style: none; margin: 0; padding: 0; }
+.t-task { display: flex; align-items: flex-start; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.t-task input[type="checkbox"] { margin-top: 3px; }
+.t-task-body { flex: 1; min-width: 0; }
+.t-task-body .t-row { margin: 2px 0 0; gap: 8px; }
+.t-task-notes { margin: 2px 0 0; white-space: pre-wrap; }
+.t-task.done .t-task-title { text-decoration: line-through; color: var(--muted); }
+.t-due.soon { color: var(--accent); }
+.t-due.late { color: #b42318; font-weight: 600; }
+
+/* Voice clips */
+.t-clip { display: flex; align-items: center; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
+.t-clip audio { height: 36px; max-width: min(360px, 100%); }
+.t-clip-status { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
+.t-rec-dot { width: 10px; height: 10px; border-radius: 50%; background: #d92d20; animation: t-rec 1s ease-in-out infinite; }
+@keyframes t-rec { 50% { opacity: 0.3; } }
+@media (prefers-reduced-motion: reduce) { .t-rec-dot { animation: none; } }

@@ -134,6 +134,18 @@ export class RemoteState {
    * (Cumulus://ID rows behind nexus-store). Read at commit; the source resets itself via begin/rollback.
    */
   rows: { pending(): unknown[] } | null = null;
+  /** Work to do once the current attempt is saved (null: no request is running). */
+  private committedHooks: (() => Promise<void>)[] | null = null;
+
+  /**
+   * Run `fn` once the current request is saved: never for an attempt that is rolled back or re-run.
+   * For what can't be undone and must not happen unless the change is kept, such as deleting a stored
+   * file. Outside a request it runs now. A failure is logged, not thrown: the change is already saved.
+   */
+  afterCommit(fn: () => Promise<void>): void {
+    if (this.committedHooks) this.committedHooks.push(fn);
+    else void fn().catch((err) => console.error(`remote: after-commit step failed: ${(err as Error).message}`));
+  }
 
   /** @param docs named stores to keep in sync, e.g. { cid: cidStore, spectre: spectreStore } */
   constructor(gateway: NexusGateway, docs: Record<string, object>) {
@@ -159,7 +171,10 @@ export class RemoteState {
       }
       applySnapshot(store, row.data);
       this.versions[row.id] = row.version;
-      this.baseline[row.id] = JSON.stringify(row.data);
+      // The store as it now is, serialized the way commit() compares it. Not row.data: Postgres jsonb
+      // returns object keys in its own order, so that string never equals the store's, and every
+      // request after a load rewrote the whole document (and made every other server load it again).
+      this.baseline[row.id] = JSON.stringify(toSnapshot(store));
     }
   }
 
@@ -182,6 +197,9 @@ export class RemoteState {
         serialized[id] = json;
       }
     }
+    // In id order, as every host sends them: the database locks them in this order, so two commits (or a
+    // commit and a rows claim) can't each hold one document the other waits for.
+    changed.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
     const entries = this.ledgerStore.pending;
     const rows = this.rows?.pending() ?? [];
     if (!changed.length && !entries.length && !rows.length) return;
@@ -230,6 +248,7 @@ export class RemoteState {
       const rollbackParticipants = async () => {
         for (const p of begun.splice(0)) await p.rollback().catch(() => undefined);
       };
+      this.committedHooks = [];
       try {
         for (const p of this.participants) {
           await p.begin();
@@ -261,9 +280,14 @@ export class RemoteState {
             throw err;
           }
         }
+        // Saved, whatever the request answered: now the steps that had to wait for that.
+        const hooks = this.committedHooks ?? [];
+        this.committedHooks = null;
+        for (const hook of hooks) await hook().catch((err) => console.error(`remote: after-commit step failed: ${(err as Error).message}`));
         if (!outcome.ok) throw outcome.error;
         return outcome.value;
       } catch (err) {
+        this.committedHooks = null;
         await rollbackParticipants();
         if (err instanceof ConflictError) {
           this.rollback();

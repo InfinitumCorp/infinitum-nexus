@@ -20,6 +20,11 @@ export interface IdClient {
    * http://localhost:<port> (RFC 8252 loopback redirect). PKCE still binds the code to the tool.
    */
   loopback?: boolean;
+  /**
+   * Native apps return through a private-use URI scheme (RFC 8252 section 7.1), for example
+   * cumulus://oauth/callback. Only these exact strings are accepted, and PKCE still binds the code.
+   */
+  nativeRedirects?: string[];
 }
 
 export const ID_CLIENTS: Record<string, IdClient> = {
@@ -46,6 +51,13 @@ export const ID_CLIENTS: Record<string, IdClient> = {
       "https://mail.cumuluscloud.app",
       "https://ru.mail.cumuluscloud.app",
     ],
+  },
+  // The Cumulus iPhone, iPad and Mac app (apps/cumulus-apple). Public client: PKCE, no secret.
+  "cumulus-apple": {
+    name: "Cumulus://Cloud",
+    app: "cumulus",
+    origins: [],
+    nativeRedirects: ["cumulus://oauth/callback"],
   },
   "cumulus-mail": {
     name: "Cumulus://Mail",
@@ -151,6 +163,20 @@ export const ID_CLIENTS: Record<string, IdClient> = {
     app: "spectre",
     origins: ["https://spectre.infinitumcorporation.ai"],
   },
+  // [HRVST] Russia (Yandex Cloud, hrvst-russia, InfinitumCorp/hrvst-ru). Russian contributors sign in
+  // at ru-id.cumuluscloud.app and their data stays on that server. A public product: https only.
+  hrvst: {
+    name: "[HRVST]",
+    app: "hrvst",
+    origins: ["https://ru-hrvst.infinitumcorporation.ai"],
+  },
+  // Zerkalo Russia (Yandex Cloud, zerkalo-russia, InfinitumCorp/zerkalo-ru): the web service runs
+  // scenarios on a local model on that server. A public product: https only.
+  zerkalo: {
+    name: "Zerkalo",
+    app: "zerkalo",
+    origins: ["https://ru-zerkalo.infinitumcorporation.ai"],
+  },
   // developer.infinitumcorporation.ai: where Infinitum developers sign in.
   developer: {
     name: "Infinitum Developer",
@@ -177,6 +203,7 @@ export function idClientFor(clientId: string, redirectUri: string): IdClient | n
     return null;
   }
   if (url.username || url.password || url.hash) return null;
+  if (url.protocol !== "http:" && url.protocol !== "https:") return client.nativeRedirects?.includes(redirectUri) ? client : null;
   if (url.protocol === "http:") return client.loopback && isLoopback(url) ? client : null;
   if (url.protocol !== "https:") return null;
   return client.origins.includes(url.origin) ? client : null;

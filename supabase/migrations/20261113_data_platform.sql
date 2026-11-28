@@ -46,7 +46,51 @@ create table if not exists data_platform.privacy_budget (
   spent    double precision not null default 0 check (spent >= 0)
 );
 
+-- Product documents for tenant-scoped full-text search (documents.py). Title and body are
+-- redacted by the gateway before they are stored; people appear only as CID pseudonyms.
+create table if not exists data_platform.documents (
+  product      text not null,
+  collection   text not null,
+  tenant       text not null,
+  document_id  text not null,
+  title        text not null,
+  body         text not null default '',
+  url          text,
+  labels       text[] not null default '{}',
+  owner_cid    text,
+  viewers      text[] not null default '{}',
+  restricted   boolean not null default false,
+  updated_at   timestamptz not null,
+  stored_at    timestamptz not null default now(),
+  tsv          tsvector generated always as (
+                 setweight(to_tsvector('simple', title), 'A') || setweight(to_tsvector('simple', body), 'B')
+               ) stored,
+  primary key (product, collection, tenant, document_id)
+);
+create index if not exists documents_scope on data_platform.documents (product, tenant, updated_at desc);
+create index if not exists documents_tsv on data_platform.documents using gin (tsv);
+create index if not exists documents_owner on data_platform.documents (owner_cid) where owner_cid is not null;
+create index if not exists documents_viewers on data_platform.documents using gin (viewers);
+-- Optional per-document expiry: hidden from search once passed, deleted by the daily purge.
+alter table data_platform.documents add column if not exists expires_at timestamptz;
+create index if not exists documents_expiry on data_platform.documents (expires_at) where expires_at is not null;
+
+-- Data-quality runs measured at ingest: check names and numbers only, never event values.
+create table if not exists data_platform.quality_runs (
+  id          bigint generated always as identity primary key,
+  dataset     text not null,
+  product     text not null,
+  checked_at  timestamptz not null,
+  ok          boolean not null,
+  rows        integer not null,
+  metrics     jsonb not null,
+  results     jsonb not null
+);
+create index if not exists quality_runs_dataset_time on data_platform.quality_runs (dataset, checked_at desc);
+
 alter table data_platform.datasets enable row level security;
+alter table data_platform.quality_runs enable row level security;
+alter table data_platform.documents enable row level security;
 alter table data_platform.events enable row level security;
 alter table data_platform.privacy_budget enable row level security;
 
@@ -77,6 +121,18 @@ begin
   execute 'grant select, insert, delete on data_platform.events to data_platform_gateway';
   execute 'grant select, insert, update on data_platform.privacy_budget to data_platform_gateway';
   execute 'grant execute on function data_platform.purge_expired_events() to data_platform_gateway';
+  execute 'grant select, insert, update, delete on data_platform.documents to data_platform_gateway';
+  execute 'alter table data_platform.documents force row level security';
+  if not exists (select 1 from pg_policies where schemaname = 'data_platform' and tablename = 'documents' and policyname = 'gateway_all') then
+    execute 'create policy gateway_all on data_platform.documents for all to data_platform_gateway using (true) with check (true)';
+  end if;
+  execute 'grant select, insert, delete on data_platform.quality_runs to data_platform_gateway';
+  -- The box's data-only backup (pg_dump as this role) reads the identity sequence's position.
+  execute 'grant select on sequence data_platform.quality_runs_id_seq to data_platform_gateway';
+  execute 'alter table data_platform.quality_runs force row level security';
+  if not exists (select 1 from pg_policies where schemaname = 'data_platform' and tablename = 'quality_runs' and policyname = 'gateway_all') then
+    execute 'create policy gateway_all on data_platform.quality_runs for all to data_platform_gateway using (true) with check (true)';
+  end if;
   execute 'alter table data_platform.datasets force row level security';
   execute 'alter table data_platform.events force row level security';
   execute 'alter table data_platform.privacy_budget force row level security';
@@ -115,6 +171,10 @@ begin
                          object_type, object_id, ingested_at) on data_platform.events to data_platform_reader';
   execute 'grant select (name, product, updated_at) on data_platform.datasets to data_platform_reader';
   execute 'grant select on data_platform.events_bi to data_platform_reader';
+  execute 'grant select on data_platform.quality_runs to data_platform_reader';
+  if not exists (select 1 from pg_policies where schemaname = 'data_platform' and tablename = 'quality_runs' and policyname = 'reader_select') then
+    execute 'create policy reader_select on data_platform.quality_runs for select to data_platform_reader using (true)';
+  end if;
   execute 'alter table data_platform.events force row level security';
   execute 'alter table data_platform.datasets force row level security';
   if not exists (select 1 from pg_policies where schemaname = 'data_platform' and tablename = 'events' and policyname = 'reader_select') then

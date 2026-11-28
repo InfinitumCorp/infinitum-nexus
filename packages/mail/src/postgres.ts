@@ -70,7 +70,16 @@ CREATE INDEX IF NOT EXISTS mail_outbound_open ON ${s}.mail_outbound (seq) WHERE 
 }
 
 export async function migrateMail(db: MailQueryable, schema = "public"): Promise<void> {
-  await db.query(`BEGIN; SELECT pg_advisory_xact_lock(hashtext('cumulus-mail-migrate')); ${mailSchemaSql(schema)} COMMIT;`);
+  // One message, no BEGIN/COMMIT: one implicit transaction, rolled back on an error. Two servers starting
+  // at once can still both try to create a table (the advisory lock doesn't refresh what the rest of the
+  // message sees), so a "already exists" error is retried once.
+  const sql = `SELECT pg_advisory_xact_lock(hashtext('cumulus-mail-migrate')); ${mailSchemaSql(schema)}`;
+  try {
+    await db.query(sql);
+  } catch (err) {
+    if (!["23505", "42P06", "42P07", "42710"].includes((err as { code?: string } | null)?.code ?? "")) throw err;
+    await db.query(sql);
+  }
 }
 
 export class PgMailRepository implements MailRepository {
@@ -178,6 +187,22 @@ export class PgMailRepository implements MailRepository {
       await this.#db.query(`DELETE FROM ${this.#s}.mail_messages WHERE cid = $1 AND NOT (id = ANY($2::text[]))`, [box.cid, [...after.keys()]]);
     }
     this.#seen.set(box, after);
+  }
+
+  /**
+   * Whether other mail still has this file attached. With a tunnel, attachments are sealed in the rows
+   * and can't be searched: the answer is always "in use", so files are kept.
+   */
+  async attachmentInUse(id: string): Promise<boolean> {
+    if (this.#tunnel) return true;
+    const probe = JSON.stringify([{ id }]);
+    const { rows } = await this.#db.query(
+      `SELECT EXISTS (SELECT 1 FROM ${this.#s}.mail_messages WHERE data->'attachments' @> $1::jsonb)
+           OR EXISTS (SELECT 1 FROM ${this.#s}.mail_mailboxes b, jsonb_array_elements(coalesce(b.data->'messages', '[]')) m WHERE m->'attachments' @> $1::jsonb)
+           OR EXISTS (SELECT 1 FROM ${this.#s}.mail_outbound WHERE status IN ('queued', 'sending') AND data->'attachments' @> $1::jsonb) AS used`,
+      [probe],
+    );
+    return rows[0].used === true;
   }
 
   /** Without reading or locking the mailbox (every page's account menu asks). */

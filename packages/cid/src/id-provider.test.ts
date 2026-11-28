@@ -15,9 +15,23 @@ describe("shared product clients", () => {
     assert.ok(idClientFor("fabric", "https://infinitumfabric.app/api/auth/callback"));
     assert.ok(idClientFor("fabric", "https://ru.infinitumfabric.app/_synapse/client/oidc/callback"));
     assert.ok(idClientFor("defense", "https://infinitumdefense.com/"));
+    assert.ok(idClientFor("hrvst", "https://ru-hrvst.infinitumcorporation.ai/"));
+    assert.equal(idClientFor("hrvst", "http://ru-hrvst.infinitumcorporation.ai/"), null);
+    assert.ok(idClientFor("zerkalo", "https://ru-zerkalo.infinitumcorporation.ai/"));
+    assert.equal(idClientFor("zerkalo", "https://ru-zerkalo.infinitumcorporation.ai.evil.example/"), null);
     assert.equal(idClientFor("scalvs", "https://scalvs.app.evil.example/"), null);
     assert.equal(idClientFor("cndctr", "http://cndctr.app/"), null);
     assert.equal(idClientFor("toString", "https://scalvs.app/"), null);
+  });
+
+  it("lets the Cumulus Apple app return only to its own callback", () => {
+    assert.ok(idClientFor("cumulus-apple", "cumulus://oauth/callback"));
+    assert.equal(idClientFor("cumulus-apple", "cumulus://oauth/callback/x"), null);
+    assert.equal(idClientFor("cumulus-apple", "cumulus://evil/callback"), null);
+    assert.equal(idClientFor("cumulus-apple", "evil://oauth/callback"), null);
+    assert.equal(idClientFor("cumulus-apple", "https://mail.cumuluscloud.app/"), null);
+    assert.equal(idClientFor("cumulus-mail", "cumulus://oauth/callback"), null);
+    assert.equal(idClientFor("cumulus-apple", "javascript:alert(1)"), null);
   });
 
   it("lets Infinitum developers sign in on developer.infinitumcorporation.ai only", () => {

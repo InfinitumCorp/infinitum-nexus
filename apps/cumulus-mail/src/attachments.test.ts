@@ -90,6 +90,40 @@ describe("Attachments", () => {
     assert.equal(res.status, 403);
   });
 
+  it("forwarding: files on your mail and your own uploads, together; one file that is neither refuses it all", async () => {
+    const ann = await signUp("annfwd");
+    const ben = await signUp("benfwd");
+    const eve = await signUp("evefwd");
+    const received = (await (await upload(ann.cookie, "brief.pdf", "%PDF brief")).json()) as any;
+    assert.equal((await send(ann.cookie, { to: ben.address, subject: "Brief", body: ".", attachments: [received] })).status, 200);
+    const mine = (await (await upload(ben.cookie, "notes.txt", "notes", "text/plain")).json()) as any;
+    const evesFile = (await (await upload(eve.cookie, "e.txt", "e", "text/plain")).json()) as any;
+
+    assert.equal((await send(ben.cookie, { to: ben.address, subject: "Fwd", body: ".", attachments: [received, mine] })).status, 200);
+    assert.equal((await send(ben.cookie, { to: ben.address, subject: "Fwd", body: ".", attachments: [received, mine, evesFile] })).status, 403);
+  });
+
+  it("deleting mail for good deletes its files once no other mail has them", async () => {
+    const owner = await signUp("ownerdel");
+    const friend = await signUp("frienddel");
+    const file = (await (await upload(owner.cookie, "plan.pdf", "%PDF plan")).json()) as any;
+    assert.equal((await send(owner.cookie, { to: friend.address, subject: "Plan", body: ".", attachments: [file] })).status, 200);
+    const post = (cookie: string, path: string, body: unknown) =>
+      fetch(base + path, { method: "POST", headers: { "content-type": "application/json", "x-cumulus": "1", cookie }, body: JSON.stringify(body) });
+    const binIt = async (who: { cid: string; cookie: string }, folder: string) => {
+      const m = (await suite.mail.view(who.cid)).messages.find((x) => x.subject === "Plan" && x.folder === folder)!;
+      await post(who.cookie, "/api/move", { id: m.id, folder: "trash" });
+      assert.equal((await post(who.cookie, "/api/remove", { id: m.id })).status, 200);
+    };
+    // The friend deletes their copy: the owner's Sent copy still has the file.
+    await binIt(friend, "inbox");
+    assert.ok(store.files.has(file.id), "kept: the sender's copy still has it");
+    // The owner deletes theirs too: nothing has it any more.
+    await binIt(owner, "sent");
+    await new Promise((r) => setTimeout(r, 50));
+    assert.equal(store.files.has(file.id), false, "deleted once no mail has it");
+  });
+
   it("uploads need the app's header and stay under 25 MB", async () => {
     const u = await signUp("limitfiles");
     assert.equal((await upload(u.cookie, "x.bin", "x", "application/octet-stream", {})).status, 403);

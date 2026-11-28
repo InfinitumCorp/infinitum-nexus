@@ -65,6 +65,7 @@
           <button type="button" data-view="saved">Later <span class="count" id="count-saved"></span></button>
           <button type="button" data-view="scheduled">Scheduled <span class="count" id="count-scheduled"></span></button>
           <button type="button" data-view="reminders">Reminders <span class="count" id="count-reminders"></span></button>
+          <button type="button" data-view="tasks">My tasks <span class="count" id="count-tasks"></span></button>
           <button type="button" data-view="files">Files</button>
           <button type="button" data-view="people">People</button>
         </nav>
@@ -72,6 +73,7 @@
           <div class="t-section-head"><span>Starred</span></div>
           <ul id="starred" class="t-list"></ul>
         </div>
+        <div id="sections"></div>
         <div class="t-section">
           <div class="t-section-head"><span>Channels</span>
             <span><button id="browse" class="link" type="button">Browse</button> <button id="new-channel" class="link" type="button" aria-label="New channel">+</button></span>
@@ -94,6 +96,7 @@
         <p id="typing" class="t-typing meta" aria-live="polite"></p>
         <form id="composer" class="t-composer" hidden>
           <div id="attachments" class="t-attachments"></div>
+          <div id="clip-status" class="t-clip-status" aria-live="polite" hidden></div>
           <label for="text" class="sr">Message</label>
           <textarea id="text" class="input" rows="2" maxlength="4000" placeholder="Message"></textarea>
           <ul id="suggest" class="t-suggest" hidden></ul>
@@ -101,6 +104,7 @@
             <span class="meta">*bold* _italic_ ~strike~ `code` &gt; quote · /help</span>
             <span class="t-row">
               <label class="btn small t-file">Attach<input id="file" type="file" hidden></label>
+              <button id="record" class="btn small" type="button" title="Record a voice clip">🎙 Clip</button>
               <button id="poll" class="btn small" type="button">Poll</button>
               <button id="schedule" class="btn small" type="button">Schedule</button>
               <button id="send" class="btn primary small" type="submit">Send</button>
@@ -114,6 +118,8 @@
         <div id="panel-body" class="t-panel-body"></div>
       </aside>
     </section>
+
+    <section id="huddle" class="t-huddle" aria-label="Huddle" aria-live="polite" hidden></section>
 
     <dialog id="dialog" class="t-dialog">
       <form method="dialog" id="dialog-form">

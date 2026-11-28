@@ -9,8 +9,8 @@
 > client `spectre` of the new issuer. Do not delete it.
 
 `id.cumuluscloud.app` (the `cumulus-id` Worker, app `apps/spectre`) is the issuer for
-Sign in with Cumulus://ID. A person signs in there with a passkey, Google, or Amazon
-Cognito. The first sign-in creates a Cumulus://ID. Products then receive an authorization
+Sign in with Cumulus://ID. A person signs in there with a passkey or Google.
+Amazon Cognito sign-in was removed on 2026-11-18. The first sign-in creates a Cumulus://ID. Products then receive an authorization
 code and, when the signing key is set, an ID token whose `sub` is that cid.
 
 The OpenID Connect issuer is `https://id.cumuluscloud.app/realms/cumulus`.
@@ -23,12 +23,26 @@ Both documents name the realm issuer. JWKS is
 `https://id.cumuluscloud.app/realms/cumulus/protocol/openid-connect/certs`.
 Tokens are ES256 (or EdDSA, if that is the key that was loaded). Claims include
 `sub` (the cid), `cid`, `username`, `preferred_username`, `handle`, `email`,
-`email_verified`, `amr`, and `idp` (`google`, `cognito`, or `passkey`).
+`email_verified`, `amr`, `idp` (`google` or `passkey`), and `sid`.
+Discovery also names `end_session_endpoint` and `revocation_endpoint`. Logout
+revokes the hinted session and the browser session, and only redirects to a
+registered client origin. Revocation answers 200 for an unknown token.
+
+## Public key directory
+
+Mail looks up OpenPGP public keys at `https://id.cumuluscloud.app/api/keys/{email}`
+(`CID_KEYS_URL` in the Mail repository). `GET` returns `application/pgp-keys` or
+404. `PUT` with `Authorization: Bearer` stores the armored public key only when
+that address is the token's mailbox or a provider-verified email on the same
+cid. A private key block is refused. The key is saved on the account record
+(the `cid` document, or the account row when `CUMULUS_STORE=postgres`). No new
+table, binding, or secret. Removing the field is the rollback; sign-in does
+not read it.
 
 ## Signing key
 
-OpenID Connect stays off until `CID_OIDC_SIGNING_KEY` is set. Passkey, Google, and
-Cognito sign-in still work, and `/api/id/*` still returns an opaque session token.
+OpenID Connect stays off until `CID_OIDC_SIGNING_KEY` is set. Passkey and Google
+sign-in still work, and `/api/id/*` still returns an opaque session token.
 A missing or unusable key does not stop the Worker from booting.
 
 Generate a key from the repository root. This writes a file and does not print the private key:
@@ -42,10 +56,8 @@ npx wrangler secret put CID_OIDC_SIGNING_KEY < ../oidc-signing-key.jwk
 Keep a copy of the file somewhere safe. Deleting the secret turns signed tokens off
 again. Do not commit the file (`oidc-signing-key.jwk` is gitignored).
 
-Google and Cognito stay off until their own secrets are set. See `.env.example`.
-For the Worker, `wrangler secret put` each of `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`,
-and `COGNITO_CLIENT_SECRET`. The Cognito pool id, region, domain, and client id are
-already in `apps/spectre/wrangler.jsonc`.
+Google stays off until its own secrets are set. See `.env.example`.
+For the Worker, `wrangler secret put` each of `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`.
 
 ## Where the cid is stored
 
@@ -99,6 +111,24 @@ before setting `CUMULUS_ID_ISSUER` in production.
 
 Known limits: signing out everywhere at the issuer does not yet end Mail's local sessions, and
 MFA is enforced at the issuer only (a mirrored account has no local authenticator code).
+
+## Backend-only deploy (keep the live pages)
+
+`public/` in this repository is not what `https://id.cumuluscloud.app` serves today.
+`apps/spectre/live-ui/` is a byte snapshot of the pages that host returns, with
+`live-ui.manifest.json` holding each SHA-256. `scripts/live-ui.test.mjs` downloads
+those URLs again and fails if a byte changed. The Worker bundle that keeps those
+pages and ships the current API is:
+
+```sh
+node apps/spectre/scripts/build-cloudflare.mjs --assets apps/spectre/live-ui --out apps/spectre/dist/entry.mjs
+cd apps/spectre && npx wrangler deploy
+```
+
+Do not run the build without `--assets`: that embeds `public/` and replaces the live pages.
+`/id/bar.js` is in `public/` and is HTTP 404 on the host, so it is not in `live-ui/`.
+`/robots.txt` is a content-signal document the app does not reference; it is recorded
+in the manifest and is not embedded. No Worker secret is changed by this build.
 
 ## Deploy cumulus-id
 
@@ -262,8 +292,8 @@ In the same deploy, set `SPECTRE_AUTH=oidc` (a plain var in `apps/spectre/wrangl
 secret; add it to the route commit). +SPCTR then signs people in at the new issuer as client
 `spectre`, and the passkey, MFA and social sign-in routes answer 404. `CID_ISSUER` and
 `CID_CLIENT_ID` default to `https://id.cumuluscloud.app/realms/cumulus` and `spectre`; set them only
-to test against another issuer. Without `SPECTRE_AUTH=oidc`, social sign-in providers (Google,
-Cognito) would need `https://spectre.infinitumcorporation.ai/api/auth/oauth/<provider>/callback`
+to test against another issuer. Without `SPECTRE_AUTH=oidc`, social sign-in providers (Google)
+would need `https://spectre.infinitumcorporation.ai/api/auth/oauth/<provider>/callback`
 registered, and passkeys bound to `id.cumuluscloud.app` would not work there.
 
 At the same time, delete `CID_OIDC_SIGNING_KEY` from the `cumulus-id` (+SPCTR) Worker:

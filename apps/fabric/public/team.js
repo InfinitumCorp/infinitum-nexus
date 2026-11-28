@@ -43,7 +43,7 @@ const tryRun = (fn) => async (...args) => { try { await fn(...args); } catch (e)
 const URL_RE = /https?:\/\/[^\s<>"')\]]+/g;
 function inline(text, mentions) {
   const out = [];
-  const re = /(`[^`\n]+`)|(\*[^*\n]+\*)|(_[^_\n]+_)|(~[^~\n]+~)|(https?:\/\/[^\s<>"')\]]+)|(@[a-z0-9._-]+)|(#[a-z0-9_-]+)|(fabric:message\/[0-9a-f-]{36})/gi;
+  const re = /(`[^`\n]+`)|(\*[^*\n]+\*)|(_[^_\n]+_)|(~[^~\n]+~)|(https?:\/\/[^\s<>"')\]]+)|(@[a-z0-9._-]+)|(#[a-z0-9_-]+)|(fabric:message\/[0-9a-f-]{36})|(:[a-z0-9_+-]{1,40}:)/gi;
   let last = 0;
   for (const m of text.matchAll(re)) {
     if (m.index > last) out.push(text.slice(last, m.index));
@@ -59,6 +59,7 @@ function inline(text, mentions) {
       out.push(h("span", { class: `mention${me ? " me" : ""}` }, t));
     } else if (m[7]) out.push(h("a", { href: "#", class: "chan", onclick: (e) => { e.preventDefault(); openChannelByName(t.slice(1)); } }, t));
     else if (m[8]) out.push(h("a", { href: "#", onclick: (e) => { e.preventDefault(); jumpTo(t.split("/")[1]); } }, "view message"));
+    else if (m[9]) out.push(emojiNode(t));
     last = m.index + t.length;
   }
   if (last < text.length) out.push(text.slice(last));
@@ -85,6 +86,13 @@ function format(text) {
     }
   });
   return frag;
+}
+
+/** A :name: custom emoji as an image, or the text itself if the workspace has no such emoji. */
+function emojiNode(code) {
+  const name = code.slice(1, -1).toLowerCase();
+  if (!state.emoji?.has(name)) return code;
+  return h("img", { class: "t-emoji", src: T(`/workspaces/${state.wsId}/emoji/${name}`), alt: code, title: code, loading: "lazy" });
 }
 
 const time = (iso) => new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
@@ -137,7 +145,8 @@ function menu(anchor, items) {
 }
 
 function emojiPicker(anchor, onPick) {
-  menu(anchor, [...EMOJI.map((e) => [e, () => onPick(e)]), ["Other…", async () => {
+  const custom = [...(state.emoji || [])].slice(0, 24).map((name) => [emojiNode(`:${name}:`), () => onPick(`:${name}:`)]);
+  menu(anchor, [...EMOJI.map((e) => [e, () => onPick(e)]), ...custom, ["Other…", async () => {
     const r = await dialog("React with", [{ name: "emoji", label: "Emoji or :short_code:", max: 42, required: true }]);
     if (r?.emoji) await onPick(r.emoji);
   }]]);
@@ -149,22 +158,63 @@ function emojiPicker(anchor, onPick) {
 async function loadSidebar() {
   state.bar = await api(T(`/workspaces/${state.wsId}`));
   const bar = state.bar;
+  state.emoji = new Set(bar.emoji || []);
   $("#me-button").hidden = false;
   $("#me-button").textContent = `${bar.me.statusEmoji ? `${bar.me.statusEmoji} ` : ""}${bar.me.displayName}${bar.me.dnd ? " · DND" : bar.me.presence === "away" ? " · away" : ""}`;
   $("#count-saved").textContent = bar.saved || "";
   $("#count-scheduled").textContent = bar.scheduled || "";
   $("#count-reminders").textContent = bar.reminders || "";
+  $("#count-tasks").textContent = bar.tasks || "";
   const row = (c) => h("li", {}, h("button", {
     type: "button", class: `${c.unread && !c.muted ? "unread" : ""}${c.muted ? " muted" : ""}`, "aria-current": state.channel?.id === c.id ? "true" : null,
     onclick: tryRun(() => openChannel(c.id)),
-  }, c.kind === "dm" && c.people?.[0] ? dot(c.people[0]) : null, h("span", { class: "name" }, chanLabel(c)), c.mentions ? h("span", { class: "badge" }, String(c.mentions)) : null));
+  }, c.kind === "dm" && c.people?.[0] ? dot(c.people[0]) : null, h("span", { class: "name" }, chanLabel(c)), c.huddle ? h("span", { class: "t-huddle-mark", title: `Huddle · ${c.huddle.people}` }, "🎧") : null, c.mentions ? h("span", { class: "badge" }, String(c.mentions)) : null));
   const all = [...bar.channels, ...bar.direct];
   $("#starred").replaceChildren(...all.filter((c) => c.starred).map(row));
   $("#starred").parentElement.hidden = !all.some((c) => c.starred);
-  $("#channels").replaceChildren(...bar.channels.filter((c) => !c.starred).map(row));
-  $("#direct").replaceChildren(...bar.direct.filter((c) => !c.starred).map(row));
+  const sectionIds = new Set((bar.sections || []).map((s) => s.id));
+  const placed = (c) => c.starred || (c.sectionId && sectionIds.has(c.sectionId));
+  $("#sections").replaceChildren(...(bar.sections || []).map((s, i) => {
+    const items = all.filter((c) => !c.starred && c.sectionId === s.id);
+    const unread = items.some((c) => c.unread && !c.muted);
+    return h("div", { class: "t-section" },
+      h("div", { class: "t-section-head" },
+        h("button", { type: "button", class: `link t-section-toggle${unread && s.collapsed ? " strong" : ""}`, "aria-expanded": String(!s.collapsed), onclick: tryRun(() => sectionUpdate(s, { collapsed: !s.collapsed })) }, `${s.collapsed ? "▸" : "▾"} ${s.name}`),
+        h("button", { type: "button", class: "link", "aria-label": `${s.name} options`, onclick: (e) => menu(e.currentTarget, [
+          ["Rename section", async () => { const r = await dialog("Rename section", [{ name: "name", label: "Name", value: s.name, max: 60, required: true }]); if (r) await sectionUpdate(s, { name: r.name }); }],
+          i > 0 && ["Move up", () => sectionUpdate(s, { position: i - 1 })],
+          i < bar.sections.length - 1 && ["Move down", () => sectionUpdate(s, { position: i + 1 })],
+          ["Delete section", async () => { if (confirm(`Delete the section “${s.name}”? Its channels go back to Channels and Direct messages.`)) { await api(T(`/sections/${s.id}`), { method: "DELETE" }); await loadSidebar(); } }],
+        ]) }, "⋯")),
+      s.collapsed ? h("ul", { class: "t-list" }, ...items.filter((c) => state.channel?.id === c.id || (c.unread && !c.muted)).map(row)) : h("ul", { class: "t-list" }, ...items.map(row)),
+      !s.collapsed && !items.length ? h("p", { class: "meta t-section-empty" }, "Use ⋯ → Move to section on a channel.") : null,
+    );
+  }));
+  $("#channels").replaceChildren(...bar.channels.filter((c) => !placed(c)).map(row));
+  $("#direct").replaceChildren(...bar.direct.filter((c) => !placed(c)).map(row));
   const unread = all.reduce((n, c) => n + (c.muted ? 0 : c.mentions), 0);
   document.title = `${unread ? `(${unread}) ` : ""}${bar.workspace.name} · FABRIC Teams`;
+}
+
+async function sectionUpdate(s, body) {
+  await api(T(`/sections/${s.id}`), { method: "PATCH", body });
+  await loadSidebar();
+}
+
+async function moveToSection(c) {
+  const sections = state.bar.sections || [];
+  const r = await dialog(`Move ${chanLabel(c)}`, [
+    { name: "sectionId", label: "Section", type: "select", value: c.sectionId || "", options: [["", c.kind === "dm" || c.kind === "group" ? "Direct messages (default)" : "Channels (default)"], ...sections.map((s) => [s.id, s.name]), ["+", "New section…"]] },
+  ], "Move");
+  if (!r) return;
+  let sectionId = r.sectionId || null;
+  if (sectionId === "+") {
+    const n = await dialog("New section", [{ name: "name", label: "Name", max: 60, required: true, placeholder: "Projects" }], "Create");
+    if (!n) return;
+    sectionId = (await api(T(`/workspaces/${state.wsId}/sections`), { method: "POST", body: { name: n.name } })).id;
+  }
+  await api(T(`/channels/${c.id}/prefs`), { method: "PUT", body: { sectionId } });
+  await loadSidebar();
 }
 
 async function loadWorkspaces() {
@@ -228,13 +278,16 @@ function renderHead() {
       h("h2", {}, chanLabel(c)),
       c.member ? h("button", { type: "button", class: "link", "aria-pressed": String(c.starred), title: c.starred ? "Unstar" : "Star", onclick: tryRun(async () => { await api(T(`/channels/${c.id}/prefs`), { method: "PUT", body: { starred: !c.starred } }); c.starred = !c.starred; renderHead(); await loadSidebar(); }) }, c.starred ? "★" : "☆") : null,
       c.archived ? h("span", { class: "meta" }, "archived") : null,
+      c.posting === "admins" ? h("span", { class: "meta", title: c.threadReplies ? "Only admins and the channel creator can post; everyone can reply in threads" : "Only admins and the channel creator can post" }, "📣 announcements") : null,
     ),
     h("p", { class: "meta t-topic" }, c.topic || c.purpose || (c.kind === "dm" ? "Direct message" : c.kind === "group" ? "Group conversation" : "Add a topic")),
     h("div", { class: "t-row t-head-actions" },
       h("button", { type: "button", class: "btn small", onclick: tryRun(showMembers) }, `${c.memberCount} ${c.memberCount === 1 ? "member" : "members"}`),
       h("button", { type: "button", class: "btn small", onclick: tryRun(showPins) }, `Pins${c.pins ? ` ${c.pins}` : ""}`),
       h("button", { type: "button", class: "btn small", onclick: tryRun(showCanvas) }, c.canvas ? "Canvas •" : "Canvas"),
+      h("button", { type: "button", class: "btn small", onclick: tryRun(() => showList()) }, `List${c.openTasks ? ` ${c.openTasks}` : ""}`),
       h("button", { type: "button", class: "btn small", onclick: tryRun(() => showFiles(c.id)) }, "Files"),
+      huddleButton(c),
       !c.member && !c.archived ? h("button", { type: "button", class: "btn primary small", onclick: tryRun(async () => { await api(T(`/channels/${c.id}/join`), { method: "POST", body: {} }); await openChannel(c.id); }) }, "Join channel") : null,
       h("button", { type: "button", class: "btn small", "aria-label": "Channel settings", onclick: (e) => channelMenu(e.currentTarget) }, "…"),
     ),
@@ -244,8 +297,10 @@ function renderHead() {
       h("button", { type: "button", class: "link", "aria-label": `Remove ${b.title}`, onclick: tryRun(async () => { await api(T(`/bookmarks/${b.id}`), { method: "DELETE" }); await refreshChannel(); }) }, "×"))),
     c.member ? h("li", {}, h("button", { type: "button", class: "link", onclick: tryRun(addBookmark) }, "+ Add a bookmark")) : null,
   );
-  $("#composer").querySelector("textarea").placeholder = c.archived ? "This channel is archived" : `Message ${chanLabel(c)}`;
-  $("#text").disabled = c.archived || !c.member;
+  const readOnly = c.member && !c.archived && c.canPost === false;
+  $("#composer").querySelector("textarea").placeholder = c.archived ? "This channel is archived" : readOnly ? `Only admins and the channel creator can post in ${chanLabel(c)}${c.threadReplies ? ". You can reply in threads." : "."}` : `Message ${chanLabel(c)}`;
+  $("#text").disabled = c.archived || !c.member || readOnly;
+  $("#composer").classList.toggle("read-only", !!readOnly);
 }
 
 function channelMenu(anchor) {
@@ -256,12 +311,27 @@ function channelMenu(anchor) {
     named && ["Edit description", async () => { const r = await dialog("Description", [{ name: "purpose", label: "Description", value: c.purpose, max: 250 }]); if (r) { await api(T(`/channels/${c.id}`), { method: "PATCH", body: r }); await refreshChannel(); } }],
     named && ["Rename", async () => { const r = await dialog("Rename channel", [{ name: "name", label: "Name", value: c.name, max: 80 }]); if (r) { await api(T(`/channels/${c.id}`), { method: "PATCH", body: r }); await refreshChannel(); await loadSidebar(); } }],
     c.kind !== "dm" && c.member && ["Add people", async () => { const r = await dialog("Add people", [{ name: "people", label: "Usernames, separated by spaces", required: true }]); if (r) { await api(T(`/channels/${c.id}/invite`), { method: "POST", body: { people: r.people.split(/[\s,]+/) } }); await refreshChannel(); } }],
+    c.kind !== "dm" && ["Workflows", () => showWorkflows()],
+    c.kind !== "dm" && ["Incoming webhooks", () => showWebhooks()],
     c.member && [c.muted ? "Unmute" : "Mute", async () => { await api(T(`/channels/${c.id}/prefs`), { method: "PUT", body: { muted: !c.muted } }); await refreshChannel(); await loadSidebar(); }],
+    c.member && ["Move to section…", () => moveToSection(c)],
+    c.member && ["Notifications…", () => editNotifications(c)],
+    named && c.member && (["owner", "admin"].includes(state.bar.workspace.role) || c.createdBy === state.me.sub) && ["Posting permissions…", () => editPosting(c)],
     c.member && ["Mark as read", async () => { await api(T(`/channels/${c.id}/read`), { method: "POST", body: {} }); await loadSidebar(); }],
     named && !c.archived && ["Archive channel", async () => { if (confirm(`Archive #${c.name}? People can still read it.`)) { await api(T(`/channels/${c.id}/archive`), { method: "POST", body: { archived: true } }); await refreshChannel(); await loadSidebar(); } }],
     named && c.archived && ["Unarchive channel", async () => { await api(T(`/channels/${c.id}/archive`), { method: "POST", body: { archived: false } }); await refreshChannel(); await loadSidebar(); }],
     c.member && c.kind !== "dm" && !c.isDefault && ["Leave", async () => { await api(T(`/channels/${c.id}/leave`), { method: "POST", body: {} }); state.channel = null; await loadSidebar(); await openChannel(state.bar.channels[0].id); }],
   ]);
+}
+
+async function editPosting(c) {
+  const r = await dialog(`Who can post in ${chanLabel(c)}`, [
+    { name: "posting", label: "Who can start new messages", type: "select", value: c.posting || "everyone", options: [["everyone", "Everyone in the channel"], ["admins", "Only admins and the channel creator"]] },
+    { name: "threadReplies", label: "When limited, everyone can still reply in threads", type: "checkbox", value: c.threadReplies !== false },
+  ], "Save");
+  if (!r) return;
+  await api(T(`/channels/${c.id}`), { method: "PATCH", body: { posting: r.posting, threadReplies: r.threadReplies } });
+  await refreshChannel();
 }
 
 async function refreshChannel() {
@@ -311,22 +381,50 @@ function messageItem(m, { compact = false, focus = false, inThread = false } = {
   else if (m.unreadable) body.append(h("p", { class: "meta" }, "This message could not be read."));
   else if (state.editing === m.id) body.append(editBox(m));
   else if (m.poll) body.append(h("p", { class: "strong" }, "📊 ", ...inline(m.text)), pollBlock(m));
-  else body.append(format(m.text));
+  else if (m.text) body.append(format(m.text));
+  if (m.shared && !m.deleted) body.append(sharedBlock(m.shared));
   if (m.editedAt && !m.deleted) body.append(h("span", { class: "meta" }, " (edited)"));
   if (m.alsoInChannel && !inThread) body.prepend(h("p", { class: "meta" }, "replied to a thread"));
   for (const f of m.files) {
     const url = T(`/files/${f.id}`);
     if (/^image\/(png|jpeg|gif|webp)$/.test(f.mime)) body.append(h("a", { href: url, class: "t-image" }, h("img", { src: `${url}?inline=1`, alt: f.name, loading: "lazy" })));
+    if (/^audio\/(webm|ogg|mp4|mpeg)$/.test(f.mime)) {
+      body.append(h("div", { class: "t-clip" }, h("span", { "aria-hidden": "true" }, "🎙"), h("audio", { controls: true, preload: "metadata", src: `${url}?inline=1`, "aria-label": f.name }), h("span", { class: "meta" }, f.name.replace(/\.[a-z0-9]+$/i, ""))));
+      continue;
+    }
     body.append(h("a", { href: url, class: "t-filecard", download: f.name }, `📎 ${f.name}`, h("span", { class: "meta" }, ` ${size(f.size)}`)));
   }
   li.append(body);
   if (m.reactions.length) li.append(h("div", { class: "t-reactions" }, ...m.reactions.map((r) => h("button", {
     type: "button", class: r.mine ? "mine" : "", "aria-pressed": String(r.mine), title: r.subs.length > 0 ? `${r.count} reacted` : "",
     onclick: tryRun(async () => { await api(T(`/messages/${m.id}/reactions`), { method: "POST", body: { emoji: r.emoji } }); await afterChange(m); }),
-  }, `${r.emoji} ${r.count}`)), h("button", { type: "button", class: "add", "aria-label": "Add reaction", onclick: (e) => emojiPicker(e.currentTarget, async (emoji) => { await api(T(`/messages/${m.id}/reactions`), { method: "POST", body: { emoji, on: true } }); await afterChange(m); }) }, "+")));
+  }, emojiNode(r.emoji), ` ${r.count}`)), h("button", { type: "button", class: "add", "aria-label": "Add reaction", onclick: (e) => emojiPicker(e.currentTarget, async (emoji) => { await api(T(`/messages/${m.id}/reactions`), { method: "POST", body: { emoji, on: true } }); await afterChange(m); }) }, "+")));
   if (m.replyCount && !inThread) li.append(h("button", { type: "button", class: "t-replies link", onclick: tryRun(() => openThread(m.id)) }, `${m.replyCount} ${m.replyCount === 1 ? "reply" : "replies"}`, h("span", { class: "meta" }, ` · last ${when(m.lastReplyAt)}`)));
   if (!m.deleted && !m.unreadable) li.append(actions(m, inThread));
   return li;
+}
+
+function sharedBlock(s) {
+  if (!s.available) return h("blockquote", { class: "t-shared" }, h("p", { class: "meta" }, "Shared from a conversation you can't see."));
+  const where = s.channelKind === "dm" || s.channelKind === "group" ? "a conversation" : `#${s.channelName}`;
+  return h("blockquote", { class: "t-shared" },
+    h("div", { class: "t-who" }, dot(s.sender), h("span", { class: "strong" }, personName(s.sender)), h("span", { class: "meta" }, ` in ${where} · ${when(s.createdAt)}`)),
+    format(s.text),
+    ...s.files.map((f) => h("a", { href: T(`/files/${f.id}`), class: "t-filecard", download: f.name }, `📎 ${f.name}`, h("span", { class: "meta" }, ` ${size(f.size)}`))),
+    h("button", { type: "button", class: "link meta", onclick: tryRun(() => jumpTo(s.id)) }, "View original"),
+  );
+}
+
+async function shareMessage(m) {
+  const targets = [...state.bar.channels.filter((c) => c.member && !c.archived), ...state.bar.direct];
+  if (!targets.length) return;
+  const r = await dialog("Share message", [
+    { name: "channelId", label: "Share to", type: "select", options: targets.map((c) => [c.id, chanLabel(c)]), value: state.channel?.id },
+    { name: "text", label: "Add a message (optional)", type: "textarea", rows: 3, max: 4000 },
+  ], "Share");
+  if (!r) return;
+  const out = await api(T(`/messages/${m.id}/share`), { method: "POST", body: { channelId: r.channelId, text: r.text } });
+  await openChannel(out.channelId);
 }
 
 function pollBlock(m) {
@@ -375,6 +473,7 @@ function actions(m, inThread) {
         const r = await dialog("Remind me", [{ name: "in", label: "When", type: "select", options: [["20", "In 20 minutes"], ["60", "In 1 hour"], ["180", "In 3 hours"], ["1440", "Tomorrow"], ["10080", "Next week"]] }]);
         if (r) { await api(T(`/messages/${m.id}/save`), { method: "PUT", body: { remindAt: new Date(Date.now() + Number(r.in) * 60_000).toISOString() } }); await afterChange(m); await loadSidebar(); }
       }],
+      m.kind !== "system" && ["Share message…", () => shareMessage(m)],
       ["Mark unread", async () => { await api(T(`/channels/${m.channelId}/read`), { method: "POST", body: { unreadFrom: m.id } }); await loadSidebar(); }],
       ["Copy link", async () => { await navigator.clipboard.writeText(`fabric:message/${m.id}`); }],
       mine && ["Edit message", () => { state.editing = m.id; inThread ? renderThread() : renderMessages(null, false); }],
@@ -403,10 +502,10 @@ async function afterChange(m) {
 
 const draftKey = () => `team.draft.${state.channel?.id}`;
 function saveDraft() { if (state.channel) { try { const v = $("#text").value; v ? localStorage.setItem(draftKey(), v) : localStorage.removeItem(draftKey()); } catch {} } }
-function restoreDraft() { $("#text").value = localStorage.getItem(draftKey()) || ""; state.files = []; renderAttachments(); }
+function restoreDraft() { if (typeof stopClip === "function") stopClip(true); $("#text").value = localStorage.getItem(draftKey()) || ""; state.files = []; renderAttachments(); }
 
 function renderAttachments() {
-  $("#attachments").replaceChildren(...state.files.map((f) => h("span", { class: "t-chip" }, `📎 ${f.name}`, h("button", { type: "button", class: "link", "aria-label": `Remove ${f.name}`, onclick: () => { state.files = state.files.filter((x) => x !== f); renderAttachments(); } }, "×"))));
+  $("#attachments").replaceChildren(...state.files.map((f) => h("span", { class: "t-chip" }, `${f.mime?.startsWith("audio/") ? "🎙" : "📎"} ${f.name}`, h("button", { type: "button", class: "link", "aria-label": `Remove ${f.name}`, onclick: () => { state.files = state.files.filter((x) => x !== f); renderAttachments(); } }, "×"))));
 }
 
 async function upload(file, channelId) {
@@ -542,6 +641,66 @@ $("#file").addEventListener("change", tryRun(async (e) => {
 }));
 
 $("#poll").addEventListener("click", tryRun(newPoll));
+
+// ---------- voice clips ----------
+// Record a short audio message in the browser and attach it like a file. Up to three minutes, small enough
+// (Opus at 32 kbit/s) to fit the 1 MB file limit.
+
+const CLIP_SECONDS = 180;
+const clipType = () => ["audio/webm;codecs=opus", "audio/ogg;codecs=opus", "audio/mp4"].find((t) => window.MediaRecorder?.isTypeSupported?.(t)) || "";
+const mmss = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+let clip = null;
+
+async function startClip() {
+  if (clip || !state.channel) return;
+  if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) throw new Error("This browser can't record audio");
+  const type = clipType();
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+  const recorder = new MediaRecorder(stream, { ...(type ? { mimeType: type } : {}), audioBitsPerSecond: 32_000 });
+  const chunks = [];
+  const channelId = state.channel.id;
+  const started = Date.now();
+  clip = { recorder, stream, cancelled: false, timer: 0 };
+  recorder.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+  recorder.onstop = tryRun(async () => {
+    const { cancelled } = clip;
+    stream.getTracks().forEach((t) => t.stop());
+    clearInterval(clip.timer);
+    clip = null;
+    renderClip();
+    if (cancelled) return;
+    const seconds = Math.max(1, Math.round((Date.now() - started) / 1000));
+    const mime = (recorder.mimeType || type || "audio/webm").split(";")[0];
+    const ext = mime === "audio/mp4" ? "m4a" : mime === "audio/ogg" ? "ogg" : "webm";
+    const file = new File(chunks, `Voice clip ${mmss(seconds)}.${ext}`, { type: mime });
+    if (file.size > 1_000_000) throw new Error("That clip is too long to send");
+    state.files.push(await upload(file, channelId));
+    renderAttachments();
+    $("#text").focus();
+  });
+  recorder.start(1000);
+  clip.timer = setInterval(() => { renderClip(Math.round((Date.now() - started) / 1000)); if (Date.now() - started >= CLIP_SECONDS * 1000) stopClip(false); }, 250);
+  renderClip(0);
+}
+
+function stopClip(cancel) {
+  if (!clip) return;
+  clip.cancelled = cancel;
+  if (clip.recorder.state !== "inactive") clip.recorder.stop();
+}
+
+function renderClip(seconds = 0) {
+  const bar = $("#clip-status");
+  if (!clip) { bar.hidden = true; bar.replaceChildren(); $("#record").hidden = false; return; }
+  $("#record").hidden = true;
+  bar.hidden = false;
+  bar.replaceChildren(
+    h("span", { class: "t-rec-dot", "aria-hidden": "true" }), h("span", { role: "timer" }, `Recording ${mmss(seconds)} / ${mmss(CLIP_SECONDS)}`),
+    h("button", { type: "button", class: "btn primary small", onclick: () => stopClip(false) }, "Done"),
+    h("button", { type: "button", class: "btn small", onclick: () => stopClip(true) }, "Cancel"));
+}
+
+$("#record").addEventListener("click", tryRun(startClip));
 $("#schedule").addEventListener("click", tryRun(async () => {
   const text = $("#text").value;
   if (!text.trim()) throw new Error("Write the message first");
@@ -569,11 +728,87 @@ $("#older").addEventListener("click", tryRun(async () => {
 // ---------- side panel ----------
 
 function panel(title, ...content) {
+  state.listChannel = null;
   $("#panel").hidden = false;
   $("#panel-title").textContent = title;
-  $("#panel-body").replaceChildren(...content);
+  $("#panel-body").replaceChildren(...content.filter((c) => c !== null && c !== undefined && c !== false));
 }
-$("#panel-close").addEventListener("click", () => { $("#panel").hidden = true; state.thread = null; });
+$("#panel-close").addEventListener("click", () => { $("#panel").hidden = true; state.thread = null; state.listChannel = null; });
+
+// ---------- task lists ----------
+
+const today = () => { const d = new Date(); return new Date(d.getTime() - d.getTimezoneOffset() * 60_000).toISOString().slice(0, 10); };
+const dueLabel = (due) => {
+  if (!due) return null;
+  const t = today();
+  const text = due === t ? "Today" : new Date(`${due}T12:00:00`).toLocaleDateString([], { month: "short", day: "numeric" });
+  return h("span", { class: `t-due${due < t ? " late" : due === t ? " soon" : ""}`, title: due < t ? "Overdue" : "Due" }, `📅 ${text}`);
+};
+
+function taskItem(task, { showChannel = false, onChange }) {
+  const box = h("input", { type: "checkbox", "aria-label": task.done ? "Mark as not done" : "Mark as done" });
+  box.checked = task.done;
+  box.addEventListener("change", tryRun(async () => { await api(T(`/tasks/${task.id}`), { method: "PATCH", body: { done: box.checked } }); await onChange(); }));
+  return h("li", { class: `t-task${task.done ? " done" : ""}` },
+    box,
+    h("div", { class: "t-task-body" },
+      h("span", { class: "t-task-title" }, ...inline(task.title)),
+      task.notes ? h("p", { class: "meta t-task-notes" }, task.notes) : null,
+      h("p", { class: "t-row meta" },
+        showChannel ? h("button", { type: "button", class: "link meta", onclick: tryRun(() => showList(task.channelId)) }, chanName(task.channelId)) : null,
+        task.assignee ? h("span", {}, `@${task.assignee.username}`) : null,
+        task.done ? null : dueLabel(task.due),
+        task.done && task.doneBy ? h("span", {}, `done by ${task.doneBy.displayName}`) : null)),
+    h("button", { type: "button", class: "link", "aria-label": "Task options", onclick: (e) => menu(e.currentTarget, [
+      ["Edit task", () => editTask(task, onChange)],
+      ["Remove task", async () => { if (confirm(`Remove “${task.title}”?`)) { await api(T(`/tasks/${task.id}`), { method: "DELETE" }); await onChange(); } }],
+    ]) }, "⋯"));
+}
+
+async function taskFields(channelId, task) {
+  const { people } = await api(T(`/channels/${channelId}/people`));
+  return [
+    { name: "title", label: "Task", value: task?.title, max: 300, required: true },
+    { name: "assignee", label: "Assignee", type: "select", value: task?.assignee?.username || "", options: [["", "Nobody"], ...people.map((p) => [p.username, `${p.displayName} (@${p.username})`])] },
+    { name: "due", label: "Due date", type: "date", value: task?.due || "" },
+    { name: "notes", label: "Notes", type: "textarea", rows: 3, max: 4000, value: task?.notes || "" },
+  ];
+}
+
+async function editTask(task, onChange) {
+  const r = await dialog("Edit task", await taskFields(task.channelId, task), "Save");
+  if (!r) return;
+  await api(T(`/tasks/${task.id}`), { method: "PATCH", body: { title: r.title, assignee: r.assignee || null, due: r.due || null, notes: r.notes } });
+  await onChange();
+}
+
+async function showList(channelId = state.channel?.id) {
+  if (!channelId) return;
+  const { tasks } = await api(T(`/channels/${channelId}/tasks`));
+  state.thread = null;
+  const c = [...state.bar.channels, ...state.bar.direct].find((x) => x.id === channelId) || state.channel;
+  const canEdit = c && c.member !== false && !c.archived;
+  const refresh = async () => { await showList(channelId); if (state.channel?.id === channelId) await refreshChannel(); await loadSidebar(); };
+  const open = tasks.filter((t) => !t.done);
+  const done = tasks.filter((t) => t.done);
+  const title = h("input", { class: "input", maxlength: 300, placeholder: "Add a task", "aria-label": "New task" });
+  const add = h("form", { class: "t-task-add", onsubmit: tryRun(async (e) => {
+    e.preventDefault();
+    if (!title.value.trim()) return;
+    await api(T(`/channels/${channelId}/tasks`), { method: "POST", body: { title: title.value } });
+    await refresh();
+    document.querySelector(".t-task-add input")?.focus();
+  }) }, title, h("button", { type: "submit", class: "btn small" }, "Add"),
+    h("button", { type: "button", class: "btn small", onclick: tryRun(async () => {
+      const r = await dialog("New task", await taskFields(channelId, null), "Add");
+      if (r) { await api(T(`/channels/${channelId}/tasks`), { method: "POST", body: { title: r.title, assignee: r.assignee || null, due: r.due || null, notes: r.notes } }); await refresh(); }
+    }) }, "More…"));
+  panel(`List · ${c ? chanLabel(c) : "channel"}`,
+    canEdit ? add : null,
+    open.length ? h("ul", { class: "t-tasks" }, ...open.map((t) => taskItem(t, { onChange: refresh }))) : h("p", { class: "meta" }, "A shared to-do list for this channel. Add tasks, assign them and set due dates."),
+    done.length ? h("details", {}, h("summary", { class: "meta" }, `${done.length} done`), h("ul", { class: "t-tasks" }, ...done.map((t) => taskItem(t, { onChange: refresh })))) : null);
+  state.listChannel = channelId;
+}
 
 async function openThread(id, keepScroll = false) {
   state.thread = await api(T(`/messages/${id}/thread`));
@@ -598,8 +833,10 @@ function renderThread(keepScroll = false) {
     if (also.checked) await refreshChannel();
   });
   const list = h("ol", { class: "t-messages" }, messageItem(t.parent, { inThread: true }), h("li", { class: "t-day" }, h("span", {}, `${t.replies.length} ${t.replies.length === 1 ? "reply" : "replies"}`)), ...t.replies.map((m) => messageItem(m, { inThread: true })));
-  panel(`Thread in ${chanLabel(t.channel)}`, list, h("form", { class: "t-composer", onsubmit: (e) => { e.preventDefault(); submit(); } }, ta,
-    h("div", { class: "t-composer-bar" }, h("label", { for: "thread-also", class: "meta" }, also, ` Also send to ${chanLabel(t.channel)}`), h("button", { class: "btn primary small", type: "submit" }, "Reply"))));
+  const canReply = t.channel.canReply !== false;
+  panel(`Thread in ${chanLabel(t.channel)}`, list, canReply ? h("form", { class: "t-composer", onsubmit: (e) => { e.preventDefault(); submit(); } }, ta,
+    h("div", { class: "t-composer-bar" }, t.channel.canPost !== false ? h("label", { for: "thread-also", class: "meta" }, also, ` Also send to ${chanLabel(t.channel)}`) : h("span"), h("button", { class: "btn primary small", type: "submit" }, "Reply")))
+    : h("p", { class: "meta" }, t.channel.member === false ? "Join the channel to reply." : "Only admins and the channel creator can reply here."));
   bindComposer(ta, submit, t.parent.id);
   const body = $("#panel-body");
   if (!keepScroll) { body.scrollTop = body.scrollHeight; ta.focus(); }
@@ -643,6 +880,75 @@ async function editProfile() {
   const me = state.bar.me;
   const r = await dialog("Edit profile", [{ name: "displayName", label: "Display name", value: me.displayName, max: 80 }, { name: "title", label: "Title", value: me.title || "", max: 100 }], "Save");
   if (r) { await api(T(`/workspaces/${state.wsId}/me`), { method: "PATCH", body: r }); peopleCache.at = 0; await loadSidebar(); }
+}
+
+const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+function workflowWhen(w) {
+  if (w.kind === "welcome") return "Sent to each person who joins";
+  const at = w.at;
+  return `${w.every === "day" ? "Every day" : w.every === "weekday" ? "Every weekday" : `Every ${WEEKDAYS[w.weekday]}`} at ${at}`;
+}
+
+async function showWorkflows() {
+  const c = state.channel;
+  const { workflows } = await api(T(`/channels/${c.id}/workflows`));
+  const admin = ["owner", "admin"].includes(state.bar.workspace.role);
+  state.thread = null;
+  panel("Workflows",
+    h("p", { class: "meta" }, `Welcome people who join ${chanLabel(c)}, or post the same message on a schedule. Workflow messages show the workflow's name.`),
+    workflows.length ? h("ul", { class: "t-files" }, ...workflows.map((w) => h("li", {},
+      h("span", { class: "strong" }, w.name), " ",
+      h("span", { class: "meta" }, `${workflowWhen(w)}${w.paused ? " · paused" : w.nextRunAt ? ` · next ${when(w.nextRunAt)}` : ""} · by ${w.createdBy.displayName}`),
+      h("p", { class: "t-workflow-text" }, w.text),
+      w.createdBy.sub === state.me.sub || admin ? h("span", { class: "t-row" },
+        h("button", { type: "button", class: "link", onclick: tryRun(async () => { await api(T(`/workflows/${w.id}`), { method: "PATCH", body: { paused: !w.paused } }); await showWorkflows(); }) }, w.paused ? "Resume" : "Pause"),
+        h("button", { type: "button", class: "link", onclick: tryRun(async () => { if (confirm(`Remove the workflow “${w.name}”?`)) { await api(T(`/workflows/${w.id}`), { method: "DELETE" }); await showWorkflows(); } }) }, "Remove")) : null)))
+      : h("p", { class: "meta" }, "No workflows here yet."),
+    c.member && !c.archived && state.bar.workspace.role !== "guest" ? h("p", { class: "t-row" },
+      h("button", { type: "button", class: "btn small", onclick: tryRun(async () => {
+        const r = await dialog("Welcome message", [
+          { name: "name", label: "Name", value: "Welcome", max: 60, required: true },
+          { name: "text", label: "Message sent to each person who joins. {name} becomes their name.", type: "textarea", rows: 5, max: 4000 },
+        ], "Add");
+        if (r) { await api(T(`/channels/${c.id}/workflows`), { method: "POST", body: { kind: "welcome", name: r.name, text: r.text } }); await showWorkflows(); }
+      }) }, "Add welcome message"),
+      h("button", { type: "button", class: "btn small", onclick: tryRun(async () => {
+        const r = await dialog("Recurring message", [
+          { name: "name", label: "Name", value: "Standup", max: 60, required: true },
+          { name: "text", label: "Message", type: "textarea", rows: 4, max: 4000 },
+          { name: "every", label: "Repeat", type: "select", options: [["weekday", "Every weekday"], ["day", "Every day"], ["week", "Once a week"]] },
+          { name: "weekday", label: "Day (for once a week)", type: "select", options: WEEKDAYS.map((d, i) => [String(i), d]) },
+          { name: "at", label: "Time", type: "time", value: "09:30", required: true },
+        ], "Add");
+        if (r) {
+          await api(T(`/channels/${c.id}/workflows`), { method: "POST", body: { kind: "recurring", name: r.name, text: r.text, every: r.every, weekday: Number(r.weekday), at: r.at, tzOffset: -new Date().getTimezoneOffset() } });
+          await showWorkflows();
+        }
+      }) }, "Add recurring message")) : null,
+  );
+}
+
+async function showWebhooks(created) {
+  const c = state.channel;
+  const { webhooks } = await api(T(`/workspaces/${state.wsId}/webhooks`));
+  const here = webhooks.filter((w) => w.channel.id === c.id);
+  state.thread = null;
+  panel("Incoming webhooks",
+    h("p", { class: "meta" }, `Other services can post to ${chanLabel(c)} by sending JSON like {"text": "Build passed"} to a webhook URL. Messages show the webhook's name and are posted on behalf of the person who added it.`),
+    created ? h("div", { class: "t-secret" },
+      h("p", { class: "strong" }, `Copy the URL for “${created.name}” now. It is shown only once.`),
+      h("input", { class: "input", readonly: true, value: `${location.origin}${created.path}`, onfocus: (e) => e.target.select() }),
+      h("button", { type: "button", class: "btn small", onclick: tryRun(async () => { await navigator.clipboard.writeText(`${location.origin}${created.path}`); showNote("Copied."); }) }, "Copy URL")) : null,
+    here.length ? h("ul", { class: "t-files" }, ...here.map((w) => h("li", {},
+      h("span", { class: "strong" }, w.name), " ",
+      h("span", { class: "meta" }, `added by ${w.createdBy.displayName} · ${w.lastUsedAt ? `last used ${when(w.lastUsedAt)}` : "never used"}`), " ",
+      h("button", { type: "button", class: "link", onclick: tryRun(async () => { if (confirm(`Remove the webhook “${w.name}”? Anything still sending to it will get an error.`)) { await api(T(`/webhooks/${w.id}`), { method: "DELETE" }); await showWebhooks(); } }) }, "Remove"))))
+      : h("p", { class: "meta" }, "No webhooks post here yet."),
+    c.member && !c.archived && state.bar.workspace.role !== "guest" ? h("button", { type: "button", class: "btn small", onclick: tryRun(async () => {
+      const r = await dialog("Add an incoming webhook", [{ name: "name", label: "Name shown on its messages", max: 60, required: true, placeholder: "CI, Deploys, Alerts…" }], "Add");
+      if (r) await showWebhooks(await api(T(`/channels/${c.id}/webhooks`), { method: "POST", body: { name: r.name } }));
+    }) }, "Add incoming webhook") : null,
+  );
 }
 
 async function showPins() {
@@ -736,6 +1042,10 @@ async function showView(view) {
       h("p", { class: "t-row" }, h("button", { type: "button", class: "btn small", onclick: tryRun(async () => { await api(T(`/reminders/${r.id}`), { method: "PATCH", body: { done: !r.done } }); await loadSidebar(); await showView("reminders"); }) }, r.done ? "Reopen" : "Mark complete"),
         h("button", { type: "button", class: "btn small", onclick: tryRun(async () => { await api(T(`/reminders/${r.id}`), { method: "PATCH", body: { at: new Date(Date.now() + 20 * 60_000).toISOString() } }); await showView("reminders"); }) }, "Snooze 20 min"),
         h("button", { type: "button", class: "btn small", onclick: tryRun(async () => { await api(T(`/reminders/${r.id}`), { method: "DELETE" }); await loadSidebar(); await showView("reminders"); }) }, "Delete")))));
+  } else if (view === "tasks") {
+    const { tasks } = await api(T(`/workspaces/${ws}/tasks`));
+    viewShell("My tasks", tasks.length ? h("li", {}, h("ul", { class: "t-tasks" }, ...tasks.map((t) => taskItem(t, { showChannel: true, onChange: async () => { await loadSidebar(); await showView("tasks"); } }))))
+      : h("li", { class: "meta" }, "Tasks assigned to you in any channel's List show up here."));
   } else if (view === "files") {
     viewShell("Files", h("li", {}, await showFiles()));
   } else if (view === "people") {
@@ -781,12 +1091,24 @@ function connect() {
   state.events = es;
   es.addEventListener("team", (e) => {
     const ev = JSON.parse(e.data);
+    if (ev.type === "huddle-signal") { onHuddleSignal(ev); return; }
+    if (ev.type === "huddle" && ev.channelId === huddle.channelId) refreshHuddle().catch((err) => showError(err.message));
     if (ev.workspaceId !== state.wsId) return;
     if (ev.type === "typing") {
       if (ev.channelId === state.channel?.id || ev.parentId === state.thread?.parent.id) { state.typing.set(ev.username, Date.now()); renderTyping(); }
       return;
     }
-    if (ev.type === "read" || ev.type === "presence" || ev.type === "members") { soon(loadSidebar); return; }
+    if (ev.type === "read" || ev.type === "presence" || ev.type === "members" || ev.type === "sections" || ev.type === "keywords") { soon(loadSidebar); return; }
+    if (ev.type === "emoji") { soon(async () => { await loadSidebar(); if (state.channel) renderMessages(null, false); }); return; }
+    if (ev.type === "task") {
+      soon(async () => {
+        if (state.listChannel === ev.channelId && !$("#panel").hidden) await showList(ev.channelId);
+        if (state.channel?.id === ev.channelId) await refreshChannel();
+        if (state.view === "tasks") await showView("tasks");
+        await loadSidebar();
+      });
+      return;
+    }
     if (ev.type === "message" && ev.sub !== state.me.sub) { notify(ev); state.typing.delete(ev.username); }
     if (ev.type === "message" && ev.mentioned?.includes(state.me.sub)) $("#badge-activity").hidden = false;
     soon(async () => {
@@ -807,20 +1129,289 @@ function renderTyping() {
 }
 setInterval(renderTyping, 2000);
 
+/** Your notification level for a channel: your own setting, or everything in conversations and mentions in channels. */
+const notifyLevel = (c) => c?.notify || (c && (c.kind === "dm" || c.kind === "group") ? "all" : "mentions");
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+/** The first of your keywords that appears in the text as a whole word, if any. */
+function keywordIn(text) {
+  for (const k of state.bar?.keywords || []) {
+    if (new RegExp(`(^|[^\\p{L}\\p{N}_])${escapeRe(k)}($|[^\\p{L}\\p{N}_])`, "iu").test(text)) return k;
+  }
+  return null;
+}
+
 async function notify(ev) {
   if (!state.bar || state.bar.me.dnd) return;
+  if (ev.parentId && !ev.alsoInChannel && !ev.mentioned?.includes(state.me.sub)) return;
   const c = [...state.bar.channels, ...state.bar.direct].find((x) => x.id === ev.channelId);
-  if (c?.muted && !ev.mentioned?.includes(state.me.sub)) return;
-  if (!ev.mentioned?.includes(state.me.sub)) return;
+  const level = notifyLevel(c);
+  if (level === "nothing") return;
+  const mentioned = ev.mentioned?.includes(state.me.sub);
+  if (!mentioned && c?.muted) return;
+  if (!mentioned && level !== "all" && !(state.bar.keywords || []).length) return;
   if (document.visibilityState === "visible" && state.channel?.id === ev.channelId) return;
   if (!("Notification" in window) || Notification.permission !== "granted") return;
   const m = await api(T(`/messages/${ev.messageId}`)).catch(() => null);
   if (!m) return;
-  const n = new Notification(`${m.sender.displayName}${c ? ` in ${chanLabel(c)}` : ""}`, { body: m.text.slice(0, 140), tag: m.id });
+  const keyword = !mentioned && level !== "all" ? keywordIn(m.text) : null;
+  if (!mentioned && level !== "all" && !keyword) return;
+  const n = new Notification(`${m.sender.displayName}${c ? ` in ${chanLabel(c)}` : ""}${keyword ? ` · “${keyword}”` : ""}`, { body: m.text.slice(0, 140), tag: m.id });
   n.onclick = () => { window.focus(); jumpTo(m.id); };
 }
 
+async function editNotifications(c) {
+  const r = await dialog(`Notifications for ${chanLabel(c)}`, [
+    { name: "notify", label: "Notify me about", type: "select", value: c.notify || "default", options: [
+      ["default", c.kind === "dm" || c.kind === "group" ? "Default (every message)" : "Default (mentions only)"],
+      ["all", "Every new message"], ["mentions", "Mentions only"], ["nothing", "Nothing"]] },
+    { note: "Keywords from your notification settings still count unless you choose Nothing." },
+  ], "Save");
+  if (r) { await api(T(`/channels/${c.id}/prefs`), { method: "PUT", body: { notify: r.notify } }); await loadSidebar(); if (state.channel?.id === c.id) await refreshChannel(); }
+}
+
+async function editKeywords() {
+  const r = await dialog("Notification keywords", [
+    { note: "Get a desktop notification when a message in a channel you're in contains one of these words, even without an @mention. Only you can see your keywords." },
+    { name: "keywords", label: "Keywords, separated by commas", type: "textarea", rows: 3, max: 1200, value: (state.bar.keywords || []).join(", ") },
+  ], "Save");
+  if (r) { await api(T(`/workspaces/${state.wsId}/keywords`), { method: "PUT", body: { keywords: r.keywords } }); await loadSidebar(); }
+}
+
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && state.channel) soon(refreshChannel); });
+
+// ---------- huddles ----------
+// Live audio/video calls in a channel. The server relays WebRTC signalling over the event stream;
+// audio and video go directly between browsers (a full mesh). Each pair uses "perfect negotiation",
+// so either side can renegotiate (camera on, screen share) without offers colliding.
+
+const huddle = { channelId: null, view: null, local: null, video: null, screen: false, muted: false, peers: new Map(), tiles: new Map(), built: false };
+
+function huddleButton(c) {
+  if (huddle.channelId === c.id) return h("button", { type: "button", class: "btn small t-huddle-live", onclick: tryRun(leaveHuddle) }, "Leave huddle");
+  if (!c.member || c.archived) return c.huddle ? h("span", { class: "meta" }, `🎧 Huddle · ${c.huddle.people}`) : null;
+  return h("button", { type: "button", class: `btn small${c.huddle ? " t-huddle-live" : ""}`, onclick: tryRun(() => joinHuddle(c.id)) }, c.huddle ? `🎧 Join huddle · ${c.huddle.people}` : "🎧 Huddle");
+}
+
+async function joinHuddle(channelId) {
+  if (!navigator.mediaDevices?.getUserMedia || !window.RTCPeerConnection) throw new Error("This browser cannot make calls.");
+  if (huddle.channelId) await leaveHuddle();
+  try {
+    huddle.local = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true }, video: false });
+  } catch (e) {
+    throw new Error(e?.name === "NotAllowedError" ? "Allow microphone access to join the huddle." : "No microphone was found.");
+  }
+  Object.assign(huddle, { channelId, muted: false, video: null, screen: false });
+  try {
+    huddle.view = await api(T(`/channels/${channelId}/huddle/join`), { method: "POST", body: {} });
+  } catch (e) {
+    huddle.local.getTracks().forEach((t) => t.stop());
+    Object.assign(huddle, { channelId: null, local: null });
+    throw e;
+  }
+  // Whoever joins calls everyone already there.
+  for (const p of huddle.view.people) if (p.sub !== state.me.sub) peer(p.sub);
+  renderHuddle();
+  if (state.channel) renderHead();
+  await loadSidebar();
+}
+
+async function leaveHuddle() {
+  const id = huddle.channelId;
+  if (!id) return;
+  for (const p of huddle.peers.values()) p.pc.close();
+  huddle.peers.clear();
+  huddle.local?.getTracks().forEach((t) => t.stop());
+  huddle.video?.stop();
+  Object.assign(huddle, { channelId: null, view: null, local: null, video: null, screen: false, muted: false });
+  renderHuddle();
+  await api(T(`/channels/${id}/huddle/leave`), { method: "POST", body: {} }).catch(() => {});
+  if (state.channel) renderHead();
+  await loadSidebar().catch(() => {});
+}
+
+// Closing the tab: tell the server right away (it also notices a dropped connection after 15 s).
+window.addEventListener("pagehide", () => {
+  if (huddle.channelId) fetch(T(`/channels/${huddle.channelId}/huddle/leave`), { method: "POST", keepalive: true, headers: { "content-type": "application/json" }, body: "{}" }).catch(() => {});
+});
+
+const signal = (to, data) => api(T(`/channels/${huddle.channelId}/huddle/signal`), { method: "POST", body: { to, data } });
+
+function peer(sub) {
+  let p = huddle.peers.get(sub);
+  if (p) return p;
+  const pc = new RTCPeerConnection({ iceServers: huddle.view?.iceServers || [] });
+  p = { pc, polite: state.me.sub > sub, makingOffer: false, ignoreOffer: false, stream: null, videoSender: null };
+  huddle.peers.set(sub, p);
+  pc.onnegotiationneeded = async () => {
+    try {
+      p.makingOffer = true;
+      await pc.setLocalDescription();
+      await signal(sub, { description: pc.localDescription });
+    } catch (e) {
+      console.warn("huddle offer", e);
+    } finally {
+      p.makingOffer = false;
+    }
+  };
+  pc.onicecandidate = ({ candidate }) => { if (huddle.channelId) signal(sub, { candidate: candidate ? candidate.toJSON() : null }).catch(() => {}); };
+  pc.ontrack = ({ track, streams }) => {
+    if (streams[0]) p.stream = streams[0];
+    else { p.stream = p.stream || new MediaStream(); p.stream.addTrack(track); }
+    renderHuddle();
+  };
+  pc.onconnectionstatechange = () => {
+    if (pc.connectionState === "failed") pc.restartIce();
+    renderHuddle();
+  };
+  for (const t of huddle.local.getAudioTracks()) pc.addTrack(t, huddle.local);
+  if (huddle.video) p.videoSender = pc.addTrack(huddle.video, huddle.local);
+  return p;
+}
+
+async function onHuddleSignal(ev) {
+  if (!huddle.channelId || ev.channelId !== huddle.channelId) return;
+  const p = peer(ev.from);
+  const { description, candidate } = ev.data || {};
+  try {
+    if (description) {
+      const collision = description.type === "offer" && (p.makingOffer || p.pc.signalingState !== "stable");
+      p.ignoreOffer = !p.polite && collision;
+      if (p.ignoreOffer) return;
+      await p.pc.setRemoteDescription(description);
+      if (description.type === "offer") {
+        await p.pc.setLocalDescription();
+        await signal(ev.from, { description: p.pc.localDescription });
+      }
+    } else if (candidate !== undefined) {
+      try {
+        await p.pc.addIceCandidate(candidate || undefined);
+      } catch (e) {
+        if (!p.ignoreOffer) throw e;
+      }
+    }
+  } catch (e) {
+    console.warn("huddle signal", e);
+  }
+}
+
+async function refreshHuddle() {
+  if (!huddle.channelId) return;
+  const { huddle: view } = await api(T(`/channels/${huddle.channelId}/huddle`));
+  if (!view || !view.people.some((p) => p.sub === state.me.sub)) { await leaveHuddle(); return; }
+  huddle.view = view;
+  const present = new Set(view.people.map((p) => p.sub));
+  for (const [sub, p] of huddle.peers) if (!present.has(sub)) { p.pc.close(); huddle.peers.delete(sub); }
+  renderHuddle();
+}
+
+async function setVideoTrack(track) {
+  const old = huddle.video;
+  if (old) { huddle.local.removeTrack(old); old.stop(); }
+  huddle.video = track;
+  if (track) huddle.local.addTrack(track);
+  for (const p of huddle.peers.values()) {
+    if (p.videoSender) await p.videoSender.replaceTrack(track);
+    else if (track) p.videoSender = p.pc.addTrack(track, huddle.local);
+  }
+}
+
+const tellHuddle = (body) => api(T(`/channels/${huddle.channelId}/huddle`), { method: "PUT", body }).then((v) => { huddle.view = v; renderHuddle(); });
+
+async function toggleMute() {
+  huddle.muted = !huddle.muted;
+  for (const t of huddle.local.getAudioTracks()) t.enabled = !huddle.muted;
+  await tellHuddle({ muted: huddle.muted });
+}
+
+async function toggleCamera() {
+  if (huddle.video && !huddle.screen) {
+    await setVideoTrack(null);
+    await tellHuddle({ video: false, screen: false });
+    return;
+  }
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 640 }, height: { ideal: 360 } } });
+  } catch (e) {
+    throw new Error(e?.name === "NotAllowedError" ? "Allow camera access to turn on video." : "No camera was found.");
+  }
+  huddle.screen = false;
+  await setVideoTrack(stream.getVideoTracks()[0]);
+  await tellHuddle({ video: true, screen: false });
+}
+
+async function toggleScreen() {
+  if (huddle.screen) {
+    huddle.screen = false;
+    await setVideoTrack(null);
+    await tellHuddle({ video: false, screen: false });
+    return;
+  }
+  if (!navigator.mediaDevices.getDisplayMedia) throw new Error("This browser cannot share the screen.");
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+  } catch {
+    return; // The person closed the picker.
+  }
+  const track = stream.getVideoTracks()[0];
+  track.addEventListener("ended", () => { if (huddle.screen && huddle.video === track) tryRun(toggleScreen)(); });
+  huddle.screen = true;
+  await setVideoTrack(track);
+  await tellHuddle({ video: true, screen: true });
+}
+
+function tileFor(person) {
+  const me = person.sub === state.me.sub;
+  let t = huddle.tiles.get(person.sub);
+  if (!t) {
+    const video = h("video", { autoplay: true, playsinline: true });
+    video.muted = me; // never play your own microphone back to yourself
+    t = { el: h("div", { class: "t-tile" }, h("span", { class: "t-tile-initial", "aria-hidden": "true" }, (person.displayName || "?")[0].toUpperCase()), video, h("span", { class: "t-tile-name" })), video };
+    huddle.tiles.set(person.sub, t);
+  }
+  const stream = me ? huddle.local : huddle.peers.get(person.sub)?.stream;
+  if (stream && t.video.srcObject !== stream) { t.video.srcObject = stream; t.video.play().catch(() => {}); }
+  const muted = me ? huddle.muted : person.muted;
+  const video = me ? !!huddle.video : person.video;
+  const screen = me ? huddle.screen : person.screen;
+  t.el.classList.toggle("on-camera", video);
+  t.el.classList.toggle("muted", muted);
+  const link = me ? "" : huddle.peers.get(person.sub)?.pc.connectionState;
+  t.el.querySelector(".t-tile-name").textContent = `${muted ? "🔇 " : ""}${person.displayName}${me ? " (you)" : ""}${screen ? " · sharing screen" : ""}${link && link !== "connected" ? ` · ${link}` : ""}`;
+  return t;
+}
+
+function renderHuddle() {
+  const box = $("#huddle");
+  if (!huddle.channelId || !huddle.view) {
+    box.hidden = true;
+    for (const t of huddle.tiles.values()) { t.video.srcObject = null; t.el.remove(); }
+    huddle.tiles.clear();
+    return;
+  }
+  if (!huddle.built) {
+    box.replaceChildren(h("div", { class: "t-huddle-head" }), h("div", { class: "t-huddle-tiles" }), h("div", { class: "t-row t-huddle-controls" }));
+    huddle.built = true;
+  }
+  box.hidden = false;
+  const [head, tiles, controls] = box.children;
+  const c = state.bar && [...state.bar.channels, ...state.bar.direct].find((x) => x.id === huddle.channelId);
+  head.replaceChildren(h("strong", {}, `🎧 ${c ? chanLabel(c) : "Huddle"}`), h("span", { class: "meta" }, ` · ${huddle.view.people.length} in the huddle`));
+  const present = new Set();
+  for (const person of huddle.view.people) {
+    present.add(person.sub);
+    const t = tileFor(person);
+    if (t.el.parentNode !== tiles) tiles.append(t.el);
+  }
+  for (const [sub, t] of huddle.tiles) if (!present.has(sub)) { t.video.srcObject = null; t.el.remove(); huddle.tiles.delete(sub); }
+  controls.replaceChildren(
+    h("button", { type: "button", class: `btn small${huddle.muted ? " primary" : ""}`, "aria-pressed": String(huddle.muted), onclick: tryRun(toggleMute) }, huddle.muted ? "Unmute" : "Mute"),
+    h("button", { type: "button", class: "btn small", "aria-pressed": String(!!huddle.video && !huddle.screen), onclick: tryRun(toggleCamera) }, huddle.video && !huddle.screen ? "Camera off" : "Camera on"),
+    navigator.mediaDevices?.getDisplayMedia ? h("button", { type: "button", class: "btn small", "aria-pressed": String(huddle.screen), onclick: tryRun(toggleScreen) }, huddle.screen ? "Stop sharing" : "Share screen") : null,
+    h("button", { type: "button", class: "btn small t-huddle-leave", onclick: tryRun(leaveHuddle) }, "Leave"),
+  );
+}
 
 // ---------- top-level wiring ----------
 
@@ -844,9 +1435,57 @@ $("#ws-menu").addEventListener("click", (e) => {
     w.inviteCode && ["Invite people", async () => { await dialog(`Invite people to ${w.name}`, [{ note: "Share this invite code. People sign in with Cumulus ID, then choose Join." }, { name: "code", label: "Invite code", value: w.inviteCode }], "Done"); }],
     admin && ["Rename workspace", async () => { const r = await dialog("Rename workspace", [{ name: "name", label: "Name", value: w.name, max: 60 }]); if (r) { await api(T(`/workspaces/${w.id}`), { method: "PATCH", body: r }); await loadWorkspaces(); } }],
     admin && ["Reset invite code", async () => { if (confirm("Old invite codes will stop working.")) { await api(T(`/workspaces/${w.id}`), { method: "PATCH", body: { rotateInvite: true } }); await loadSidebar(); } }],
+    admin && ["Export data", async () => {
+      const r = await dialog(`Export ${w.name}`, [
+        { note: "Downloads people, channels and messages as a JSON file. Direct messages and file contents are not included. A note in the default channel tells everyone an export was made." },
+        w.role === "owner" ? { name: "private", label: "Include private channels", type: "checkbox" } : null,
+      ].filter(Boolean), "Download");
+      if (r) location.href = T(`/workspaces/${w.id}/export${r.private ? "?private=1" : ""}`);
+    }],
+    ["Custom emoji", () => showEmoji()],
     ["Turn on desktop notifications", async () => { if ("Notification" in window) await Notification.requestPermission(); }],
+    ["Notification keywords…", () => editKeywords()],
   ]);
 });
+
+async function showEmoji() {
+  const { emoji } = await api(T(`/workspaces/${state.wsId}/emoji`));
+  const w = state.bar.workspace;
+  const admin = ["owner", "admin"].includes(w.role);
+  const file = h("input", { type: "file", accept: "image/png,image/gif,image/webp,image/jpeg", class: "input" });
+  const name = h("input", { class: "input", maxlength: 42, placeholder: "party-parrot" });
+  file.addEventListener("change", () => { if (!name.value && file.files[0]) name.value = file.files[0].name.replace(/\.[^.]+$/, "").toLowerCase().replace(/[^a-z0-9_+-]+/g, "-").slice(0, 40); });
+  const add = tryRun(async (e) => {
+    e.preventDefault();
+    const f = file.files[0];
+    if (!f) throw new Error("Choose an image");
+    if (f.size > 128_000) throw new Error("Emoji images can be up to 128 KB");
+    const data = await new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(String(r.result).split(",")[1] || "");
+      r.onerror = () => reject(new Error("could not read the image"));
+      r.readAsDataURL(f);
+    });
+    await api(T(`/workspaces/${state.wsId}/emoji`), { method: "POST", body: { name: name.value, data } });
+    await loadSidebar();
+    await showEmoji();
+  });
+  panel("Custom emoji",
+    w.role !== "guest" ? h("form", { class: "t-emoji-form", onsubmit: add },
+      h("label", { class: "field" }, h("span", {}, "Image (PNG, GIF, WebP or JPEG, up to 128 KB)"), file),
+      h("label", { class: "field" }, h("span", {}, "Name, used as :name:"), name),
+      h("button", { type: "submit", class: "btn primary small" }, "Add emoji")) : null,
+    emoji.length ? h("ul", { class: "t-emoji-list" }, ...emoji.map((e) => h("li", {},
+      emojiNode(`:${e.name}:`), h("span", { class: "strong" }, ` :${e.name}: `), h("span", { class: "meta" }, `added by ${e.createdBy.displayName}`),
+      e.createdBy.sub === state.me.sub || admin ? h("button", { type: "button", class: "link", onclick: tryRun(async () => {
+        if (!confirm(`Remove :${e.name}:? Messages that use it will show the text instead.`)) return;
+        await api(T(`/workspaces/${state.wsId}/emoji/${e.name}`), { method: "DELETE" });
+        await loadSidebar();
+        await showEmoji();
+      }) }, " Remove") : null)))
+      : h("p", { class: "meta" }, "No custom emoji yet."),
+  );
+}
 
 $("#me-button").addEventListener("click", (e) => {
   const me = state.bar.me;
@@ -897,10 +1536,105 @@ const signOutFromHash = async () => {
 window.addEventListener("hashchange", signOutFromHash);
 signOutFromHash();
 
+// ---------- quick switcher and keyboard shortcuts ----------
+
+/** Score how well a query matches a label: 3 starts with, 2 a word starts with, 1 contains, 0.5 letters in order, 0 no match. */
+function matchScore(label, q) {
+  const s = label.toLowerCase();
+  if (!q) return 1;
+  if (s.startsWith(q)) return 3;
+  if (s.split(/[\s#@._-]+/).some((w) => w.startsWith(q))) return 2;
+  if (s.includes(q)) return 1;
+  let i = 0;
+  for (const ch of s) if (ch === q[i]) i += 1;
+  return i === q.length ? 0.5 : 0;
+}
+
+async function openSwitcher() {
+  if (!state.bar || document.querySelector(".t-switcher")) return;
+  const people = (await api(T(`/workspaces/${state.wsId}/people`))).people.filter((p) => !p.deactivated && p.sub !== state.me.sub);
+  const open = await api(T(`/workspaces/${state.wsId}/channels`)).then((r) => r.channels).catch(() => []);
+  const mine = [...state.bar.channels, ...state.bar.direct];
+  const views = [["activity", "Activity"], ["threads", "Threads"], ["unreads", "All unreads"], ["saved", "Later"], ["scheduled", "Scheduled"], ["reminders", "Reminders"], ["files", "Files"], ["people", "People"]];
+  const candidates = [
+    ...mine.map((c) => ({ label: chanLabel(c), hint: c.unread && !c.muted ? `${c.unread} new` : c.kind === "dm" || c.kind === "group" ? "Direct message" : "Channel", boost: c.unread ? 0.3 : 0, go: () => openChannel(c.id) })),
+    ...open.filter((c) => !mine.some((m) => m.id === c.id)).map((c) => ({ label: chanLabel(c), hint: "Not joined · public channel", boost: 0, go: () => openChannel(c.id) })),
+    ...people.filter((p) => !state.bar.direct.some((d) => d.kind === "dm" && d.people?.[0]?.sub === p.sub)).map((p) => ({ label: `${p.displayName} @${p.username}`, hint: "Person", boost: 0, go: async () => { const c = await api(T(`/workspaces/${state.wsId}/conversations`), { method: "POST", body: { people: [p.username] } }); await loadSidebar(); await openChannel(c.id); } })),
+    ...views.map(([v, l]) => ({ label: l, hint: "View", boost: -0.2, go: () => showView(v) })),
+  ];
+  const input = h("input", { class: "input", type: "text", placeholder: "Jump to a channel, person or view…", "aria-label": "Jump to", autocomplete: "off", role: "combobox", "aria-controls": "t-switcher-list", "aria-expanded": "true" });
+  const list = h("ul", { id: "t-switcher-list", role: "listbox", class: "t-switcher-list" });
+  const box = h("div", { class: "t-switcher", role: "dialog", "aria-modal": "true", "aria-label": "Jump to" }, h("div", { class: "t-switcher-box" }, input, list, h("p", { class: "meta" }, "↑ ↓ to move · Enter to open · Esc to close · ? for all shortcuts")));
+  let results = [];
+  let active = 0;
+  const close = () => { box.remove(); document.removeEventListener("keydown", trap, true); };
+  const choose = (r) => { close(); tryRun(r.go)(); };
+  const render = () => {
+    const q = input.value.trim().toLowerCase().replace(/^[#@]/, "");
+    results = candidates.map((c) => ({ ...c, base: matchScore(c.label, q) })).filter((c) => c.base > 0).map((c) => ({ ...c, score: c.base + (q ? c.boost : c.boost * 3) }))
+      .sort((a, b) => b.score - a.score || a.label.localeCompare(b.label)).slice(0, 12);
+    active = Math.min(active, Math.max(0, results.length - 1));
+    list.replaceChildren(...results.map((r, i) => h("li", { role: "option", id: `t-sw-${i}`, "aria-selected": String(i === active), class: i === active ? "active" : "", onmousedown: (e) => { e.preventDefault(); choose(r); } }, h("span", {}, r.label), h("span", { class: "meta" }, r.hint))));
+    if (!results.length) list.append(h("li", { class: "meta" }, "Nothing matches."));
+    input.setAttribute("aria-activedescendant", results.length ? `t-sw-${active}` : "");
+  };
+  const trap = (e) => {
+    if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); close(); }
+    else if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); active = (active + (e.key === "ArrowDown" ? 1 : -1) + results.length) % Math.max(1, results.length); render(); }
+    else if (e.key === "Enter") { e.preventDefault(); if (results[active]) choose(results[active]); }
+  };
+  input.addEventListener("input", () => { active = 0; render(); });
+  box.addEventListener("mousedown", (e) => { if (e.target === box) close(); });
+  document.addEventListener("keydown", trap, true);
+  document.body.append(box);
+  render();
+  input.focus();
+}
+
+/** Channels in the order they appear in the sidebar. */
+const sidebarOrder = () => [...document.querySelectorAll("#starred li button, #sections li button, #channels li button, #direct li button")]
+  .map((b) => [...state.bar.channels, ...state.bar.direct].find((c) => chanLabel(c) === b.querySelector(".name")?.textContent)).filter(Boolean);
+
+function stepChannel(dir, unreadOnly) {
+  const order = sidebarOrder();
+  if (!order.length) return;
+  let i = order.findIndex((c) => c.id === state.channel?.id);
+  for (let n = 0; n < order.length; n += 1) {
+    i = (i + dir + order.length) % order.length;
+    if (!unreadOnly || (order[i].unread && !order[i].muted)) { openChannel(order[i].id); return; }
+  }
+}
+
+const SHORTCUTS = [
+  ["Ctrl/⌘ K", "Jump to a channel, person or view"],
+  ["Ctrl/⌘ G or /", "Search"],
+  ["Alt ↑ / Alt ↓", "Previous or next channel"],
+  ["Alt Shift ↑ / ↓", "Previous or next unread channel"],
+  ["Shift Esc", "Mark everything as read"],
+  ["Esc", "Close the side panel; in a channel, mark it as read"],
+  ["↑ in an empty message box", "Edit your last message"],
+  ["Ctrl/⌘ / or ?", "Show these shortcuts"],
+];
+function showShortcuts() {
+  panel("Keyboard shortcuts", h("table", { class: "t-shortcuts" }, ...SHORTCUTS.map(([k, d]) => h("tr", {}, h("td", {}, h("kbd", {}, k)), h("td", {}, d)))));
+}
+
 document.addEventListener("keydown", (e) => {
-  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { e.preventDefault(); $("#search").focus(); }
-  const typing = (e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLInputElement) && e.target.value;
-  if (e.key === "Escape" && !typing && !$("#panel").hidden && !document.querySelector("dialog[open]")) { $("#panel").hidden = true; state.thread = null; }
+  const mod = e.ctrlKey || e.metaKey;
+  const inField = e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement || e.target?.isContentEditable;
+  const typing = inField && e.target.value;
+  if (document.querySelector("dialog[open]")) return;
+  if (mod && e.key.toLowerCase() === "k") { e.preventDefault(); openSwitcher().catch((err) => showError(err.message)); return; }
+  if ((mod && e.key.toLowerCase() === "g") || (!inField && e.key === "/")) { e.preventDefault(); $("#search").focus(); return; }
+  if ((mod && e.key === "/") || (!inField && e.key === "?")) { e.preventDefault(); showShortcuts(); return; }
+  if (e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) { e.preventDefault(); stepChannel(e.key === "ArrowUp" ? -1 : 1, e.shiftKey); return; }
+  if (e.key === "Escape" && e.shiftKey && !typing) {
+    e.preventDefault();
+    tryRun(async () => { for (const c of [...state.bar.channels, ...state.bar.direct].filter((x) => x.unread)) await api(T(`/channels/${c.id}/read`), { method: "POST", body: {} }); await loadSidebar(); })();
+    return;
+  }
+  if (e.key === "Escape" && !typing && !$("#panel").hidden) { $("#panel").hidden = true; state.thread = null; return; }
+  if (e.key === "Escape" && !typing && state.channel?.unread) tryRun(async () => { await api(T(`/channels/${state.channel.id}/read`), { method: "POST", body: {} }); await loadSidebar(); })();
 });
 
 async function start() {

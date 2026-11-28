@@ -54,6 +54,7 @@ export async function localCidStorage(
   const mode = (env.CUMULUS_STORE ?? "document").trim().toLowerCase();
   const products = parseRowProducts(env.CUMULUS_ROWS);
   if (products.length && mode !== "postgres") throw new Error("CUMULUS_ROWS needs CUMULUS_STORE=postgres");
+  if (products.includes("drive")) throw new Error("CUMULUS_ROWS=drive is for the Mail app (Cumulus://Drive isn't on this server)");
   if (products.length && !files) throw new Error("CUMULUS_ROWS needs the data directory's stores");
   if (mode === "document" || mode === "") return { skipFiles: [], describe: "cid.json", close: async () => {} };
   if (mode !== "postgres") throw new Error(`CUMULUS_STORE must be "document" or "postgres" on a single server, not "${env.CUMULUS_STORE}"`);

@@ -4,7 +4,7 @@ import { serveNodeLabyrinth, serveNodeLabyrinthProxy } from "@infinitum/lbrnth";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { readFile } from "node:fs/promises";
 import { join, normalize, extname } from "node:path";
-import { CidService, CidError, cumulusCorsHeaders, loadOidcSigner, oidcDiscovery, registerProductIdp, safeProductReturn, type Account, type OidcSigner } from "@infinitum/cid";
+import { CidService, CidError, cumulusCorsHeaders, IdRawResponse, loadOidcSigner, oidcDiscovery, registerProductIdp, safeProductReturn, type Account, type OidcSigner } from "@infinitum/cid";
 import type { CumulusSuite } from "@infinitum/cumulus";
 import { SpectreCRM, SpectreError } from "../core/crm.ts";
 import { scoreDealMetatron as scoreDeal, learnedContextFor } from "../core/intelligence-metatron.ts";
@@ -189,14 +189,16 @@ async function readBody(req: IncomingMessage): Promise<Record<string, any>> {
     chunks.push(c as Buffer);
   }
   if (!chunks.length) return {};
-  if (String(req.headers["content-type"] ?? "").startsWith("application/x-www-form-urlencoded")) {
-    return Object.fromEntries(new URLSearchParams(Buffer.concat(chunks).toString("utf8")));
-  }
+  const text = Buffer.concat(chunks).toString("utf8");
+  const type = String(req.headers["content-type"] ?? "");
+  if (type.startsWith("application/x-www-form-urlencoded")) return Object.fromEntries(new URLSearchParams(text));
+  if (type.startsWith("application/pgp-keys")) return { armored: text };
   try {
-    const parsed = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+    const parsed = JSON.parse(text);
     if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) throw new Error();
     return parsed;
   } catch {
+    if (text.includes("-----BEGIN PGP PUBLIC KEY BLOCK-----")) return { armored: text };
     throw new HttpError(400, "Body must be a JSON object");
   }
 }
@@ -363,7 +365,7 @@ export function createApp(deps: AppDeps) {
     }, false, { csrf: false });
   }
 
-  /* ---------------- Social sign-in (Google, Apple, Microsoft, GitHub, ChatGPT, Cognito) ---------------- */
+  /* ---------------- Social sign-in (Google, Apple, Microsoft, GitHub, ChatGPT) ---------------- */
 
   localAuthRoute("GET", "/api/auth/providers", () => cid.socialProvidersEnabled(), false);
 
@@ -425,6 +427,9 @@ export function createApp(deps: AppDeps) {
     Redirect,
     HttpError,
     signer: oidc,
+    clearBrowserSession: (ctx) => {
+      ctx.res.setHeader("Set-Cookie", `${COOKIE}=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0${domainAttr}${deps.secureCookies ? "; Secure" : ""}`);
+    },
     // CID_DIRECTORY_KEY_SHA256 (Russia host) plus CID_DIRECTORY_KEY_SHA256_US (US host, lbrnth-host-us).
     labyrinthDirectoryKeySha256: (deps.labyrinthDirectoryKeySha256 === undefined
       ? [process.env.CID_DIRECTORY_KEY_SHA256, process.env.CID_DIRECTORY_KEY_SHA256_US].filter(Boolean).join(",")
@@ -1281,19 +1286,12 @@ export function createApp(deps: AppDeps) {
     const { executeAll } = await import("../core/architect-bridge.ts");
     const { listPendingActions } = await import("./execution.ts");
     const pending = await listPendingActions(crm, ctx.user!.workspace);
-    const results = await executeAll(pending, { crm, workspace: ctx.user!.workspace, actor: ctx.user!.account.cid } as any);
-    // Log executed actions as activities
-    for (const r of results || []) {
-      const dealId = (r as any)?.dealId;
-      if (dealId) {
-        await crm.logActivity(ctx.user!.workspace, ctx.user!.account.cid, {
-          kind: "note",
-          summary: `AI action: ${(r as any).description || (r as any).type || "executed"}`,
-          dealId,
-        });
-      }
-    }
-    return { results, logged: results?.length || 0 };
+    const results = await executeAll(pending, { crm, workspace: ctx.user!.workspace, actor: ctx.user!.account.cid });
+    return {
+      results: results.map((r) => ({ dealId: r.action.dealId, type: r.action.type, description: r.action.description, verified: r.performance.verified, logged: r.logged })),
+      pending: pending.length,
+      logged: results.filter((r) => r.logged).length,
+    };
   });
 
   /* ---------------- Growth: contacts+, forms, calendars, automations, conversations ---------------- */
@@ -1354,7 +1352,9 @@ export function createApp(deps: AppDeps) {
     // Public form and booking pages can be embedded on other sites; everything else can't be framed.
     const embeddable = EMBEDDABLE.has(url.pathname);
     if (!embeddable) res.setHeader("X-Frame-Options", "DENY");
-    res.setHeader("Content-Security-Policy", `default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors ${embeddable ? "*" : "'none'"}`);
+    // Styles as on the Worker (static-policy.ts): the pages set some inline styles, which 'self' alone
+    // blocks. Scripts stay 'self' only.
+    res.setHeader("Content-Security-Policy", `default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors ${embeddable ? "*" : "'none'"}`);
     const requestOrigin = typeof req.headers.origin === "string" ? req.headers.origin : undefined;
     const cors = cumulusCorsHeaders(requestOrigin);
     for (const [name, value] of Object.entries(cors)) res.setHeader(name, value);
@@ -1422,9 +1422,10 @@ export function createApp(deps: AppDeps) {
       };
       const result = deps.transaction ? await deps.transaction(run) : await run();
       if (MUTATING.has(req.method!) || result instanceof Redirect) deps.onChange?.();
-      if (result instanceof RawResponse) {
+      if (result instanceof IdRawResponse || result instanceof RawResponse) {
         res.writeHead(result.status, { "Content-Type": result.contentType, "Cache-Control": "no-store" });
-        res.end(result.body);
+        if (result.body) res.end(result.body);
+        else res.end();
         return;
       }
       if (result instanceof Redirect) {

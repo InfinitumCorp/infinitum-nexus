@@ -30,6 +30,8 @@ const NAME = "([a-z0-9._-]{1,64})";
 const BODY_LIMIT = 64 * 1024;
 const FILE_BODY_LIMIT = Math.ceil(TEAM_LIMITS.fileBytes * 1.4) + 4096;
 const INLINE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
+const EMOJI = "([a-z0-9_+-]{1,40})";
+const EMOJI_BODY_LIMIT = Math.ceil(TEAM_LIMITS.emojiBytes * 1.4) + 4096;
 
 type Handler = (c: Call) => unknown | Promise<unknown>;
 interface Call {
@@ -193,6 +195,20 @@ export function teamRoutes(): Route[] {
     }, { raw: true }),
     r("PATCH", `/workflows/${ID}`, ({ team, me, params, body }) => team.updateWorkflow(me, params[0]!, body)),
     r("DELETE", `/workflows/${ID}`, ({ team, me, params }) => team.deleteWorkflow(me, params[0]!)),
+    r("GET", `/workspaces/${ID}/emoji`, ({ team, me, params }) => ({ emoji: team.emojis(me, params[0]!) })),
+    r("POST", `/workspaces/${ID}/emoji`, ({ team, me, params, body }) => team.addEmoji(me, params[0]!, body), { status: 201, limit: EMOJI_BODY_LIMIT }),
+    r("DELETE", `/workspaces/${ID}/emoji/${EMOJI}`, ({ team, me, params }) => team.removeEmoji(me, params[0]!, params[1]!)),
+    r("GET", `/workspaces/${ID}/emoji/${EMOJI}`, ({ team, me, params, res, security }) => {
+      const image = team.emojiImage(me, params[0]!, params[1]!);
+      res.writeHead(200, {
+        ...security,
+        "content-type": image.mime,
+        "content-length": image.data.length,
+        "cache-control": "private, max-age=300",
+        "content-security-policy": "default-src 'none'; sandbox",
+      });
+      res.end(image.data);
+    }, { raw: true }),
     r("DELETE", `/webhooks/${ID}`, ({ team, me, params }) => team.deleteWebhook(me, params[0]!)),
     r("DELETE", `/scheduled/${ID}`, ({ team, me, params }) => team.cancelScheduled(me, params[0]!)),
     r("PATCH", `/reminders/${ID}`, ({ team, me, params, body }) => team.updateReminder(me, params[0]!, body)),

@@ -167,3 +167,12 @@
 .t-shortcuts td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top; }
 .t-shortcuts kbd { font-family: inherit; font-size: var(--text-sm); border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; white-space: nowrap; }
 .t-workflow-text { margin: 2px 0; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--muted); }
+
+/* Custom emoji */
+.t-emoji { width: 20px; height: 20px; object-fit: contain; vertical-align: -4px; }
+.t-reactions .t-emoji { width: 16px; height: 16px; vertical-align: -3px; }
+.t-menu.emoji .t-emoji { width: 22px; height: 22px; }
+.t-emoji-form { display: grid; gap: 8px; margin-bottom: 16px; }
+.t-emoji-list { list-style: none; margin: 0; padding: 0; }
+.t-emoji-list li { display: flex; align-items: center; gap: 6px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.t-emoji-list .t-emoji { width: 28px; height: 28px; }

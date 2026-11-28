@@ -353,7 +353,8 @@ types:
         code: INTERNAL
         docs: >-
           HTTP 503 with Retry-After. The event store reached PLATFORM_STORAGE_LIMIT_MB (450 MB by
-          default on the Supabase free plan). Keep the events and send them again later.
+          default on the Supabase free plan). Keep the events and send them again later. Document
+          puts are refused the same way; removing documents and erasure still work.
       IngestQuotaExceeded:
         namespace: DataPlatform
         code: CUSTOM_CLIENT
@@ -525,6 +526,7 @@ services:
     endpoints:
       putDocument:
         http: PUT /collections/{collection}/documents/{documentId}
+        docs: Insert or replace. 503 StorageQuotaReached with Retry-After when the data store is full.
         args:
           collection: string
           documentId: string

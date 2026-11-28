@@ -68,8 +68,12 @@ def _labels(v: Any) -> list[str]:
 
 
 class Documents:
-    def __init__(self, redactor: Any, store: Any) -> None:
-        self.redactor, self.store = redactor, store
+    """``limits`` is the gateway's IngestLimits. Documents share the free-tier database with
+    events, so a put is refused once the storage guard reports full; remove and erasure still
+    work, since they free space."""
+
+    def __init__(self, redactor: Any, store: Any, limits: Any = None) -> None:
+        self.redactor, self.store, self.limits = redactor, store, limits
 
     def _pseudonym(self, cid: str) -> str:
         return self.redactor.pseudonym("cid", cid.strip(), Destination.ANALYTICS)
@@ -103,6 +107,10 @@ class Documents:
 
     def put(self, caller: str, collection: str, document_id: str, b: Mapping[str, Any]) -> dict[str, Any]:
         self._key(caller, collection, document_id)
+        if self.limits is not None and self.limits.storage_state() == "full":
+            raise PlatformError(503, "StorageQuotaReached",
+                                "the data store is full; documents are not stored until space is freed",
+                                retry_after=3600)
         tenant = _tenant(b.get("tenant"))
         title, body = b.get("title"), b.get("body")
         if not isinstance(title, str) or not title.strip() or len(title) > MAX_TITLE:

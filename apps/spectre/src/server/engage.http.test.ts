@@ -161,6 +161,19 @@ describe("+SPCTR conversations", () => {
     assert.ok(!recorded.includes("3pm"), "message text stays off the ledger");
   });
 
+  it("keeps internal notes on the thread without sending them", async () => {
+    const sent = sms.length;
+    const n = await h.call("POST", `/api/crm/conversations/${lin.id}`, { channel: "note", body: "Prefers texts after 6pm" }, me.cookie);
+    assert.equal(n.status, 200, JSON.stringify(n.body));
+    assert.deepEqual([n.body.channel, n.body.status, n.body.body], ["note", "sent", "Prefers texts after 6pm"]);
+    assert.equal(sms.length, sent, "a note never reaches a provider");
+    assert.equal((await h.call("POST", `/api/crm/conversations/${lin.id}`, { channel: "note", body: "  " }, me.cookie)).status, 400);
+    assert.equal((await h.call("POST", `/api/crm/conversations/${lin.id}`, { channel: "fax", body: "x" }, me.cookie)).status, 400);
+    const t = await h.call("GET", `/api/crm/conversations/${lin.id}`, undefined, me.cookie);
+    assert.equal(t.body.messages.at(-1).channel, "note");
+    assert.ok(!JSON.stringify((await h.ledger.entries()).map((e) => e.payload)).includes("6pm"), "note text stays off the ledger");
+  });
+
   const sign = (url: string, params: Record<string, string>) =>
     createHmac("sha1", TOKEN).update(url + Object.keys(params).sort().map((k) => k + params[k]).join("")).digest("base64");
   const inbound = (params: Record<string, string>, signature?: string) =>
@@ -182,7 +195,7 @@ describe("+SPCTR conversations", () => {
     await h.call("POST", `/api/crm/conversations/${lin.id}/read`, {}, me.cookie);
     const thread = await h.call("GET", `/api/crm/conversations/${lin.id}`, undefined, me.cookie);
     assert.equal(thread.body.unread, 0);
-    assert.deepEqual(thread.body.messages.map((m: any) => m.direction + ":" + m.status), ["out:sent", "out:draft", "out:failed", "in:received"]);
+    assert.deepEqual(thread.body.messages.filter((m: any) => m.channel !== "note").map((m: any) => m.direction + ":" + m.status), ["out:sent", "out:draft", "out:failed", "in:received"]);
   });
 
   it("STOP opts the sender out", async () => {

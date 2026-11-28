@@ -20,14 +20,26 @@ export interface ChannelRow {
   id: string; workspaceId: string; kind: ChannelKind; name: string | null; topic: string; purpose: string;
   sealedKey: string; createdBy: string; createdAt: string; archivedAt: string | null; dmKey: string | null;
   isDefault: number; lastMessageAt: string | null;
+  /** Who may start new messages: null or "everyone", or "admins" (owners, admins and the channel's creator). */
+  posting?: "everyone" | "admins" | null;
+  /** With posting limited, whether everyone may still reply in threads. */
+  threadReplies?: number | null;
 }
-export interface ChannelMemberRow { channelId: string; sub: string; lastReadAt: string; muted: number; starred: number; joinedAt: string }
+export interface ChannelMemberRow { channelId: string; sub: string; lastReadAt: string; muted: number; starred: number; joinedAt: string; sectionId?: string | null; notify?: NotifyLevel | null }
+export interface SectionRow { id: string; workspaceId: string; sub: string; name: string; position: number; collapsed: number; createdAt: string }
+export type NotifyLevel = "all" | "mentions" | "nothing";
 export interface TeamMessageRow {
   id: string; channelId: string; sender: string; ciphertext: string; parentId: string | null; createdAt: string;
   editedAt: string | null; deletedAt: string | null; replyCount: number; lastReplyAt: string | null;
   alsoInChannel: number; kind: "user" | "system";
   /** Set when an app (webhook or workflow) posted the message on the creator's behalf. */
   appId?: string | null; appName?: string | null;
+  /** Set when this message shares (forwards) another message. */
+  sharedId?: string | null;
+}
+export interface TaskRow {
+  id: string; channelId: string; ciphertext: string; assignee: string | null; due: string | null; done: number; position: number;
+  createdBy: string; createdAt: string; updatedAt: string; doneAt: string | null; doneBy: string | null;
 }
 export interface ReactionRow { messageId: string; sub: string; emoji: string; createdAt: string }
 export interface PinRow { channelId: string; messageId: string; pinnedBy: string; pinnedAt: string }
@@ -275,6 +287,42 @@ export class TeamStore {
         created_at TEXT NOT NULL,
         PRIMARY KEY (message_id, sub, choice)
       );
+      CREATE TABLE IF NOT EXISTS team_emoji (
+        workspace_id TEXT NOT NULL REFERENCES team_workspaces(id),
+        name TEXT NOT NULL,
+        mime TEXT NOT NULL,
+        size INTEGER NOT NULL,
+        ciphertext TEXT NOT NULL,
+        created_by TEXT NOT NULL REFERENCES users(sub),
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (workspace_id, name)
+      );
+      CREATE TABLE IF NOT EXISTS team_sections (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES team_workspaces(id),
+        sub TEXT NOT NULL REFERENCES users(sub),
+        name TEXT NOT NULL,
+        position INTEGER NOT NULL,
+        collapsed INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS team_sections_owner ON team_sections(workspace_id, sub, position);
+      CREATE TABLE IF NOT EXISTS team_tasks (
+        id TEXT PRIMARY KEY,
+        channel_id TEXT NOT NULL REFERENCES team_channels(id),
+        ciphertext TEXT NOT NULL,
+        assignee TEXT REFERENCES users(sub),
+        due TEXT,
+        done INTEGER NOT NULL DEFAULT 0,
+        position INTEGER NOT NULL,
+        created_by TEXT NOT NULL REFERENCES users(sub),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        done_at TEXT,
+        done_by TEXT
+      );
+      CREATE INDEX IF NOT EXISTS team_tasks_channel ON team_tasks(channel_id, done, position);
+      CREATE INDEX IF NOT EXISTS team_tasks_assignee ON team_tasks(assignee, done);
       CREATE TABLE IF NOT EXISTS team_webhooks (
         id TEXT PRIMARY KEY,
         workspace_id TEXT NOT NULL REFERENCES team_workspaces(id),
@@ -308,6 +356,15 @@ export class TeamStore {
     const columns = new Set(this.all<{ name: string }>("PRAGMA table_info(team_messages)").map((c) => c.name));
     if (!columns.has("app_id")) this.db.exec("ALTER TABLE team_messages ADD COLUMN app_id TEXT");
     if (!columns.has("app_name")) this.db.exec("ALTER TABLE team_messages ADD COLUMN app_name TEXT");
+    if (!columns.has("shared_id")) this.db.exec("ALTER TABLE team_messages ADD COLUMN shared_id TEXT");
+    const memberColumns = new Set(this.all<{ name: string }>("PRAGMA table_info(team_channel_members)").map((c) => c.name));
+    if (!memberColumns.has("section_id")) this.db.exec("ALTER TABLE team_channel_members ADD COLUMN section_id TEXT");
+    if (!memberColumns.has("notify")) this.db.exec("ALTER TABLE team_channel_members ADD COLUMN notify TEXT");
+    const workspaceMemberColumns = new Set(this.all<{ name: string }>("PRAGMA table_info(team_members)").map((c) => c.name));
+    if (!workspaceMemberColumns.has("sealed_keywords")) this.db.exec("ALTER TABLE team_members ADD COLUMN sealed_keywords TEXT");
+    const channelColumns = new Set(this.all<{ name: string }>("PRAGMA table_info(team_channels)").map((c) => c.name));
+    if (!channelColumns.has("posting")) this.db.exec("ALTER TABLE team_channels ADD COLUMN posting TEXT");
+    if (!channelColumns.has("thread_replies")) this.db.exec("ALTER TABLE team_channels ADD COLUMN thread_replies INTEGER");
   }
 }
 

@@ -5,7 +5,7 @@ import { applySnapshot, createCumulus, emptyCumulusStores } from "@infinitum/cum
 import { RemoteState, HttpGateway, type NexusGateway } from "../../spectre/src/server/remote.ts";
 import { cidStorageFromEnv, suiteDocuments } from "../../spectre/src/server/cid-store.ts";
 import type { InboundMail } from "@infinitum/mail";
-import { createMailApp } from "./app.ts";
+import { billingEnabled, createMailApp } from "./app.ts";
 import { deliverOutbound, type Sender } from "./outbound.ts";
 import type { FileStore } from "./files.ts";
 import { WorkspaceStore } from "./workspace.ts";
@@ -128,6 +128,7 @@ function build() {
     workspaceStore,
     workspaceRepository: remoteDrive ?? (driveRows ? new PgWorkspaceRepository({ db: cidStorage.db!, schema: cidStorage.schema }) : undefined),
     billingStore,
+    billing: billingEnabled(),
     afterCommit: (fn) => state.afterCommit(fn),
     publicDir: publicDir(), // static files come from the CDN (Vercel) or static assets (Workers)
     origin,

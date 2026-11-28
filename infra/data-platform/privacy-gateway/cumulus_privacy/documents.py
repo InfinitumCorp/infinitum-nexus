@@ -15,14 +15,27 @@ Visibility inside a tenant:
 Right to erasure: ``erase`` deletes the documents a person owns and removes them from every
 viewer list, so no pseudonym of theirs stays behind.
 
-Backends: Postgres (free tier, ``data_platform.documents`` with a weighted tsvector) and an
-in-memory store for tests.
+Quota: with ``max_per_product`` set (``PLATFORM_MAX_DOCUMENTS_PER_PRODUCT``), a put that would
+take a product over that many documents is refused with 409 ``DocumentQuotaReached``. Replacing a
+document the product already has is always allowed, so a full product can still keep its
+documents current. This keeps one product from filling the free database for all of them.
+
+Expiry: a document sent with ``expiresAt`` stops matching searches at that time, and the
+gateway's daily retention purge deletes it (``purge_expired``). It must lie in the future and at
+most ``MAX_EXPIRY_DAYS`` ahead, so a typo can't keep personal data for a century.
+
+Backends: Postgres (free tier, ``data_platform.documents`` with a weighted tsvector),
+OpenSearch (the full stack, index ``cumulus-documents``) and an in-memory store for tests.
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 import threading
-from datetime import datetime
+import urllib.error
+import urllib.request
+from datetime import datetime, timedelta, timezone
 from typing import Any, Mapping, Protocol
 
 from .platform import EXCLUDED_PRODUCTS, PlatformError, _bad, _iso, _parse_time
@@ -37,6 +50,8 @@ MAX_BODY = 200_000
 MAX_LABELS = 20
 MAX_VIEWERS = 500
 MAX_PAGE = 50
+MAX_BATCH = 100
+MAX_EXPIRY_DAYS = 3650
 SNIPPET_WORDS = 30
 
 
@@ -51,6 +66,15 @@ class DocumentStore(Protocol):
                viewer: str | None, limit: int) -> list[dict[str, Any]]: ...
 
     def erase(self, cid_pseudonym: str, product: str | None) -> int: ...
+
+    def purge_expired(self) -> int:
+        """Delete documents whose expiresAt has passed; return how many."""
+
+    def count(self, product: str) -> int:
+        """How many documents the product has stored."""
+
+    def existing(self, product: str, keys: list[tuple[str, str, str]]) -> set[tuple[str, str, str]]:
+        """Which of these (collection, tenant, documentId) the product already has."""
 
 
 def _tenant(v: Any) -> str:
@@ -68,8 +92,34 @@ def _labels(v: Any) -> list[str]:
 
 
 class Documents:
-    def __init__(self, redactor: Any, store: Any) -> None:
-        self.redactor, self.store = redactor, store
+    """``limits`` is the gateway's IngestLimits. Documents share the free-tier database with
+    events, so a put is refused once the storage guard reports full; remove and erasure still
+    work, since they free space."""
+
+    def __init__(self, redactor: Any, store: Any, limits: Any = None, max_per_product: int = 0) -> None:
+        self.redactor, self.store, self.limits = redactor, store, limits
+        self.max_per_product = max_per_product
+
+    def usage(self, caller: str) -> dict[str, Any]:
+        """How many documents the product has, and its cap (None when there is none)."""
+        if EXCLUDED_PRODUCTS.match(caller):
+            raise PlatformError(403, "TenantNotAuthorized", "military and defense products are excluded")
+        return {"documents": self.store.count(caller),
+                "limit": self.max_per_product if self.max_per_product > 0 else None}
+
+    def _quota(self, caller: str, docs: list[dict[str, Any]]) -> None:
+        if self.max_per_product <= 0:
+            return
+        have = self.store.count(caller)
+        if have + len(docs) <= self.max_per_product:
+            return
+        keys = [(d["collection"], d["tenant"], d["documentId"]) for d in docs]
+        new = len(keys) - len(self.store.existing(caller, keys))
+        if new and have + new > self.max_per_product:
+            raise PlatformError(409, "DocumentQuotaReached",
+                                f"the product has {have} of its {self.max_per_product} documents; remove some or "
+                                f"let them expire first",
+                                {"product": caller, "limit": self.max_per_product})
 
     def _pseudonym(self, cid: str) -> str:
         return self.redactor.pseudonym("cid", cid.strip(), Destination.ANALYTICS)
@@ -101,8 +151,45 @@ class Documents:
         if not DOCUMENT_ID.match(document_id):
             raise _bad("documentId must be letters, digits, '.', '_', ':' or '-' (at most 128)")
 
+    def _guard(self) -> None:
+        if self.limits is not None and self.limits.storage_state() == "full":
+            raise PlatformError(503, "StorageQuotaReached",
+                                "the data store is full; documents are not stored until space is freed",
+                                retry_after=3600)
+
     def put(self, caller: str, collection: str, document_id: str, b: Mapping[str, Any]) -> dict[str, Any]:
         self._key(caller, collection, document_id)
+        self._guard()
+        doc = self._prepare(caller, collection, document_id, b)
+        self._quota(caller, [doc])
+        self.store.upsert(doc)
+        return {"collection": collection, "documentId": document_id}
+
+    def put_many(self, caller: str, collection: str, b: Mapping[str, Any]) -> dict[str, Any]:
+        """Up to MAX_BATCH documents of one collection. All are validated and redacted before any
+        is written, so a bad document rejects the whole batch with its position in the message."""
+        items = b.get("documents")
+        if not isinstance(items, list) or not 1 <= len(items) <= MAX_BATCH:
+            raise _bad(f"documents must be a list of 1 to {MAX_BATCH} documents")
+        self._key(caller, collection, "x")
+        ids = [d.get("documentId") if isinstance(d, Mapping) else None for d in items]
+        if len(set(map(str, ids))) != len(ids):
+            raise _bad("documents: each documentId may appear once per batch")
+        self._guard()
+        prepared = []
+        for i, d in enumerate(items):
+            try:
+                if not isinstance(d, Mapping) or not isinstance(d.get("documentId"), str):
+                    raise _bad("documentId is required")
+                self._key(caller, collection, d["documentId"])
+                prepared.append(self._prepare(caller, collection, d["documentId"], d))
+            except PlatformError as e:
+                raise _bad(f"documents[{i}]: {e.message}") from e
+        self._quota(caller, prepared)
+        created = sum(1 for doc in prepared if self.store.upsert(doc))
+        return {"collection": collection, "stored": len(prepared), "created": created}
+
+    def _prepare(self, caller: str, collection: str, document_id: str, b: Mapping[str, Any]) -> dict[str, Any]:
         tenant = _tenant(b.get("tenant"))
         title, body = b.get("title"), b.get("body")
         if not isinstance(title, str) or not title.strip() or len(title) > MAX_TITLE:
@@ -113,6 +200,12 @@ class Documents:
         if url is not None and (not isinstance(url, str) or not url.startswith("https://") or len(url) > 2048):
             raise _bad("url must be an https:// link")
         updated = _parse_time(b.get("updatedAt"), "updatedAt")
+        expires = b.get("expiresAt")
+        if expires is not None:
+            expires = _parse_time(expires, "expiresAt")
+            now = datetime.now(timezone.utc)
+            if not now < expires <= now + timedelta(days=MAX_EXPIRY_DAYS):
+                raise _bad(f"expiresAt must be in the future and at most {MAX_EXPIRY_DAYS} days ahead")
         owner = b.get("ownerCid")
         if owner is not None and (not isinstance(owner, str) or not owner.strip()):
             raise _bad("ownerCid must be a Cumulus ID")
@@ -137,9 +230,9 @@ class Documents:
             # to the whole tenant.
             "restricted": bool(viewers),
             "updatedAt": _iso(updated),
+            "expiresAt": _iso(expires) if expires else None,
         }
-        self.store.upsert(doc)
-        return {"collection": collection, "documentId": document_id}
+        return doc
 
     def remove(self, caller: str, collection: str, document_id: str, b: Mapping[str, Any]) -> dict[str, int]:
         self._key(caller, collection, document_id)
@@ -177,6 +270,11 @@ def _visible(doc: Mapping[str, Any], viewer: str | None) -> bool:
     return viewer is not None and (viewer in doc["viewers"] or viewer == doc.get("ownerCid"))
 
 
+def _expired(doc: Mapping[str, Any], now: datetime | None = None) -> bool:
+    exp = doc.get("expiresAt")
+    return bool(exp) and _parse_time(exp, "expiresAt") <= (now or datetime.now(timezone.utc))
+
+
 def _snippet(body: str, words: list[str]) -> str:
     tokens = body.split()
     low = [t.lower() for t in tokens]
@@ -207,7 +305,7 @@ class MemoryDocumentStore:
         words = [w.lower() for w in re.findall(r"\w+", text)]
         found = []
         for d in self.docs.values():
-            if d["product"] != product or d["tenant"] != tenant or not _visible(d, viewer):
+            if d["product"] != product or d["tenant"] != tenant or not _visible(d, viewer) or _expired(d):
                 continue
             if collections and d["collection"] not in collections:
                 continue
@@ -234,6 +332,21 @@ class MemoryDocumentStore:
                     d["viewers"] = [v for v in d["viewers"] if v != cid_pseudonym]
         return n
 
+    def purge_expired(self) -> int:
+        with self._lock:
+            gone = [k for k, d in self.docs.items() if _expired(d)]
+            for k in gone:
+                del self.docs[k]
+        return len(gone)
+
+    def count(self, product: str) -> int:
+        with self._lock:
+            return sum(1 for k in self.docs if k[0] == product)
+
+    def existing(self, product: str, keys: list[tuple[str, str, str]]) -> set[tuple[str, str, str]]:
+        with self._lock:
+            return {k for k in keys if (product, *k) in self.docs}
+
 
 def _hit(d: Mapping[str, Any], snippet: str) -> dict[str, Any]:
     updated = d["updatedAt"]
@@ -248,3 +361,132 @@ def _hit(d: Mapping[str, Any], snippet: str) -> dict[str, Any]:
         "labels": list(d.get("labels") or []),
         "updatedAt": updated,
     }
+
+
+DOCUMENTS_INDEX = "cumulus-documents"
+
+
+class OpenSearchDocumentStore:
+    """DocumentStore on OpenSearch (search/documents-index.json, installed by bootstrap.sh).
+
+    The document id is a hash of (product, collection, tenant, documentId), so put and remove can
+    only ever touch the caller's own document. Every search filters on product and tenant and
+    applies the same visibility rule as Postgres. The query is a simple_query_string over title
+    (weighted twice) and body with AND between words, so quotes and -word work and nothing in it
+    is query DSL."""
+
+    def __init__(self, url: str, refresh: bool = False, timeout: float = 10.0, index: str = DOCUMENTS_INDEX) -> None:
+        self.url, self.refresh, self.timeout, self.index = url.rstrip("/"), refresh, timeout, index
+
+    def _call(self, method: str, path: str, body: Any = None) -> tuple[int, dict[str, Any]]:
+        req = urllib.request.Request(
+            self.url + path, method=method, headers={"Content-Type": "application/json"},
+            data=None if body is None else json.dumps(body).encode(),
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=self.timeout) as r:
+                return r.status, json.loads(r.read() or b"{}")
+        except urllib.error.HTTPError as e:
+            return e.code, json.loads(e.read() or b"{}")
+
+    @staticmethod
+    def doc_id(product: str, collection: str, tenant: str, document_id: str) -> str:
+        return hashlib.sha256(f"{product}\x1f{collection}\x1f{tenant}\x1f{document_id}".encode()).hexdigest()
+
+    def _fail(self, what: str, status: int) -> PlatformError:
+        return PlatformError(500, "SearchUnavailable", f"document {what} failed ({status})")
+
+    def upsert(self, doc: dict[str, Any]) -> bool:
+        did = self.doc_id(doc["product"], doc["collection"], doc["tenant"], doc["documentId"])
+        q = "?refresh=wait_for" if self.refresh else ""
+        status, out = self._call("PUT", f"/{self.index}/_doc/{did}{q}", doc)
+        if status >= 300:
+            raise self._fail("write", status)
+        return out.get("result") == "created"
+
+    def remove(self, product: str, collection: str, tenant: str, document_id: str) -> int:
+        q = "?refresh=wait_for" if self.refresh else ""
+        status, out = self._call("DELETE", f"/{self.index}/_doc/{self.doc_id(product, collection, tenant, document_id)}{q}")
+        if status == 404:
+            return 0
+        if status >= 300:
+            raise self._fail("delete", status)
+        return 1 if out.get("result") == "deleted" else 0
+
+    def search(self, product, tenant, text, collections, labels, viewer, limit):
+        filters: list[dict[str, Any]] = [{"term": {"product": product}}, {"term": {"tenant": tenant}}]
+        if collections:
+            filters.append({"terms": {"collection": list(collections)}})
+        filters += [{"term": {"labels": label}} for label in labels]
+        visible: list[dict[str, Any]] = [{"term": {"restricted": False}}]
+        if viewer is not None:
+            visible += [{"term": {"viewers": viewer}}, {"term": {"ownerCid": viewer}}]
+        # Documents past their expiresAt are hidden before the daily purge deletes them.
+        filters.append({"bool": {"must_not": [{"range": {"expiresAt": {"lte": "now"}}}]}})
+        filters.append({"bool": {"should": visible, "minimum_should_match": 1}})
+        body = {
+            "size": int(limit),
+            "_source": ["collection", "documentId", "title", "body", "url", "labels", "updatedAt"],
+            "query": {"bool": {
+                "filter": filters,
+                "must": [{"simple_query_string": {"query": text, "fields": ["title^2", "body"],
+                                                  "default_operator": "and",
+                                                  "flags": "AND|OR|NOT|PHRASE|PREFIX|WHITESPACE|PRECEDENCE"}}],
+            }},
+            "sort": [{"_score": "desc"}, {"updatedAt": "desc"}],
+            "highlight": {"fields": {"body": {"fragment_size": 200, "number_of_fragments": 1}},
+                          "pre_tags": [""], "post_tags": [""]},
+        }
+        status, out = self._call("POST", f"/{self.index}/_search", body)
+        if status >= 300:
+            raise self._fail("search", status)
+        words = [w.lower() for w in re.findall(r"\w+", text)]
+        hits = []
+        for h in out.get("hits", {}).get("hits", []):
+            src = h["_source"]
+            snippet = (h.get("highlight", {}).get("body") or [_snippet(src.get("body", ""), words)])[0]
+            hits.append(_hit(src, snippet))
+        return hits
+
+    def erase(self, cid_pseudonym: str, product: str | None) -> int:
+        scope: list[dict[str, Any]] = [{"term": {"product": product}}] if product else []
+        status, out = self._call(
+            "POST", f"/{self.index}/_delete_by_query?refresh=true&conflicts=proceed",
+            {"query": {"bool": {"filter": [{"term": {"ownerCid": cid_pseudonym}}, *scope]}}},
+        )
+        if status >= 300 or out.get("failures"):
+            raise PlatformError(500, "SearchUnavailable", f"erasure failed ({status}); repeat it, it is idempotent")
+        deleted = int(out.get("deleted", 0))
+        # Shared documents keep restricted=true, so dropping the last viewer never opens them up.
+        status, out = self._call(
+            "POST", f"/{self.index}/_update_by_query?refresh=true&conflicts=proceed",
+            {"query": {"bool": {"filter": [{"term": {"viewers": cid_pseudonym}}, *scope]}},
+             "script": {"lang": "painless", "params": {"p": cid_pseudonym},
+                        "source": "ctx._source.viewers.removeIf(v -> v == params.p)"}},
+        )
+        if status >= 300 or out.get("failures"):
+            raise PlatformError(500, "SearchUnavailable", f"erasure failed ({status}); repeat it, it is idempotent")
+        return deleted
+
+    def purge_expired(self) -> int:
+        """Daily retention: delete documents whose expiresAt has passed."""
+        status, out = self._call(
+            "POST", f"/{self.index}/_delete_by_query?refresh=true&conflicts=proceed",
+            {"query": {"range": {"expiresAt": {"lte": "now"}}}},
+        )
+        if status >= 300 or out.get("failures"):
+            raise self._fail("purge", status)
+        return int(out.get("deleted", 0))
+
+    def count(self, product: str) -> int:
+        status, out = self._call("POST", f"/{self.index}/_count", {"query": {"term": {"product": product}}})
+        if status >= 300:
+            raise self._fail("count", status)
+        return int(out.get("count", 0))
+
+    def existing(self, product: str, keys: list[tuple[str, str, str]]) -> set[tuple[str, str, str]]:
+        ids = {self.doc_id(product, *k): k for k in keys}
+        status, out = self._call("POST", f"/{self.index}/_mget", {"ids": list(ids), "_source": False})
+        if status >= 300:
+            raise self._fail("lookup", status)
+        return {ids[d["_id"]] for d in out.get("docs", []) if d.get("found") and d.get("_id") in ids}

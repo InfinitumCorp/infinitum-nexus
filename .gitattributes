@@ -1,1 +1,3 @@
 apps/spectre/live-ui/** -text
+# Pinned by sha256 in apps/spectre/live-ui.manifest.json: keep the same bytes on every platform.
+apps/spectre/public/id/bar.js text eol=lf

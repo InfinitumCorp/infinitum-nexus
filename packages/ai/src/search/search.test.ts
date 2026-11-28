@@ -385,3 +385,41 @@ describe("VEIL engine", () => {
     await assert.rejects(failing.search("q"), /VEIL Search returned 500/);
   });
 });
+
+describe("Exa engine", () => {
+  it("POSTs the query with x-api-key, maps highlights, drops non-http results", async () => {
+    const { exaEngine } = await import("./search.mjs");
+    const calls: { url: string; init: RequestInit }[] = [];
+    const fetchImpl = (async (url: string, init: RequestInit) => {
+      calls.push({ url, init });
+      return new Response(JSON.stringify({ results: [
+        { title: "Exa doc", url: "https://exa.example/a", highlights: ["first.", "second."] },
+        { title: "Text only", url: "https://exa.example/b", text: "body text" },
+        { title: "Bad", url: "javascript:alert(1)" },
+      ] }), { headers: { "content-type": "application/json" } });
+    }) as unknown as typeof fetch;
+    const r = await exaEngine({ apiKey: "ek", fetch: fetchImpl }).search("graph databases");
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0]!.url, "https://api.exa.ai/search");
+    assert.equal(calls[0]!.init.method, "POST");
+    assert.equal((calls[0]!.init.headers as Record<string, string>)["x-api-key"], "ek");
+    assert.equal(JSON.parse(String(calls[0]!.init.body)).query, "graph databases");
+    assert.deepEqual(r.map((x: { url: string }) => x.url), ["https://exa.example/a", "https://exa.example/b"]);
+    assert.equal(r[0]!.snippet, "first. second.");
+    assert.equal(r[1]!.snippet, "body text");
+  });
+
+  it("reports a refused key as a SearchError", async () => {
+    const { exaEngine } = await import("./search.mjs");
+    const fetchImpl = (async () => new Response("no", { status: 401 })) as unknown as typeof fetch;
+    await assert.rejects(exaEngine({ apiKey: "bad", fetch: fetchImpl }).search("q"), /refused/);
+  });
+
+  it("is on when EXA_API_KEY is set, ordered after SearXNG and before Yandex/Brave, and EXA_SEARCH=off removes it", async () => {
+    const { enginesFromEnv } = await import("./search.mjs");
+    const env = { SEARXNG_URL: "https://searx.example", EXA_API_KEY: "ek", YANDEX_SEARCH_API_KEY: "k", YANDEX_FOLDER_ID: "f", BRAVE_SEARCH_API_KEY: "b" };
+    assert.deepEqual(enginesFromEnv(env).map((e: { name: string }) => e.name), ["searxng", "exa", "yandex", "brave"]);
+    assert.deepEqual(enginesFromEnv({ ...env, EXA_SEARCH: "off" }).map((e: { name: string }) => e.name), ["searxng", "yandex", "brave"]);
+    assert.deepEqual(enginesFromEnv({}), []);
+  });
+});

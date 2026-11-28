@@ -26,7 +26,7 @@ from typing import Any, Callable
 from .dp import BudgetExceeded, PrivacyBudget, release
 from .ingest_quality import MemoryQualityLog
 from .event_release import StoredReleases
-from .documents import Documents
+from .documents import Documents, OpenSearchDocumentStore
 from .embed import GuestTokens, parse_embed_dashboards
 from .pipeline import prepare_export
 from .platform import Catalog, Collector, DataHubSink, Eraser, IngestLimits, OpenSearchIndex, PlatformError, Searcher
@@ -133,6 +133,8 @@ class Gateway:
             Route("POST", "/api/v1/documents/collections/{collection}/documents/{documentId}/remove",
                   self.remove_document, "product"),
             Route("POST", "/api/v1/documents/search", self.search_documents, "product"),
+            Route("GET", "/api/v1/documents/usage", self.document_usage, "product"),
+            Route("POST", "/api/v1/documents/collections/{collection}/batch", self.put_documents, "product"),
             Route("GET", "/api/v1/releases/datasets/{name}/budget", self.release_budget, "product"),
             Route("POST", "/api/v1/embed/dashboards/{dashboardId}/guest-token", self.guest_token, "product"),
         ]
@@ -178,8 +180,14 @@ class Gateway:
     def remove_document(self, b: dict[str, Any], caller: str = "", collection: str = "", documentId: str = "") -> Any:  # noqa: N803
         return self._platform(self.documents).remove(caller, collection, documentId, b)
 
+    def put_documents(self, b: dict[str, Any], caller: str = "", collection: str = "") -> Any:
+        return self._platform(self.documents).put_many(caller, collection, b)
+
     def search_documents(self, b: dict[str, Any], caller: str = "", **_: str) -> Any:
         return self._platform(self.documents).search(caller, b)
+
+    def document_usage(self, b: dict[str, Any], caller: str = "", **_: str) -> Any:
+        return self._platform(self.documents).usage(caller)
 
     def release_budget(self, b: dict[str, Any], caller: str = "", name: str = "") -> Any:
         return self._platform(self.releases).budget(caller, name)
@@ -329,7 +337,7 @@ def main() -> None:
     gms = os.environ.get("DATAHUB_GMS_URL")
     sink = DataHubSink(gms, os.environ.get("DATAHUB_GMS_TOKEN")) if gms else None
     index: Any = None
-    doc_store: Any = None  # document search needs Postgres (the free-tier layout)
+    doc_store: Any = None
     if dsn:
         # Free-tier layout: everything in Supabase Postgres (Ireland). No OpenSearch needed.
         from .pgstore import PostgresBudget, PostgresCatalog, PostgresDocumentStore, PostgresEventIndex, PostgresQualityLog
@@ -342,10 +350,10 @@ def main() -> None:
     else:
         budget = PrivacyBudget(os.environ.get("PRIVACY_BUDGET_FILE", "/var/lib/privacy-gateway/budget.json"), epsilon)
         catalog = Catalog(os.environ.get("PLATFORM_CATALOG_FILE", "/var/lib/privacy-gateway/catalog.json"), sink)
-        index = OpenSearchIndex(
-            os.environ.get("OPENSEARCH_URL", "http://localhost:9200"),
-            refresh=os.environ.get("OPENSEARCH_REFRESH_ON_WRITE") == "1",
-        )
+        os_url = os.environ.get("OPENSEARCH_URL", "http://localhost:9200")
+        os_refresh = os.environ.get("OPENSEARCH_REFRESH_ON_WRITE") == "1"
+        index = OpenSearchIndex(os_url, refresh=os_refresh)
+        doc_store = OpenSearchDocumentStore(os_url, refresh=os_refresh)
         quality_log = MemoryQualityLog()
     redactor = Redactor()
     collector = searcher = releases = documents = None
@@ -364,11 +372,13 @@ def main() -> None:
         searcher = Searcher(index)
         releases = StoredReleases(catalog, index, budget)
         if doc_store is not None:
-            documents = Documents(redactor, doc_store)
+            # A cap per product, so one product can't fill the free database for the others.
+            documents = Documents(redactor, doc_store, limits, max_per_product=int(
+                os.environ.get("PLATFORM_MAX_DOCUMENTS_PER_PRODUCT", "20000" if dsn else "0")))
     else:
         catalog = None
-    if dsn:
-        threading.Thread(target=_purge_daily, args=(index,), daemon=True).start()
+    if dsn or doc_store is not None:  # stores without purge_expired are skipped
+        threading.Thread(target=_purge_daily, args=(index, doc_store), daemon=True).start()
     guest_tokens = None
     guest_secret = os.environ.get("SUPERSET_GUEST_TOKEN_SECRET", "")
     dashboards = parse_embed_dashboards(os.environ.get("PLATFORM_EMBED_DASHBOARDS", ""))
@@ -384,14 +394,22 @@ def main() -> None:
     httpd.serve_forever()
 
 
-def _purge_daily(index: Any) -> None:
-    """Retention: delete events past their dataset's retentionDays, once a day."""
+def _purge_daily(index: Any, doc_store: Any = None) -> None:
+    """Retention, once a day: events past their dataset's retentionDays, and documents past
+    their expiresAt. One failing store doesn't stop the other."""
     while True:
-        try:
-            print(f"retention purge removed {index.purge_expired()} events", file=sys.stderr)
-        except Exception as e:  # noqa: BLE001 - keep serving; try again tomorrow
-            print(f"retention purge failed: {type(e).__name__}", file=sys.stderr)
+        purge_once(index, doc_store)
         time.sleep(24 * 3600)
+
+
+def purge_once(index: Any, doc_store: Any = None) -> None:
+    for what, store in (("events", index), ("documents", doc_store)):
+        if store is None or not hasattr(store, "purge_expired"):
+            continue
+        try:
+            print(f"retention purge removed {store.purge_expired()} {what}", file=sys.stderr)
+        except Exception as e:  # noqa: BLE001 - keep serving; try again tomorrow
+            print(f"retention purge of {what} failed: {type(e).__name__}", file=sys.stderr)
 
 
 if __name__ == "__main__":

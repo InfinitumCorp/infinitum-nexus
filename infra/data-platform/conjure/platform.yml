@@ -270,6 +270,11 @@ types:
               If set, only these people (and the owner) find the document. If not set, everyone
               searching the tenant does. At most 500.
           updatedAt: datetime
+          expiresAt:
+            type: optional<datetime>
+            docs: >-
+              When to forget the document: it stops matching searches then, and the daily
+              retention purge deletes it. In the future, at most 3650 days ahead.
       DocumentRef:
         fields:
           collection: string
@@ -277,6 +282,31 @@ types:
       DocumentRemoveRequest:
         fields:
           tenant: TenantId
+      DocumentBatchItem:
+        docs: One document of a batch; the fields of DocumentUpsert plus its documentId.
+        fields:
+          documentId: string
+          tenant: TenantId
+          title: string
+          body: string
+          url: optional<string>
+          labels: optional<list<string>>
+          ownerCid: optional<Cid>
+          viewers: optional<list<Cid>>
+          updatedAt: datetime
+          expiresAt: optional<datetime>
+      DocumentBatch:
+        fields:
+          documents:
+            type: list<DocumentBatchItem>
+            docs: 1 to 100 documents, each documentId once. All are validated before any is stored.
+      DocumentBatchResponse:
+        fields:
+          collection: string
+          stored: integer
+          created:
+            type: integer
+            docs: How many of the stored documents were new.
       DocumentRemoveResponse:
         fields:
           deleted:
@@ -312,6 +342,14 @@ types:
           hits:
             type: list<DocumentHit>
             docs: Best match first.
+      DocumentUsage:
+        fields:
+          documents:
+            type: integer
+            docs: Documents this product has stored, in every collection and tenant.
+          limit:
+            type: optional<integer>
+            docs: PLATFORM_MAX_DOCUMENTS_PER_PRODUCT, or absent when there is no cap.
 
     errors:
       SchemaMismatch:
@@ -353,7 +391,18 @@ types:
         code: INTERNAL
         docs: >-
           HTTP 503 with Retry-After. The event store reached PLATFORM_STORAGE_LIMIT_MB (450 MB by
-          default on the Supabase free plan). Keep the events and send them again later.
+          default on the Supabase free plan). Keep the events and send them again later. Document
+          puts are refused the same way; removing documents and erasure still work.
+      DocumentQuotaReached:
+        namespace: DataPlatform
+        code: CONFLICT
+        docs: >-
+          HTTP 409. The put would take the product over PLATFORM_MAX_DOCUMENTS_PER_PRODUCT (20,000
+          by default on the free tier). Replacing documents the product already has still works;
+          remove documents or let them expire to make room. Nothing in the request was stored.
+        safe-args:
+          product: ProductId
+          limit: integer
       IngestQuotaExceeded:
         namespace: DataPlatform
         code: CUSTOM_CLIENT
@@ -525,6 +574,9 @@ services:
     endpoints:
       putDocument:
         http: PUT /collections/{collection}/documents/{documentId}
+        docs: >-
+          Insert or replace. 503 StorageQuotaReached with Retry-After when the data store is full;
+          409 DocumentQuotaReached when a new document would take the product over its cap.
         args:
           collection: string
           documentId: string
@@ -532,6 +584,18 @@ services:
             type: DocumentUpsert
             param-type: body
         returns: DocumentRef
+      putDocuments:
+        http: POST /collections/{collection}/batch
+        docs: >-
+          Insert or replace up to 100 documents of one collection in one call. A bad document
+          rejects the batch (InvalidArgument names its position); nothing is stored then.
+          503 StorageQuotaReached when the data store is full.
+        args:
+          collection: string
+          batch:
+            type: DocumentBatch
+            param-type: body
+        returns: DocumentBatchResponse
       removeDocument:
         http: POST /collections/{collection}/documents/{documentId}/remove
         args:
@@ -548,3 +612,7 @@ services:
             type: DocumentQuery
             param-type: body
         returns: DocumentSearchResponse
+      getDocumentUsage:
+        http: GET /usage
+        docs: How close the calling product is to its document cap. Reading it changes nothing.
+        returns: DocumentUsage

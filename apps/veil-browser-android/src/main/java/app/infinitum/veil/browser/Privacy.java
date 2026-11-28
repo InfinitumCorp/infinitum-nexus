@@ -24,6 +24,12 @@ public final class Privacy {
     /** VEIL's own results page, bundled with the app: searches never show a search engine's page. */
     public static final String SEARCH = "file:///android_asset/hub/search.html?q=";
 
+    /**
+     * The default search engine. Google has no onion service, so with Tor on the same URL
+     * is fetched through Tor like every other page (the WebView proxy covers all loads).
+     */
+    public static final String GOOGLE = "https://www.google.com/search?q=";
+
     /** Remove tracking parameters. Returns the input unchanged when nothing matched. */
     public static String stripTrackers(String url) {
         int q = url.indexOf('?');
@@ -69,14 +75,14 @@ public final class Privacy {
         return url.regionMatches(true, 0, "https://", 0, 8) || url.regionMatches(true, 0, "http://", 0, 7);
     }
 
-    /** Turn what the person typed into a URL: an address, or a private search. */
+    /** Turn what the person typed into a URL: an address, or a Google search. */
     public static String fromInput(String raw) {
         String s = raw.trim();
         if (s.isEmpty()) return null;
         if (isWeb(s)) return clean(s);
         boolean looksLikeHost = !s.contains(" ") && s.contains(".") && !s.startsWith(".") && !s.endsWith(".");
         if (looksLikeHost) return clean("https://" + s);
-        return SEARCH + URLEncoder.encode(s, StandardCharsets.UTF_8);
+        return GOOGLE + URLEncoder.encode(s, StandardCharsets.UTF_8);
     }
 
     /** Registrable-ish site: the last two labels, as the extension compares them. */

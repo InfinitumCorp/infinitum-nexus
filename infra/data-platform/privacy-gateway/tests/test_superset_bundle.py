@@ -77,3 +77,19 @@ def test_uuids_are_stable_and_the_zip_imports_as_one_root(tmp_path):
         assert {n.split("/")[0] for n in names} == {"cumulus_dashboards"}
         assert "cumulus_dashboards/metadata.yaml" in names
         assert json.loads(z.read("cumulus_dashboards/metadata.yaml"))["type"] == "Dashboard"
+
+
+def test_native_filters_target_real_columns_and_never_tenant_on_embeds(files):
+    datasets = {v["uuid"]: v for v in by_prefix(files, "datasets/").values()}
+    for key, _, slug, embeddable, _ in bundle.DASHBOARDS:
+        filters = files[f"dashboards/{slug}.yaml"]["metadata"]["native_filter_configuration"]
+        assert filters and len({f["id"] for f in filters}) == len(filters)
+        for f in filters:
+            for target in f["targets"]:
+                if not target:
+                    assert f["filterType"] == "filter_time"
+                    continue
+                ds = datasets[target["datasetUuid"]]
+                assert target["column"]["name"] in {c["column_name"] for c in ds["columns"]}
+                if embeddable:
+                    assert target["column"]["name"] not in {"tenant", "product"}

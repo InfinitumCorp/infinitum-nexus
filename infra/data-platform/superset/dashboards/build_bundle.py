@@ -114,6 +114,34 @@ DASHBOARDS = [
      [["quality.pass_rate", "quality.by_dataset"], ["quality.failed"]]),
 ]
 
+# Native filters per dashboard: (name, column or None for the time range). The dataset is the
+# one the dashboard's charts use. No filter offers tenant or product on the embeddable
+# dashboard: the guest token already pins both, and listing values would show other tenants'.
+FILTERS = {
+    "activity": ("events_bi", [("Time range", None), ("Event type", "event_type"), ("Region", "region")]),
+    "quality": ("quality_runs", [("Time range", None), ("Product", "product"), ("Dataset", "dataset")]),
+}
+
+
+def _native_filters(dashboard: str) -> list[dict[str, Any]]:
+    dataset, filters = FILTERS[dashboard]
+    out = []
+    for name, column in filters:
+        f: dict[str, Any] = {
+            "id": f"NATIVE_FILTER-{uid(f'filter:{dashboard}:{name}')[:12]}",
+            "name": name, "type": "NATIVE_FILTER", "description": "",
+            "filterType": "filter_time" if column is None else "filter_select",
+            "targets": [{}] if column is None else [{"column": {"name": column}, "datasetUuid": uid("dataset:" + dataset)}],
+            "controlValues": {} if column is None else {
+                "enableEmptyFilter": False, "defaultToFirstItem": False, "multiSelect": True,
+                "searchAllOptions": False, "inverseSelection": False},
+            "defaultDataMask": {"extraFormData": {}, "filterState": {}, "ownState": {}},
+            "cascadeParentIds": [], "scope": {"rootPath": ["ROOT_ID"], "excluded": []},
+            "chartsInScope": [], "tabsInScope": [],
+        }
+        out.append(f)
+    return out
+
 
 def _position(title: str, rows: list[list[str]], widths: dict[str, int]) -> dict[str, Any]:
     pos: dict[str, Any] = {
@@ -177,7 +205,7 @@ def files(database_uri: str = DEFAULT_URI) -> dict[str, dict[str, Any]]:
             "uuid": uid("dashboard:" + key), "position": _position(title, rows, widths),
             "metadata": {"color_scheme": "", "refresh_frequency": 0, "expanded_slices": {}, "label_colors": {},
                          "timed_refresh_immune_slices": [], "cross_filters_enabled": True,
-                         "native_filter_configuration": [], "shared_label_colors": [],
+                         "native_filter_configuration": _native_filters(key), "shared_label_colors": [],
                          "color_scheme_domain": []},
             "version": VERSION,
         }

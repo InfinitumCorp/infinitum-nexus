@@ -202,6 +202,14 @@ jobs:
               print(got)
               assert got["Product activity"] == ("3690a391-0b11-5f9a-a2f2-59cd7e2e570a", ["Events", "Events by type", "Events per day"]), got
               assert got["Data quality"] == ("3d83ccfe-0c46-52c2-aedf-dc3a0fadcc12", ["Failed runs", "Quality pass rate", "Runs by dataset"]), got
+              import json
+              for d in db.session.query(Dashboard):
+                  nf = json.loads(d.json_metadata)["native_filter_configuration"]
+                  names = [f["name"] for f in nf]
+                  print(d.dashboard_title, names)
+                  assert len(nf) == 3 and "Time range" in names, names
+                  # The importer turns dataset UUIDs into this Superset's dataset ids.
+                  assert all(isinstance(t["datasetId"], int) for f in nf for t in f["targets"] if t), nf
           PY
           # Importing again updates in place (same UUIDs), it does not duplicate.
           docker compose --profile bi exec -T superset superset import-dashboards -p /tmp/cumulus-dashboards.zip -u ci-import

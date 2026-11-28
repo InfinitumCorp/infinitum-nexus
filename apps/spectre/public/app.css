@@ -332,3 +332,19 @@ ol.steps li.trigger { list-style: none; margin-left: -22px; font-weight: 600; }
 @media (max-width: 520px) { .line-row { grid-template-columns: 1fr 1fr auto; } .line-row [name=description] { grid-column: 1 / -1; } }
 table.simple .num { text-align: right; }
 .pre { white-space: pre-line; }
+
+/* Contacts: tags and smart lists */
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.chips.tight { margin: 4px 0 0; gap: 4px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border: 1px solid var(--line, #e5e7eb); background: transparent; color: inherit; font: inherit; font-size: 13px; cursor: pointer; text-decoration: none; white-space: nowrap; }
+.chip.on { background: var(--fg, #111); color: var(--bg, #fff); border-color: var(--fg, #111); }
+.chip.on .faint { color: inherit; opacity: .7; }
+.filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; margin: 8px 0; }
+.filters [name="q"] { grid-column: 1 / -1; }
+.row.wrap { flex-wrap: wrap; }
+.bulk { margin: 8px 0; gap: 8px; }
+@media (max-width: 600px) {
+  .contact-row { flex-wrap: wrap; }
+  .contact-row .main { flex: 1 1 calc(100% - 40px); min-width: 0; }
+  .contact-row > .pill { margin-left: 32px; }
+}

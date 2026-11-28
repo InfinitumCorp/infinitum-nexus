@@ -720,6 +720,122 @@ async function renderInvoice(id) {
   }));
 }
 
+/* ---------------- Contacts (tags and smart lists) ---------------- */
+
+const cf = { q: "", tags: [], hasEmail: "", hasPhone: "", minScore: "", quietForDays: "", createdWithinDays: "", sort: "score" };
+const cfSelected = new Set();
+const describeFilter = (f) => [
+  f.tags?.length && `tags: ${f.tags.join(" + ")}`, f.anyTags?.length && `any of: ${f.anyTags.join(", ")}`, f.text && `“${f.text}”`,
+  f.minScore !== undefined && `score ≥ ${f.minScore}`, f.hasEmail !== undefined && (f.hasEmail ? "has email" : "no email"),
+  f.hasPhone !== undefined && (f.hasPhone ? "has phone" : "no phone"), f.quietForDays && `quiet ${f.quietForDays}+ days`,
+  f.createdWithinDays && `added in ${f.createdWithinDays} days`, f.source && `source: ${f.source}`,
+].filter(Boolean).join(" · ") || "everyone";
+const filterBody = () => {
+  const f = { text: cf.q || undefined, tags: cf.tags.length ? cf.tags : undefined, minScore: cf.minScore || undefined, quietForDays: cf.quietForDays || undefined, createdWithinDays: cf.createdWithinDays || undefined };
+  if (cf.hasEmail) f.hasEmail = cf.hasEmail === "1";
+  if (cf.hasPhone) f.hasPhone = cf.hasPhone === "1";
+  return f;
+};
+
+async function renderContacts() {
+  const listId = S.route().id;
+  const qs = new URLSearchParams({ sort: cf.sort });
+  if (listId) qs.set("list", listId);
+  else for (const [k, v] of Object.entries({ q: cf.q, tags: cf.tags.join(","), hasEmail: cf.hasEmail, hasPhone: cf.hasPhone, minScore: cf.minScore, quietForDays: cf.quietForDays, createdWithinDays: cf.createdWithinDays })) if (v) qs.set(k, v);
+  const [d, lists] = await Promise.all([api("GET", `/api/crm/contacts?${qs}`), api("GET", "/api/crm/lists")]);
+  const list = lists.find((l) => l.id === listId);
+  const visible = new Set(d.contacts.map((c) => c.id));
+  for (const id of cfSelected) if (!visible.has(id)) cfSelected.delete(id);
+  const opt = (name, v, label) => `<option value="${v}" ${cf[name] === v ? "selected" : ""}>${label}</option>`;
+  main().innerHTML = `
+    <div class="page">
+      <div class="page-head"><h1>Contacts</h1>${listId ? "" : `<button class="btn" id="save-list">Save as smart list</button>`}</div>
+      <div class="chips" id="lists">
+        <a class="chip ${listId ? "" : "on"}" href="#/contacts">All</a>
+        ${lists.map((l) => `<a class="chip ${l.id === listId ? "on" : ""}" href="#/contacts/${esc(l.id)}">${esc(l.name)} <span class="faint">${l.count}</span></a>`).join("")}
+      </div>
+      ${list ? `<div class="row wrap"><p class="muted">Smart list: ${esc(describeFilter(list.filter))}. It updates by itself as people change.</p><button class="btn ghost small" id="del-list">Delete list</button></div>` : `
+      <form id="cf" class="filters">
+        <input class="input" name="q" placeholder="Search name, email, phone, company" value="${esc(cf.q)}" aria-label="Search">
+        <select class="input" name="hasEmail" aria-label="Email">${opt("hasEmail", "", "Any email")}${opt("hasEmail", "1", "Has email")}${opt("hasEmail", "0", "No email")}</select>
+        <select class="input" name="hasPhone" aria-label="Phone">${opt("hasPhone", "", "Any phone")}${opt("hasPhone", "1", "Has phone")}${opt("hasPhone", "0", "No phone")}</select>
+        <input class="input" name="minScore" type="number" min="0" max="100" placeholder="Min score" value="${esc(cf.minScore)}" aria-label="Minimum score">
+        <input class="input" name="quietForDays" type="number" min="1" placeholder="Quiet for days" value="${esc(cf.quietForDays)}" aria-label="No activity for days">
+        <input class="input" name="createdWithinDays" type="number" min="1" placeholder="Added within days" value="${esc(cf.createdWithinDays)}" aria-label="Added within days">
+        <select class="input" name="sort" aria-label="Sort">${opt("sort", "score", "Top score")}${opt("sort", "recent", "Newest")}${opt("sort", "name", "Name")}</select>
+      </form>
+      ${d.tags.length ? `<div class="chips" id="tag-cloud">${d.tags.slice(0, 40).map((t) => `<button type="button" class="chip ${cf.tags.includes(t.tag) ? "on" : ""}" data-tag="${esc(t.tag)}">#${esc(t.tag)} <span class="faint">${t.count}</span></button>`).join("")}</div>` : ""}`}
+      <div class="row wrap bulk">
+        <label class="row small"><input type="checkbox" id="sel-all" ${d.contacts.length && cfSelected.size === d.contacts.length ? "checked" : ""}> <span id="sel-count">${cfSelected.size ? `${cfSelected.size} selected` : `${d.total} ${d.total === 1 ? "person" : "people"}`}</span></label>
+        <button class="btn small" id="bulk-add" ${cfSelected.size ? "" : "disabled"}>Add tag</button>
+        <button class="btn small" id="bulk-remove" ${cfSelected.size ? "" : "disabled"}>Remove tag</button>
+      </div>
+      ${d.contacts.length ? `<div class="list">${d.contacts.map((c) => `
+        <div class="item contact-row">
+          <input type="checkbox" data-sel="${esc(c.id)}" ${cfSelected.has(c.id) ? "checked" : ""} aria-label="Select ${esc(c.name)}">
+          <div class="main"><div class="title">${esc(c.name)}${c.optedOut ? ` <span class="pill">opted out</span>` : ""}</div>
+            <div class="sub">${esc([c.company, c.email, c.phone].filter(Boolean).join(" · "))}</div>
+            ${c.tags?.length ? `<div class="chips tight">${c.tags.map((t) => `<span class="pill">#${esc(t)}</span>`).join("")}</div>` : ""}</div>
+          <span class="pill ${c.band === "hot" ? "low" : ""}" title="Lead score">${c.score}</span>
+          <button class="btn ghost small" data-tags="${esc(c.id)}">Tags</button>
+          <a class="btn ghost small" href="#/inbox/${esc(c.id)}">Message</a>
+        </div>`).join("")}</div>${d.total > d.contacts.length ? `<p class="faint small">Showing the first ${d.contacts.length} of ${d.total}.</p>` : ""}` : `<div class="empty">No one matches.</div>`}
+    </div>`;
+  const rerender = () => renderContacts();
+  const f = S.$("#cf");
+  if (f) {
+    let t;
+    f.oninput = (e) => { clearTimeout(t); t = setTimeout(() => { for (const k of ["q", "hasEmail", "hasPhone", "minScore", "quietForDays", "createdWithinDays", "sort"]) cf[k] = f[k].value.trim(); rerender().then(() => { const el = S.$(`#cf [name="${e.target.name}"]`); if (el && e.target.type !== "select-one") { el.focus(); el.setSelectionRange?.(el.value.length, el.value.length); } }); }, e.target.name === "q" ? 300 : 0); };
+    f.onsubmit = (e) => e.preventDefault();
+  }
+  main().querySelectorAll("[data-tag]").forEach((b) => b.onclick = () => { const tg = b.dataset.tag; cf.tags = cf.tags.includes(tg) ? cf.tags.filter((x) => x !== tg) : [...cf.tags, tg]; rerender(); });
+  const sync = () => {
+    S.$("#sel-count").textContent = cfSelected.size ? `${cfSelected.size} selected` : `${d.total} ${d.total === 1 ? "person" : "people"}`;
+    S.$("#bulk-add").disabled = S.$("#bulk-remove").disabled = !cfSelected.size;
+  };
+  main().querySelectorAll("[data-sel]").forEach((b) => b.onchange = () => { b.checked ? cfSelected.add(b.dataset.sel) : cfSelected.delete(b.dataset.sel); S.$("#sel-all").checked = cfSelected.size === d.contacts.length; sync(); });
+  S.$("#sel-all").onchange = (e) => { main().querySelectorAll("[data-sel]").forEach((b) => { b.checked = e.target.checked; e.target.checked ? cfSelected.add(b.dataset.sel) : cfSelected.delete(b.dataset.sel); }); sync(); };
+  const bulk = (remove) => S.modal(`<h2>${remove ? "Remove a tag from" : "Tag"} ${cfSelected.size} ${cfSelected.size === 1 ? "person" : "people"}</h2>
+    <label class="field">Tags (comma separated)<input class="input" name="tags" list="tag-options" required autofocus></label>
+    <datalist id="tag-options">${d.tags.map((t) => `<option value="${esc(t.tag)}">`).join("")}</datalist>
+    ${remove ? "" : `<p class="faint small">Adding a tag can start automations that use the “tag added” trigger.</p>`}`, async (fd) => {
+    const tags = tagsIn(fd.get("tags"));
+    const r = await api("POST", "/api/crm/contacts/bulk-tag", { ids: [...cfSelected], [remove ? "remove" : "add"]: tags });
+    toast(`${r.changed} ${r.changed === 1 ? "person" : "people"} updated`);
+    rerender();
+  });
+  S.$("#bulk-add").onclick = () => bulk(false);
+  S.$("#bulk-remove").onclick = () => bulk(true);
+  main().querySelectorAll("[data-tags]").forEach((b) => b.onclick = () => {
+    const c = d.contacts.find((x) => x.id === b.dataset.tags);
+    S.modal(`<h2>Tags for ${esc(c.name)}</h2>
+      <label class="field">Tags (comma separated)<input class="input" name="tags" value="${esc((c.tags ?? []).join(", "))}" list="tag-options"></label>
+      <datalist id="tag-options">${d.tags.map((t) => `<option value="${esc(t.tag)}">`).join("")}</datalist>`, async (fd) => {
+      const next = tagsIn(fd.get("tags")).map((t) => t.toLowerCase());
+      const before = c.tags ?? [];
+      await api("POST", `/api/crm/contacts/${c.id}/tags`, { add: next, remove: before.filter((t) => !next.includes(t)) });
+      toast("Tags saved");
+      rerender();
+    });
+  });
+  S.$("#save-list")?.addEventListener("click", () => {
+    const filter = filterBody();
+    S.modal(`<h2>Save as smart list</h2>
+      <p class="muted">${esc(describeFilter(filter))}</p>
+      <label class="field">Name<input class="input" name="name" required maxlength="80" autofocus></label>
+      <p class="faint small">A smart list keeps itself up to date. Use it as a campaign audience.</p>`, async (fd) => {
+      const l = await api("POST", "/api/crm/lists", { name: fd.get("name"), filter });
+      toast("Smart list saved");
+      location.hash = `#/contacts/${l.id}`;
+    });
+  });
+  S.$("#del-list")?.addEventListener("click", () => {
+    if (!confirm(`Delete the smart list “${list.name}”? The people in it stay.`)) return;
+    act(async () => { await api("DELETE", `/api/crm/lists/${list.id}`); location.hash = "#/contacts"; }, "List deleted");
+  });
+}
+
+S.view("contacts", renderContacts);
 S.view("inbox", renderInbox);
 S.view("forms", renderForms);
 S.view("calendars", renderCalendars);

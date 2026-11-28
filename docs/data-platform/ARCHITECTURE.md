@@ -78,7 +78,7 @@ so the catalog and the redaction policy cannot drift apart.
   runner.
 - **Ingestion:** `datahub/recipes/supabase-postgres.yml` loads schemas and lineage from Postgres
   with a read-only metadata role. Profiling is off because it reads rows.
-  `datahub/recipes/opensearch.yml` loads the event index mappings.
+  `datahub/recipes/opensearch.yml` loads the event and document index mappings.
 - **Catalog replay:** `python -m cumulus_privacy.catalog_sync` (or, on the box,
   `docker compose exec privacy-gateway python -m cumulus_privacy.catalog_sync`). DataHub runs on
   demand, so it starts empty, while the catalog of record lives in Supabase. The sync pushes
@@ -219,7 +219,10 @@ with the same query DSL, so we use it.
 Conjure `DocumentService`). Products also index their own documents: help articles, playbooks
 and notes. A document is keyed by product, collection, tenant and document ID. On the free tier
 it lives in `data_platform.documents`, using Postgres full-text search with the title weighted
-above the body and `websearch_to_tsquery` syntax. The rules:
+above the body and `websearch_to_tsquery` syntax. On the full stack it lives in the OpenSearch
+index `cumulus-documents` (strict mapping in `search/documents-index.json`, title weighted twice,
+`simple_query_string` with AND between words). There the document ID is a hash of the four keys,
+so a write or delete can only reach the caller's own document. The rules are the same on both:
 
 - Every search is scoped to the calling product and one tenant. A product's token never reads
   another product's documents.

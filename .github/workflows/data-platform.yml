@@ -179,6 +179,11 @@ jobs:
           out=$(curl -fsS http://127.0.0.1:8090/api/v1/erasure/subjects \
             -H "Authorization: Bearer $SMOKE_SPECTRE_TOKEN" -H 'Content-Type: application/json' -d '{"cid":"cid_smoke0001"}')
           echo "$out"; test "$out" = '{"deleted": 1}'
+      - name: Document search on OpenSearch (scoping, redaction, erasure)
+        run: |
+          set -a; . ./.env; set +a
+          curl -fsS http://127.0.0.1:9200/cumulus-documents/_mapping >/dev/null
+          python3 smoke/documents_smoke.py http://127.0.0.1:8090 "$SMOKE_SPECTRE_TOKEN" "$SMOKE_MAIL_TOKEN"
       - name: Start Superset (profile bi)
         run: |
           docker compose --profile bi up -d --build --wait --wait-timeout 900 superset

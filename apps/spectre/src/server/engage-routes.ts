@@ -8,6 +8,7 @@ import { receiveSms, sendMessage, threads, verifyTwilioSignature, type Providers
 import { limiter, type GrowthApi } from "./growth-routes.ts";
 import { createInvoice, getInvoice, invoiceDashboard, invoiceLink, publicInvoice, saveInvoiceSettings, sendInvoice, setInvoiceStatus, updateInvoice } from "../core/invoices.ts";
 import { openReview, requestReviews, respondToReview, reviewDashboard, saveReviewSettings } from "../core/reputation.ts";
+import { createTemplate, deleteTemplate, getTemplate, listTemplates, updateTemplate } from "../core/templates.ts";
 import { growthReport } from "../core/reporting.ts";
 import { audienceOf, createCampaign, deleteCampaign, getCampaign, runDueCampaigns, sendCampaign, updateCampaign } from "../core/campaigns.ts";
 
@@ -114,6 +115,11 @@ export function registerEngageRoutes(api: EngageApi) {
   /* ---------------- Invoices ---------------- */
 
   const invoiceLimit = limiter(60, 60_000);
+  route("GET", "/api/crm/templates", (ctx) => listTemplates(crm, ws(ctx), ctx.query.get("channel") ?? undefined));
+  route("POST", "/api/crm/templates", (ctx) => createTemplate(crm, ws(ctx), me(ctx), ctx.body));
+  route("GET", "/api/crm/templates/:id", (ctx) => getTemplate(crm, ws(ctx), ctx.params.id));
+  route("PATCH", "/api/crm/templates/:id", (ctx) => updateTemplate(crm, ws(ctx), me(ctx), ctx.params.id, ctx.body));
+  route("DELETE", "/api/crm/templates/:id", async (ctx) => { await deleteTemplate(crm, ws(ctx), me(ctx), ctx.params.id); return { ok: true }; });
   route("GET", "/api/crm/reports/growth", (ctx) => growthReport(crm, ws(ctx), Number(ctx.query.get("days") ?? 30)));
   route("GET", "/api/crm/invoices", (ctx) => invoiceDashboard(crm, ws(ctx)));
   route("PUT", "/api/crm/invoices/settings", (ctx) => saveInvoiceSettings(crm, ws(ctx), me(ctx), ctx.body));

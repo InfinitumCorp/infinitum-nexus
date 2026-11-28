@@ -5,7 +5,8 @@ import { timingSafeEqual } from "node:crypto";
 import type { SpectreCRM } from "../core/crm.ts";
 import { createWorkflow, deleteWorkflow, getWorkflow, runDue, updateWorkflow, type AutomationEngine } from "../core/automations.ts";
 import { receiveSms, sendMessage, threads, verifyTwilioSignature, type Providers } from "../core/messaging.ts";
-import type { GrowthApi } from "./growth-routes.ts";
+import { limiter, type GrowthApi } from "./growth-routes.ts";
+import { openReview, requestReviews, respondToReview, reviewDashboard, saveReviewSettings } from "../core/reputation.ts";
 import { audienceOf, createCampaign, deleteCampaign, getCampaign, runDueCampaigns, sendCampaign, updateCampaign } from "../core/campaigns.ts";
 
 /** A non-JSON response (e.g. TwiML for Twilio). */
@@ -91,6 +92,22 @@ export function registerEngageRoutes(api: EngageApi) {
   route("PATCH", "/api/crm/campaigns/:id", (ctx) => updateCampaign(crm, ws(ctx), me(ctx), ctx.params.id, ctx.body));
   route("DELETE", "/api/crm/campaigns/:id", async (ctx) => { await deleteCampaign(crm, ws(ctx), me(ctx), ctx.params.id); return { ok: true }; });
   route("POST", "/api/crm/campaigns/:id/send", (ctx) => sendCampaign(crm, providers, ws(ctx), me(ctx), ctx.params.id));
+
+  /* ---------------- Reputation ---------------- */
+
+  const reviewLimit = limiter(30, 60_000);
+  route("GET", "/api/crm/reviews", (ctx) => reviewDashboard(crm, ws(ctx)));
+  route("PUT", "/api/crm/reviews/settings", (ctx) => saveReviewSettings(crm, ws(ctx), me(ctx), ctx.body));
+  route("POST", "/api/crm/reviews/request", (ctx) =>
+    requestReviews(crm, providers, ws(ctx), me(ctx), { contactIds: ctx.body.contactIds, channel: ctx.body.channel, message: ctx.body.message, origin: api.origin }));
+  route("GET", "/api/public/reviews/:token", (ctx) => {
+    if (!reviewLimit(ctx.req, "open")) throw httpError(429, "Too many requests. Please try again in a minute.");
+    return openReview(crm, ctx.params.token);
+  }, false);
+  route("POST", "/api/public/reviews/:token", (ctx) => {
+    if (!reviewLimit(ctx.req, "respond")) throw httpError(429, "Too many requests. Please try again in a minute.");
+    return respondToReview(crm, ctx.params.token, ctx.body);
+  }, false);
 
   /* ---------------- Conversations ---------------- */
 

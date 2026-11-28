@@ -1,4 +1,5 @@
 import type { Campaign } from "./campaigns.ts";
+import type { ReviewRequest, ReviewSettings } from "./reputation.ts";
 import { randomUUID } from "node:crypto";
 import type { AgentProposal, AgentRunRecord } from "./agent-team.ts";
 import type { Simulation } from "@infinitum/conjure";
@@ -57,6 +58,9 @@ export interface SpectreStore {
   scenarios: Map<string, SavedScenario>;
   /** Email/SMS broadcasts (core/campaigns.ts). */
   campaigns: Map<string, Campaign>;
+  /** Reputation (core/reputation.ts): one settings record per workspace, and review requests. */
+  reviewSettings: Map<string, ReviewSettings>;
+  reviewRequests: Map<string, ReviewRequest>;
 }
 
 export const emptyStore = (): SpectreStore => ({
@@ -78,6 +82,8 @@ export const emptyStore = (): SpectreStore => ({
   simulations: new Map(),
   scenarios: new Map(),
   campaigns: new Map(),
+  reviewSettings: new Map(),
+  reviewRequests: new Map(),
 });
 
 type Kind = "company" | "contact" | "deal" | "activity" | "relationship" | "scenario";

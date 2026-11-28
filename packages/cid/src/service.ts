@@ -8,6 +8,7 @@ import {
 } from "./webauthn.ts";
 import { generateTotpSecret, verifyTotp, otpauthUri } from "./totp.ts";
 import { noSecretBox, secretBox, type SecretBox } from "./secret-box.ts";
+import type { CidGraph } from "./graph.ts";
 import { verifyIdToken, type SsoConfig } from "./oidc.ts";
 import {
   assertExactOrigin,
@@ -302,6 +303,11 @@ export interface CidConfig {
    * Accounts that already exist locally keep signing in.
    */
   upstreamIssuer?: string;
+  /**
+   * Relationship graph (graph.ts, Neo4j): accounts, organizations and app grants by opaque id.
+   * Best effort; never blocks. Use cidGraphFromEnv(env), which is undefined until NEO4J_* is set.
+   */
+  graph?: CidGraph;
 }
 
 export type CidEventName =
@@ -361,7 +367,8 @@ export class CidService {
   readonly mailDomain: string;
   /** Exact CORS origins for ID, Cloud and Mail. Never a wildcard. */
   readonly corsOrigins: readonly string[];
-  private readonly cfg: Required<Omit<CidConfig, "store" | "repository" | "secretKey" | "social" | "onEvent" | "upstreamIssuer" | "addressTaken">>;
+  private readonly cfg: Required<Omit<CidConfig, "store" | "repository" | "secretKey" | "social" | "onEvent" | "upstreamIssuer" | "graph" | "addressTaken">>;
+  private readonly graph?: CidGraph;
   /** Every read and write of CID data goes through here. */
   readonly repo: CidRepository;
   readonly #secrets: SecretBox;
@@ -378,6 +385,7 @@ export class CidService {
     this.upstreamIssuer = config.upstreamIssuer ? config.upstreamIssuer.replace(/\/$/, "") : undefined;
     this.store = config.store ?? new CidStore();
     this.repo = config.repository ?? new MapCidRepository(this.store);
+    this.graph = config.graph;
     this.#secrets = config.secretKey ? secretBox(config.secretKey) : noSecretBox;
     const domains = cumulusDomains();
     this.issuer = domains.issuer;
@@ -440,6 +448,13 @@ export class CidService {
   /** CORS headers for a browser call. Allow-Origin is set only for an exact match. */
   corsHeaders(requestOrigin: string | undefined): Record<string, string> {
     return cumulusCorsHeaders(requestOrigin, this.corsOrigins);
+  }
+
+  /** Mirrors a relationship to the graph without waiting on it or letting it fail the caller. */
+  private toGraph(write: (g: CidGraph) => Promise<void>) {
+    const g = this.graph;
+    if (!g) return;
+    void Promise.resolve().then(() => write(g)).catch(() => {});
   }
 
   private record(type: Entry["type"], actor: string, subject: string, payload: Record<string, unknown>) {
@@ -943,6 +958,7 @@ export class CidService {
         account.orgId = undefined;
         await this.repo.putAccount(account);
         await this.record("audit", cid, current.id, { event: "org.member_left", via: "issuer" });
+        this.toGraph((g) => g.membership(cid, undefined, false));
       }
       return;
     }
@@ -971,6 +987,7 @@ export class CidService {
       await this.repo.putOrg(org);
       await this.record("audit", cid, orgId, { event: admin ? "org.admin_added" : "org.admin_removed", via: "issuer" });
     }
+    this.toGraph((g) => g.membership(cid, orgId, admin));
   }
 
   async revokeSession(cid: string, sessionId: string, actor = cid) {
@@ -1210,6 +1227,7 @@ export class CidService {
     const entry = await this.record("grant", cid, cid, { app, scopes: merged });
     const grant: Grant = { cid, app, scopes: merged, grantedAt: entry.timestamp, ledgerHash: entry.hash };
     await this.repo.putGrant(grant);
+    this.toGraph((g) => g.grant(cid, app, merged, entry.timestamp));
     return grant;
   }
 
@@ -1222,6 +1240,7 @@ export class CidService {
     const entry = await this.record("revoke", cid, cid, { app, revoked: scopes ?? current.scopes, remaining });
     if (remaining.length === 0) await this.repo.deleteGrant(cid, app);
     else await this.repo.putGrant({ ...current, scopes: remaining, grantedAt: entry.timestamp, ledgerHash: entry.hash });
+    this.toGraph((g) => g.revoke(cid, app, remaining, entry.timestamp));
   }
 
   async can(cid: string, app: string, scope: string): Promise<boolean> {

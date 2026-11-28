@@ -41,6 +41,7 @@ public final class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        Analytics.start(this);
         setContentView(R.layout.activity_main);
         statusView = findViewById(R.id.status);
         endpointView = findViewById(R.id.endpoint);

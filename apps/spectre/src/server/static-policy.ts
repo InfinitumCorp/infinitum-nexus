@@ -5,4 +5,4 @@
  * scripts stay on 'self', and base-uri, form-action and framing stay closed.
  */
 export const STATIC_ASSET_CSP =
-  "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
+  "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' https://api2.amplitude.com https://api.amplitude.com; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";

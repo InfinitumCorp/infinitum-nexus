@@ -99,7 +99,7 @@ const security = {
   "X-Frame-Options": "DENY",
   "X-Robots-Tag": "noindex, nofollow, noarchive, nosnippet",
   "Strict-Transport-Security": "max-age=63072000; includeSubDomains",
-  "Content-Security-Policy": "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+  "Content-Security-Policy": "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self' https://api2.amplitude.com https://api.amplitude.com; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
 };
 writeFileSync(join(out, "config.json"), JSON.stringify({
   version: 3,

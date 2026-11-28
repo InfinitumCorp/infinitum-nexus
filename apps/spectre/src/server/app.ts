@@ -1354,7 +1354,7 @@ export function createApp(deps: AppDeps) {
     if (!embeddable) res.setHeader("X-Frame-Options", "DENY");
     // Styles as on the Worker (static-policy.ts): the pages set some inline styles, which 'self' alone
     // blocks. Scripts stay 'self' only.
-    res.setHeader("Content-Security-Policy", `default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors ${embeddable ? "*" : "'none'"}`);
+    res.setHeader("Content-Security-Policy", `default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' https://api2.amplitude.com https://api.amplitude.com; frame-ancestors ${embeddable ? "*" : "'none'"}`);
     const requestOrigin = typeof req.headers.origin === "string" ? req.headers.origin : undefined;
     const cors = cumulusCorsHeaders(requestOrigin);
     for (const [name, value] of Object.entries(cors)) res.setHeader(name, value);

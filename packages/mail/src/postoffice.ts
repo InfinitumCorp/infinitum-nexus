@@ -171,6 +171,8 @@ class MailUnit {
   readonly dirty = new Set<string>();
   readonly jobs = new Map<string, OutboundMail>();
   readonly dirtyJobs = new Set<string>();
+  /** Files on messages this call deleted for good (each may still be used by other mail). */
+  readonly released = new Set<string>();
 }
 
 export class PostOffice {
@@ -179,6 +181,11 @@ export class PostOffice {
   private readonly payments?: MailPayments;
   private readonly clock: () => Date;
   readonly tunnel?: CumulusTunnel;
+  /**
+   * Called after a call that deleted messages for good, with their files' keys. The host deletes a
+   * file once the change is saved and attachmentInUse() says nothing else has it.
+   */
+  onFilesReleased?: (ids: string[]) => void;
 
   constructor(opts: PostOfficeOptions = {}) {
     this.repository = opts.repository ?? new MapMailRepository(opts.store ?? new PostOfficeStore());
@@ -207,7 +214,13 @@ export class PostOffice {
       if (box) await this.repository.putMailbox(box);
     }
     for (const id of u.dirtyJobs) await this.repository.putOutbound(u.jobs.get(id)!);
+    if (u.released.size) this.onFilesReleased?.([...u.released]);
     return result;
+  }
+
+  /** Whether other mail still has this file attached; undefined when the repository can't tell (keep it). */
+  async attachmentInUse(id: string): Promise<boolean | undefined> {
+    return this.repository.attachmentInUse ? await this.repository.attachmentInUse(id) : undefined;
   }
 
   /** The mailbox, read once per call. Doesn't mark it changed. */
@@ -760,7 +773,10 @@ ${reason}`,
     const message = (await this.read(u, cid)).messages.find((m) => m.id === id);
     if (!message) return;
     await this.edit(u, cid, (mail) => mail.remove(id));
-    if (!message.system && message.folder !== "drafts") await this.quota?.release(cid, "mail", messageBytes(message));
+    for (const a of message.attachments ?? []) if (a.id) u.released.add(a.id);
+    // What its delivery charged: the text and its files (attachmentBytes), so deleting mail with
+    // attachments gives their storage back too.
+    if (!message.system && message.folder !== "drafts") await this.quota?.release(cid, "mail", messageBytes(message) + attachmentBytes(message.attachments));
   }
 
   emptyTrash(cid: string): Promise<number> {

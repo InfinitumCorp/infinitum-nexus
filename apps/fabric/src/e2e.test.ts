@@ -236,7 +236,9 @@ function startServer(env: NodeJS.ProcessEnv): Promise<ChildProcess> {
       settled = true;
       child.kill("SIGKILL");
       reject(new Error(`server did not listen\n${out}\n${err}`));
-    }, 10_000);
+      // CI runs every package's tests at once; a cold start (type stripping, first imports) can take
+      // well over 10 seconds there, and the server printed nothing because it was still starting.
+    }, 30_000);
     child.stdout?.on("data", (chunk: Buffer) => {
       out += chunk.toString();
       if (!settled && /FABRIC\+\+ listening on http:\/\/\S+/.test(out)) {

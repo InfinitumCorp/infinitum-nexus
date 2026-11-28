@@ -189,6 +189,23 @@ describe("shared 15 GB free tier", () => {
     assert.equal((await inbox(suite, b.cid)).filter((m) => m.subject === "Just you").length, 1);
   });
 
+  it("deleting mail with attachments for good gives their storage back", async () => {
+    const { suite } = setup();
+    const a = (await signUp(suite, "sender")).account;
+    const b = (await signUp(suite, "keeper")).account;
+    const before = { a: (await suite.quota.usage(a.cid)).byProduct.mail, b: (await suite.quota.usage(b.cid)).byProduct.mail };
+    const file = { id: `u/${a.cid}/00000000-0000-4000-8000-000000000001`, name: "big.pdf", type: "application/pdf", size: 3_000_000 };
+    await suite.mail.send(a.cid, { to: "keeper@cumuluscloud.app", subject: "Report", body: "Attached.", attachments: [file] });
+    assert.ok((await suite.quota.usage(b.cid)).byProduct.mail >= before.b + 3_000_000, "the recipient is charged for the file");
+    for (const [cid, folder] of [[b.cid, "inbox"], [a.cid, "sent"]] as const) {
+      const m = (await suite.mail.view(cid)).messages.find((x) => x.subject === "Report" && x.folder === folder)!;
+      await suite.mail.move(cid, m.id, "trash");
+      await suite.mail.remove(cid, m.id);
+    }
+    assert.equal((await suite.quota.usage(b.cid)).byProduct.mail, before.b, "the recipient's storage is back");
+    assert.equal((await suite.quota.usage(a.cid)).byProduct.mail, before.a, "the sender's storage is back");
+  });
+
   it("sharing a Cloud file mails the recipient", async () => {
     const { suite } = setup();
     const a = (await signUp(suite, "alex")).account;

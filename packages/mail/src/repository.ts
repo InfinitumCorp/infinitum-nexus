@@ -35,7 +35,16 @@ export interface MailRepository {
   unreadThreads?(cid: string): Promise<number>;
   /** Optional: accounts with a scheduled draft due by `now`, found without reading (or locking) every mailbox. */
   dueDraftCids?(now: string): Promise<string[]>;
+  /**
+   * Optional: whether any message in any mailbox, or any outbound job not yet sent, still has this file
+   * attached. Forwarded mail shares a file's key, so a file may be deleted only when this says false.
+   * Absent, or a repository that can't tell (mail sealed at rest): files are kept.
+   */
+  attachmentInUse?(id: string): Promise<boolean>;
 }
+
+/** Whether a message list or job list mentions this file. */
+const mentions = (list: { attachments?: { id?: string }[] }[], id: string) => list.some((m) => (m.attachments ?? []).some((a) => a.id === id));
 
 export class MapMailRepository implements MailRepository {
   readonly store: PostOfficeStore;
@@ -47,6 +56,10 @@ export class MapMailRepository implements MailRepository {
   }
   async putMailbox(box: StoredMailbox) {
     this.store.mailboxes.set(box.cid, box);
+  }
+  async attachmentInUse(id: string) {
+    for (const box of this.store.mailboxes.values()) if (mentions(box.messages, id)) return true;
+    return mentions([...this.store.outbound.values()].filter((j) => j.status === "queued" || j.status === "sending"), id);
   }
   async mailboxCids() {
     return [...this.store.mailboxes.keys()];
@@ -99,4 +112,5 @@ export class CopyingMailRepository implements MailRepository {
   async putOutbound(job: OutboundMail) { return this.#inner.putOutbound(structuredClone(job)); }
   async openOutbound() { return structuredClone(await this.#inner.openOutbound()); }
   async dueOutbound(now: string, staleBefore: string, limit: number) { return structuredClone(await this.#inner.dueOutbound(now, staleBefore, limit)); }
+  async attachmentInUse(id: string) { return this.#inner.attachmentInUse(id); }
 }

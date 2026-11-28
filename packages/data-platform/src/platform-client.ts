@@ -2,7 +2,7 @@
 /**
  * Typed client for the Cumulus privacy gateway's product APIs, as declared in
  * infra/data-platform/conjure/platform.yml: collection, catalog, event search, document search, erasure,
- * differentially private releases and Superset guest tokens.
+ * data-quality runs, differentially private releases (and their budget) and Superset guest tokens.
  *
  * - Authenticates with the product's token (PLATFORM_PRODUCT_TOKENS on the gateway).
  * - Turns Conjure errors into {@link PlatformApiError}, keeping `errorName`, `errorCode` and
@@ -159,6 +159,31 @@ export interface DocumentHit {
   url?: string | null;
   labels: string[];
   updatedAt: string;
+}
+
+export interface DatasetCheckResult {
+  kind: string;
+  target: string;
+  ok: boolean;
+  metric: number;
+  message: string;
+}
+
+export interface QualityRun {
+  dataset: string;
+  checkedAt: string;
+  rows: number;
+  ok: boolean;
+  metrics: Record<string, number>;
+  results: DatasetCheckResult[];
+}
+
+export interface PrivacyBudgetStatus {
+  dataset: string;
+  totalEpsilon: number;
+  spentEpsilon: number;
+  remainingEpsilon: number;
+  maxEpsilonPerRelease: number;
 }
 
 export interface GuestTokenResponse {
@@ -327,6 +352,17 @@ export class PlatformClient {
   /** ErasureService.eraseSubject: this product's events about one person, in every tenant. */
   eraseSubject(cid: string): Promise<{ deleted: number }> {
     return this.call("POST", "/api/v1/erasure/subjects", { cid });
+  }
+
+  /** QualityService.getRuns: the 30 newest quality runs for one of this product's datasets. */
+  async getQualityRuns(name: string): Promise<QualityRun[]> {
+    const res: { runs: QualityRun[] } = await this.call("GET", `/api/v1/quality/datasets/${enc(name)}/runs`);
+    return res.runs;
+  }
+
+  /** ReleaseService.getBudget: epsilon left for a dataset. Reading it spends nothing. */
+  getReleaseBudget(name: string): Promise<PrivacyBudgetStatus> {
+    return this.call("GET", `/api/v1/releases/datasets/${enc(name)}/budget`);
   }
 
   /** ReleaseService.releaseDataset: a DP count or sum over this product's stored events. */

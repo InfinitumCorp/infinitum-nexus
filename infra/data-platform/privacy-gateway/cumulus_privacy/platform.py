@@ -118,10 +118,10 @@ def validate_spec(name: str, spec: Mapping[str, Any]) -> dict[str, Any]:
     return {**spec, "fields": fields, "quality": quality}
 
 
-def proposal(urn: str, aspect_name: str, value: Any) -> dict[str, Any]:
+def proposal(urn: str, aspect_name: str, value: Any, entity_type: str = "dataset") -> dict[str, Any]:
     """One DataHub metadata change proposal (UPSERT of one aspect)."""
     return {
-        "entityType": "dataset",
+        "entityType": entity_type,
         "entityUrn": urn,
         "changeType": "UPSERT",
         "aspectName": aspect_name,

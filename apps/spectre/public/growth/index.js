@@ -432,8 +432,112 @@ function workflowEditor(existing, forms, cals) {
   S.$("#add-step").onclick = () => { rows.insertAdjacentHTML("beforeend", stepRow({ type: "wait", minutes: 1440 })); wire(); };
 }
 
+/* ---------------- Campaigns ---------------- */
+
+const STATUS_PILL = { draft: "", scheduled: "", sending: "", sent: "low", cancelled: "high" };
+const audienceLabel = (a, lists) => a.listId ? `List: ${lists.get(a.listId) ?? "deleted list"}` : a.tags?.length ? `Tagged ${a.tags.join(", ")}` : "Everyone";
+
+async function renderCampaigns() {
+  const id = S.route().id;
+  const [camps, lists] = await Promise.all([api("GET", "/api/crm/campaigns"), api("GET", "/api/crm/lists")]);
+  const lm = new Map(lists.map((l) => [l.id, l.name]));
+  if (id) return renderCampaign(id, lm, lists);
+  main().innerHTML = `
+    <div class="page">
+      <div class="page-head"><h1>Campaigns</h1><button class="btn primary" id="new-camp">New campaign</button></div>
+      <p class="muted">Send one email or text to many people at once: a tag, a smart list, or everyone. People who opted out are never included.</p>
+      ${camps.length ? `<div class="list">${camps.map((c) => `
+        <a class="item" href="#/campaigns/${esc(c.id)}">
+          <span class="pill">${c.channel === "sms" ? "SMS" : "Email"}</span>
+          <div class="main"><div class="title">${esc(c.name)} <span class="pill ${STATUS_PILL[c.status]}">${esc(c.status)}</span></div>
+          <div class="sub">${esc(audienceLabel(c.audience, lm))}${c.status === "scheduled" ? ` · sends ${when(c.scheduledAt)}` : ""}${c.sentAt ? ` · sent ${ago(c.sentAt)} to ${c.stats.recipients}` : ""}</div></div>
+        </a>`).join("")}</div>` : `<div class="empty">No campaigns yet. Announce something to your customers in a minute.</div>`}
+    </div>`;
+  S.$("#new-camp").onclick = () => campaignEditor(undefined, lists);
+}
+
+async function renderCampaign(id, lm, lists) {
+  const c = await api("GET", `/api/crm/campaigns/${encodeURIComponent(id)}`);
+  const editable = c.status === "draft" || c.status === "scheduled";
+  const n = c.audienceNow;
+  main().innerHTML = `
+    <div class="page">
+      <div class="page-head"><h1>${esc(c.name)}</h1><div class="row">
+        ${editable ? `<button class="btn" id="edit">Edit</button>` : ""}
+        ${c.status === "scheduled" ? `<button class="btn" id="cancel">Cancel schedule</button>` : ""}
+        <button class="btn" id="delete">Delete</button>
+        ${editable ? `<button class="btn primary" id="send">Send now</button>` : ""}</div></div>
+      <a class="faint small" href="#/campaigns">‹ All campaigns</a>
+      <div class="section"><h2>${c.channel === "sms" ? "SMS" : "Email"} · <span class="pill ${STATUS_PILL[c.status]}">${esc(c.status)}</span></h2>
+        <p class="muted">${esc(audienceLabel(c.audience, lm))}${c.status === "scheduled" ? ` · sends ${when(c.scheduledAt)}` : ""}${c.sentAt ? ` · sent ${when(c.sentAt)}` : ""}</p>
+        <div class="bubble out preview">${c.subject ? `<div class="subject">${esc(c.subject)}</div>` : ""}<div class="body">${esc(c.body)}</div></div>
+      </div>
+      ${c.status === "sent" ? `<div class="section"><h2>Results</h2><div class="stats">
+        ${[["Recipients", c.stats.recipients], ["Sent", c.stats.sent], ["Drafts", c.stats.drafted], ["Failed", c.stats.failed], ["Skipped", c.stats.skipped]].map(([l, v]) => `<div class="stat"><div class="num">${v}</div><div class="faint small">${l}</div></div>`).join("")}
+        </div>${c.stats.drafted ? `<p class="faint small">Drafts: no ${c.channel === "sms" ? "SMS" : "email"} provider was connected, so the messages wait on each person's conversation.</p>` : ""}</div>`
+      : n ? `<div class="section"><h2>Audience right now</h2><p><b>${n.total}</b> ${n.total === 1 ? "person" : "people"}${n.sample.length ? `: ${n.sample.map(esc).join(", ")}${n.total > n.sample.length ? "…" : ""}` : ""}</p>
+        ${n.noAddress ? `<p class="faint small">${n.noAddress} more have no ${c.channel === "sms" ? "phone number" : "email address"}.</p>` : ""}${n.optedOut ? `<p class="faint small">${n.optedOut} opted out and won't get it.</p>` : ""}</div>` : ""}
+    </div>`;
+  S.$("#edit")?.addEventListener("click", () => campaignEditor(c, lists));
+  S.$("#cancel")?.addEventListener("click", () => act(async () => { await api("PATCH", `/api/crm/campaigns/${c.id}`, { status: "cancelled" }); renderCampaigns(); }, "Schedule cancelled"));
+  S.$("#delete").onclick = () => { if (confirm(`Delete “${c.name}”?`)) act(async () => { await api("DELETE", `/api/crm/campaigns/${c.id}`); location.hash = "#/campaigns"; }, "Campaign deleted"); };
+  S.$("#send")?.addEventListener("click", () => {
+    if (!confirm(`Send “${c.name}” to ${n?.total ?? 0} ${n?.total === 1 ? "person" : "people"} now? This can't be undone.`)) return;
+    act(async () => { const r = await api("POST", `/api/crm/campaigns/${c.id}/send`, {});
+      const st = r.stats;
+      toast([st.sent && `Sent to ${st.sent}`, st.drafted && `${st.drafted} saved as draft${st.drafted === 1 ? "" : "s"}`, st.failed && `${st.failed} failed`].filter(Boolean).join(" · ") || "No one to send to");
+      renderCampaigns(); });
+  });
+}
+
+function campaignEditor(existing, lists) {
+  const a = existing?.audience ?? {};
+  const mode = a.listId ? "list" : a.tags?.length ? "tags" : "all";
+  const local = (iso) => { if (!iso) return ""; const d = new Date(iso); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); };
+  S.modal(`<h2>${existing ? "Edit campaign" : "New campaign"}</h2>
+    <label class="field">Name<input class="input" name="name" required value="${esc(existing?.name ?? "")}" placeholder="Spring offer"></label>
+    <div class="grid2">
+      <label class="field">Send by<select class="input" name="channel"><option value="email">Email</option><option value="sms" ${existing?.channel === "sms" ? "selected" : ""}>SMS</option></select></label>
+      <label class="field">To<select class="input" name="mode"><option value="all">Everyone</option><option value="tags" ${mode === "tags" ? "selected" : ""}>People with a tag</option>${lists.length ? `<option value="list" ${mode === "list" ? "selected" : ""}>A smart list</option>` : ""}</select></label>
+    </div>
+    <label class="field" data-for="tags">Tags (any of them)<input class="input" name="tags" value="${esc((a.tags ?? []).join(", "))}" placeholder="vip, webinar"></label>
+    <label class="field" data-for="list">Smart list<select class="input" name="listId">${lists.map((l) => `<option value="${esc(l.id)}" ${l.id === a.listId ? "selected" : ""}>${esc(l.name)}</option>`).join("")}</select></label>
+    <label class="field" data-for="email">Subject<input class="input" name="subject" value="${esc(existing?.subject ?? "")}" placeholder="Something for you, {{first_name}}"></label>
+    <label class="field">Message<textarea class="input" name="body" rows="5" required placeholder="Hi {{first_name}}, …">${esc(existing?.body ?? "")}</textarea></label>
+    <label class="field">Send later (optional)<input class="input" type="datetime-local" name="scheduledAt" value="${local(existing?.scheduledAt)}"></label>
+    <p class="faint small" id="aud-count">Counting…</p>`, async (f) => {
+    const m = f.get("mode");
+    const body = { name: f.get("name"), channel: f.get("channel"), subject: f.get("subject") || undefined, body: f.get("body"),
+      audience: m === "list" ? { listId: f.get("listId") } : m === "tags" ? { tags: tagsIn(f.get("tags")) } : {},
+      scheduledAt: f.get("scheduledAt") ? new Date(f.get("scheduledAt")).toISOString() : null };
+    const saved = existing ? await api("PATCH", `/api/crm/campaigns/${existing.id}`, body) : await api("POST", "/api/crm/campaigns", body);
+    toast(saved.status === "scheduled" ? "Campaign scheduled" : "Campaign saved as draft");
+    if (location.hash === `#/campaigns/${saved.id}`) renderCampaigns(); else location.hash = `#/campaigns/${saved.id}`;
+  });
+  const form = S.$("#modal-form");
+  let timer;
+  const sync = () => {
+    const m = form.mode.value;
+    form.querySelector("[data-for=tags]").hidden = m !== "tags";
+    form.querySelector("[data-for=list]").hidden = m !== "list";
+    form.querySelector("[data-for=email]").hidden = form.channel.value !== "email";
+    clearTimeout(timer);
+    timer = setTimeout(async () => {
+      try {
+        const r = await api("POST", "/api/crm/campaigns/preview", { channel: form.channel.value,
+          audience: m === "list" ? { listId: form.listId.value } : m === "tags" ? { tags: tagsIn(form.tags.value) } : {} });
+        S.$("#aud-count").textContent = `Reaches ${r.total} ${r.total === 1 ? "person" : "people"}${r.noAddress ? ` · ${r.noAddress} without ${form.channel.value === "sms" ? "a phone number" : "an email"}` : ""}${r.optedOut ? ` · ${r.optedOut} opted out` : ""}.`;
+      } catch (e) { S.$("#aud-count").textContent = e.message; }
+    }, 250);
+  };
+  ["mode", "channel", "listId"].forEach((n) => form[n]?.addEventListener("change", sync));
+  form.tags.addEventListener("input", sync);
+  sync();
+}
+
 S.view("inbox", renderInbox);
 S.view("forms", renderForms);
 S.view("calendars", renderCalendars);
 S.view("automations", renderAutomations);
+S.view("campaigns", renderCampaigns);
 updateInboxBadge();

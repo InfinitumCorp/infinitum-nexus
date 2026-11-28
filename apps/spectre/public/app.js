@@ -55,6 +55,7 @@ const icon = {
   forms: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h3"/></svg>',
   calendars: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>',
   automations: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M8.5 6H14a4 4 0 0 1 4 4v5.5"/></svg>',
+  campaigns: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 10v4h4l6 5V5L7 10z"/><path d="M17 8a5 5 0 0 1 0 8"/></svg>',
   menu: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7h16M4 12h16M4 17h16"/></svg>',
 };
 
@@ -312,6 +313,7 @@ function renderShell(page) {
             <a href="#/forms" data-p="forms">${icon.forms}Forms</a>
             <a href="#/calendars" data-p="calendars">${icon.calendars}Calendars</a>
             <a href="#/automations" data-p="automations">${icon.automations}Automations</a>
+            <a href="#/campaigns" data-p="campaigns">${icon.campaigns}Campaigns</a>
           </nav>
           <div class="spacer"></div>
           <nav class="nav"><a href="/labyrinth">Labyrinth *LBRNTH<sup class="tm">™</sup></a><a href="#/settings" data-p="settings">${icon.settings}Settings</a></nav>

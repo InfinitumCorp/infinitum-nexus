@@ -20,6 +20,10 @@ export interface ChannelRow {
   id: string; workspaceId: string; kind: ChannelKind; name: string | null; topic: string; purpose: string;
   sealedKey: string; createdBy: string; createdAt: string; archivedAt: string | null; dmKey: string | null;
   isDefault: number; lastMessageAt: string | null;
+  /** Who may start new messages: null or "everyone", or "admins" (owners, admins and the channel's creator). */
+  posting?: "everyone" | "admins" | null;
+  /** With posting limited, whether everyone may still reply in threads. */
+  threadReplies?: number | null;
 }
 export interface ChannelMemberRow { channelId: string; sub: string; lastReadAt: string; muted: number; starred: number; joinedAt: string }
 export interface TeamMessageRow {
@@ -308,6 +312,9 @@ export class TeamStore {
     const columns = new Set(this.all<{ name: string }>("PRAGMA table_info(team_messages)").map((c) => c.name));
     if (!columns.has("app_id")) this.db.exec("ALTER TABLE team_messages ADD COLUMN app_id TEXT");
     if (!columns.has("app_name")) this.db.exec("ALTER TABLE team_messages ADD COLUMN app_name TEXT");
+    const channelColumns = new Set(this.all<{ name: string }>("PRAGMA table_info(team_channels)").map((c) => c.name));
+    if (!channelColumns.has("posting")) this.db.exec("ALTER TABLE team_channels ADD COLUMN posting TEXT");
+    if (!channelColumns.has("thread_replies")) this.db.exec("ALTER TABLE team_channels ADD COLUMN thread_replies INTEGER");
   }
 }
 

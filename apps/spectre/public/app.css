@@ -102,7 +102,9 @@ main { overflow-y: auto; position: relative; }
 .page { max-width: 1040px; margin: 0 auto; padding: 32px 32px 120px; }
 .page.narrow { max-width: 768px; }
 .page.wide { max-width: 1480px; }
-.page-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 24px; }
+.page-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px 16px; margin-bottom: 24px; }
+/* Filters and actions in a page head wrap rather than run off narrow screens. */
+.page-head .row { flex-wrap: wrap; gap: 8px; }
 .page-head h1 { font-size: 28px; letter-spacing: -0.045em; }
 
 @media (max-width: 860px) {
@@ -111,6 +113,11 @@ main { overflow-y: auto; position: relative; }
   .shell.open .side { transform: none; }
   .menu-btn { display: inline-flex; position: fixed; top: 12px; left: 12px; z-index: 10; }
   .page { padding: 64px 16px 120px; }
+}
+@media (max-width: 640px) {
+  /* List rows: the name keeps the first line; counts and buttons move under it. */
+  .item { flex-wrap: wrap; row-gap: 8px; }
+  .item .main { flex: 1 1 calc(100% - 64px); }
 }
 
 /* Ask (ChatGPT-style) */

@@ -23,6 +23,7 @@ import {
   type FileRow,
   type GroupRow,
   type MemberRow,
+  type NotifyLevel,
   type PollRow,
   type ReminderRow,
   type Role,
@@ -41,6 +42,9 @@ export const TEAM_LIMITS = {
   searchScan: 5000,
   activeWindowMs: 5 * 60_000,
   pollOptions: 10,
+  /** Notification keywords per person per workspace, and the length of each. */
+  keywords: 25,
+  keywordLength: 40,
   /** People in one huddle. Media flows peer to peer (a full mesh), so this stays small. */
   huddlePeople: 8,
   /** How long a person may be disconnected before they are taken out of a huddle. */
@@ -111,6 +115,8 @@ export interface ChannelView {
   member: boolean;
   muted: boolean;
   starred: boolean;
+  /** Your desktop notification setting for this channel, or null for the default (everything in conversations, mentions in channels). */
+  notify: NotifyLevel | null;
   unread: number;
   mentions: number;
   lastReadAt: string | null;
@@ -358,7 +364,7 @@ export class TeamService {
   // ---------- channels ----------
 
   /** Channels and conversations the caller belongs to, with unread and mention counts. */
-  sidebar(me: FabricIdentity, workspaceId: string): { workspace: WorkspaceView; me: PersonView; channels: ChannelView[]; direct: ChannelView[]; scheduled: number; reminders: number; saved: number } {
+  sidebar(me: FabricIdentity, workspaceId: string): { workspace: WorkspaceView; me: PersonView; channels: ChannelView[]; direct: ChannelView[]; scheduled: number; reminders: number; saved: number; keywords: string[] } {
     this.member(me, workspaceId);
     this.seen(me.sub);
     const rows = this.store.all<ChannelRow>(
@@ -374,7 +380,38 @@ export class TeamService {
       scheduled: this.store.count("SELECT COUNT(*) FROM team_scheduled s JOIN team_channels c ON c.id = s.channel_id WHERE s.sender = ? AND c.workspace_id = ?", me.sub, workspaceId),
       reminders: this.store.count("SELECT COUNT(*) FROM team_reminders WHERE sub = ? AND workspace_id = ? AND done = 0", me.sub, workspaceId),
       saved: this.store.count("SELECT COUNT(*) FROM team_saved s JOIN team_messages m ON m.id = s.message_id JOIN team_channels c ON c.id = m.channel_id WHERE s.sub = ? AND s.done = 0 AND c.workspace_id = ?", me.sub, workspaceId),
+      keywords: this.keywords(me, workspaceId),
     };
+  }
+
+  // ---------- notification keywords ----------
+  //
+  // Words that should notify you even without an @mention. They are private: sealed at rest, sent only to
+  // you, and matched by your own browser against messages it already receives, so nobody else learns them.
+
+  keywords(me: FabricIdentity, workspaceId: string): string[] {
+    const row = this.member(me, workspaceId) as MemberRow & { sealedKeywords?: string | null };
+    if (!row.sealedKeywords) return [];
+    try {
+      return JSON.parse(open(row.sealedKeywords, this.masterKey, keywordsAad(workspaceId, me.sub))) as string[];
+    } catch {
+      return [];
+    }
+  }
+
+  setKeywords(me: FabricIdentity, workspaceId: string, input: unknown): string[] {
+    this.member(me, workspaceId);
+    const list = Array.isArray(input) ? input : typeof input === "string" ? input.split(/[,\n]+/) : null;
+    if (!list) throw fail(400, "keywords must be a list");
+    const words = [...new Set(list.map((k) => (typeof k === "string" ? k.trim().toLowerCase() : "")).filter(Boolean))];
+    if (words.length > TEAM_LIMITS.keywords) throw fail(400, `you can have up to ${TEAM_LIMITS.keywords} keywords`);
+    if (words.some((w) => w.length > TEAM_LIMITS.keywordLength)) throw fail(400, `keywords can be up to ${TEAM_LIMITS.keywordLength} characters`);
+    this.store.run(
+      "UPDATE team_members SET sealed_keywords = ? WHERE workspace_id = ? AND sub = ?",
+      words.length ? seal(JSON.stringify(words), this.masterKey, keywordsAad(workspaceId, me.sub)) : null, workspaceId, me.sub,
+    );
+    this.publish([me.sub], { type: "keywords", workspaceId });
+    return words;
   }
 
   browseChannels(me: FabricIdentity, workspaceId: string, query = "", archived = false): ChannelView[] {
@@ -509,9 +546,14 @@ export class TeamService {
     this.publish([...this.channelSubs(channelId), target.sub], { type: "channel", workspaceId: channel.workspaceId, channelId });
   }
 
-  setChannelPrefs(me: FabricIdentity, channelId: string, input: { muted?: unknown; starred?: unknown }): ChannelView {
+  setChannelPrefs(me: FabricIdentity, channelId: string, input: { muted?: unknown; starred?: unknown; notify?: unknown }): ChannelView {
     const { channel } = this.readable(me, channelId);
     if (!this.channelMember(channelId, me.sub)) throw fail(403, "join the channel first");
+    if (input.notify !== undefined) {
+      const level = input.notify === null || input.notify === "" || input.notify === "default" ? null : input.notify;
+      if (level !== null && level !== "all" && level !== "mentions" && level !== "nothing") throw fail(400, "notify must be all, mentions, nothing or default");
+      this.store.run("UPDATE team_channel_members SET notify = ? WHERE channel_id = ? AND sub = ?", level, channelId, me.sub);
+    }
     if (input.muted !== undefined) this.store.run("UPDATE team_channel_members SET muted = ? WHERE channel_id = ? AND sub = ?", input.muted === true ? 1 : 0, channelId, me.sub);
     if (input.starred !== undefined) this.store.run("UPDATE team_channel_members SET starred = ? WHERE channel_id = ? AND sub = ?", input.starred === true ? 1 : 0, channelId, me.sub);
     return this.channelView(me, channel);
@@ -1715,6 +1757,7 @@ export class TeamService {
     return {
       id: c.id, workspaceId: c.workspaceId, kind: c.kind, name, topic: c.topic, purpose: c.purpose, createdBy: c.createdBy, createdAt: c.createdAt,
       archived: !!c.archivedAt, isDefault: !!c.isDefault, memberCount: subs.length, member: !!mine, muted: !!mine?.muted, starred: !!mine?.starred,
+      notify: mine?.notify ?? null,
       unread, mentions, lastReadAt: lastRead, lastMessageAt: c.lastMessageAt,
       huddle: this.huddles.has(c.id) ? { people: this.huddles.get(c.id)!.people.size, startedAt: this.huddles.get(c.id)!.startedAt } : null,
       ...(withPeople || c.kind === "dm" || c.kind === "group" ? { people: (c.kind === "dm" || c.kind === "group" ? others : subs).slice(0, 50).map((s) => this.person(c.workspaceId, s)) } : {}),
@@ -1933,6 +1976,7 @@ export function parseIceServers(text: string | undefined): IceServer[] {
 }
 
 function pollAad(channelId: string, id: string): string { return `fabric-team-poll:${channelId}:${id}`; }
+function keywordsAad(workspaceId: string, sub: string): string { return `fabric-team-keywords:${workspaceId}:${sub}`; }
 
 /** "10m", "2 hours", "1d" → milliseconds. */
 export function duration(text: string): number | null {

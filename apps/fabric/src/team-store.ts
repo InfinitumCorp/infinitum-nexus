@@ -275,6 +275,16 @@ export class TeamStore {
         created_at TEXT NOT NULL,
         PRIMARY KEY (message_id, sub, choice)
       );
+      CREATE TABLE IF NOT EXISTS team_emoji (
+        workspace_id TEXT NOT NULL REFERENCES team_workspaces(id),
+        name TEXT NOT NULL,
+        mime TEXT NOT NULL,
+        size INTEGER NOT NULL,
+        ciphertext TEXT NOT NULL,
+        created_by TEXT NOT NULL REFERENCES users(sub),
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (workspace_id, name)
+      );
       CREATE TABLE IF NOT EXISTS team_webhooks (
         id TEXT PRIMARY KEY,
         workspace_id TEXT NOT NULL REFERENCES team_workspaces(id),

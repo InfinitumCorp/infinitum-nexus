@@ -7,7 +7,7 @@ import { test } from "node:test";
 import type { FabricIdentity } from "./auth.ts";
 import { FabricServiceError, touchUser } from "./service.ts";
 import { FabricStore } from "./store.ts";
-import { TeamService, parseIceServers, parseQuery, parseReminder, type TeamEvent } from "./team.ts";
+import { TeamService, imageType, parseIceServers, parseQuery, parseReminder, type TeamEvent } from "./team.ts";
 
 const ISSUER = "https://id.cumuluscloud.app/realms/cumulus";
 function person(n: number, username: string): FabricIdentity {
@@ -422,4 +422,47 @@ test("FABRIC_ICE_SERVERS parsing", () => {
   ]);
   assert.throws(() => parseIceServers("{}"), /JSON list/);
   assert.throws(() => parseIceServers('[{"urls":"https://example.org"}]'), /stun:/);
+});
+
+test("custom emoji: add, list, react, serve, remove; only raster images", () => {
+  const t = setup();
+  try {
+    const ws = t.team.createWorkspace(t.alice, "Acme");
+    t.team.joinWorkspace(t.bob, ws.inviteCode);
+    const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), randomBytes(40)]);
+    const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>');
+    assert.equal(imageType(png), "image/png");
+    assert.equal(imageType(Buffer.from("GIF89a......")), "image/gif");
+    assert.equal(imageType(svg), null);
+
+    const added = t.team.addEmoji(t.bob, ws.id, { name: ":Party-Parrot:", data: png.toString("base64") });
+    assert.equal(added.name, "party-parrot");
+    assert.throws(() => t.team.addEmoji(t.alice, ws.id, { name: "party-parrot", data: png.toString("base64") }), status(409));
+    assert.throws(() => t.team.addEmoji(t.alice, ws.id, { name: "evil", data: svg.toString("base64") }), status(400));
+    assert.throws(() => t.team.addEmoji(t.alice, ws.id, { name: "bad name", data: png.toString("base64") }), status(400));
+    assert.throws(() => t.team.addEmoji(t.alice, ws.id, { name: "huge", data: Buffer.concat([png, Buffer.alloc(130_000)]).toString("base64") }), status(413));
+    assert.throws(() => t.team.addEmoji(t.cara, ws.id, { name: "outsider", data: png.toString("base64") }), status(404));
+    assert.ok(t.events.some((e) => e.event.type === "emoji" && e.event.name === "party-parrot"));
+
+    assert.deepEqual(t.team.sidebar(t.alice, ws.id).emoji, ["party-parrot"]);
+    assert.equal(t.team.emojis(t.alice, ws.id)[0]!.createdBy.username, "bob");
+    const image = t.team.emojiImage(t.alice, ws.id, "party-parrot");
+    assert.equal(image.mime, "image/png");
+    assert.ok(image.data.equals(png));
+    assert.throws(() => t.team.emojiImage(t.cara, ws.id, "party-parrot"), status(404));
+    const stored = t.store.database.prepare("SELECT ciphertext FROM team_emoji").get() as { ciphertext: string };
+    assert.ok(!stored.ciphertext.includes(png.toString("base64").slice(0, 20)), "emoji images are sealed at rest");
+
+    const general = t.team.sidebar(t.alice, ws.id).channels.find((c) => c.name === "general")!;
+    const msg = t.team.send(t.alice, general.id, { text: "ship it :party-parrot:" }).message!;
+    assert.equal(t.team.react(t.bob, msg.id, ":party-parrot:")[0]!.emoji, ":party-parrot:");
+
+    t.team.joinWorkspace(t.cara, ws.inviteCode);
+    assert.throws(() => t.team.removeEmoji(t.cara, ws.id, "party-parrot"), status(403));
+    t.team.removeEmoji(t.alice, ws.id, "party-parrot");
+    assert.deepEqual(t.team.sidebar(t.alice, ws.id).emoji, []);
+    assert.throws(() => t.team.emojiImage(t.alice, ws.id, "party-parrot"), status(404));
+  } finally {
+    t.close();
+  }
 });

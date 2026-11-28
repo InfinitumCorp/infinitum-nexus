@@ -124,6 +124,8 @@ export function teamRoutes(): Route[] {
     r("POST", `/channels/${ID}/invite`, ({ team, me, params, body }) => team.invite(me, params[0]!, body.people)),
     r("POST", `/channels/${ID}/kick`, ({ team, me, params, body }) => team.kick(me, params[0]!, str(body.username))),
     r("PUT", `/channels/${ID}/prefs`, ({ team, me, params, body }) => team.setChannelPrefs(me, params[0]!, body)),
+    r("GET", `/workspaces/${ID}/keywords`, ({ team, me, params }) => ({ keywords: team.keywords(me, params[0]!) })),
+    r("PUT", `/workspaces/${ID}/keywords`, ({ team, me, params, body }) => ({ keywords: team.setKeywords(me, params[0]!, body.keywords) })),
     r("POST", `/channels/${ID}/read`, ({ team, me, params, body }) => team.markRead(me, params[0]!, typeof body.unreadFrom === "string" ? body.unreadFrom : undefined)),
     r("GET", `/channels/${ID}/people`, ({ team, me, params }) => ({ people: team.channelPeople(me, params[0]!) })),
     r("GET", `/channels/${ID}/messages`, ({ team, me, params, query }) => team.list(me, params[0]!, {

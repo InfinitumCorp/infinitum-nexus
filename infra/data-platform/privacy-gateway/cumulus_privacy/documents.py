@@ -15,13 +15,17 @@ Visibility inside a tenant:
 Right to erasure: ``erase`` deletes the documents a person owns and removes them from every
 viewer list, so no pseudonym of theirs stays behind.
 
-Backends: Postgres (free tier, ``data_platform.documents`` with a weighted tsvector) and an
-in-memory store for tests.
+Backends: Postgres (free tier, ``data_platform.documents`` with a weighted tsvector),
+OpenSearch (the full stack, index ``cumulus-documents``) and an in-memory store for tests.
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 import threading
+import urllib.error
+import urllib.request
 from datetime import datetime
 from typing import Any, Mapping, Protocol
 
@@ -286,3 +290,119 @@ def _hit(d: Mapping[str, Any], snippet: str) -> dict[str, Any]:
         "labels": list(d.get("labels") or []),
         "updatedAt": updated,
     }
+
+
+DOCUMENTS_INDEX = "cumulus-documents"
+
+
+class OpenSearchDocumentStore:
+    """DocumentStore on OpenSearch (search/documents-index.json, installed by bootstrap.sh).
+
+    The document id is a hash of (product, collection, tenant, documentId), so put and remove can
+    only ever touch the caller's own document. Every search filters on product and tenant and
+    applies the same visibility rule as Postgres. The query is a simple_query_string over title
+    (weighted twice) and body with AND between words, so quotes and -word work and nothing in it
+    is query DSL."""
+
+    def __init__(self, url: str, refresh: bool = False, timeout: float = 10.0, index: str = DOCUMENTS_INDEX) -> None:
+        self.url, self.refresh, self.timeout, self.index = url.rstrip("/"), refresh, timeout, index
+
+    def _call(self, method: str, path: str, body: Any = None) -> tuple[int, dict[str, Any]]:
+        req = urllib.request.Request(
+            self.url + path, method=method, headers={"Content-Type": "application/json"},
+            data=None if body is None else json.dumps(body).encode(),
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=self.timeout) as r:
+                return r.status, json.loads(r.read() or b"{}")
+        except urllib.error.HTTPError as e:
+            return e.code, json.loads(e.read() or b"{}")
+
+    @staticmethod
+    def doc_id(product: str, collection: str, tenant: str, document_id: str) -> str:
+        return hashlib.sha256(f"{product}\x1f{collection}\x1f{tenant}\x1f{document_id}".encode()).hexdigest()
+
+    def _fail(self, what: str, status: int) -> PlatformError:
+        return PlatformError(500, "SearchUnavailable", f"document {what} failed ({status})")
+
+    def upsert(self, doc: dict[str, Any]) -> bool:
+        did = self.doc_id(doc["product"], doc["collection"], doc["tenant"], doc["documentId"])
+        q = "?refresh=wait_for" if self.refresh else ""
+        status, out = self._call("PUT", f"/{self.index}/_doc/{did}{q}", doc)
+        if status >= 300:
+            raise self._fail("write", status)
+        return out.get("result") == "created"
+
+    def remove(self, product: str, collection: str, tenant: str, document_id: str) -> int:
+        q = "?refresh=wait_for" if self.refresh else ""
+        status, out = self._call("DELETE", f"/{self.index}/_doc/{self.doc_id(product, collection, tenant, document_id)}{q}")
+        if status == 404:
+            return 0
+        if status >= 300:
+            raise self._fail("delete", status)
+        return 1 if out.get("result") == "deleted" else 0
+
+    def search(self, product, tenant, text, collections, labels, viewer, limit):
+        filters: list[dict[str, Any]] = [{"term": {"product": product}}, {"term": {"tenant": tenant}}]
+        if collections:
+            filters.append({"terms": {"collection": list(collections)}})
+        filters += [{"term": {"labels": label}} for label in labels]
+        visible: list[dict[str, Any]] = [{"term": {"restricted": False}}]
+        if viewer is not None:
+            visible += [{"term": {"viewers": viewer}}, {"term": {"ownerCid": viewer}}]
+        # Documents past their expiresAt are hidden before the daily purge deletes them.
+        filters.append({"bool": {"must_not": [{"range": {"expiresAt": {"lte": "now"}}}]}})
+        filters.append({"bool": {"should": visible, "minimum_should_match": 1}})
+        body = {
+            "size": int(limit),
+            "_source": ["collection", "documentId", "title", "body", "url", "labels", "updatedAt"],
+            "query": {"bool": {
+                "filter": filters,
+                "must": [{"simple_query_string": {"query": text, "fields": ["title^2", "body"],
+                                                  "default_operator": "and",
+                                                  "flags": "AND|OR|NOT|PHRASE|PREFIX|WHITESPACE|PRECEDENCE"}}],
+            }},
+            "sort": [{"_score": "desc"}, {"updatedAt": "desc"}],
+            "highlight": {"fields": {"body": {"fragment_size": 200, "number_of_fragments": 1}},
+                          "pre_tags": [""], "post_tags": [""]},
+        }
+        status, out = self._call("POST", f"/{self.index}/_search", body)
+        if status >= 300:
+            raise self._fail("search", status)
+        words = [w.lower() for w in re.findall(r"\w+", text)]
+        hits = []
+        for h in out.get("hits", {}).get("hits", []):
+            src = h["_source"]
+            snippet = (h.get("highlight", {}).get("body") or [_snippet(src.get("body", ""), words)])[0]
+            hits.append(_hit(src, snippet))
+        return hits
+
+    def erase(self, cid_pseudonym: str, product: str | None) -> int:
+        scope: list[dict[str, Any]] = [{"term": {"product": product}}] if product else []
+        status, out = self._call(
+            "POST", f"/{self.index}/_delete_by_query?refresh=true&conflicts=proceed",
+            {"query": {"bool": {"filter": [{"term": {"ownerCid": cid_pseudonym}}, *scope]}}},
+        )
+        if status >= 300 or out.get("failures"):
+            raise PlatformError(500, "SearchUnavailable", f"erasure failed ({status}); repeat it, it is idempotent")
+        deleted = int(out.get("deleted", 0))
+        # Shared documents keep restricted=true, so dropping the last viewer never opens them up.
+        status, out = self._call(
+            "POST", f"/{self.index}/_update_by_query?refresh=true&conflicts=proceed",
+            {"query": {"bool": {"filter": [{"term": {"viewers": cid_pseudonym}}, *scope]}},
+             "script": {"lang": "painless", "params": {"p": cid_pseudonym},
+                        "source": "ctx._source.viewers.removeIf(v -> v == params.p)"}},
+        )
+        if status >= 300 or out.get("failures"):
+            raise PlatformError(500, "SearchUnavailable", f"erasure failed ({status}); repeat it, it is idempotent")
+        return deleted
+
+    def purge_expired(self) -> int:
+        """Daily retention: delete documents whose expiresAt has passed."""
+        status, out = self._call(
+            "POST", f"/{self.index}/_delete_by_query?refresh=true&conflicts=proceed",
+            {"query": {"range": {"expiresAt": {"lte": "now"}}}},
+        )
+        if status >= 300 or out.get("failures"):
+            raise self._fail("purge", status)
+        return int(out.get("deleted", 0))

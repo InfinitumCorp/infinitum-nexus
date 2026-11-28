@@ -24,6 +24,34 @@ async function contacts() {
   return contactsCache.list;
 }
 
+/** Adds a "Use a template" picker to a form with channel/subject/body fields. Fills them on pick. */
+async function templatePicker(form) {
+  const all = await api("GET", "/api/crm/templates").catch(() => []);
+  if (!all.length || !form.body) return;
+  const wrap = document.createElement("label");
+  wrap.className = "field tpl-pick";
+  wrap.innerHTML = `Use a template<select class="input small" name="template"><option value="">Choose…</option></select>`;
+  (form.body.closest(".field") ?? form.body).before(wrap);
+  const sel = wrap.querySelector("select");
+  const fill = () => {
+    const ch = form.channel?.value;
+    const usable = all.filter((t) => !ch || ch === "note" || t.channel === ch);
+    sel.innerHTML = `<option value="">Choose…</option>${usable.map((t) => `<option value="${esc(t.id)}">${esc(t.name)}</option>`).join("")}`;
+    wrap.hidden = !usable.length;
+  };
+  fill();
+  form.channel?.addEventListener("change", fill);
+  sel.onchange = () => {
+    const t = all.find((x) => x.id === sel.value);
+    if (!t) return;
+    if (form.body.value.trim() && !confirm("Replace what you've written with this template?")) { sel.value = ""; return; }
+    form.body.value = t.body;
+    if (form.subject && t.subject) form.subject.value = t.subject;
+    form.body.dispatchEvent(new Event("input", { bubbles: true }));
+    sel.value = "";
+  };
+}
+
 /* ---------------- Conversations ---------------- */
 
 async function renderInbox() {
@@ -74,6 +102,7 @@ async function renderThread(contactId, providers) {
   const form = S.$("#compose");
   if (!form) return;
   form.channel.onchange = () => { form.subject.hidden = form.channel.value !== "email"; };
+  templatePicker(form);
   form.onsubmit = (e) => {
     e.preventDefault();
     act(async () => {
@@ -519,6 +548,7 @@ function campaignEditor(existing, lists) {
     if (location.hash === `#/campaigns/${saved.id}`) renderCampaigns(); else location.hash = `#/campaigns/${saved.id}`;
   });
   const form = S.$("#modal-form");
+  templatePicker(form);
   let timer;
   const sync = () => {
     const m = form.mode.value;
@@ -874,6 +904,44 @@ async function renderReporting() {
 }
 
 S.view("reporting", renderReporting);
+/* ---------------- Templates ---------------- */
+
+async function renderTemplates() {
+  const list = await api("GET", "/api/crm/templates");
+  main().innerHTML = `
+    <div class="page">
+      <div class="page-head"><h1>Templates</h1><button class="btn primary" id="new-tpl">New template</button></div>
+      <p class="muted">Saved emails and texts. Pick one in Conversations or Campaigns instead of typing it again. {{first_name}}, {{name}} and {{company}} fill in for each person.</p>
+      ${list.length ? `<div class="list">${list.map((t) => `
+        <div class="item"><div class="main"><div class="title">${esc(t.name)} <span class="pill">${t.channel === "sms" ? "SMS" : "Email"}</span></div>
+          <div class="sub">${esc(t.subject ? `${t.subject} — ` : "")}${esc(t.body.slice(0, 120))}</div></div>
+          <button class="btn ghost small" data-edit="${esc(t.id)}">Edit</button><button class="btn ghost small" data-del="${esc(t.id)}">Delete</button></div>`).join("")}</div>` : `<div class="empty">No templates yet.</div>`}
+    </div>`;
+  const editor = (t) => {
+    S.modal(`<h2>${t ? "Edit template" : "New template"}</h2>
+      <label class="field">Name<input class="input" name="name" required maxlength="80" value="${esc(t?.name ?? "")}" placeholder="Appointment reminder"></label>
+      <label class="field">For<select class="input" name="channel"><option value="email">Email</option><option value="sms" ${t?.channel === "sms" ? "selected" : ""}>SMS</option></select></label>
+      <label class="field" data-for="email">Subject<input class="input" name="subject" value="${esc(t?.subject ?? "")}"></label>
+      <label class="field">Message<textarea class="input" name="body" rows="6" required>${esc(t?.body ?? "")}</textarea></label>`, async (f) => {
+      const body = { name: f.get("name"), channel: f.get("channel"), subject: f.get("subject") || undefined, body: f.get("body") };
+      if (t) await api("PATCH", `/api/crm/templates/${t.id}`, body); else await api("POST", "/api/crm/templates", body);
+      toast("Template saved");
+      renderTemplates();
+    });
+    const form = S.$("#modal-form");
+    const sync = () => { form.querySelector("[data-for=email]").hidden = form.channel.value !== "email"; };
+    form.channel.onchange = sync;
+    sync();
+  };
+  S.$("#new-tpl").onclick = () => editor();
+  main().querySelectorAll("[data-edit]").forEach((b) => b.onclick = () => editor(list.find((t) => t.id === b.dataset.edit)));
+  main().querySelectorAll("[data-del]").forEach((b) => b.onclick = () => {
+    const t = list.find((x) => x.id === b.dataset.del);
+    if (confirm(`Delete the template “${t.name}”?`)) act(async () => { await api("DELETE", `/api/crm/templates/${t.id}`); renderTemplates(); }, "Template deleted");
+  });
+}
+
+S.view("templates", renderTemplates);
 S.view("contacts", renderContacts);
 S.view("inbox", renderInbox);
 S.view("forms", renderForms);

@@ -1,5 +1,6 @@
 import type { Campaign } from "./campaigns.ts";
 import type { ReviewRequest, ReviewSettings } from "./reputation.ts";
+import type { MessageTemplate } from "./templates.ts";
 import type { Invoice, InvoiceSettings } from "./invoices.ts";
 import { randomUUID } from "node:crypto";
 import type { AgentProposal, AgentRunRecord } from "./agent-team.ts";
@@ -65,6 +66,7 @@ export interface SpectreStore {
   /** Invoices (core/invoices.ts) and one settings record per workspace. */
   invoices: Map<string, Invoice>;
   invoiceSettings: Map<string, InvoiceSettings>;
+  templates: Map<string, MessageTemplate>;
 }
 
 export const emptyStore = (): SpectreStore => ({
@@ -90,6 +92,7 @@ export const emptyStore = (): SpectreStore => ({
   reviewRequests: new Map(),
   invoices: new Map(),
   invoiceSettings: new Map(),
+  templates: new Map(),
 });
 
 type Kind = "company" | "contact" | "deal" | "activity" | "relationship" | "scenario";

@@ -568,7 +568,7 @@ async function openDeal(id) {
       </div>
 
       <div class="section timeline"><h2>Activity</h2>
-        ${d.activities.map((a) => `<div class="ev"><div class="when">${esc(a.kind)} · ${ago(a.at)}${a.kind === "task" ? (a.done ? " · done" : ` · due ${date(a.dueAt)} <button class="btn small ghost" data-done="${esc(a.id)}">Mark done</button>`) : ""}</div>${esc(a.summary)}</div>`).join("") || `<div class="muted small">Nothing logged yet.</div>`}
+        ${d.activities.map((a) => `<div class="ev"><div class="when">${esc(a.kind)} · ${ago(a.at)}${a.kind === "task" ? (a.done ? " · done" : `${a.dueAt ? ` · due ${date(a.dueAt)}` : ""} <button class="btn small ghost" data-done="${esc(a.id)}">Mark done</button>`) : ""}</div>${esc(a.summary)}</div>`).join("") || `<div class="muted small">Nothing logged yet.</div>`}
       </div>
 
       <div class="section timeline"><h2>Audit trail</h2>

@@ -7,7 +7,7 @@ import { test } from "node:test";
 import type { FabricIdentity } from "./auth.ts";
 import { FabricServiceError, touchUser } from "./service.ts";
 import { FabricStore } from "./store.ts";
-import { TeamService, dueDate, imageType, nextRun, parseIceServers, parseQuery, parseReminder, type TeamEvent } from "./team.ts";
+import { TeamService, dueDate, imageType, nextRun, parseIceServers, parseQuery, parseReminder, quietUntil, type TeamEvent } from "./team.ts";
 
 const ISSUER = "https://id.cumuluscloud.app/realms/cumulus";
 function person(n: number, username: string): FabricIdentity {
@@ -918,6 +918,59 @@ test("channel insights: counts only, by period, for the creator and admins", () 
     assert.throws(() => t.team.insights(t.dan, eng.id, 30), status(404));
     const dm = t.team.openConversation(t.alice, ws.id, ["bob"]);
     assert.throws(() => t.team.insights(t.alice, dm.id, 30), status(400));
+  } finally {
+    t.close();
+  }
+});
+
+test("quietUntil: working hours in the person's time zone", () => {
+  const week = { days: [1, 2, 3, 4, 5], from: 9 * 60, to: 18 * 60, timeZone: "Europe/Moscow" };
+  // Thursday 2026-11-12 10:00 UTC = 13:00 in Moscow.
+  assert.equal(quietUntil(week, new Date("2026-11-12T10:00:00.000Z")), null, "inside working hours");
+  assert.equal(quietUntil(week, new Date("2026-11-12T16:30:00.000Z")), "2026-11-13T06:00:00.000Z", "19:30 Thursday → 09:00 Friday");
+  assert.equal(quietUntil(week, new Date("2026-11-13T15:00:00.000Z")), "2026-11-16T06:00:00.000Z", "18:00 Friday → 09:00 Monday");
+  assert.equal(quietUntil(week, new Date("2026-11-13T05:59:30.000Z")), "2026-11-13T06:00:00.000Z", "just before the start");
+  assert.equal(quietUntil({ ...week, timeZone: "America/New_York" }, new Date("2026-11-12T12:00:00.000Z")), "2026-11-12T14:00:00.000Z", "07:00 in New York");
+  assert.equal(quietUntil({ ...week, days: [] }, new Date("2026-11-12T16:30:00.000Z")), null);
+  assert.equal(quietUntil(null, new Date()), null);
+});
+
+test("notification schedule: quiet outside working hours, shown to others, validated", () => {
+  const t = setup();
+  try {
+    const ws = t.team.createWorkspace(t.alice, "Acme");
+    t.team.joinWorkspace(t.bob, ws.inviteCode);
+    const aliceFor = (who: typeof t.bob) => t.team.people(who, ws.id, "").find((p) => p.username === "alice")!;
+    assert.equal(t.team.notifySchedule(t.alice, ws.id), null);
+
+    // Now: Thursday 13:00 in Moscow.
+    const set = t.team.setNotifySchedule(t.alice, ws.id, { days: [5, 1, 2, 3, 4, 4], from: "09:00", to: "18:00", timeZone: "Europe/Moscow" });
+    assert.deepEqual(set, { days: [1, 2, 3, 4, 5], from: 540, to: 1080, timeZone: "Europe/Moscow" });
+    assert.ok(t.events.some((e) => e.event.type === "members" && e.subs.includes(t.bob.sub)));
+    assert.equal(aliceFor(t.bob).dnd, false);
+
+    t.advance(6 * 3_600_000); // 19:00
+    const quiet = aliceFor(t.bob);
+    assert.equal(quiet.dnd, true, "others see it");
+    assert.equal(quiet.quietHours, true);
+    assert.equal(quiet.dndUntil, "2026-11-13T06:00:00.000Z");
+
+    // A longer pause wins; a shorter one ends with the quiet hours.
+    t.team.setPresence(t.alice, ws.id, { dndUntil: "2026-11-13T09:00:00.000Z" });
+    assert.equal(aliceFor(t.bob).dndUntil, "2026-11-13T09:00:00.000Z");
+    t.team.setPresence(t.alice, ws.id, { dndUntil: "2026-11-12T17:00:00.000Z" });
+    assert.equal(aliceFor(t.bob).dndUntil, "2026-11-13T06:00:00.000Z");
+
+    assert.throws(() => t.team.setNotifySchedule(t.alice, ws.id, { days: [1], from: "18:00", to: "09:00", timeZone: "Europe/Moscow" }), status(400));
+    assert.throws(() => t.team.setNotifySchedule(t.alice, ws.id, { days: [7], from: "09:00", to: "18:00", timeZone: "Europe/Moscow" }), status(400));
+    assert.throws(() => t.team.setNotifySchedule(t.alice, ws.id, { days: [1], from: "9am", to: "18:00", timeZone: "Europe/Moscow" }), status(400));
+    assert.throws(() => t.team.setNotifySchedule(t.alice, ws.id, { days: [1], from: "09:00", to: "18:00", timeZone: "Mars/Olympus" }), status(400));
+    assert.throws(() => t.team.setNotifySchedule(t.cara, ws.id, null), status(404));
+
+    // Off again: back to notifications at any time.
+    t.team.setPresence(t.alice, ws.id, { dndUntil: null });
+    assert.equal(t.team.setNotifySchedule(t.alice, ws.id, null), null);
+    assert.equal(aliceFor(t.bob).dnd, false);
   } finally {
     t.close();
   }

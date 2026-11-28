@@ -160,7 +160,10 @@ async function loadSidebar() {
   const bar = state.bar;
   state.emoji = new Set(bar.emoji || []);
   $("#me-button").hidden = false;
-  $("#me-button").textContent = `${bar.me.statusEmoji ? `${bar.me.statusEmoji} ` : ""}${bar.me.displayName}${bar.me.dnd ? " · DND" : bar.me.presence === "away" ? " · away" : ""}`;
+  $("#me-button").textContent = `${bar.me.statusEmoji ? `${bar.me.statusEmoji} ` : ""}${bar.me.displayName}${bar.me.dnd ? (bar.me.quietHours ? " · off hours" : " · DND") : bar.me.presence === "away" ? " · away" : ""}`;
+  // Notifications come back on their own when a pause or your quiet hours end, so look again then.
+  clearTimeout(dndTimer);
+  if (bar.me.dndUntil) dndTimer = setTimeout(() => soon(loadSidebar), Math.min(Math.max(new Date(bar.me.dndUntil).getTime() - Date.now(), 0) + 1000, 6 * 3_600_000));
   $("#count-saved").textContent = bar.saved || "";
   $("#count-scheduled").textContent = bar.scheduled || "";
   $("#count-reminders").textContent = bar.reminders || "";
@@ -365,6 +368,31 @@ async function showInsights(c, days) {
     s.topPeople.length ? h("ol", { class: "t-top" }, ...s.topPeople.map((p) => h("li", {}, h("span", {}, p.person.displayName), h("span", { class: "meta" }, String(p.messages)))))
       : h("p", { class: "meta" }, "Nobody has posted in this period."),
     h("p", { class: "meta" }, "Counts only. Deleted and system messages are left out. Only you can see this."));
+}
+
+let dndTimer = 0;
+const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const hhmm = (m) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+
+// When you get notifications. Outside these hours you are in do-not-disturb, and others see that.
+async function editSchedule() {
+  const { schedule } = await api(T(`/workspaces/${state.wsId}/notification-schedule`));
+  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const s = schedule || { days: [1, 2, 3, 4, 5], from: 9 * 60, to: 18 * 60, timeZone };
+  const order = [1, 2, 3, 4, 5, 6, 0];
+  const r = await dialog("Notification schedule", [
+    { note: `Get notifications only on these days and times. Outside them you're shown as do-not-disturb. Times are in ${schedule && schedule.timeZone !== timeZone ? `${schedule.timeZone} (saved) — saving uses your current time zone, ${timeZone}` : timeZone}.` },
+    { name: "on", label: "Use a schedule", type: "checkbox", value: !!schedule },
+    { name: "from", label: "From", type: "time", value: hhmm(s.from) },
+    { name: "to", label: "Until", type: "time", value: hhmm(Math.min(s.to, 1439)) },
+    ...order.map((d) => ({ name: `d${d}`, label: DAY_NAMES[d], type: "checkbox", value: s.days.includes(d) })),
+  ], "Save");
+  if (!r) return;
+  const days = order.filter((d) => r[`d${d}`]);
+  const body = r.on ? { schedule: { days, from: r.from, to: r.to, timeZone } } : { schedule: null };
+  if (r.on && !days.length) throw new Error("Pick at least one day, or turn the schedule off");
+  await api(T(`/workspaces/${state.wsId}/notification-schedule`), { method: "PUT", body });
+  await loadSidebar();
 }
 
 async function editPosting(c) {
@@ -948,7 +976,7 @@ async function showProfile(p) {
   const isMe = p.sub === state.me.sub;
   const admin = state.bar.workspace.role === "owner";
   panel(p.displayName,
-    h("p", {}, dot(p), ` ${p.presence === "active" ? "Active" : "Away"}${p.dnd ? ` · Do not disturb until ${time(p.dndUntil)}` : ""}`),
+    h("p", {}, dot(p), ` ${p.presence === "active" ? "Active" : "Away"}${p.dnd ? ` · ${p.quietHours ? "Outside working hours, notifications" : "Do not disturb"} until ${time(p.dndUntil)}` : ""}`),
     h("p", {}, `@${p.username}`), p.title ? h("p", {}, p.title) : null,
     p.statusEmoji || p.statusText ? h("p", {}, `${p.statusEmoji || ""} ${p.statusText || ""}${p.statusUntil ? ` · until ${when(p.statusUntil)}` : ""}`) : null,
     h("p", { class: "t-row" },
@@ -1610,7 +1638,8 @@ $("#me-button").addEventListener("click", (e) => {
     }],
     (me.statusEmoji || me.statusText) && ["Clear status", async () => { await api(T(`/workspaces/${state.wsId}/status`), { method: "PUT", body: { emoji: null, text: null } }); await loadSidebar(); }],
     [me.presence === "away" ? "Set yourself as active" : "Set yourself as away", async () => { await api(T(`/workspaces/${state.wsId}/presence`), { method: "PUT", body: { away: me.presence !== "away" } }); await loadSidebar(); }],
-    me.dnd ? ["Resume notifications", async () => { await api(T(`/workspaces/${state.wsId}/presence`), { method: "PUT", body: { dndUntil: null } }); await loadSidebar(); }] : null,
+    ["Notification schedule…", () => editSchedule()],
+    me.dnd && !me.quietHours ? ["Resume notifications", async () => { await api(T(`/workspaces/${state.wsId}/presence`), { method: "PUT", body: { dndUntil: null } }); await loadSidebar(); }] : null,
     ...(!me.dnd ? [["Pause notifications 30 min", 30], ["Pause notifications 1 hour", 60], ["Pause notifications until tomorrow", 60 * 16]].map(([l, mins]) => [l, async () => { await api(T(`/workspaces/${state.wsId}/presence`), { method: "PUT", body: { dndUntil: new Date(Date.now() + mins * 60_000).toISOString() } }); await loadSidebar(); }]) : []),
     ["Profile", () => showProfile(me)],
   ]);

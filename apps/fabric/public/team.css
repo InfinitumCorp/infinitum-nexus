@@ -152,3 +152,15 @@
 .t-tile-name { position: absolute; left: 6px; bottom: 4px; right: 6px; font-size: 12px; text-shadow: 0 1px 2px #000; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .t-huddle-leave { border-color: #b42318; color: #b42318; }
 @media (max-width: 900px) { .t-huddle { left: 16px; right: 16px; width: auto; } }
+
+/* Quick switcher and shortcuts */
+.t-switcher { position: fixed; inset: 0; z-index: 50; display: flex; justify-content: center; align-items: flex-start; padding: 12vh 16px 0; background: rgba(15, 20, 25, 0.35); }
+.t-switcher-box { width: min(560px, 100%); background: var(--paper); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.2); padding: 12px; }
+.t-switcher-box .input { width: 100%; font-size: 16px; }
+.t-switcher-list { list-style: none; margin: 8px 0; padding: 0; max-height: 50vh; overflow: auto; }
+.t-switcher-list li { display: flex; justify-content: space-between; gap: 12px; padding: 6px 10px; border-radius: 6px; cursor: pointer; }
+.t-switcher-list li.active { background: var(--ink); color: var(--paper); }
+.t-switcher-list li.active .meta { color: inherit; opacity: 0.8; }
+.t-shortcuts { border-collapse: collapse; width: 100%; }
+.t-shortcuts td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.t-shortcuts kbd { font-family: inherit; font-size: var(--text-sm); border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; white-space: nowrap; }

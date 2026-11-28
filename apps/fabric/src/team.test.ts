@@ -835,3 +835,41 @@ test("drafts: saved per person and channel, sealed, cleared by sending", () => {
     t.close();
   }
 });
+
+test("converting a public channel to private: admins only, one way, hides it from non-members", () => {
+  const t = setup();
+  try {
+    const ws = t.team.createWorkspace(t.alice, "Acme");
+    t.team.joinWorkspace(t.bob, ws.inviteCode);
+    t.team.joinWorkspace(t.cara, ws.inviteCode);
+    const general = t.team.sidebar(t.alice, ws.id).channels.find((c) => c.name === "general")!;
+    const plans = t.team.createChannel(t.bob, ws.id, { name: "plans" });
+    t.team.joinChannel(t.alice, plans.id);
+    t.team.send(t.bob, plans.id, { text: "acquisition target list" });
+    assert.equal(t.team.search(t.cara, ws.id, "acquisition").messages.length, 1, "public: everyone can find it");
+
+    // Only admins, even though Bob created it; and only members (Alice joined) can change it.
+    assert.throws(() => t.team.updateChannel(t.bob, plans.id, { private: true }), status(403));
+    assert.throws(() => t.team.updateChannel(t.alice, general.id, { private: true }), status(400));
+    assert.throws(() => t.team.updateChannel(t.alice, plans.id, { private: "yes" }), status(400));
+    const before = t.events.length;
+    const made = t.team.updateChannel(t.alice, plans.id, { private: true });
+    assert.equal(made.kind, "private");
+    assert.ok(t.events.slice(before).some((e) => e.event.type === "channel" && e.subs.includes(t.cara.sub)), "non-members are told it has gone");
+    assert.match(t.team.list(t.bob, plans.id).messages.at(-1)!.text, /made this channel private/);
+
+    // Members keep it; everyone else loses it, its history and its search results.
+    assert.ok(t.team.sidebar(t.bob, ws.id).channels.some((c) => c.id === plans.id));
+    assert.throws(() => t.team.list(t.cara, plans.id), status(404));
+    assert.throws(() => t.team.joinChannel(t.cara, plans.id), status(404));
+    assert.equal(t.team.search(t.cara, ws.id, "acquisition").messages.length, 0);
+    assert.ok(!t.team.browseChannels(t.cara, ws.id).some((c) => c.id === plans.id));
+
+    // There is no way back, and making it private again changes nothing.
+    assert.throws(() => t.team.updateChannel(t.alice, plans.id, { private: false }), status(400));
+    assert.equal(t.team.updateChannel(t.alice, plans.id, { private: true }).kind, "private");
+    assert.equal(t.team.list(t.bob, plans.id).messages.filter((m) => /made this channel private/.test(m.text)).length, 1);
+  } finally {
+    t.close();
+  }
+});

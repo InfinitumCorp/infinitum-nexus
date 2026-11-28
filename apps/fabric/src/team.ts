@@ -599,8 +599,23 @@ export class TeamService {
     };
   }
 
-  updateChannel(me: FabricIdentity, channelId: string, input: { name?: unknown; topic?: unknown; purpose?: unknown; posting?: unknown; threadReplies?: unknown }): ChannelView {
+  updateChannel(me: FabricIdentity, channelId: string, input: { name?: unknown; topic?: unknown; purpose?: unknown; posting?: unknown; threadReplies?: unknown; private?: unknown }): ChannelView {
     const { channel, ws } = this.writable(me, channelId);
+    let wasPublic = false;
+    if (input.private !== undefined) {
+      if (typeof input.private !== "boolean") throw fail(400, "private must be true or false");
+      if (channel.kind === "dm" || channel.kind === "group") throw fail(400, "conversations are already private");
+      if (input.private && channel.kind === "public") {
+        // One way only, as making a private channel public would show its history to everyone.
+        if (!isAdmin(ws.role)) throw fail(403, "only workspace admins can make a channel private");
+        if (channel.isDefault) throw fail(400, "default channels must stay public");
+        this.store.run("UPDATE team_channels SET kind = 'private' WHERE id = ?", channelId);
+        this.system(channel, me.sub, "made this channel private. Only its members can see it and its history now");
+        wasPublic = true;
+      } else if (!input.private && channel.kind === "private") {
+        throw fail(400, "private channels can't be made public");
+      }
+    }
     if (input.posting !== undefined || input.threadReplies !== undefined) {
       if (channel.kind === "dm" || channel.kind === "group") throw fail(400, "conversations do not have posting settings");
       if (!isAdmin(ws.role) && channel.createdBy !== me.sub) throw fail(403, "only the channel creator or an admin can change who can post");
@@ -633,7 +648,8 @@ export class TeamService {
       this.store.run(`UPDATE team_channels SET ${key} = ? WHERE id = ?`, value, channelId);
       this.system(channel, me.sub, value ? `set the channel ${key}: ${value}` : `cleared the channel ${key}`);
     }
-    this.publish(this.channelSubs(channelId), { type: "channel", workspaceId: channel.workspaceId, channelId });
+    // Everyone could see it until now, so tell everyone it has gone; members are told as usual.
+    this.publish(wasPublic ? this.workspaceSubs(channel.workspaceId) : this.channelSubs(channelId), { type: "channel", workspaceId: channel.workspaceId, channelId });
     return this.channelView(me, this.channel(channelId), true);
   }
 

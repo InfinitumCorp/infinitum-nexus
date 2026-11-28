@@ -318,11 +318,23 @@ function channelMenu(anchor) {
     c.member && ["Move to section…", () => moveToSection(c)],
     c.member && ["Notifications…", () => editNotifications(c)],
     named && c.member && (["owner", "admin"].includes(state.bar.workspace.role) || c.createdBy === state.me.sub) && ["Posting permissions…", () => editPosting(c)],
+    c.kind === "public" && c.member && !c.isDefault && !c.archived && ["owner", "admin"].includes(state.bar.workspace.role) && ["Make private…", () => makePrivate(c)],
     c.member && ["Mark as read", async () => { await api(T(`/channels/${c.id}/read`), { method: "POST", body: {} }); await loadSidebar(); }],
     named && !c.archived && ["Archive channel", async () => { if (confirm(`Archive #${c.name}? People can still read it.`)) { await api(T(`/channels/${c.id}/archive`), { method: "POST", body: { archived: true } }); await refreshChannel(); await loadSidebar(); } }],
     named && c.archived && ["Unarchive channel", async () => { await api(T(`/channels/${c.id}/archive`), { method: "POST", body: { archived: false } }); await refreshChannel(); await loadSidebar(); }],
     c.member && c.kind !== "dm" && !c.isDefault && ["Leave", async () => { await api(T(`/channels/${c.id}/leave`), { method: "POST", body: {} }); state.channel = null; await loadSidebar(); await openChannel(state.bar.channels[0].id); }],
   ]);
+}
+
+async function makePrivate(c) {
+  const r = await dialog(`Make #${c.name} private`, [
+    { note: `Only the ${c.memberCount} ${c.memberCount === 1 ? "person" : "people"} in it now will be able to find it, read its history or be added by its members. Everyone else loses access straight away.` },
+    { note: "This can't be undone: a private channel can't be made public again." },
+  ], "Make private");
+  if (!r) return;
+  await api(T(`/channels/${c.id}`), { method: "PATCH", body: { private: true } });
+  await refreshChannel();
+  await loadSidebar();
 }
 
 async function editPosting(c) {
@@ -1170,6 +1182,13 @@ function connect() {
         if (state.channel?.id === ev.channelId) await refreshChannel();
         if (state.view === "tasks") await showView("tasks");
         await loadSidebar();
+      });
+      return;
+    }
+    if (ev.type === "channel" && state.channel?.id === ev.channelId && !state.channel.member) {
+      // A public channel you were only looking at may have been made private.
+      soon(async () => {
+        try { await refreshChannel(); } catch { showNote("That channel is private now."); state.channel = null; await loadSidebar(); if (state.bar.channels[0]) await openChannel(state.bar.channels[0].id); }
       });
       return;
     }

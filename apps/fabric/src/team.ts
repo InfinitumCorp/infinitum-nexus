@@ -55,6 +55,9 @@ export const TEAM_LIMITS = {
   tasks: 500,
   taskTitle: 300,
   taskNotes: 4_000,
+  /** Message retention, when an owner turns it on: the shortest and longest allowed, in days. */
+  retentionMinDays: 7,
+  retentionMaxDays: 3650,
   /** Notification keywords per person per workspace, and the length of each. */
   keywords: 25,
   keywordLength: 40,
@@ -114,6 +117,8 @@ export interface WorkspaceView {
   role: Role;
   createdAt: string;
   memberCount: number;
+  /** Messages are deleted after this many days, or null to keep them. */
+  retentionDays: number | null;
 }
 
 export interface ChannelView {
@@ -958,19 +963,73 @@ export class TeamService {
     if (row.sender !== me.sub && !isAdmin(ws.role)) throw fail(403, "you can only delete your own messages");
     if (row.deletedAt) return;
     const now = this.stamp();
-    this.store.tx(() => {
-      this.store.run("UPDATE team_messages SET ciphertext = ?, deleted_at = ? WHERE id = ?", seal("", this.key(channel), messageAad(channel.id, row.id)), now, row.id);
-      for (const table of ["team_mentions", "team_reactions", "team_pins", "team_saved"]) this.store.run(`DELETE FROM ${table} WHERE message_id = ?`, row.id);
-      this.store.run("DELETE FROM team_files WHERE message_id = ?", row.id);
-      if (row.parentId) {
-        this.store.run(
-          `UPDATE team_messages SET reply_count = (SELECT COUNT(*) FROM team_messages WHERE parent_id = ? AND deleted_at IS NULL),
-           last_reply_at = (SELECT MAX(created_at) FROM team_messages WHERE parent_id = ? AND deleted_at IS NULL) WHERE id = ?`,
-          row.parentId, row.parentId, row.parentId,
-        );
-      }
-    });
+    this.store.tx(() => this.erase(channel, row, now));
     this.publish(this.channelSubs(channel.id), { type: "message_deleted", workspaceId: channel.workspaceId, channelId: channel.id, messageId: row.id, parentId: row.parentId });
+  }
+
+  /** Blank a message's text and drop its files, reactions, pins, saves and mentions. Run inside a transaction. */
+  private erase(channel: ChannelRow, row: TeamMessageRow, now: string): void {
+    this.store.run("UPDATE team_messages SET ciphertext = ?, deleted_at = ? WHERE id = ?", seal("", this.key(channel), messageAad(channel.id, row.id)), now, row.id);
+    for (const table of ["team_mentions", "team_reactions", "team_pins", "team_saved"]) this.store.run(`DELETE FROM ${table} WHERE message_id = ?`, row.id);
+    this.store.run("DELETE FROM team_files WHERE message_id = ?", row.id);
+    if (row.parentId) {
+      this.store.run(
+        `UPDATE team_messages SET reply_count = (SELECT COUNT(*) FROM team_messages WHERE parent_id = ? AND deleted_at IS NULL),
+         last_reply_at = (SELECT MAX(created_at) FROM team_messages WHERE parent_id = ? AND deleted_at IS NULL) WHERE id = ?`,
+        row.parentId, row.parentId, row.parentId,
+      );
+    }
+  }
+
+  // ---------- message retention ----------
+  //
+  // An owner can have messages deleted once they are older than a set number of days. Off (keep everything)
+  // unless an owner turns it on. Deleted messages are erased as if their senders had deleted them: the text,
+  // files, reactions, pins and saves are gone. Canvases, lists and bookmarks are not affected.
+
+  setRetention(me: FabricIdentity, workspaceId: string, input: unknown): WorkspaceView {
+    const mine = this.member(me, workspaceId);
+    if (mine.role !== "owner") throw fail(403, "only an owner can change message retention");
+    const days = input === null || input === undefined || input === "" ? null : Number(input);
+    if (days !== null && (!Number.isInteger(days) || days < TEAM_LIMITS.retentionMinDays || days > TEAM_LIMITS.retentionMaxDays)) {
+      throw fail(400, `retention must be between ${TEAM_LIMITS.retentionMinDays} and ${TEAM_LIMITS.retentionMaxDays} days, or off`);
+    }
+    const ws = this.workspace(workspaceId);
+    if ((ws.retentionDays ?? null) !== days) {
+      this.store.run("UPDATE team_workspaces SET retention_days = ? WHERE id = ?", days, workspaceId);
+      // Everyone should know their history will go, so say it where everyone is.
+      const general = this.store.one<ChannelRow>("SELECT * FROM team_channels WHERE workspace_id = ? AND is_default = 1 AND archived_at IS NULL ORDER BY created_at LIMIT 1", workspaceId);
+      if (general) this.system(general, me.sub, days === null ? "turned off message retention: messages are kept until people delete them"
+        : `set message retention: messages in every channel and conversation are deleted after ${days} days`);
+      this.publish(this.workspaceSubs(workspaceId), { type: "workspace", workspaceId });
+    }
+    return this.workspaceView(me, this.workspace(workspaceId));
+  }
+
+  /** Erase up to `limit` messages that are past their workspace's retention. Returns how many. */
+  sweepRetention(limit = 500): number {
+    let erased = 0;
+    for (const ws of this.store.all<WorkspaceRow>("SELECT * FROM team_workspaces WHERE retention_days IS NOT NULL")) {
+      if (erased >= limit) break;
+      const cutoff = new Date(this.clock().getTime() - ws.retentionDays! * 86_400_000).toISOString();
+      const rows = this.store.all<TeamMessageRow>(
+        `SELECT m.* FROM team_messages m JOIN team_channels c ON c.id = m.channel_id
+         WHERE c.workspace_id = ? AND m.deleted_at IS NULL AND m.created_at < ? ORDER BY m.created_at LIMIT ?`, ws.id, cutoff, limit - erased,
+      );
+      if (!rows.length) continue;
+      const now = this.stamp();
+      const touched = new Map<string, ChannelRow>();
+      this.store.tx(() => {
+        for (const row of rows) {
+          const channel = touched.get(row.channelId) ?? this.channel(row.channelId);
+          touched.set(channel.id, channel);
+          this.erase(channel, row, now);
+        }
+      });
+      erased += rows.length;
+      for (const channel of touched.values()) this.publish(this.channelSubs(channel.id), { type: "channel", workspaceId: ws.id, channelId: channel.id });
+    }
+    return erased;
   }
 
   react(me: FabricIdentity, messageId: string, emoji: unknown, on?: boolean): ReactionView[] {
@@ -1342,6 +1401,11 @@ export class TeamService {
     const now = this.clock().toISOString();
     let sent = 0;
     let reminded = 0;
+    try {
+      this.sweepRetention();
+    } catch (error) {
+      console.warn(`retention sweep failed: ${error instanceof Error ? error.message : "error"}`);
+    }
     for (const s of this.store.all<ScheduledRow>("SELECT * FROM team_scheduled WHERE send_at <= ? ORDER BY send_at LIMIT 100", now)) {
       this.store.run("DELETE FROM team_scheduled WHERE id = ?", s.id);
       try {
@@ -2384,6 +2448,7 @@ export class TeamService {
     const role = this.store.one<{ role: Role }>("SELECT role FROM team_members WHERE workspace_id = ? AND sub = ?", w.id, me.sub)?.role ?? "member";
     return {
       id: w.id, name: w.name, slug: w.slug, inviteCode: role === "guest" ? "" : w.inviteCode, role, createdAt: w.createdAt,
+      retentionDays: w.retentionDays ?? null,
       memberCount: this.store.count("SELECT COUNT(*) FROM team_members WHERE workspace_id = ? AND deactivated_at IS NULL", w.id),
     };
   }

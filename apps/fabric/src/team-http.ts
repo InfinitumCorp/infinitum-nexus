@@ -98,6 +98,7 @@ export function teamRoutes(): Route[] {
     r("GET", `/workspaces/${ID}/people`, ({ team, me, params, query }) => ({ people: team.people(me, params[0]!, query.get("q") ?? "") })),
     r("PATCH", `/workspaces/${ID}/me`, ({ team, me, params, body }) => team.updateProfile(me, params[0]!, body)),
     r("PUT", `/workspaces/${ID}/status`, ({ team, me, params, body }) => team.setStatus(me, params[0]!, body)),
+    r("PUT", `/workspaces/${ID}/retention`, ({ team, me, params, body }) => team.setRetention(me, params[0]!, body.days)),
     r("PUT", `/workspaces/${ID}/presence`, ({ team, me, params, body }) => team.setPresence(me, params[0]!, body)),
     r("PUT", `/workspaces/${ID}/people/${NAME}/role`, ({ team, me, params, body }) => team.setRole(me, params[0]!, params[1]!, body.role)),
     r("DELETE", `/workspaces/${ID}/people/${NAME}`, ({ team, me, params }) => team.removeMember(me, params[0]!, params[1]!)),

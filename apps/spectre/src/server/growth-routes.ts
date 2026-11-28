@@ -68,9 +68,11 @@ export function registerGrowthRoutes(api: GrowthApi) {
   /** Contacts with score, filterable (?list=<smartListId> or filter params). */
   route("GET", "/api/crm/contacts", (ctx) => {
     const ws = ctx.user.workspace;
+    const q = (k: string) => ctx.query.get(k) ?? undefined;
+    const bool = (k: string) => (q(k) === "1" || q(k) === "true" ? true : q(k) === "0" || q(k) === "false" ? false : undefined);
     let filter = cleanFilter({
-      tags: ctx.query.get("tags") ?? undefined, text: ctx.query.get("q") ?? undefined, source: ctx.query.get("source") ?? undefined,
-      minScore: ctx.query.get("minScore") ?? undefined,
+      tags: q("tags")?.split(","), anyTags: q("anyTags")?.split(","), text: q("q"), source: q("source"), minScore: q("minScore"),
+      hasEmail: bool("hasEmail"), hasPhone: bool("hasPhone"), quietForDays: q("quietForDays"), createdWithinDays: q("createdWithinDays"),
     });
     const listId = ctx.query.get("list");
     if (listId) {
@@ -120,14 +122,16 @@ export function registerGrowthRoutes(api: GrowthApi) {
     const ws = ctx.user.workspace;
     const ids: string[] = Array.isArray(ctx.body.ids) ? ctx.body.ids.slice(0, 1000).map(String) : [];
     const add = normalizeTags(ctx.body.add);
-    if (!ids.length || !add.length) throw httpError(400, "Choose contacts and at least one tag");
+    const remove = new Set(normalizeTags(ctx.body.remove));
+    if (!ids.length || (!add.length && !remove.size)) throw httpError(400, "Choose contacts and at least one tag");
     let changed = 0;
     for (const id of ids) {
       const c = crm.contact(ws, id);
       const before = new Set(c.tags ?? []);
-      const fresh = add.filter((t) => !before.has(t));
-      if (!fresh.length) continue;
-      await crm.updateContact(ws, ctx.user.account.cid, id, { tags: normalizeTags([...before, ...fresh]) });
+      const fresh = add.filter((t) => !before.has(t) && !remove.has(t));
+      const kept = [...before].filter((t) => !remove.has(t));
+      if (!fresh.length && kept.length === before.size) continue;
+      await crm.updateContact(ws, ctx.user.account.cid, id, { tags: normalizeTags([...kept, ...fresh]) });
       for (const t of fresh) await emit(ws, { type: "tag.added", contactId: id, tag: t });
       changed++;
     }

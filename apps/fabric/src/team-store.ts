@@ -10,7 +10,7 @@ import type { DatabaseSync, SQLInputValue } from "node:sqlite";
 export type Role = "owner" | "admin" | "member" | "guest";
 export type ChannelKind = "public" | "private" | "dm" | "group";
 
-export interface WorkspaceRow { id: string; name: string; slug: string; inviteCode: string; createdBy: string; createdAt: string }
+export interface WorkspaceRow { id: string; name: string; slug: string; inviteCode: string; createdBy: string; createdAt: string; retentionDays?: number | null }
 export interface MemberRow {
   workspaceId: string; sub: string; role: Role; displayName: string | null; title: string | null;
   statusEmoji: string | null; statusText: string | null; statusUntil: string | null;
@@ -372,6 +372,8 @@ export class TeamStore {
     const workspaceMemberColumns = new Set(this.all<{ name: string }>("PRAGMA table_info(team_members)").map((c) => c.name));
     if (!workspaceMemberColumns.has("sealed_keywords")) this.db.exec("ALTER TABLE team_members ADD COLUMN sealed_keywords TEXT");
     if (!workspaceMemberColumns.has("notify_schedule")) this.db.exec("ALTER TABLE team_members ADD COLUMN notify_schedule TEXT");
+    const workspaceColumns = new Set(this.all<{ name: string }>("PRAGMA table_info(team_workspaces)").map((c) => c.name));
+    if (!workspaceColumns.has("retention_days")) this.db.exec("ALTER TABLE team_workspaces ADD COLUMN retention_days INTEGER");
     const channelColumns = new Set(this.all<{ name: string }>("PRAGMA table_info(team_channels)").map((c) => c.name));
     if (!channelColumns.has("posting")) this.db.exec("ALTER TABLE team_channels ADD COLUMN posting TEXT");
     if (!channelColumns.has("thread_replies")) this.db.exec("ALTER TABLE team_channels ADD COLUMN thread_replies INTEGER");

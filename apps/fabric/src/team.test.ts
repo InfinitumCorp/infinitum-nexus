@@ -975,3 +975,62 @@ test("notification schedule: quiet outside working hours, shown to others, valid
     t.close();
   }
 });
+
+test("message retention: owners only, announced, erases only what is past the limit", () => {
+  const t = setup();
+  try {
+    const DAY = 86_400_000;
+    const ws = t.team.createWorkspace(t.alice, "Acme");
+    t.team.joinWorkspace(t.bob, ws.inviteCode);
+    const general = t.team.sidebar(t.alice, ws.id).channels.find((c) => c.name === "general")!;
+    const dm = t.team.openConversation(t.alice, ws.id, ["bob"]);
+
+    // Day 0.
+    const old = t.team.send(t.bob, general.id, { text: "old news" }).message!;
+    t.team.react(t.alice, old.id, "👍");
+    t.team.pin(t.bob, old.id, true);
+    t.team.save(t.bob, old.id, {});
+    const oldThread = t.team.send(t.bob, general.id, { text: "old thread" }).message!;
+    t.team.send(t.alice, general.id, { text: "old reply", parentId: oldThread.id });
+    const liveThread = t.team.send(t.bob, general.id, { text: "live thread" }).message!;
+    t.team.send(t.alice, dm.id, { text: "old dm" });
+    // Day 25 and day 31.
+    t.advance(25 * DAY);
+    t.team.send(t.alice, general.id, { text: "fresh reply", parentId: liveThread.id });
+    t.advance(6 * DAY);
+    t.team.send(t.bob, general.id, { text: "new news" });
+
+    t.team.tick();
+    assert.equal(t.team.list(t.bob, general.id).messages.filter((m) => m.text === "old news").length, 1, "off by default: nothing is erased");
+    assert.equal(t.team.sidebar(t.alice, ws.id).workspace.retentionDays, null);
+
+    assert.throws(() => t.team.setRetention(t.bob, ws.id, 30), status(403));
+    assert.throws(() => t.team.setRetention(t.alice, ws.id, 5), status(400));
+    assert.throws(() => t.team.setRetention(t.alice, ws.id, 30.5), status(400));
+    assert.throws(() => t.team.setRetention(t.alice, ws.id, "soon"), status(400));
+    assert.equal(t.team.setRetention(t.alice, ws.id, 30).retentionDays, 30);
+    assert.equal(t.team.sidebar(t.bob, ws.id).workspace.retentionDays, 30);
+    assert.ok(t.events.some((e) => e.event.type === "workspace" && e.subs.includes(t.bob.sub)));
+
+    t.team.tick(); // the sweep runs on the server tick
+    const texts = t.team.list(t.bob, general.id).messages.filter((m) => !m.deleted).map((m) => m.text);
+    assert.ok(texts.includes("new news"));
+    assert.ok(texts.some((x) => /deleted after 30 days/.test(x)), "the change is announced in #general");
+    for (const gone of ["old news", "old thread", "live thread"]) assert.ok(!texts.includes(gone), gone);
+    assert.equal(t.team.thread(t.bob, liveThread.id).replies.map((r) => r.text).join(), "fresh reply", "newer replies stay");
+    assert.deepEqual(t.team.list(t.bob, dm.id).messages.filter((m) => !m.deleted).map((m) => m.text), [], "conversations too");
+    assert.deepEqual(t.team.saved(t.bob, ws.id), []);
+    for (const table of ["team_pins", "team_reactions", "team_saved"]) {
+      assert.equal((t.store.database.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n, 0, table);
+    }
+    assert.equal(t.team.sweepRetention(), 0, "nothing left to erase");
+
+    assert.equal(t.team.setRetention(t.alice, ws.id, null).retentionDays, null);
+    assert.ok(t.team.list(t.bob, general.id).messages.some((m) => /turned off message retention/.test(m.text)));
+    t.advance(400 * DAY);
+    assert.equal(t.team.sweepRetention(), 0, "off again: kept however old");
+    assert.ok(t.team.list(t.bob, general.id).messages.some((m) => m.text === "new news"));
+  } finally {
+    t.close();
+  }
+});

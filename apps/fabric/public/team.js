@@ -395,6 +395,21 @@ async function editSchedule() {
   await loadSidebar();
 }
 
+// Owners can have old messages deleted automatically. Off unless they turn it on.
+async function editRetention(w) {
+  const choices = [["", "Keep all messages"], ["30", "Delete after 30 days"], ["90", "Delete after 90 days"], ["180", "Delete after 6 months"], ["365", "Delete after 1 year"], ["730", "Delete after 2 years"]];
+  const current = w.retentionDays == null ? "" : String(w.retentionDays);
+  if (current && !choices.some(([v]) => v === current)) choices.push([current, `Delete after ${current} days`]);
+  const r = await dialog("Message retention", [
+    { note: "Messages in every channel and conversation in this workspace, including threads, files and reactions, are deleted once they are older than this. Deleted messages can't be brought back. Canvases, lists and bookmarks are kept." },
+    { name: "days", label: "Keep messages for", type: "select", value: current, options: choices },
+  ], "Save");
+  if (!r || r.days === current) return;
+  if (r.days && !confirm(`Delete every message older than ${choices.find(([v]) => v === r.days)[1].replace("Delete after ", "")}? This starts within a minute and can't be undone. Everyone will see a note in the default channel.`)) return;
+  await api(T(`/workspaces/${w.id}/retention`), { method: "PUT", body: { days: r.days ? Number(r.days) : null } });
+  await loadSidebar();
+}
+
 async function editPosting(c) {
   const r = await dialog(`Who can post in ${chanLabel(c)}`, [
     { name: "posting", label: "Who can start new messages", type: "select", value: c.posting || "everyone", options: [["everyone", "Everyone in the channel"], ["admins", "Only admins and the channel creator"]] },
@@ -1584,6 +1599,7 @@ $("#ws-menu").addEventListener("click", (e) => {
       if (r) location.href = T(`/workspaces/${w.id}/export${r.private ? "?private=1" : ""}`);
     }],
     ["Custom emoji", () => showEmoji()],
+    w.role === "owner" && ["Message retention…", () => editRetention(w)],
     ["Turn on desktop notifications", async () => { if ("Notification" in window) await Notification.requestPermission(); }],
     ["Notification keywords…", () => editKeywords()],
   ]);

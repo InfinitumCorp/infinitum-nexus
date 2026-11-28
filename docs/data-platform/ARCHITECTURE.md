@@ -285,6 +285,13 @@ itself (Supabase Postgres, or OpenSearch), so raw rows never reach the caller. T
 - The window is at most 366 days and 200,000 events.
 - The response holds only the noisy groups and the epsilon left, never exact counts.
 
+Operators run releases with `python -m cumulus_privacy.release_cli release.json --out report.json`.
+It reads the budget first (`GET .../budget`, which spends nothing) and refuses before spending
+if the epsilon is above what is left or above the per-release cap; `--dry-run` stops there. The
+release call is never retried, because each call spends epsilon. The report keeps the request,
+the budget before, the noisy figures and a sha256 over them, so a published figure can be traced
+to its run. The product token comes from `DATA_API_TOKEN` and never appears in the output.
+
 `python-dp` has Linux and macOS wheels only. Its noise test runs in CI and in the gateway
 container. On Windows, the bounding and budget tests run with a no-noise test backend.
 

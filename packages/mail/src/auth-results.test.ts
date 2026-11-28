@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { inboundAuth, parseAuthenticationResults, refuseReason } from "./auth-results.ts";
+import { inboundAuth, inboundAuthFromMta, parseAuthenticationResults, refuseReason } from "./auth-results.ts";
 import { PostOffice, PostOfficeStore, MailError } from "./postoffice.ts";
 
 const AR = (value: string) => ({ key: "authentication-results", value });
@@ -64,5 +64,43 @@ describe("PostOffice.receive with sender authentication", () => {
     assert.equal(got.auth?.verified, true);
     assert.equal(got.auth?.dmarc, "pass");
     assert.deepEqual((await po.receive(mail())).delivered, ["alex@cumuluscloud.app"]);
+  });
+});
+
+describe("inboundAuthFromMta (Postfix + OpenDKIM/OpenDMARC)", () => {
+  const H = (key: string, value: string) => ({ key, value });
+  const ID = "mx.ru.cumuluscloud.app";
+  // As the pipe sees it: Return-Path (flags=R), Postfix's own Received, then the milters' headers.
+  const ours = [
+    H("Return-Path", "<bounce@bank.example>"),
+    H("Received", `from mail.bank.example by ${ID} (Postfix) with ESMTPS id 4Xy`),
+    H("DMARC-Filter", `OpenDMARC Filter v1.4.2 ${ID} 4Xy`),
+    H("Authentication-Results", `${ID}; dmarc=pass (p=reject dis=none) header.from=bank.example`),
+    H("Authentication-Results", `${ID}; spf=pass smtp.mailfrom=bank.example`),
+    H("DKIM-Filter", `OpenDKIM Filter v2.11.0 ${ID} 4Xy`),
+    H("Authentication-Results", `${ID}; dkim=pass (2048-bit key) header.d=bank.example`),
+  ];
+  const upstream = [H("Received", "from app by mail.bank.example"), H("From", "Bank <news@bank.example>")];
+
+  it("merges our milters' headers from our hop", () => {
+    assert.deepEqual(inboundAuthFromMta([...ours, ...upstream], ID), { verified: true, spf: "pass", dkim: "pass", dmarc: "pass", dmarcPolicy: undefined, fromDomain: "bank.example" });
+  });
+
+  it("ignores headers from earlier hops, even with our id, and other services' headers", () => {
+    const forgedUpstream = [ours[0]!, ours[1]!, ...upstream, H("Authentication-Results", `${ID}; dmarc=pass header.from=bank.example`)];
+    assert.deepEqual(inboundAuthFromMta(forgedUpstream, ID), { verified: false });
+    assert.deepEqual(inboundAuthFromMta([ours[1]!, H("Authentication-Results", "mx.cloudflare.net; dmarc=pass")], ID), { verified: false });
+    assert.deepEqual(inboundAuthFromMta([], ID), { verified: false });
+  });
+
+  it("a dmarc=fail anywhere in our hop wins over a pass the sender added", () => {
+    const failed = [ours[1]!, H("Authentication-Results", `${ID}; dmarc=fail header.from=bank.example`), H("Authentication-Results", `${ID}; dmarc=pass header.from=bank.example`)];
+    assert.equal(inboundAuthFromMta(failed, ID).dmarc, "fail");
+    assert.equal(inboundAuthFromMta([...failed].reverse(), ID).dmarc, "fail");
+    assert.match(refuseReason(inboundAuthFromMta(failed, ID)) ?? "", /DMARC/);
+  });
+
+  it("Cloudflare mode is unchanged: only the first header counts", () => {
+    assert.equal(inboundAuth([AR(CF_PASS), AR(CF_FAIL)]).dmarc, "pass");
   });
 });

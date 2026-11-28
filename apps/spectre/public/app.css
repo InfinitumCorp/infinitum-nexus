@@ -102,7 +102,9 @@ main { overflow-y: auto; position: relative; }
 .page { max-width: 1040px; margin: 0 auto; padding: 32px 32px 120px; }
 .page.narrow { max-width: 768px; }
 .page.wide { max-width: 1480px; }
-.page-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 24px; }
+.page-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px 16px; margin-bottom: 24px; }
+/* Filters and actions in a page head wrap rather than run off narrow screens. */
+.page-head .row { flex-wrap: wrap; gap: 8px; }
 .page-head h1 { font-size: 28px; letter-spacing: -0.045em; }
 
 @media (max-width: 860px) {
@@ -111,6 +113,11 @@ main { overflow-y: auto; position: relative; }
   .shell.open .side { transform: none; }
   .menu-btn { display: inline-flex; position: fixed; top: 12px; left: 12px; z-index: 10; }
   .page { padding: 64px 16px 120px; }
+}
+@media (max-width: 640px) {
+  /* List rows: the name keeps the first line; counts and buttons move under it. */
+  .item { flex-wrap: wrap; row-gap: 8px; }
+  .item .main { flex: 1 1 calc(100% - 64px); }
 }
 
 /* Ask (ChatGPT-style) */
@@ -270,3 +277,49 @@ dialog::backdrop { background: rgba(0,0,0,.25); }
 
 /* Buttons hidden with the hidden attribute (e.g. METATRON Delete when a template is picked). */
 .btn[hidden] { display: none; }
+
+/* ---------------- Grow: conversations, forms, calendars, automations ---------------- */
+.nav-label { padding: 14px 20px 4px; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.check { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; white-space: nowrap; }
+.nowrap { white-space: nowrap; }
+.table-wrap { overflow-x: auto; }
+.avatar.sm { width: 28px; height: 28px; font-size: 11px; }
+.inbox { display: grid; grid-template-columns: minmax(240px, 340px) 1fr; border: 1px solid var(--line); min-height: 60vh; }
+.inbox .threads { border-right: 1px solid var(--line); overflow-y: auto; max-height: 72vh; margin: 0; }
+.inbox .threads .item { border-radius: 0; text-decoration: none; color: inherit; }
+.inbox .threads .item.active { background: var(--hover); }
+.inbox .threads .sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px; }
+.thread-pane { display: flex; flex-direction: column; min-width: 0; }
+.thread-pane > .empty { margin: auto; }
+.thread-head { display: flex; gap: 10px; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+.thread-head .title { font-weight: 600; }
+.thread-head .back { display: none; }
+.bubbles { flex: 1; overflow-y: auto; max-height: 52vh; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+.bubble { max-width: 78%; padding: 10px 12px; border: 1px solid var(--line); overflow-wrap: anywhere; }
+.bubble .body { white-space: pre-wrap; }
+.bubble.out { align-self: flex-end; background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+.bubble.in { align-self: flex-start; }
+.bubble.note { align-self: center; background: var(--hover); font-size: 13px; }
+.bubble .subject { font-weight: 600; margin-bottom: 4px; }
+.bubble .meta { font-size: 11px; opacity: .7; margin-top: 6px; }
+.composer { border-top: 1px solid var(--line); padding: 12px 16px; display: grid; gap: 8px; }
+.composer .row { justify-content: space-between; }
+.field-row, .step-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.field-row [name=label] { flex: 1 1 180px; }
+.field-row [name=options] { flex: 1 1 100%; }
+.step-row { flex-direction: column; align-items: stretch; }
+.step-row .mini { display: grid; gap: 3px; font-size: 12px; color: var(--muted); }
+.hours .day { gap: 8px; padding: 3px 0; }
+.hours .day .check { width: 64px; }
+.item.cal { align-items: flex-start; }
+.item.cal .field { margin: 8px 0 0; }
+ol.steps { margin: 0; padding-left: 22px; display: grid; gap: 8px; }
+ol.steps li.trigger { list-style: none; margin-left: -22px; font-weight: 600; }
+@media (max-width: 760px) {
+  .inbox { grid-template-columns: 1fr; }
+  .inbox .threads { border-right: 0; max-height: none; }
+  .inbox.open .threads { display: none; }
+  .inbox:not(.open) .thread-pane { display: none; }
+  .thread-head .back { display: inline-flex; }
+  .bubble { max-width: 92%; }
+}

@@ -312,7 +312,10 @@ function calendarEditor(existing) {
 const TRIGGERS = [
   ["contact.created", "A person is added"], ["tag.added", "A tag is added"], ["form.submitted", "A form is submitted"],
   ["appointment.booked", "An appointment is booked"], ["deal.stage_changed", "A deal changes stage"],
+  ["invoice.paid", "An invoice is paid"], ["review.rated", "A customer leaves a rating"],
 ];
+const RATING_RANGES = [["", "Any rating"], ["5-5", "5 stars"], ["4-5", "4 or 5 stars"], ["1-3", "3 stars or fewer"], ["1-2", "1 or 2 stars"]];
+const ratingLabel = (t) => { const k = `${t.minRating ?? 1}-${t.maxRating ?? 5}`; return k === "1-5" ? "" : `: ${RATING_RANGES.find(([v]) => v === k)?.[1] ?? `${t.minRating ?? 1}–${t.maxRating ?? 5} stars`}`; };
 const STEPS = {
   send_email: { label: "Send email", fields: [["subject", "Subject"], ["body", "Message", "textarea"]] },
   send_sms: { label: "Send SMS", fields: [["body", "Message", "textarea"]] },
@@ -327,7 +330,7 @@ const STEPS = {
 const STAGES = ["lead", "qualified", "discovery", "proposal", "negotiation", "won", "lost"];
 const describeTrigger = (t, forms, cals) => {
   const base = TRIGGERS.find(([v]) => v === t.type)?.[1] ?? t.type;
-  const narrow = t.tag ? `: ${t.tag}` : t.formId ? `: ${forms.get(t.formId) ?? "a form"}` : t.calendarId ? `: ${cals.get(t.calendarId) ?? "a calendar"}` : t.toStage ? ` to ${t.toStage}` : "";
+  const narrow = t.type === "review.rated" ? ratingLabel(t) : t.tag ? `: ${t.tag}` : t.formId ? `: ${forms.get(t.formId) ?? "a form"}` : t.calendarId ? `: ${cals.get(t.calendarId) ?? "a calendar"}` : t.toStage ? ` to ${t.toStage}` : "";
   return base + narrow;
 };
 const describeStep = (s) => {
@@ -428,7 +431,8 @@ function workflowEditor(existing, forms, cals) {
     const type = f.get("trigger");
     const trigger = { type };
     const n = f.get("narrow");
-    if (n) trigger[{ "tag.added": "tag", "form.submitted": "formId", "appointment.booked": "calendarId", "deal.stage_changed": "toStage" }[type]] = n;
+    if (n && type === "review.rated") { const [lo, hi] = n.split("-").map(Number); trigger.minRating = lo; trigger.maxRating = hi; }
+    else if (n) trigger[{ "tag.added": "tag", "form.submitted": "formId", "appointment.booked": "calendarId", "deal.stage_changed": "toStage" }[type]] = n;
     const out = [...document.querySelectorAll("#step-rows .step-row")].map((r) => {
       const s = { type: r.querySelector("[name=type]").value };
       for (const [k, , kind] of STEPS[s.type].fields) {
@@ -451,6 +455,7 @@ function workflowEditor(existing, forms, cals) {
       : v === "form.submitted" ? `Which form<select class="input" name="narrow"><option value="">Any form</option>${forms.map((f) => `<option value="${esc(f.id)}" ${f.id === t.formId ? "selected" : ""}>${esc(f.name)}</option>`).join("")}</select>`
       : v === "appointment.booked" ? `Which calendar<select class="input" name="narrow"><option value="">Any calendar</option>${cals.map((c) => `<option value="${esc(c.id)}" ${c.id === t.calendarId ? "selected" : ""}>${esc(c.name)}</option>`).join("")}</select>`
       : v === "deal.stage_changed" ? `To stage<select class="input" name="narrow"><option value="">Any stage</option>${STAGES.map((s) => `<option ${s === t.toStage ? "selected" : ""}>${s}</option>`).join("")}</select>`
+      : v === "review.rated" ? `Which ratings<select class="input" name="narrow">${RATING_RANGES.map(([k, l]) => `<option value="${k}" ${k && k === `${t.minRating ?? 1}-${t.maxRating ?? 5}` ? "selected" : ""}>${l}</option>`).join("")}</select>`
       : "";
   };
   trig.onchange = drawNarrow;

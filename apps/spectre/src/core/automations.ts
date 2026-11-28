@@ -21,7 +21,7 @@ import type { GrowthEvent, Trigger, TriggerType, Workflow, WorkflowJob, Workflow
 export const MAX_DEPTH = 3;
 const MAX_STEPS = 25;
 const MAX_WAIT_MIN = 90 * 24 * 60;
-const TRIGGERS: TriggerType[] = ["contact.created", "tag.added", "form.submitted", "appointment.booked", "deal.stage_changed"];
+const TRIGGERS: TriggerType[] = ["contact.created", "tag.added", "form.submitted", "appointment.booked", "deal.stage_changed", "invoice.paid", "review.rated"];
 
 export interface AutomationEngine {
   crm: SpectreCRM;
@@ -100,6 +100,14 @@ function cleanTrigger(crm: SpectreCRM, ws: string, raw: any): Trigger {
     if (!c || c.workspace !== ws) throw new SpectreError("invalid", "That calendar doesn't exist");
     t.calendarId = c.id;
   }
+  if (raw.type === "review.rated") {
+    const r = (v: unknown) => (v === undefined || v === null || v === "" ? undefined : Number(v));
+    const min = r(raw.minRating), max = r(raw.maxRating);
+    for (const v of [min, max]) if (v !== undefined && (!Number.isInteger(v) || v < 1 || v > 5)) throw new SpectreError("invalid", "Ratings are 1 to 5 stars");
+    if (min !== undefined && max !== undefined && min > max) throw new SpectreError("invalid", "The lowest rating is above the highest");
+    if (min !== undefined && min > 1) t.minRating = min;
+    if (max !== undefined && max < 5) t.maxRating = max;
+  }
   if (raw.type === "deal.stage_changed" && raw.toStage) {
     if (!STAGES.includes(raw.toStage)) throw new SpectreError("invalid", "Unknown stage");
     t.toStage = raw.toStage;
@@ -168,6 +176,7 @@ export function matches(trigger: Trigger, e: GrowthEvent) {
   if (e.type === "form.submitted") return !trigger.formId || trigger.formId === e.formId;
   if (e.type === "appointment.booked") return !trigger.calendarId || trigger.calendarId === e.calendarId;
   if (e.type === "deal.stage_changed") return !trigger.toStage || trigger.toStage === e.toStage;
+  if (e.type === "review.rated") return e.rating >= (trigger.minRating ?? 1) && e.rating <= (trigger.maxRating ?? 5);
   return true;
 }
 

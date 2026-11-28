@@ -123,9 +123,12 @@ export function openReview(crm: SpectreCRM, token: string) {
 export async function respondToReview(crm: SpectreCRM, token: string, raw: Record<string, unknown>) {
   const r = byToken(crm, token);
   const now = crm.now().toISOString();
+  let rated: { workspace: string; contactId: string; rating: number } | undefined;
   if (raw.rating !== undefined) {
     const n = Number(raw.rating);
     if (!Number.isInteger(n) || n < 1 || n > 5) throw new SpectreError("invalid", "Pick 1 to 5 stars");
+    // Automations hear about the first rating only, so clicking stars again doesn't re-run them.
+    if (r.rating === undefined) rated = { workspace: r.workspace, contactId: r.contactId, rating: n };
     r.rating = n;
     r.ratedAt = now;
   }
@@ -142,7 +145,7 @@ export async function respondToReview(crm: SpectreCRM, token: string, raw: Recor
     r.taskId = task.id;
   }
   await crm.record("cid:spectre", `review:${r.id}`, { event: "review.response", rating: r.rating ?? null, clicked: Boolean(r.clickedAt), feedback: Boolean(r.feedback) });
-  return { ok: true, reviewUrl: reviewSettings(crm, r.workspace).reviewUrl };
+  return { ok: true, reviewUrl: reviewSettings(crm, r.workspace).reviewUrl, rated };
 }
 
 /** The Reputation page: settings, requests with names, and totals. */

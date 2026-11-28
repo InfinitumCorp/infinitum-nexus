@@ -107,9 +107,11 @@ export function registerEngageRoutes(api: EngageApi) {
     if (!reviewLimit(ctx.req, "open")) throw httpError(429, "Too many requests. Please try again in a minute.");
     return openReview(crm, ctx.params.token);
   }, false);
-  route("POST", "/api/public/reviews/:token", (ctx) => {
+  route("POST", "/api/public/reviews/:token", async (ctx) => {
     if (!reviewLimit(ctx.req, "respond")) throw httpError(429, "Too many requests. Please try again in a minute.");
-    return respondToReview(crm, ctx.params.token, ctx.body);
+    const { rated, ...out } = await respondToReview(crm, ctx.params.token, ctx.body);
+    if (rated) await engine.raise(rated.workspace, { type: "review.rated", contactId: rated.contactId, rating: rated.rating });
+    return out;
   }, false);
 
   /* ---------------- Invoices ---------------- */
@@ -126,7 +128,12 @@ export function registerEngageRoutes(api: EngageApi) {
   route("POST", "/api/crm/invoices", (ctx) => createInvoice(crm, ws(ctx), me(ctx), ctx.body));
   route("GET", "/api/crm/invoices/:id", (ctx) => { const { token: _t, ...inv } = getInvoice(crm, ws(ctx), ctx.params.id); return inv; });
   route("PATCH", "/api/crm/invoices/:id", async (ctx) => { const { token: _t, ...inv } = await updateInvoice(crm, ws(ctx), me(ctx), ctx.params.id, ctx.body); return inv; });
-  route("POST", "/api/crm/invoices/:id/status", async (ctx) => { const { token: _t, ...inv } = await setInvoiceStatus(crm, ws(ctx), me(ctx), ctx.params.id, ctx.body.status); return inv; });
+  route("POST", "/api/crm/invoices/:id/status", async (ctx) => {
+    const wasPaid = getInvoice(crm, ws(ctx), ctx.params.id).status === "paid";
+    const { token: _t, ...inv } = await setInvoiceStatus(crm, ws(ctx), me(ctx), ctx.params.id, ctx.body.status);
+    if (inv.status === "paid" && !wasPaid) await engine.raise(ws(ctx), { type: "invoice.paid", contactId: inv.contactId, invoiceId: inv.id });
+    return inv;
+  });
   route("POST", "/api/crm/invoices/:id/send", async (ctx) => {
     const r = await sendInvoice(crm, providers, ws(ctx), me(ctx), ctx.params.id, { channel: ctx.body.channel, origin: api.origin });
     const { token: _t, ...inv } = r.invoice;

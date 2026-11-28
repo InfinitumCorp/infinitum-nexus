@@ -111,7 +111,7 @@ export interface Appointment {
 
 /* ---------------- Automations ---------------- */
 
-export type TriggerType = "contact.created" | "tag.added" | "form.submitted" | "appointment.booked" | "deal.stage_changed";
+export type TriggerType = "contact.created" | "tag.added" | "form.submitted" | "appointment.booked" | "deal.stage_changed" | "invoice.paid" | "review.rated";
 
 /** Events that start automations. `depth` counts how many automations led to it (loop guard). */
 export type GrowthEvent = (
@@ -120,6 +120,8 @@ export type GrowthEvent = (
   | { type: "form.submitted"; contactId: string; formId: string }
   | { type: "appointment.booked"; contactId: string; calendarId: string; appointmentId: string }
   | { type: "deal.stage_changed"; dealId: string; toStage: string }
+  | { type: "invoice.paid"; contactId: string; invoiceId: string }
+  | { type: "review.rated"; contactId: string; rating: number }
 ) & { depth?: number };
 
 export interface Trigger {
@@ -129,6 +131,9 @@ export interface Trigger {
   formId?: string;
   calendarId?: string;
   toStage?: string;
+  /** review.rated: only ratings in this range (1–5). */
+  minRating?: number;
+  maxRating?: number;
 }
 
 export type WorkflowStep =

@@ -17,7 +17,8 @@
       "ownerCid": { "type": "keyword" },
       "viewers": { "type": "keyword" },
       "restricted": { "type": "boolean" },
-      "updatedAt": { "type": "date" }
+      "updatedAt": { "type": "date" },
+      "expiresAt": { "type": "date" }
     }
   }
 }

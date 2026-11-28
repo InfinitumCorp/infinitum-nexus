@@ -19,5 +19,9 @@ if ! curl -fs "$OS/cumulus-documents" >/dev/null; then
   curl -fsS -X PUT "$OS/cumulus-documents" -H 'Content-Type: application/json' \
     --data-binary "@$DIR/documents-index.json"
   echo
+else
+  # Fields added after the index was first created. Adding a field to a mapping is safe to repeat.
+  curl -fsS -X PUT "$OS/cumulus-documents/_mapping" -H 'Content-Type: application/json'     -d '{"properties":{"expiresAt":{"type":"date"}}}'
+  echo
 fi
 echo "search bootstrap done"

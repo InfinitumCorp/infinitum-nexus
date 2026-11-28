@@ -53,7 +53,7 @@ def test_put_writes_a_strict_mapping_document_under_a_hashed_id(fake_os, redacto
     req = seen[0]
     did = OpenSearchDocumentStore.doc_id("spectre", "playbooks", "acme", "pb:1")
     assert req["method"] == "PUT" and req["path"] == f"/cumulus-documents/_doc/{did}?refresh=wait_for"
-    assert set(req["body"]) == set(MAPPING["mappings"]["properties"])  # nothing the strict mapping rejects
+    assert set(req["body"]) <= set(MAPPING["mappings"]["properties"])  # nothing the strict mapping rejects
     assert req["body"]["restricted"] is True
     assert "cid_owner0001" not in json.dumps(req["body"]) and "cid_viewer0001" not in json.dumps(req["body"])
     # Different product, tenant or collection: a different document.
@@ -132,3 +132,18 @@ def test_mapping_is_strict_and_people_fields_are_keywords():
     assert MAPPING["mappings"]["dynamic"] == "strict"
     assert {props[k]["type"] for k in ("product", "tenant", "ownerCid", "viewers")} == {"keyword"}
     assert props["url"]["index"] is False
+
+
+def test_expired_documents_are_hidden_and_purged(fake_os):
+    store, seen, replies = fake_os
+    assert MAPPING["mappings"]["properties"]["expiresAt"] == {"type": "date"}
+    replies.append((200, {"hits": {"hits": []}}))
+    store.search("spectre", "acme", "renewal", [], [], None, 5)
+    assert {"bool": {"must_not": [{"range": {"expiresAt": {"lte": "now"}}}]}} in seen[0]["body"]["query"]["bool"]["filter"]
+    replies.append((200, {"deleted": 4, "failures": []}))
+    assert store.purge_expired() == 4
+    assert seen[1]["path"].startswith("/cumulus-documents/_delete_by_query")
+    assert seen[1]["body"] == {"query": {"range": {"expiresAt": {"lte": "now"}}}}
+    replies.append((500, {}))
+    with pytest.raises(PlatformError):
+        store.purge_expired()

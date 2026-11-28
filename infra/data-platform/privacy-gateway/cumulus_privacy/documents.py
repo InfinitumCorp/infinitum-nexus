@@ -312,6 +312,8 @@ class OpenSearchDocumentStore:
         visible: list[dict[str, Any]] = [{"term": {"restricted": False}}]
         if viewer is not None:
             visible += [{"term": {"viewers": viewer}}, {"term": {"ownerCid": viewer}}]
+        # Documents past their expiresAt are hidden before the daily purge deletes them.
+        filters.append({"bool": {"must_not": [{"range": {"expiresAt": {"lte": "now"}}}]}})
         filters.append({"bool": {"should": visible, "minimum_should_match": 1}})
         body = {
             "size": int(limit),
@@ -356,3 +358,13 @@ class OpenSearchDocumentStore:
         if status >= 300 or out.get("failures"):
             raise PlatformError(500, "SearchUnavailable", f"erasure failed ({status}); repeat it, it is idempotent")
         return deleted
+
+    def purge_expired(self) -> int:
+        """Daily retention: delete documents whose expiresAt has passed."""
+        status, out = self._call(
+            "POST", f"/{self.index}/_delete_by_query?refresh=true&conflicts=proceed",
+            {"query": {"range": {"expiresAt": {"lte": "now"}}}},
+        )
+        if status >= 300 or out.get("failures"):
+            raise self._fail("purge", status)
+        return int(out.get("deleted", 0))

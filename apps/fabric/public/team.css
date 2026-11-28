@@ -166,3 +166,4 @@
 .t-shortcuts { border-collapse: collapse; width: 100%; }
 .t-shortcuts td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top; }
 .t-shortcuts kbd { font-family: inherit; font-size: var(--text-sm); border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; white-space: nowrap; }
+.t-workflow-text { margin: 2px 0; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--muted); }

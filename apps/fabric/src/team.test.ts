@@ -8,6 +8,7 @@ import type { FabricIdentity } from "./auth.ts";
 import { FabricServiceError, touchUser } from "./service.ts";
 import { FabricStore } from "./store.ts";
 import { TeamService, parseIceServers, parseQuery, parseReminder, type TeamEvent } from "./team.ts";
+import { TeamService, nextRun, parseQuery, parseReminder, type TeamEvent } from "./team.ts";
 
 const ISSUER = "https://id.cumuluscloud.app/realms/cumulus";
 function person(n: number, username: string): FabricIdentity {
@@ -466,6 +467,56 @@ test("sharing a message: live link, access-checked, never across workspaces", ()
     const hello = t.team.send(t.bob, general.id, { text: "hello" }).message!;
     assert.throws(() => t.team.share(t.bob, hello.id, { channelId: otherGeneral.id }), status(400));
     assert.throws(() => t.team.share(t.cara, hello.id, { channelId: secret.id }), status(404));
+test("nextRun: daily, weekday and weekly times in the creator's time zone", () => {
+  // Friday 2026-11-13 10:00 UTC = 13:00 in Moscow (UTC+3).
+  const from = new Date("2026-11-13T10:00:00.000Z");
+  assert.equal(nextRun("day", 9 * 60, null, 180, from), "2026-11-14T06:00:00.000Z", "09:00 Moscow tomorrow");
+  assert.equal(nextRun("day", 14 * 60, null, 180, from), "2026-11-13T11:00:00.000Z", "14:00 Moscow later today");
+  assert.equal(nextRun("weekday", 9 * 60, null, 180, from), "2026-11-16T06:00:00.000Z", "skips the weekend");
+  assert.equal(nextRun("week", 10 * 60, 3, 0, from), "2026-11-18T10:00:00.000Z", "next Wednesday");
+  assert.equal(nextRun("day", 30, null, -300, new Date("2026-11-14T05:00:00.000Z")), "2026-11-14T05:30:00.000Z", "00:30 in New York");
+});
+
+test("workflows: welcome new members, post on a schedule, pause and permissions", () => {
+  const t = setup();
+  try {
+    const ws = t.team.createWorkspace(t.alice, "Acme");
+    const general = t.team.sidebar(t.alice, ws.id).channels.find((c) => c.name === "general")!;
+    const welcome = t.team.createWorkflow(t.alice, general.id, { kind: "welcome", name: "Hello", text: "Welcome, {name}! Read the pins first." });
+    assert.equal(welcome.kind, "welcome");
+    const raw = t.store.database.prepare("SELECT ciphertext FROM team_workflows").get() as { ciphertext: string };
+    assert.doesNotMatch(raw.ciphertext, /pins/, "workflow text is sealed");
+
+    t.team.joinWorkspace(t.bob, ws.inviteCode);
+    const self = t.team.openConversation(t.bob, ws.id, []);
+    const got = t.team.list(t.bob, self.id).messages.at(-1)!;
+    assert.equal(got.text, "Welcome, Bob! Read the pins first.");
+    assert.equal(got.app!.name, "Hello · #general");
+    assert.ok(t.team.activity(t.bob, ws.id).some((a) => a.message.id === got.id), "the welcome shows in Activity");
+
+    assert.throws(() => t.team.createWorkflow(t.bob, general.id, { kind: "recurring", text: "x", every: "day", at: "25:00" }), status(400));
+    assert.throws(() => t.team.createWorkflow(t.bob, general.id, { kind: "recurring", text: "x", every: "week", at: "09:00" }), status(400));
+    const standup = t.team.createWorkflow(t.bob, general.id, { kind: "recurring", name: "Standup", text: "What are you working on today?", every: "day", at: "10:30", tzOffset: 0 });
+    assert.equal(standup.nextRunAt, "2026-11-12T10:30:00.000Z");
+    assert.equal(standup.at, "10:30");
+
+    t.advance(31 * 60_000);
+    assert.equal(t.team.tick().sent, 1);
+    const posted = t.team.list(t.alice, general.id).messages.at(-1)!;
+    assert.equal(posted.text, "What are you working on today?");
+    assert.deepEqual(posted.app, { id: standup.id, name: "Standup" });
+    assert.equal(posted.sender.username, "bob");
+    assert.equal(t.team.tick().sent, 0, "runs once per day");
+    assert.equal(t.team.workflows(t.alice, general.id).find((w) => w.id === standup.id)!.nextRunAt, "2026-11-13T10:30:00.000Z");
+
+    t.team.joinWorkspace(t.cara, ws.inviteCode);
+    assert.throws(() => t.team.updateWorkflow(t.cara, standup.id, { paused: true }), status(403));
+    assert.equal(t.team.updateWorkflow(t.alice, standup.id, { paused: true }).paused, true, "admins can pause anyone's workflow");
+    t.advance(24 * 3600_000);
+    assert.equal(t.team.tick().sent, 0, "paused workflows do not run");
+    assert.equal(t.team.updateWorkflow(t.bob, standup.id, { paused: false }).nextRunAt, "2026-11-14T10:30:00.000Z");
+    t.team.deleteWorkflow(t.bob, standup.id);
+    assert.equal(t.team.workflows(t.alice, general.id).length, 1);
   } finally {
     t.close();
   }

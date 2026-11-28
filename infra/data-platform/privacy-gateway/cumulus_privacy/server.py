@@ -26,7 +26,7 @@ from typing import Any, Callable
 from .dp import BudgetExceeded, PrivacyBudget, release
 from .ingest_quality import MemoryQualityLog
 from .event_release import StoredReleases
-from .documents import Documents
+from .documents import Documents, OpenSearchDocumentStore
 from .embed import GuestTokens, parse_embed_dashboards
 from .pipeline import prepare_export
 from .platform import Catalog, Collector, DataHubSink, Eraser, IngestLimits, OpenSearchIndex, PlatformError, Searcher
@@ -333,7 +333,7 @@ def main() -> None:
     gms = os.environ.get("DATAHUB_GMS_URL")
     sink = DataHubSink(gms, os.environ.get("DATAHUB_GMS_TOKEN")) if gms else None
     index: Any = None
-    doc_store: Any = None  # document search needs Postgres (the free-tier layout)
+    doc_store: Any = None
     if dsn:
         # Free-tier layout: everything in Supabase Postgres (Ireland). No OpenSearch needed.
         from .pgstore import PostgresBudget, PostgresCatalog, PostgresDocumentStore, PostgresEventIndex, PostgresQualityLog
@@ -346,10 +346,10 @@ def main() -> None:
     else:
         budget = PrivacyBudget(os.environ.get("PRIVACY_BUDGET_FILE", "/var/lib/privacy-gateway/budget.json"), epsilon)
         catalog = Catalog(os.environ.get("PLATFORM_CATALOG_FILE", "/var/lib/privacy-gateway/catalog.json"), sink)
-        index = OpenSearchIndex(
-            os.environ.get("OPENSEARCH_URL", "http://localhost:9200"),
-            refresh=os.environ.get("OPENSEARCH_REFRESH_ON_WRITE") == "1",
-        )
+        os_url = os.environ.get("OPENSEARCH_URL", "http://localhost:9200")
+        os_refresh = os.environ.get("OPENSEARCH_REFRESH_ON_WRITE") == "1"
+        index = OpenSearchIndex(os_url, refresh=os_refresh)
+        doc_store = OpenSearchDocumentStore(os_url, refresh=os_refresh)
         quality_log = MemoryQualityLog()
     redactor = Redactor()
     collector = searcher = releases = documents = None

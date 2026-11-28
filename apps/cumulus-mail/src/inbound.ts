@@ -1,4 +1,4 @@
-import { inboundAuth, type InboundMail } from "@infinitum/mail";
+import { inboundAuth, type InboundAuth, type InboundMail } from "@infinitum/mail";
 import { inboundKey, safeType, type FileStore } from "./files.ts";
 
 /** The parts of a postal-mime parse result that Cumulus uses. */
@@ -34,8 +34,14 @@ export function htmlToText(html: string): string {
  * (SMTP MAIL FROM / RCPT TO) are what Cloudflare checked; header addresses are only for display.
  * Sender authentication comes only from the first Authentication-Results header, and only when
  * Cloudflare wrote it (see @infinitum/mail auth-results.ts); a dmarc=fail there refuses the message.
+ * Node mode behind Postfix passes `auth` to read our own MTA's headers instead (see node-mail.ts).
  */
-export function toInbound(envelopeFrom: string, envelopeTo: string, parsed: ParsedEmail): InboundMail {
+export function toInbound(
+  envelopeFrom: string,
+  envelopeTo: string,
+  parsed: ParsedEmail,
+  auth: (headers: { key: string; value: string }[]) => InboundAuth = inboundAuth,
+): InboundMail {
   const date = parsed.date ? new Date(parsed.date) : undefined;
   return {
     from: { name: (parsed.from?.name ?? "").trim(), email: envelopeFrom.toLowerCase() },
@@ -49,7 +55,7 @@ export function toInbound(envelopeFrom: string, envelopeTo: string, parsed: Pars
       name: a.filename || "attachment",
       size: typeof a.content === "string" ? a.content.length : a.content.byteLength,
     })),
-    auth: inboundAuth(parsed.headers ?? []),
+    auth: auth(parsed.headers ?? []),
   };
 }
 

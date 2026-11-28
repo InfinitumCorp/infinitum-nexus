@@ -51,6 +51,10 @@ const icon = {
   health: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 12h4l3-7 4 14 3-7h4"/></svg>',
   send: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 19V5M5 12l7-7 7 7"/></svg>',
   settings: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>',
+  inbox: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 5h16v11H8l-4 4z"/></svg>',
+  forms: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h3"/></svg>',
+  calendars: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>',
+  automations: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M8.5 6H14a4 4 0 0 1 4 4v5.5"/></svg>',
   menu: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7h16M4 12h16M4 17h16"/></svg>',
 };
 
@@ -126,7 +130,7 @@ function render() {
   }
   renderShell(page);
   const views = { today: renderToday, pipeline: renderPipeline, accounts: id ? () => renderAccount(id) : renderAccounts, people: renderPeople, health: renderHealth, agents: renderAgents, conjure: id ? () => renderSimulation(id) : renderConjure, metatron: renderMetatron, settings: renderSettings };
-  (views[page] || renderToday)().catch((e) => { $("main").innerHTML = `<div class="page"><div class="empty">${esc(e.message)}</div></div>`; });
+  (views[page] || extraViews[page] || renderToday)().catch((e) => { $("main").innerHTML = `<div class="page"><div class="empty">${esc(e.message)}</div></div>`; });
 }
 
 /* ---------------- sign-in ---------------- */
@@ -302,6 +306,13 @@ function renderShell(page) {
             <a href="#/conjure" data-p="conjure">${icon.conjure}<span>CONJURE<sup class="tm">™</sup></span></a>
             <a href="#/metatron" data-p="metatron">${icon.metatron}<span>METATRON¹⁰⁰<sup class="tm">™</sup></span></a>
           </nav>
+          <div class="nav-label">Grow</div>
+          <nav class="nav">
+            <a href="#/inbox" data-p="inbox">${icon.inbox}Conversations<span class="badge hidden" id="inbox-badge"></span></a>
+            <a href="#/forms" data-p="forms">${icon.forms}Forms</a>
+            <a href="#/calendars" data-p="calendars">${icon.calendars}Calendars</a>
+            <a href="#/automations" data-p="automations">${icon.automations}Automations</a>
+          </nav>
           <div class="spacer"></div>
           <nav class="nav"><a href="/labyrinth">Labyrinth *LBRNTH<sup class="tm">™</sup></a><a href="#/settings" data-p="settings">${icon.settings}Settings</a></nav>
           <div id="lang-switch" class="lang-slot"></div>
@@ -348,6 +359,19 @@ function renderShell(page) {
 }
 
 const main = () => $("main");
+
+/* ---------------- extension point ---------------- */
+
+// Pages that live in their own modules (public/growth/*.js) register here and share these helpers.
+const extraViews = {};
+window.spctr = {
+  api, esc, money, date, ago, initials, toast, modal: (...a) => modal(...a), main, $, icon,
+  view(name, fn) {
+    extraViews[name] = fn;
+    if (state.me && route().page === name) render();
+  },
+  route: () => route(),
+};
 const fillBars = (el) => el.querySelectorAll("[data-w]").forEach((b) => { b.style.width = b.dataset.w; });
 
 /* ---------------- Today ---------------- */
@@ -422,8 +446,7 @@ async function renderToday() {
     toast("Running actions…");
     try {
       const r = await api("POST", "/api/execution/run", {});
-      toast("Actions executed");
-      console.log(r);
+      toast(!r.pending ? "No AI actions to run right now" : r.logged ? `Logged ${r.logged} AI action${r.logged === 1 ? "" : "s"} on your deals` : "AI actions already logged today");
       renderToday();
     } catch (e) { toast(e.message); }
   });
@@ -545,7 +568,7 @@ async function openDeal(id) {
       </div>
 
       <div class="section timeline"><h2>Activity</h2>
-        ${d.activities.map((a) => `<div class="ev"><div class="when">${esc(a.kind)} · ${ago(a.at)}${a.kind === "task" ? (a.done ? " · done" : ` · due ${date(a.dueAt)} <button class="btn small ghost" data-done="${esc(a.id)}">Mark done</button>`) : ""}</div>${esc(a.summary)}</div>`).join("") || `<div class="muted small">Nothing logged yet.</div>`}
+        ${d.activities.map((a) => `<div class="ev"><div class="when">${esc(a.kind)} · ${ago(a.at)}${a.kind === "task" ? (a.done ? " · done" : `${a.dueAt ? ` · due ${date(a.dueAt)}` : ""} <button class="btn small ghost" data-done="${esc(a.id)}">Mark done</button>`) : ""}</div>${esc(a.summary)}</div>`).join("") || `<div class="muted small">Nothing logged yet.</div>`}
       </div>
 
       <div class="section timeline"><h2>Audit trail</h2>
@@ -761,9 +784,6 @@ async function renderPeople() {
   main().innerHTML = `
     <div class="page">
       <div class="page-head"><h1>People</h1><button class="btn primary" id="new-ct">Add person</button></div>
-      ${qStats.queued ? `<div class="faint small">Queue: ${qStats.queued} pending · ${qStats.done} done</div>` : ""}
-      ${queue.queue?.length ? `<div class="section"><h2>Research queue</h2><div class="list">${queue.queue.slice(0, 5).map((r) => `<div class="item"><div class="main"><div class="title">${esc(r.name)}</div><div class="sub">priority ${r.priority} · ${r.factCount} facts · ${r.ageDays < 999 ? r.ageDays + "d" : "never"}</div></div><button class="btn ghost small" data-unqueue="${esc(r.id)}">Remove</button></div>`).join("")}</div></div>` : ""}
-      ${recs.recommendations?.length ? `<div class="section"><h2>Needs research</h2><div class="list">${recs.recommendations.map((r) => `<div class="item"><div class="main"><div class="title">${esc(r.name)}</div><div class="sub">${esc(r.reason)} · ${r.factCount} facts${r.ageDays < 999 ? ` · ${r.ageDays}d old` : ""}</div></div></div>`).join("")}</div></div>` : ""}
       ${list.length ? `<div class="list">${list.map((c) => `
         <div class="item"><div class="avatar">${esc(initials(c.name))}</div>
           <div class="main"><div class="title">${esc(c.name)}</div><div class="sub">${esc([c.title, c.company].filter(Boolean).join(" · "))}</div></div>

@@ -195,7 +195,8 @@ async function renderFormDetail(id) {
       <a class="faint small" href="#/forms">‹ All forms</a>
       <div class="section"><h2>Share</h2>
         ${copyable("Link", link)}
-        ${copyable("Embed on your site", `<iframe src="${link}" style="width:100%;min-height:560px;border:0" title="${f.name}"></iframe>`)}
+        ${copyable("Button for your site", `<a href="${link}" target="_blank" rel="noopener" style="display:inline-block;padding:12px 20px;background:#111820;color:#fff;text-decoration:none;font:500 15px system-ui,sans-serif">${f.headline || f.name}</a>`)}
+        <p class="faint small">Paste the button into any page. The form opens on its own page (it can't be framed inside other sites).</p>
       </div>
       <div class="section"><h2>Submissions <span class="faint">(${f.submissions})</span></h2>
         ${subs.length ? `<div class="table-wrap"><table class="simple"><thead><tr><th>When</th>${f.fields.map((x) => `<th>${esc(x.label)}</th>`).join("")}</tr></thead>

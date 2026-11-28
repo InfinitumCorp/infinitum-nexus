@@ -1075,3 +1075,49 @@ test("huddles: raise hand, the host can lower it, and quick reactions go only to
     t.close();
   }
 });
+
+test("following threads: automatic, explicit follow and unfollow, and who is told about replies", () => {
+  const t = setup();
+  try {
+    const ws = t.team.createWorkspace(t.alice, "Acme");
+    for (const p of [t.bob, t.cara, t.dan]) t.team.joinWorkspace(p, ws.inviteCode);
+    const general = t.team.sidebar(t.alice, ws.id).channels.find((c) => c.name === "general")!;
+    const told = (from: number) => t.events.slice(from).filter((e) => e.event.type === "thread-reply").flatMap((e) => e.subs).sort();
+
+    const parent = t.team.send(t.alice, general.id, { text: "plan for Q1?" }).message!;
+    assert.equal(t.team.thread(t.alice, parent.id).following, true, "you follow what you start");
+    assert.equal(t.team.thread(t.bob, parent.id).following, false);
+
+    let mark = t.events.length;
+    t.team.send(t.bob, general.id, { text: "draft attached", parentId: parent.id });
+    assert.deepEqual(told(mark), [t.alice.sub], "the starter hears about a reply; the replier doesn't hear about their own");
+    assert.equal(t.team.thread(t.bob, parent.id).following, true, "you follow what you reply to");
+
+    // Cara follows by hand; a mention makes Dan a follower but he hears through the mention, not twice.
+    t.team.setFollow(t.cara, parent.id, true);
+    mark = t.events.length;
+    t.team.send(t.alice, general.id, { text: "thanks @bob, and @dan please review", parentId: parent.id });
+    assert.deepEqual(told(mark), [t.cara.sub], "Bob and Dan are mentioned, so only Cara gets a thread-reply event");
+    assert.ok(t.team.threads(t.cara, ws.id).some((x) => x.parent.id === parent.id), "followed threads are in Threads");
+
+    // Unfollowing wins, even for the person who started it.
+    t.team.setFollow(t.alice, parent.id, false);
+    assert.equal(t.team.thread(t.alice, parent.id).following, false);
+    assert.ok(!t.team.threads(t.alice, ws.id).some((x) => x.parent.id === parent.id));
+    mark = t.events.length;
+    t.team.send(t.dan, general.id, { text: "looks good", parentId: parent.id });
+    assert.deepEqual(told(mark), [t.bob.sub, t.cara.sub]);
+    assert.ok(!t.team.activity(t.alice, ws.id).some((a) => a.kind === "reply" && a.message.text === "looks good"), "nor in Activity");
+    assert.ok(t.team.activity(t.cara, ws.id).some((a) => a.kind === "reply" && a.message.text === "looks good"));
+
+    // A reply's id works too; bad input and private channels are refused.
+    assert.deepEqual(t.team.setFollow(t.alice, t.team.thread(t.alice, parent.id).replies[0]!.id, true), { following: true });
+    assert.equal(t.team.thread(t.alice, parent.id).following, true);
+    assert.throws(() => t.team.setFollow(t.alice, parent.id, "yes"), status(400));
+    const secret = t.team.createChannel(t.alice, ws.id, { name: "secret", private: true });
+    const hidden = t.team.send(t.alice, secret.id, { text: "x" }).message!;
+    assert.throws(() => t.team.setFollow(t.bob, hidden.id, true), status(404));
+  } finally {
+    t.close();
+  }
+});

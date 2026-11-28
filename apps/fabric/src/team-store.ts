@@ -219,6 +219,13 @@ export class TeamStore {
         created_by TEXT NOT NULL REFERENCES users(sub),
         created_at TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS team_thread_follows (
+        sub TEXT NOT NULL REFERENCES users(sub),
+        parent_id TEXT NOT NULL REFERENCES team_messages(id),
+        following INTEGER NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (sub, parent_id)
+      );
       CREATE TABLE IF NOT EXISTS team_drafts (
         sub TEXT NOT NULL REFERENCES users(sub),
         channel_id TEXT NOT NULL REFERENCES team_channels(id),

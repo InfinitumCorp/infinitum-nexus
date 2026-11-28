@@ -181,6 +181,9 @@
 .t-section-toggle { font: inherit; color: inherit; text-transform: inherit; letter-spacing: inherit; }
 .t-section-empty { padding: 2px 16px 6px; margin: 0; }
 
+/* Drafts */
+.t-draft-text { margin: 4px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+
 /* Task lists */
 .t-task-add { display: flex; gap: 6px; margin-bottom: 10px; }
 .t-task-add .input { flex: 1; }

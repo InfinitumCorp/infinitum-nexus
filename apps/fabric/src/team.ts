@@ -396,7 +396,7 @@ export class TeamService {
   // ---------- channels ----------
 
   /** Channels and conversations the caller belongs to, with unread and mention counts. */
-  sidebar(me: FabricIdentity, workspaceId: string): { workspace: WorkspaceView; me: PersonView; channels: ChannelView[]; direct: ChannelView[]; scheduled: number; reminders: number; saved: number; emoji: string[]; sections: SectionView[]; tasks: number; keywords: string[] } {
+  sidebar(me: FabricIdentity, workspaceId: string): { workspace: WorkspaceView; me: PersonView; channels: ChannelView[]; direct: ChannelView[]; scheduled: number; reminders: number; saved: number; emoji: string[]; sections: SectionView[]; tasks: number; keywords: string[]; drafts: number } {
     this.member(me, workspaceId);
     this.seen(me.sub);
     const rows = this.store.all<ChannelRow>(
@@ -416,7 +416,57 @@ export class TeamService {
       sections: this.sections(me, workspaceId),
       tasks: this.myTasks(me, workspaceId).length,
       keywords: this.keywords(me, workspaceId),
+      drafts: this.store.count(
+        `SELECT COUNT(*) FROM team_drafts d JOIN team_channels c ON c.id = d.channel_id
+         JOIN team_channel_members cm ON cm.channel_id = d.channel_id AND cm.sub = d.sub WHERE d.sub = ? AND c.workspace_id = ?`, me.sub, workspaceId),
     };
+  }
+
+  // ---------- drafts ----------
+  //
+  // An unsent message in a channel, kept on the server so it follows you to your other devices.
+  // Only you can see your drafts. They are sealed with the channel's key, like messages.
+
+  drafts(me: FabricIdentity, workspaceId: string): DraftView[] {
+    this.member(me, workspaceId);
+    return this.store.all<DraftRow>(
+      `SELECT d.* FROM team_drafts d JOIN team_channels c ON c.id = d.channel_id
+       JOIN team_channel_members cm ON cm.channel_id = d.channel_id AND cm.sub = d.sub
+       WHERE d.sub = ? AND c.workspace_id = ? ORDER BY d.updated_at DESC`, me.sub, workspaceId,
+    ).flatMap((d) => {
+      const channel = this.store.one<ChannelRow>("SELECT * FROM team_channels WHERE id = ?", d.channelId)!;
+      try {
+        return [{ channel: this.channelView(me, channel), text: open(d.ciphertext, this.key(channel), draftAad(channel.id, me.sub)), updatedAt: d.updatedAt }];
+      } catch {
+        return [];
+      }
+    });
+  }
+
+  /** Save your draft for a channel. Empty text deletes it. */
+  saveDraft(me: FabricIdentity, channelId: string, input: { text?: unknown }): DraftView | null {
+    const { channel } = this.readable(me, channelId);
+    if (!this.channelMember(channelId, me.sub)) throw fail(403, "join the channel first");
+    if (input.text !== undefined && typeof input.text !== "string") throw fail(400, "text must be text");
+    const text = typeof input.text === "string" ? input.text : "";
+    if (text.length > TEAM_LIMITS.text) throw fail(400, "text is too long");
+    if (!text.trim()) {
+      if (this.clearDraft(channel, me.sub)) this.publish([me.sub], { type: "drafts", workspaceId: channel.workspaceId, channelId });
+      return null;
+    }
+    const updatedAt = this.stamp();
+    const ciphertext = seal(text, this.key(channel), draftAad(channel.id, me.sub));
+    this.store.run(
+      `INSERT INTO team_drafts (sub, channel_id, ciphertext, updated_at) VALUES (?, ?, ?, ?)
+       ON CONFLICT (sub, channel_id) DO UPDATE SET ciphertext = excluded.ciphertext, updated_at = excluded.updated_at`,
+      me.sub, channelId, ciphertext, updatedAt,
+    );
+    this.publish([me.sub], { type: "drafts", workspaceId: channel.workspaceId, channelId });
+    return { channel: this.channelView(me, channel), text, updatedAt };
+  }
+
+  private clearDraft(channel: ChannelRow, sub: string): boolean {
+    return this.store.run("DELETE FROM team_drafts WHERE sub = ? AND channel_id = ?", sub, channel.id) > 0;
   }
 
   // ---------- sidebar sections ----------
@@ -735,6 +785,8 @@ export class TeamService {
       return row;
     });
     const result = this.insertMessage(channel, me.sub, text, { id, parent, alsoInChannel: !!(parent && input.alsoInChannel), fileIds: files.map((f) => f.id) });
+    // Sending in the channel uses up its draft.
+    if (!parent && this.clearDraft(channel, me.sub)) this.publish([me.sub], { type: "drafts", workspaceId: channel.workspaceId, channelId });
     return { message: this.view(me, result.row), notInChannel: result.notInChannel };
   }
 
@@ -2414,6 +2466,8 @@ export interface WorkspaceExport {
   }[];
 }
 export interface WebhookView { id: string; name: string; channel: ChannelView; createdBy: PersonView; createdAt: string; lastUsedAt: string | null }
+export interface DraftView { channel: ChannelView; text: string; updatedAt: string }
+interface DraftRow { sub: string; channelId: string; ciphertext: string; updatedAt: string }
 export interface ScheduledView { id: string; channel: ChannelView; parentId: string | null; sendAt: string; createdAt: string; text: string }
 export interface ReminderView { id: string; text: string; remindAt: string; done: boolean; fired: boolean; messageId: string | null; createdAt: string }
 
@@ -2593,6 +2647,7 @@ export function dueDate(value: unknown): string {
   return value;
 }
 
+function draftAad(channelId: string, sub: string): string { return `fabric-team-draft:${channelId}:${sub}`; }
 function keywordsAad(workspaceId: string, sub: string): string { return `fabric-team-keywords:${workspaceId}:${sub}`; }
 
 /** "10m", "2 hours", "1d" → milliseconds. */

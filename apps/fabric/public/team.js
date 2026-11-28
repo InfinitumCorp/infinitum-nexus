@@ -165,6 +165,7 @@ async function loadSidebar() {
   $("#count-scheduled").textContent = bar.scheduled || "";
   $("#count-reminders").textContent = bar.reminders || "";
   $("#count-tasks").textContent = bar.tasks || "";
+  $("#count-drafts").textContent = bar.drafts || "";
   const row = (c) => h("li", {}, h("button", {
     type: "button", class: `${c.unread && !c.muted ? "unread" : ""}${c.muted ? " muted" : ""}`, "aria-current": state.channel?.id === c.id ? "true" : null,
     onclick: tryRun(() => openChannel(c.id)),
@@ -501,8 +502,51 @@ async function afterChange(m) {
 // ---------- composer ----------
 
 const draftKey = () => `team.draft.${state.channel?.id}`;
-function saveDraft() { if (state.channel) { try { const v = $("#text").value; v ? localStorage.setItem(draftKey(), v) : localStorage.removeItem(draftKey()); } catch {} } }
-function restoreDraft() { if (typeof stopClip === "function") stopClip(true); $("#text").value = localStorage.getItem(draftKey()) || ""; state.files = []; renderAttachments(); }
+// Drafts are kept in this browser and, once you type, on the server too, so they follow you to your other devices.
+let draftTimer = 0;
+let draftDirty = false;
+let serverDrafts = null; // channel id → text, loaded on demand
+function saveDraft() {
+  if (!state.channel) return;
+  const v = $("#text").value;
+  try { v ? localStorage.setItem(draftKey(), v) : localStorage.removeItem(draftKey()); } catch {}
+  syncDraft();
+}
+function syncDraft() {
+  clearTimeout(draftTimer);
+  if (!draftDirty || !state.channel?.member || state.channel.archived) return;
+  draftDirty = false;
+  const id = state.channel.id;
+  const text = $("#text").value;
+  if (serverDrafts) text.trim() ? serverDrafts.set(id, text) : serverDrafts.delete(id);
+  api(T(`/channels/${id}/draft`), { method: "PUT", body: { text } }).catch(() => { draftDirty = true; });
+}
+async function loadDrafts() {
+  if (serverDrafts?.ws !== state.wsId) serverDrafts = null;
+  if (!serverDrafts) serverDrafts = Object.assign(new Map((await api(T(`/workspaces/${state.wsId}/drafts`))).drafts.map((d) => [d.channel.id, d.text])), { ws: state.wsId });
+  return serverDrafts;
+}
+function restoreDraft() {
+  if (typeof stopClip === "function") stopClip(true);
+  draftDirty = false;
+  let local = "";
+  try { local = localStorage.getItem(draftKey()) || ""; } catch {}
+  $("#text").value = local;
+  state.files = [];
+  renderAttachments();
+  const id = state.channel?.id;
+  if (!id || !state.bar?.drafts) return;
+  loadDrafts().then((drafts) => {
+    // Fill in a draft from another device, unless you have started typing here.
+    if (state.channel?.id === id && !draftDirty && drafts.has(id) && $("#text").value === local) $("#text").value = drafts.get(id);
+  }).catch(() => {});
+}
+function forgetDraft() {
+  draftDirty = false;
+  clearTimeout(draftTimer);
+  try { localStorage.removeItem(draftKey()); } catch {}
+  if (serverDrafts && state.channel) serverDrafts.delete(state.channel.id);
+}
 
 function renderAttachments() {
   $("#attachments").replaceChildren(...state.files.map((f) => h("span", { class: "t-chip" }, `${f.mime?.startsWith("audio/") ? "🎙" : "📎"} ${f.name}`, h("button", { type: "button", class: "link", "aria-label": `Remove ${f.name}`, onclick: () => { state.files = state.files.filter((x) => x !== f); renderAttachments(); } }, "×"))));
@@ -545,7 +589,7 @@ $("#composer").addEventListener("submit", tryRun(async (e) => {
   renderAttachments();
   try {
     await send(text, null, false, files.map((f) => f.id));
-    try { localStorage.removeItem(draftKey()); } catch {}
+    forgetDraft();
   } catch (error) {
     // Put the message back so nothing is lost.
     if (!$("#text").value) $("#text").value = text;
@@ -631,6 +675,8 @@ async function suggest(ta) {
 }
 
 bindComposer($("#text"), () => $("#composer").requestSubmit(), null);
+$("#text").addEventListener("input", () => { draftDirty = true; clearTimeout(draftTimer); draftTimer = setTimeout(saveDraft, 1500); });
+window.addEventListener("pagehide", saveDraft);
 
 $("#file").addEventListener("change", tryRun(async (e) => {
   const file = e.target.files[0];
@@ -710,7 +756,8 @@ $("#schedule").addEventListener("click", tryRun(async () => {
   if (!r) return;
   await api(T(`/channels/${state.channel.id}/schedule`), { method: "POST", body: { text, sendAt: new Date(r.at).toISOString() } });
   $("#text").value = "";
-  try { localStorage.removeItem(draftKey()); } catch {}
+  forgetDraft();
+  await api(T(`/channels/${state.channel.id}/draft`), { method: "PUT", body: { text: "" } }).catch(() => {});
   showNote(`Scheduled for ${when(new Date(r.at).toISOString())}.`);
   await loadSidebar();
 }));
@@ -1042,6 +1089,22 @@ async function showView(view) {
       h("p", { class: "t-row" }, h("button", { type: "button", class: "btn small", onclick: tryRun(async () => { await api(T(`/reminders/${r.id}`), { method: "PATCH", body: { done: !r.done } }); await loadSidebar(); await showView("reminders"); }) }, r.done ? "Reopen" : "Mark complete"),
         h("button", { type: "button", class: "btn small", onclick: tryRun(async () => { await api(T(`/reminders/${r.id}`), { method: "PATCH", body: { at: new Date(Date.now() + 20 * 60_000).toISOString() } }); await showView("reminders"); }) }, "Snooze 20 min"),
         h("button", { type: "button", class: "btn small", onclick: tryRun(async () => { await api(T(`/reminders/${r.id}`), { method: "DELETE" }); await loadSidebar(); await showView("reminders"); }) }, "Delete")))));
+  } else if (view === "drafts") {
+    const { drafts } = await api(T(`/workspaces/${ws}/drafts`));
+    serverDrafts = Object.assign(new Map(drafts.map((d) => [d.channel.id, d.text])), { ws });
+    viewShell("Drafts", drafts.length ? drafts.map((d) => h("li", { class: "t-card" },
+      h("p", { class: "meta" }, `${chanLabel(d.channel)} · ${when(d.updatedAt)}`),
+      h("div", { class: "t-draft-text" }, format(d.text)),
+      h("p", { class: "t-row" },
+        h("button", { type: "button", class: "btn small primary", onclick: tryRun(() => openChannel(d.channel.id)) }, "Open"),
+        h("button", { type: "button", class: "btn small", onclick: tryRun(async () => {
+          if (!confirm("Delete this draft?")) return;
+          await api(T(`/channels/${d.channel.id}/draft`), { method: "PUT", body: { text: "" } });
+          try { localStorage.removeItem(`team.draft.${d.channel.id}`); } catch {}
+          await loadSidebar();
+          await showView("drafts");
+        }) }, "Delete"))))
+      : h("li", { class: "meta" }, "Messages you start but don't send are kept here, on all your devices."));
   } else if (view === "tasks") {
     const { tasks } = await api(T(`/workspaces/${ws}/tasks`));
     viewShell("My tasks", tasks.length ? h("li", {}, h("ul", { class: "t-tasks" }, ...tasks.map((t) => taskItem(t, { showChannel: true, onChange: async () => { await loadSidebar(); await showView("tasks"); } }))))
@@ -1099,6 +1162,7 @@ function connect() {
       return;
     }
     if (ev.type === "read" || ev.type === "presence" || ev.type === "members" || ev.type === "sections" || ev.type === "keywords") { soon(loadSidebar); return; }
+    if (ev.type === "drafts") { serverDrafts = null; soon(async () => { await loadSidebar(); if (state.view === "drafts") await showView("drafts"); }); return; }
     if (ev.type === "emoji") { soon(async () => { await loadSidebar(); if (state.channel) renderMessages(null, false); }); return; }
     if (ev.type === "task") {
       soon(async () => {
@@ -1555,7 +1619,7 @@ async function openSwitcher() {
   const people = (await api(T(`/workspaces/${state.wsId}/people`))).people.filter((p) => !p.deactivated && p.sub !== state.me.sub);
   const open = await api(T(`/workspaces/${state.wsId}/channels`)).then((r) => r.channels).catch(() => []);
   const mine = [...state.bar.channels, ...state.bar.direct];
-  const views = [["activity", "Activity"], ["threads", "Threads"], ["unreads", "All unreads"], ["saved", "Later"], ["scheduled", "Scheduled"], ["reminders", "Reminders"], ["files", "Files"], ["people", "People"]];
+  const views = [["activity", "Activity"], ["threads", "Threads"], ["unreads", "All unreads"], ["saved", "Later"], ["drafts", "Drafts"], ["scheduled", "Scheduled"], ["reminders", "Reminders"], ["files", "Files"], ["people", "People"]];
   const candidates = [
     ...mine.map((c) => ({ label: chanLabel(c), hint: c.unread && !c.muted ? `${c.unread} new` : c.kind === "dm" || c.kind === "group" ? "Direct message" : "Channel", boost: c.unread ? 0.3 : 0, go: () => openChannel(c.id) })),
     ...open.filter((c) => !mine.some((m) => m.id === c.id)).map((c) => ({ label: chanLabel(c), hint: "Not joined · public channel", boost: 0, go: () => openChannel(c.id) })),

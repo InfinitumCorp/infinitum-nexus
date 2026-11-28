@@ -60,8 +60,8 @@ export function createOidcClient(config: OidcClientConfig) {
   // accessToken(): the issuer's yes, for up to 30 seconds (never past the token's expiry), so a busy Labyrinth doesn't
   // ask the issuer on every command. A sign-out at the issuer reaches a directly presented token within those 30 seconds (repository bearers: see
   // issuer-sessions.ts).
-  const vouched = new Map<string, { until: number; hit: { cid: string; exp: number; sid: string } | null }>();
-  const remember = (key: string, until: number, hit: { cid: string; exp: number; sid: string } | null) => {
+  const vouched = new Map<string, { until: number; hit: { cid: string; exp: number; sid: string; clientId: string } | null }>();
+  const remember = (key: string, until: number, hit: { cid: string; exp: number; sid: string; clientId: string } | null) => {
     if (vouched.size >= 1000) vouched.delete(vouched.keys().next().value!);
     vouched.set(key, { until, hit });
   };
@@ -124,8 +124,13 @@ export function createOidcClient(config: OidcClientConfig) {
     return parsed;
   }
 
+  // An unknown kid or a failed check refetches the keys, but not more than every 30 seconds: anyone can present a
+  // token with a made-up kid, and that must not turn into a stream of requests to the issuer.
+  let keysAt = 0;
   async function keys(kid: string | undefined, refresh: boolean): Promise<Jwk[]> {
-    if (!jwks || refresh || (kid && !jwks.some((k) => k.kid === kid))) {
+    const stale = refresh || (kid && !jwks?.some((k) => k.kid === kid));
+    if (!jwks || (stale && Date.now() - keysAt >= 30_000)) {
+      keysAt = Date.now();
       const body = await getJson((await discover()).jwks_uri);
       if (!Array.isArray(body.keys)) throw new OidcClientError("Cumulus://ID JWKS has no keys");
       jwks = body.keys as Jwk[];
@@ -225,7 +230,7 @@ export function createOidcClient(config: OidcClientConfig) {
      * signed in. Null for anything it refuses or can't answer. The token's own `exp` and `sid` come back for the
      * caller's session bookkeeping; they are read only after the issuer accepted the token.
      */
-    async accessToken(token: string): Promise<{ cid: string; exp: number; sid: string } | null> {
+    async accessToken(token: string): Promise<{ cid: string; exp: number; sid: string; clientId: string } | null> {
       if (!/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(token) || token.length > 8000) return null;
       let payload: Record<string, unknown>;
       try {
@@ -263,7 +268,11 @@ export function createOidcClient(config: OidcClientConfig) {
       const info = (await res.json().catch(() => null)) as Record<string, unknown> | null;
       const sub = typeof info?.sub === "string" ? info.sub : "";
       if (!sub || sub !== payload.sub) return refuse();
-      const hit = { cid: sub, exp: payload.exp, sid: payload.sid };
+      // The product the token was issued to (signed; checked above against the issuer's keys), so callers can refuse
+      // tokens meant for someone else.
+      const aud = Array.isArray(payload.aud) ? payload.aud[0] : payload.aud;
+      const clientId = typeof payload.client_id === "string" ? payload.client_id : typeof payload.azp === "string" ? payload.azp : typeof aud === "string" ? aud : "";
+      const hit = { cid: sub, exp: payload.exp, sid: payload.sid, clientId };
       remember(key, Math.min(now().getTime() + 30_000, payload.exp * 1000), hit);
       return hit;
     },

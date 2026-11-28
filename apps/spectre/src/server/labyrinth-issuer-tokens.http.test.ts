@@ -111,6 +111,16 @@ test("the Labyrinth directory accepts the standalone issuer's access tokens in c
     assert.equal(issuer.calls(), before + 1, "a bad signature is refused here, without asking the issuer");
     assert.equal((await dir({ op: "resolve", token: await issuer.accessToken(account.cid, "s3", { iss: "https://evil.example" }) })).status, 401);
 
+    // In client mode +SPCTR mints no Cumulus ID codes or tokens of its own: the issuer is the only one.
+    for (const [method, path] of [["GET", "/api/id/authorize?client_id=veil&redirect_uri=https%3A%2F%2Finfinitumveil.app%2Fcb&code_challenge=x"], ["POST", "/api/id/token"], ["GET", "/api/id/userinfo"], ["GET", "/api/id/redeem"], ["GET", "/api/keys/a%40cumuluscloud.app"]] as const) {
+      assert.equal((await h.call(method, path, method === "POST" ? {} : undefined)).status, 404, `${method} ${path}`);
+    }
+    // A token the person gave another kind of client never opens their Labyrinth: a third-party consent app the
+    // issuer knows (academy), Nøde (hosted elsewhere, consent), or a tool on their own computer (loopback).
+    for (const client of ["academy", "node", "1mind", "conjure"]) {
+      const other = await issuer.accessToken(account.cid, `s-${client}`, { aud: client, azp: client, client_id: client });
+      assert.equal((await dir({ op: "resolve", token: other })).status, 401, client);
+    }
     // A person known only to the new issuer: no organization or scopes, and can't create either here.
     const stranger = await issuer.accessToken("cid_only_at_the_new_issuer", "s4");
     const s = await dir({ op: "resolve", token: stranger });

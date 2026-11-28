@@ -6,6 +6,7 @@ import { readFile } from "node:fs/promises";
 import { join, normalize, extname } from "node:path";
 import { CidService, CidError, cidSecretKeyForHost, cumulusCorsHeaders, IdRawResponse, loadOidcSigner, oidcDiscovery, registerProductIdp, safeProductReturn, type Account, type OidcSigner } from "@infinitum/cid";
 import { issuerSessions } from "./issuer-sessions.ts";
+import { labyrinthClient } from "./labyrinth-clients.ts";
 import type { CumulusSuite } from "@infinitum/cumulus";
 import { SpectreCRM, SpectreError } from "../core/crm.ts";
 import { scoreDealMetatron as scoreDeal, learnedContextFor } from "../core/intelligence-metatron.ts";
@@ -429,8 +430,16 @@ export function createApp(deps: AppDeps) {
 
   // Product sign-in. Without a signing key this still issues a cid and an opaque token.
   // With CID_OIDC_SIGNING_KEY it also signs ID tokens whose sub is that cid.
+  // In client mode the standalone issuer is the only one that signs people in to products: +SPCTR's own product
+  // IdP routes (/api/id/authorize, token, userinfo, redeem, keys...) answer 404, so its sessions can't mint Cumulus ID
+  // codes or tokens outside the issuer's consent and sign-out. Kept: the Labyrinth directory (server to server,
+  // behind its key) and the one-off account export used for the move (behind its own key).
+  const PRODUCT_IDP_KEPT = new Set(["/api/id/labyrinth-directory", "/api/id/export"]);
+  const productIdpRoute: typeof route = idClient
+    ? (method, path, handler, auth, opts) => (PRODUCT_IDP_KEPT.has(path) ? route(method, path, handler, auth, opts) : localAuthRoute(method, path, handler, auth, opts))
+    : route;
   registerProductIdp({
-    route,
+    route: productIdpRoute,
     cid,
     origin: deps.origin,
     device: (ctx) => String(ctx.req.headers["user-agent"] ?? "Browser").slice(0, 120),
@@ -450,7 +459,11 @@ export function createApp(deps: AppDeps) {
     // After the cut-over, products hold the standalone issuer's tokens: Labyrinth's directory accepts them too.
     issuerAccessToken: forIssuer ? async (token) => {
       const hit = await idClient!.accessToken(token);
-      return hit ? { cid: hit.cid, sessionId: forIssuer.id(hit.cid, hit.sid, hit.exp) } : null;
+      // Only a token issued to one of Infinitum's own hosted products (nexus id-clients, not a tool on someone's
+      // computer, not a product hosted elsewhere that asks for consent): a token the person gave a third-party app
+      // must not open their Labyrinth.
+      if (!hit || !labyrinthClient(hit.clientId)) return null;
+      return { cid: hit.cid, sessionId: forIssuer.id(hit.cid, hit.sid, hit.exp) };
     } : undefined,
     issuerSessionActive: forIssuer ? (who, sessionId) => forIssuer.active(who, sessionId) : undefined,
   });
